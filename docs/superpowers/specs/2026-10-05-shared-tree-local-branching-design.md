@@ -223,6 +223,14 @@ factories, and what happens to source registrations on disposal. Record this
 explicitly before runtime/facade tasks; do not silently drop callbacks or invent
 a “settled locally” outcome.
 
+An accepted settlement registration is independent of the commit subscription
+that created it on both JavaScript and BEAM targets. Unsubscribing stops future
+commit and change notifications, including later callbacks from a delivery
+snapshot, but does not cancel an already-registered settlement callback. That
+callback runs exactly once when the commit settles. Checkout disposal cancels
+registrations owned by that checkout, and runtime close cancels all remaining
+registrations and queued settlement callbacks.
+
 ## 7. Retention and persistence
 
 Local checkout ancestry pins coexist with pending edits, peer histories, and M5

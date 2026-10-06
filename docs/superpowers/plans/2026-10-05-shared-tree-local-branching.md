@@ -273,6 +273,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | [x] | Schema divergence | A fork can author a wider schema. Rebasing it onto an old-schema target drops the fork schema change and dependent edit; the target stays unchanged and the fork's wide view becomes incompatible. | Branch schema authoring remains excluded. Reject it before mutation; do not approximate the upstream drop behavior. |
   | [x] | Allocation traffic | A branch-only Identifier insertion advances the shared compressor but processes zero messages and zero ranges. A later main insertion publishes one range (`firstGenCount: 4`, `count: 4`) with only the main tree operation. Merge publishes a second range (`firstGenCount: 8`, `count: 3`) with the branch tree operation. Interleaved IDs are unique. A rolled-back branch transaction advances serialized compressor state and does not reuse its allocation. | All checkouts share the document compressor. A branch reservation alone emits no traffic. Main and merge publication must send the required reserved ranges before their referencing tree operations. |
   | [x] | Settlement before and after merge | A branch-local commit exposes a factory but has no settlement before merge. After merge into main and sequencing, both its source registration and the target merge registration receive `FullyApplied`. | Expose registration on local commits but never report local settlement. Deliver sequencing outcomes to both live registrations after publication. |
+  | [x] | Settlement registration lifetime | On both JavaScript and BEAM targets, unsubscribing after settlement registration stops future commit/change notifications but does not cancel the accepted settlement callback. Checkout disposal cancels that checkout's registrations. Runtime close cancels all registrations and queued settlement callbacks. | Keep accepted settlement registrations independent of subscriber lifetime and deliver each exactly once. Do not add a subscriber cancellation token to settlement state. |
   | [x] | Revertible lifetime and source disposal | Preserved-source and merged-target handles remain `Valid` and checkout-scoped. Default source disposal changes its handle to `Disposed`; revert then errors. Duplicate and late factory calls error. Reverting the target handle produces an `Undo` handle; reverting that new handle restores `branch-change` as redo. | Keep one-shot factories and checkout origin. Disposal invalidates only handles owned by that checkout. A successful revert emits the handle for the inverse commit. |
   | [x] | Retention release and reclamation | A live descendant and revertible retain their required history after parent disposal. Rebase advances the descendant pin. Disposing the final handle and descendant, then sequencing three main edits, reduces main history from 9 commits to 1 and advances MSN from 16 to 22. | Each descendant and revertible owns a pin. Release each pin on disposal and let trunk trimming reclaim history after the final pin disappears. |
   | [x] | Pending-main fork and normal reconnect | A fork sees an optimistic pending main edit. A normal disconnected edit reconnects, sequences once, merges once, and reloads from the merged summary. Unmerged branch content is absent from the peer summary; a merged summary reader can continue editing with a standard V7 operation. | Keep branches in-process across normal reconnect and summaries document-only. |
@@ -650,14 +651,14 @@ extend `shared_tree_runtime_beam_test.gleam`, facade and branch tests.
 **Produces:** BEAM actor messages, checkout-scoped subscribers/revertibles,
 cleanup, and matching facade semantics.
 
-- [ ] **Step 1: Add actor/facade RED for the same lifecycle.**
+- [x] **Step 1: Add actor/facade RED for the same lifecycle.**
 
   Use a native BEAM runtime and real synchronous calls, not a JS adapter.
   Assert main isolation, nested fork, explicit rebase, merge/disposal,
   active-transaction lifecycle refusal, independent cross-checkout callback
   edits surviving commit and rollback, and main/branch subscription separation.
 
-- [ ] **Step 2: Add checkout-bearing actor requests.**
+- [x] **Step 2: Add checkout-bearing actor requests.**
 
   ```text
   ForkTree(address, selector, view, reply)
@@ -675,20 +676,44 @@ cleanup, and matching facade semantics.
   to other related live checkouts without deadlock and retain their state when
   installing the owning checkout's transaction result.
 
-- [ ] **Step 3: Add BEAM-specific lifetime tests.**
+- [x] **Step 3: Add BEAM-specific lifetime tests.**
 
   Cover caller exit during factory delivery, runtime shutdown, unsubscribe,
   disposed branch requests, callback failure, reentrant operations, and two
   subscribers competing for one factory. Descendant pins and main revertibles
   remain independent of the disposed parent's actor bookkeeping.
 
-- [ ] **Step 4: Verify BEAM and facade parity.**
+- [x] **Step 4: Verify BEAM and facade parity.**
 
   ```bash
   rtk proxy gleam test --target erlang -- shared_tree_branch shared_tree_runtime_beam shared_tree_array_facade shared_tree_map_facade shared_tree_creation_api shared_tree_transaction facade_parity
   ```
 
   Suggested authorized commit: `feat(tree): expose BEAM local branches`.
+
+  **Completion record (2026-10-05):** Task 7 exposes selector-bearing BEAM
+  tree handles through the existing field, transaction, subscription,
+  settlement, and reversion APIs. The runtime actor validates lifecycle
+  requests against its current core, installs the current core before scoped
+  callback delivery, and keeps independent cross-checkout callback edits when
+  the owner commits or aborts. Branch disposal removes only that checkout's
+  actor registrations. Runtime shutdown makes branch status disposed.
+  Monitored callback exit releases delivery state, one-shot factories retain
+  selector identity, unsubscribe cancels later callbacks in the same delivery,
+  and settlement delivery checks checkout lifetime before each callback.
+  Review hardening defers a transaction owner's completion behind unrelated
+  commit delivery, services safe status/subscription bookkeeping without
+  callback deadlock, rejects stale factories immediately, cancels remaining
+  delivery work on shutdown, rejects operations from both deferred replay
+  queues once closing starts, cancels settlement callbacks already captured by
+  a worker, and removes a merged-and-disposed source's actor registrations
+  before target event delivery. A real source settlement also reaches
+  `FullyApplied` after document-target merge acknowledgement. The prescribed
+  Erlang selector tests pass. Tasks 8-11 still own the native
+  corpus, recovery and summary matrix, service interop, profile publication,
+  and full M6 acceptance. The approved Task 5 boundary keeps accepted
+  settlement callbacks independent of later subscriber unsubscription while
+  checkout disposal and runtime close still cancel their owned registrations.
 
 ### Task 8: Close the native corpus, retention, recovery, and summary matrix
 

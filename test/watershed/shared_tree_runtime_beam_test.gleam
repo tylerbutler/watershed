@@ -29,6 +29,8 @@ import watershed/handle
 @target(erlang)
 import watershed/map_kernel
 @target(erlang)
+import watershed/ordered_collection_kernel
+@target(erlang)
 import watershed/runtime_beam
 @target(erlang)
 import watershed/runtime_core
@@ -166,6 +168,950 @@ fn ready_identifier_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
   )
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   actor
+}
+
+@target(erlang)
+pub fn beam_branch_actor_fork_edit_isolation_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let selector =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    selector,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("fork")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    ["title"],
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.tree_read_view_on(actor, "A/_C", selector, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_actor_scopes_events_and_independent_transaction_edits_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let branch =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let main_events = process.new_subject()
+  let branch_events = process.new_subject()
+  runtime_beam.subscribe_tree_events_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    fn(event) { process.send(main_events, event) },
+  )
+  runtime_beam.subscribe_tree_events_on(actor, "A/_C", branch, fn(event) {
+    process.send(branch_events, event)
+  })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("temporary")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(branch_events, 1000) |> expect.to_be_ok()
+  process.receive(main_events, 0) |> expect.to_equal(Error(Nil))
+
+  runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_dispose_branch(actor, "A/_C", branch)
+  |> expect.to_be_error()
+  runtime_beam.tree_fork(actor, "A/_C", branch, view)
+  |> expect.to_be_error()
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("rolled-back")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("main-survives")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.abort_tree_transaction_on(actor, "A/_C", branch)
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    ["title"],
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("main-survives"))))
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("temporary"))))
+  process.receive(main_events, 1000) |> expect.to_be_ok()
+
+  runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("committed")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("main-also-survives")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.commit_tree_transaction_on(actor, "A/_C", branch)
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("committed"))))
+  runtime_beam.tree_read_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    ["title"],
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("main-also-survives"))))
+
+  runtime_beam.begin_tree_transaction_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    [],
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("fork-survives")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.abort_tree_transaction_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("fork-survives"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_commit_delivery_rejects_reentrant_lifecycle_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let branch =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let observed = process.new_subject()
+  let later_called = process.new_subject()
+  let later =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+      process.send(later_called, Nil)
+    })
+  let token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(_, True, Some(factory), _) = event
+      runtime_beam.unsubscribe(later)
+      let first = factory()
+      let duplicate = factory()
+      let fork = runtime_beam.tree_fork(actor, "A/_C", branch, view)
+      let rebase =
+        runtime_beam.tree_rebase_onto(
+          actor,
+          "A/_C",
+          branch,
+          tree_types.DocumentCheckout,
+        )
+      let merge =
+        runtime_beam.tree_merge(
+          actor,
+          "A/_C",
+          tree_types.DocumentCheckout,
+          branch,
+          False,
+        )
+      let transaction =
+        runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+      process.send(observed, #(
+        first,
+        result.is_error(duplicate),
+        result.is_error(fork),
+        result.is_error(rebase),
+        result.is_error(merge),
+        result.is_error(transaction),
+      ))
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("branch")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(first, True, True, True, True, True)) =
+    process.receive(observed, 1000)
+  let handle = first |> expect.to_be_ok()
+  process.receive(later_called, 0) |> expect.to_equal(Error(Nil))
+  runtime_beam.unsubscribe(token)
+  let inverse_subject = process.new_subject()
+  let inverse_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(_, True, Some(factory), _) = event
+      process.send(inverse_subject, factory())
+    })
+  runtime_beam.tree_revert(handle, False) |> expect.to_equal(Ok(Nil))
+  let inverse =
+    process.receive(inverse_subject, 1000)
+    |> expect.to_be_ok()
+    |> expect.to_be_ok()
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.tree_revert(inverse, True) |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("branch"))))
+  runtime_beam.unsubscribe(inverse_token)
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("after")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(observed, 0) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_transaction_owner_waits_for_independent_delivery_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let branch =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let entered = process.new_subject()
+  let outcomes = process.new_subject()
+  let queued = process.new_subject()
+  let release_waits = process.new_subject()
+  let main_token =
+    runtime_beam.subscribe_tree_commits_on(
+      actor,
+      "A/_C",
+      tree_types.DocumentCheckout,
+      fn(_) {
+        let release = process.new_subject()
+        process.send(entered, #("main", release))
+        process.send(release_waits, #("main", process.receive(release, 1000)))
+        Nil
+      },
+    )
+  let owner =
+    process.spawn_unlinked(fn() {
+      let assert Ok(Nil) =
+        runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+      let assert Ok(Nil) =
+        runtime_beam.tree_edit_view_on(
+          actor,
+          "A/_C",
+          branch,
+          view,
+          tree_types.SetField(["title"], tree_types.StringValue("branch-owner")),
+        )
+      let assert Ok(Nil) =
+        runtime_beam.tree_edit_view_on(
+          actor,
+          "A/_C",
+          tree_types.DocumentCheckout,
+          view,
+          tree_types.SetField(["title"], tree_types.StringValue("main-edit")),
+        )
+      let reply = process.new_subject()
+      process.send(
+        actor,
+        runtime_beam.TreeTransactionCommit("A/_C", branch, reply),
+      )
+      runtime_beam.tree_branch_status(actor, "A/_C", branch)
+      |> expect.to_equal(tree_types.BranchValid)
+      process.send(queued, "commit")
+      process.send(outcomes, case process.receive(reply, 1000) {
+        Ok(outcome) -> outcome
+        Error(_) -> Error("transaction commit reply timed out")
+      })
+    })
+  let assert Ok(#("main", release)) = process.receive(entered, 1000)
+  process.receive(queued, 1000) |> expect.to_equal(Ok("commit"))
+  process.send(release, Nil)
+  process.receive(release_waits, 1000)
+  |> expect.to_equal(Ok(#("main", Ok(Nil))))
+  process.receive(outcomes, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  let owner_monitor = process.monitor(owner)
+  process.new_selector()
+  |> process.select_specific_monitor(owner_monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(owner_monitor)
+  runtime_beam.unsubscribe(main_token)
+
+  let branch_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+      let release = process.new_subject()
+      process.send(entered, #("branch", release))
+      process.send(release_waits, #("branch", process.receive(release, 1000)))
+      Nil
+    })
+  let owner =
+    process.spawn_unlinked(fn() {
+      let assert Ok(Nil) =
+        runtime_beam.begin_tree_transaction_on(
+          actor,
+          "A/_C",
+          tree_types.DocumentCheckout,
+          view,
+          [],
+        )
+      let assert Ok(Nil) =
+        runtime_beam.tree_edit_view_on(
+          actor,
+          "A/_C",
+          branch,
+          view,
+          tree_types.SetField(["title"], tree_types.StringValue("fork-edit")),
+        )
+      let reply = process.new_subject()
+      process.send(
+        actor,
+        runtime_beam.TreeTransactionAbort(
+          "A/_C",
+          tree_types.DocumentCheckout,
+          reply,
+        ),
+      )
+      runtime_beam.tree_branch_status(
+        actor,
+        "A/_C",
+        tree_types.DocumentCheckout,
+      )
+      |> expect.to_equal(tree_types.DocumentBranch)
+      process.send(queued, "abort")
+      process.send(outcomes, case process.receive(reply, 1000) {
+        Ok(outcome) -> outcome
+        Error(_) -> Error("transaction abort reply timed out")
+      })
+    })
+  let assert Ok(#("branch", release)) = process.receive(entered, 1000)
+  process.receive(queued, 1000) |> expect.to_equal(Ok("abort"))
+  process.send(release, Nil)
+  process.receive(release_waits, 1000)
+  |> expect.to_equal(Ok(#("branch", Ok(Nil))))
+  process.receive(outcomes, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  let owner_monitor = process.monitor(owner)
+  process.new_selector()
+  |> process.select_specific_monitor(owner_monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(owner_monitor)
+  runtime_beam.unsubscribe(branch_token)
+  runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.abort_tree_transaction_on(actor, "A/_C", branch)
+  |> expect.to_equal(Ok(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_delivery_services_safe_bookkeeping_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let branch =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let saved = process.new_subject()
+  let first_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(
+        _,
+        True,
+        Some(factory),
+        Some(on_settled),
+      ) = event
+      process.send(saved, #(factory, on_settled))
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("first")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(stale_factory, stale_settlement)) =
+    process.receive(saved, 1000)
+  runtime_beam.unsubscribe(first_token)
+
+  let observed = process.new_subject()
+  let second_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+      let factory_result = stale_factory()
+      let settlement_result = stale_settlement(fn(_) { Nil })
+      let status = runtime_beam.tree_branch_status(actor, "A/_C", branch)
+      let token =
+        runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+          Nil
+        })
+      process.send(observed, #(
+        result.is_error(factory_result),
+        result.is_error(settlement_result),
+        status,
+        token,
+      ))
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("second")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(True, True, tree_types.BranchValid, added_token)) =
+    process.receive(observed, 1000)
+  runtime_beam.unsubscribe(second_token)
+  runtime_beam.unsubscribe(added_token)
+  runtime_beam.tree_read_view_on(actor, "A/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("second"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_delivery_shutdown_cancels_later_callbacks_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let branch =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let called = process.new_subject()
+  let closing_calls = process.new_subject()
+  let ordered_close = process.new_subject()
+  let later =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+      process.send(called, "later")
+    })
+  let _closer =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(
+        _,
+        True,
+        Some(factory),
+        Some(on_settled),
+      ) = event
+      process.send(actor, runtime_beam.Shutdown)
+      let factory_result = factory()
+      let settlement_result = on_settled(fn(_) { Nil })
+      runtime_beam.unsubscribe(later)
+      let dispose_result =
+        runtime_beam.tree_dispose_branch(actor, "A/_C", branch)
+      let fork_result = runtime_beam.tree_fork(actor, "A/_C", branch, view)
+      let rebase_result =
+        runtime_beam.tree_rebase_onto(
+          actor,
+          "A/_C",
+          branch,
+          tree_types.DocumentCheckout,
+        )
+      let merge_result =
+        runtime_beam.tree_merge(
+          actor,
+          "A/_C",
+          tree_types.DocumentCheckout,
+          branch,
+          False,
+        )
+      let begin_result =
+        runtime_beam.begin_tree_transaction_on(actor, "A/_C", branch, view, [])
+      let commit_result =
+        runtime_beam.commit_tree_transaction_on(actor, "A/_C", branch)
+      let abort_result =
+        runtime_beam.abort_tree_transaction_on(actor, "A/_C", branch)
+      let edit_result =
+        runtime_beam.tree_edit_view_on(
+          actor,
+          "A/_C",
+          branch,
+          view,
+          tree_types.SetField(["title"], tree_types.StringValue("rejected")),
+        )
+      let schema_result =
+        runtime_beam.tree_upgrade_schema_on(actor, "A/_C", branch, view)
+      let inactive =
+        runtime_beam.subscribe_tree_commits_on(actor, "A/_C", branch, fn(_) {
+          Nil
+        })
+      let inactive_status =
+        runtime_beam.tree_commit_subscription_active(inactive, "A/_C", branch)
+      let ordered_outcome = process.new_subject()
+      let acquire_id =
+        process.call(actor, waiting: 500, sending: fn(reply) {
+          runtime_beam.AcquireOrderedItemWithOutcome(
+            "closing-queue",
+            ordered_outcome,
+            reply,
+          )
+        })
+      process.send(ordered_close, #(
+        acquire_id,
+        process.receive(ordered_outcome, 500),
+        process.receive(ordered_outcome, 0),
+      ))
+      process.send(closing_calls, [
+        result.is_error(factory_result),
+        result.is_error(settlement_result),
+        result.is_error(dispose_result),
+        result.is_error(fork_result),
+        result.is_error(rebase_result),
+        result.is_error(merge_result),
+        result.is_error(begin_result),
+        result.is_error(commit_result),
+        result.is_error(abort_result),
+        result.is_error(edit_result),
+        result.is_error(schema_result),
+        inactive_status == False,
+      ])
+      process.send(called, "closer")
+    })
+  let owner = process.subject_owner(actor) |> expect.to_be_ok()
+  let monitor = process.monitor(owner)
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("close")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(closing_calls, 1000)
+  |> expect.to_equal(
+    Ok([
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+      True,
+    ]),
+  )
+  process.receive(ordered_close, 1000)
+  |> expect.to_equal(
+    Ok(#("", Ok(ordered_collection_kernel.Aborted), Error(Nil))),
+  )
+  process.receive(called, 1000) |> expect.to_equal(Ok("closer"))
+  process.new_selector()
+  |> process.select_specific_monitor(monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(monitor)
+  process.receive(called, 0) |> expect.to_equal(Error(Nil))
+  runtime_beam.tree_branch_status(actor, "A/_C", branch)
+  |> expect.to_equal(tree_types.BranchDisposed)
+}
+
+@target(erlang)
+pub fn beam_delivery_shutdown_rejects_both_replay_queues_test() {
+  let submissions = process.new_subject()
+  let #(actor, _, view) =
+    ready_tree_actor(fn(event, _) {
+      case event {
+        "submitOp" -> process.send(submissions, Nil)
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let entered = process.new_subject()
+  let closing_status = process.new_subject()
+  let _token =
+    runtime_beam.subscribe_tree_commits_on(
+      actor,
+      "A/_C",
+      tree_types.DocumentCheckout,
+      fn(_) {
+        let command = process.new_subject()
+        let release = process.new_subject()
+        process.send(entered, #(command, release))
+        let assert Ok(action) = process.receive(command, 1000)
+        case action {
+          "close" -> {
+            process.send(actor, runtime_beam.Shutdown)
+            process.send(
+              closing_status,
+              runtime_beam.tree_branch_status(
+                actor,
+                "A/_C",
+                tree_types.DocumentCheckout,
+              ),
+            )
+          }
+          _ -> Nil
+        }
+        process.receive(release, 1000) |> expect.to_equal(Ok(Nil))
+      },
+    )
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("a")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(first_command, first_release)) =
+    process.receive(entered, 1000)
+  let second_reply = process.new_subject()
+  let third_reply = process.new_subject()
+  process.send(
+    actor,
+    runtime_beam.TreeEditView(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      view,
+      tree_types.SetField(["title"], tree_types.StringValue("b")),
+      second_reply,
+    ),
+  )
+  process.send(
+    actor,
+    runtime_beam.TreeEditView(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      view,
+      tree_types.SetField(["title"], tree_types.StringValue("c")),
+      third_reply,
+    ),
+  )
+  process.send(first_command, "continue")
+  process.send(first_release, Nil)
+  let assert Ok(#(second_command, second_release)) =
+    process.receive(entered, 1000)
+  process.send(second_command, "close")
+  process.receive(closing_status, 1000)
+  |> expect.to_equal(Ok(tree_types.BranchDisposed))
+  process.send(second_release, Nil)
+  process.receive(second_reply, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(third_reply, 1000)
+  |> expect.to_be_ok()
+  |> expect.to_be_error()
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+}
+
+@target(erlang)
+pub fn beam_branch_merge_disposal_cleans_only_source_scope_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let source =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let descendant =
+    runtime_beam.tree_fork(actor, "A/_C", source, view)
+    |> expect.to_be_ok()
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    source,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("merged")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let source_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", source, fn(_) { Nil })
+  let target_token =
+    runtime_beam.subscribe_tree_commits_on(
+      actor,
+      "A/_C",
+      tree_types.DocumentCheckout,
+      fn(_) { Nil },
+    )
+  let descendant_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", descendant, fn(_) {
+      Nil
+    })
+  runtime_beam.tree_merge(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    source,
+    True,
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_commit_subscription_active(source_token, "A/_C", source)
+  |> expect.to_be_false()
+  runtime_beam.tree_commit_subscription_active(
+    target_token,
+    "A/_C",
+    tree_types.DocumentCheckout,
+  )
+  |> expect.to_be_true()
+  runtime_beam.tree_commit_subscription_active(
+    descendant_token,
+    "A/_C",
+    descendant,
+  )
+  |> expect.to_be_true()
+  process.send(actor, runtime_beam.Shutdown)
+
+  let #(empty_actor, _, empty_view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let empty =
+    runtime_beam.tree_fork(
+      empty_actor,
+      "A/_C",
+      tree_types.DocumentCheckout,
+      empty_view,
+    )
+    |> expect.to_be_ok()
+  let empty_token =
+    runtime_beam.subscribe_tree_commits_on(empty_actor, "A/_C", empty, fn(_) {
+      Nil
+    })
+  runtime_beam.tree_merge(
+    empty_actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    empty,
+    True,
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_commit_subscription_active(empty_token, "A/_C", empty)
+  |> expect.to_be_false()
+  process.send(empty_actor, runtime_beam.Shutdown)
+
+  let #(self_actor, _, self_view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let self =
+    runtime_beam.tree_fork(
+      self_actor,
+      "A/_C",
+      tree_types.DocumentCheckout,
+      self_view,
+    )
+    |> expect.to_be_ok()
+  let self_token =
+    runtime_beam.subscribe_tree_commits_on(self_actor, "A/_C", self, fn(_) {
+      Nil
+    })
+  runtime_beam.tree_merge(self_actor, "A/_C", self, self, True)
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_commit_subscription_active(self_token, "A/_C", self)
+  |> expect.to_be_false()
+  process.send(self_actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_branch_registered_source_settlement_survives_unsubscribe_until_merge_ack_test() {
+  let submissions = process.new_subject()
+  let #(actor, callbacks, view) =
+    ready_tree_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          process.send(submissions, submitted)
+        }
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let source =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let registered = process.new_subject()
+  let settled = process.new_subject()
+  let token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", source, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(_, True, _, Some(on_settled)) =
+        event
+      process.send(
+        registered,
+        on_settled(fn(outcome) { process.send(settled, outcome) }),
+      )
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    source,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("merged")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  runtime_beam.unsubscribe(token)
+  runtime_beam.tree_read_view_on(actor, "A/_C", source, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("merged"))))
+  runtime_beam.tree_merge(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    source,
+    False,
+  )
+  |> expect.to_equal(Ok(Nil))
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("reader"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: 1,
+        reference_sequence_number: 0,
+        operation_type: "op",
+        contents: submitted.contents,
+        metadata: submitted.metadata,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  process.receive(settled, 1000)
+  |> expect.to_equal(Ok(tree_types.FullyApplied))
+  process.receive(settled, 0) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
+  let submissions = process.new_subject()
+  let #(actor, callbacks, view) =
+    ready_tree_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          process.send(submissions, submitted)
+        }
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let source =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let other =
+    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  let registered = process.new_subject()
+  let first_started = process.new_subject()
+  let close_processed = process.new_subject()
+  let later_started = process.new_subject()
+  let _source_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", source, fn(event) {
+      let assert runtime_beam.TreeCommitEvent(_, True, _, Some(on_settled)) =
+        event
+      process.send(
+        registered,
+        on_settled(fn(_) {
+          let close_command = process.new_subject()
+          process.send(first_started, close_command)
+          process.receive(close_command, 1000) |> expect.to_equal(Ok(Nil))
+          process.send(actor, runtime_beam.Shutdown)
+          process.send(
+            close_processed,
+            runtime_beam.tree_branch_status(actor, "A/_C", source),
+          )
+        }),
+      )
+      process.send(
+        registered,
+        on_settled(fn(_) { process.send(later_started, Nil) }),
+      )
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    source,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("settle")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  runtime_beam.tree_merge(
+    actor,
+    "A/_C",
+    tree_types.DocumentCheckout,
+    source,
+    False,
+  )
+  |> expect.to_equal(Ok(Nil))
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("reader"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: 1,
+        reference_sequence_number: 0,
+        operation_type: "op",
+        contents: submitted.contents,
+        metadata: submitted.metadata,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  let close_command = process.receive(first_started, 1000) |> expect.to_be_ok()
+
+  let delivery_entered = process.new_subject()
+  let _other_token =
+    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", other, fn(_) {
+      let release = process.new_subject()
+      process.send(delivery_entered, release)
+      process.receive(release, 1000) |> expect.to_equal(Ok(Nil))
+    })
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "A/_C",
+    other,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("held")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let release = process.receive(delivery_entered, 1000) |> expect.to_be_ok()
+  process.send(close_command, Nil)
+  process.receive(close_processed, 1000)
+  |> expect.to_equal(Ok(tree_types.BranchDisposed))
+  process.send(release, Nil)
+  process.receive(later_started, 100) |> expect.to_equal(Error(Nil))
 }
 
 @target(erlang)
@@ -1709,6 +2655,75 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   watershed_beam.handle_of(other)
   |> json.to_string
   |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/B/root\"}")
+  let assert Ok(fork) = watershed_beam.tree_fork(tree)
+  watershed_beam.tree_branch_status(tree)
+  |> expect.to_equal(watershed_beam.DocumentBranch)
+  watershed_beam.tree_branch_status(fork)
+  |> expect.to_equal(watershed_beam.BranchValid)
+  watershed_beam.tree_set(fork, ["title"], tree_types.StringValue("fork-only"))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  let assert Ok(nested) = watershed_beam.tree_fork(fork)
+  watershed_beam.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_branch_status(fork)
+  |> expect.to_equal(watershed_beam.BranchDisposed)
+  watershed_beam.tree_set(nested, ["title"], tree_types.StringValue("nested"))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_rebase_onto(nested, tree) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  watershed_beam.tree_merge(tree, nested, True) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("nested"))))
+  watershed_beam.tree_branch_status(nested)
+  |> expect.to_equal(watershed_beam.BranchDisposed)
+  watershed_beam.tree_dispose_branch(tree) |> expect.to_be_error()
+  let other_callbacks_subject = process.new_subject()
+  let assert Ok(other_document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "other-tree",
+      user_id: "other-reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(other_callbacks) {
+        process.send(other_callbacks_subject, other_callbacks)
+      }),
+    )
+  let assert Ok(other_callbacks) =
+    process.receive(other_callbacks_subject, 1000)
+  other_callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  other_callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "other-reader",
+      tenant_id: "default",
+      document_id: "other-tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["other-reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let other_actor = watershed_beam.runtime_subject(other_document)
+  runtime_beam.await_ready(other_actor) |> expect.to_equal(Ok(Nil))
+  let other_root =
+    watershed_beam.resolve_root(other_document) |> expect.to_be_ok()
+  let other_marker = watershed_beam.get(other_root, "tree") |> expect.to_be_ok()
+  let other_tree =
+    watershed_beam.resolve_tree(other_document, other_marker, view.view)
+    |> expect.to_be_ok()
+  watershed_beam.tree_merge(tree, other_tree, False) |> expect.to_be_error()
+  process.send(other_actor, runtime_beam.Shutdown)
   process.send(actor, runtime_beam.Shutdown)
 }
 
@@ -1915,17 +2930,29 @@ pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
   let before = process.new_subject()
   let edit = process.new_subject()
   let after = process.new_subject()
-  process.send(actor, runtime_beam.UnsubscribeTreeCommits(token))
-  process.send(actor, runtime_beam.TreeRead("A/_C", ["title"], before))
+  runtime_beam.unsubscribe(token)
+  process.send(
+    actor,
+    runtime_beam.TreeRead(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      ["title"],
+      before,
+    ),
+  )
   process.send(
     actor,
     runtime_beam.TreeEdit(
       "A/_C",
+      tree_types.DocumentCheckout,
       tree_types.SetField(["title"], tree_types.StringValue("queued")),
       edit,
     ),
   )
-  process.send(actor, runtime_beam.TreeRead("A/_C", ["title"], after))
+  process.send(
+    actor,
+    runtime_beam.TreeRead("A/_C", tree_types.DocumentCheckout, ["title"], after),
+  )
   process.send(release, Nil)
   process.receive(before, 1000)
   |> expect.to_equal(Ok(Ok(Some(tree_types.StringValue("native")))))

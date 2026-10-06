@@ -220,6 +220,7 @@ pub opaque type TreeRevertible {
   TreeRevertible(
     runtime: Subject(Msg),
     address: String,
+    selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
   )
 }
@@ -468,13 +469,44 @@ pub type Msg {
   OpenTree(value: Json, reply: Subject(Result(String, String)))
   TreeCompatibility(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     reply: Subject(Result(tree_schema.Compatibility, String)),
+  )
+  ForkTree(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(tree_types.CheckoutSelector, String)),
+  )
+  RebaseTreeOnto(
+    address: String,
+    source: tree_types.CheckoutSelector,
+    target: tree_types.CheckoutSelector,
+    reply: Subject(Result(Nil, String)),
+  )
+  MergeTree(
+    address: String,
+    target: tree_types.CheckoutSelector,
+    source: tree_types.CheckoutSelector,
+    dispose_source: Bool,
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeBranchStatus(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    reply: Subject(tree_types.TreeBranchStatus),
+  )
+  DisposeTreeBranch(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    reply: Subject(Result(Nil, String)),
   )
   TreeHistoryEvidence(address: String, reply: Subject(Result(Json, String)))
   PendingSummaryEvidence(reply: Subject(Result(Json, String)))
   TreeRead(
     address: String,
+    selector: tree_types.CheckoutSelector,
     path: tree_types.FieldPath,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
@@ -484,28 +516,33 @@ pub type Msg {
   )
   TreeMapGet(
     address: String,
+    selector: tree_types.CheckoutSelector,
     path: tree_types.FieldPath,
     key: String,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
   TreeMapEntries(
     address: String,
+    selector: tree_types.CheckoutSelector,
     path: tree_types.FieldPath,
     reply: Subject(Result(List(#(String, tree_types.TreeValue)), String)),
   )
   TreeArrayGet(
     address: String,
+    selector: tree_types.CheckoutSelector,
     path: tree_types.FieldPath,
     index: Int,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
   TreeArrayValues(
     address: String,
+    selector: tree_types.CheckoutSelector,
     path: tree_types.FieldPath,
     reply: Subject(Result(List(tree_types.TreeValue), String)),
   )
   TreeArrayGetView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     path: tree_types.FieldPath,
     index: Int,
@@ -513,23 +550,27 @@ pub type Msg {
   )
   TreeArrayValuesView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     path: tree_types.FieldPath,
     reply: Subject(Result(List(tree_types.TreeValue), String)),
   )
   TreeEdit(
     address: String,
+    selector: tree_types.CheckoutSelector,
     edit: tree_types.Edit,
     reply: Subject(Result(Nil, String)),
   )
   TreeReadView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     path: tree_types.FieldPath,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
   TreeMapGetView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     path: tree_types.FieldPath,
     key: String,
@@ -537,24 +578,35 @@ pub type Msg {
   )
   TreeMapEntriesView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     path: tree_types.FieldPath,
     reply: Subject(Result(List(#(String, tree_types.TreeValue)), String)),
   )
   TreeEditView(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     edit: tree_types.Edit,
     reply: Subject(Result(Nil, String)),
   )
   TreeTransactionBegin(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     constraints: List(tree_types.FieldPath),
     reply: Subject(Result(Nil, String)),
   )
-  TreeTransactionCommit(address: String, reply: Subject(Result(Nil, String)))
-  TreeTransactionAbort(address: String, reply: Subject(Result(Nil, String)))
+  TreeTransactionCommit(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeTransactionAbort(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    reply: Subject(Result(Nil, String)),
+  )
   FinishTreeTransactionCommit(
     core: runtime_core.Core,
     send_outcome: Result(Nil, String),
@@ -563,18 +615,28 @@ pub type Msg {
   MonitoredProcessDown(down: process.Down)
   SubscribeTreeCommits(
     address: String,
+    selector: tree_types.CheckoutSelector,
     handler: fn(TreeCommitEvent) -> Nil,
     reply: Subject(SubscriptionToken),
   )
-  UnsubscribeTreeCommits(token: SubscriptionToken)
+  UnsubscribeTreeCommits(token: SubscriptionToken, reply: Subject(Nil))
+  TreeCommitSubscriberActive(
+    id: Int,
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    reply: Subject(Bool),
+  )
   RetainTreeRevertible(
     address: String,
+    selector: tree_types.CheckoutSelector,
     revision: fluid_ids.StableId,
     kind: tree_types.TreeCommitKind,
     event_id: Int,
     reply: Subject(Result(tree_types.RevertibleId, String)),
   )
   RegisterTreeSettlement(
+    address: String,
+    selector: tree_types.CheckoutSelector,
     revision: fluid_ids.StableId,
     event_id: Int,
     handler: fn(tree_types.TreeCommitOutcome) -> Nil,
@@ -582,17 +644,20 @@ pub type Msg {
   )
   TreeRevertibleStatusRequested(
     address: String,
+    selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
     reply: Subject(TreeRevertibleStatus),
   )
   RevertTree(
     address: String,
+    selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
     dispose: Bool,
     reply: Subject(Result(Nil, String)),
   )
   DisposeTreeRevertible(
     address: String,
+    selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
     reply: Subject(Result(Nil, String)),
   )
@@ -600,6 +665,7 @@ pub type Msg {
   ReplayDeferred
   TreeUpgradeSchema(
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     reply: Subject(Result(Nil, String)),
   )
@@ -812,6 +878,11 @@ pub type Msg {
   SubscribePresence(subscriber: fn(PresenceFrame) -> Nil)
   // Lifecycle
   Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
+  SubscribeTreeEvents(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    subscriber: fn(ChannelEvent) -> Nil,
+  )
   AwaitReady(reply: Subject(Result(Nil, String)))
   /// A hook that injects a fault, for a test. It closes the live channel, so
   /// that the runtime runs its reconnect and reconcile path.
@@ -873,6 +944,7 @@ type PendingSummary {
 type ActiveTreeTransaction {
   ActiveTreeTransaction(
     address: String,
+    selector: tree_types.CheckoutSelector,
     caller: process.Pid,
     monitor: process.Monitor,
   )
@@ -883,6 +955,7 @@ type TreeCommitSubscriber {
   TreeCommitSubscriber(
     id: Int,
     address: String,
+    selector: tree_types.CheckoutSelector,
     handler: fn(TreeCommitEvent) -> Nil,
   )
 }
@@ -891,10 +964,12 @@ type TreeCommitSubscriber {
 type ActiveTreeCommitDelivery {
   ActiveTreeCommitDelivery(
     event_id: Int,
+    address: String,
+    selector: tree_types.CheckoutSelector,
     revision: fluid_ids.StableId,
     acquired: Bool,
     monitor: process.Monitor,
-    remaining_events: List(#(String, ChannelEvent)),
+    remaining_events: List(runtime_core.ScopedTreeEvent),
   )
 }
 
@@ -914,13 +989,16 @@ type State {
     reconnect_error: Option(String),
     channel: Option(TransportHandle),
     phase: Phase,
-    subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    subscribers: List(
+      #(String, tree_types.CheckoutSelector, fn(ChannelEvent) -> Nil),
+    ),
     tree_commit_subscribers: List(TreeCommitSubscriber),
     tree_commit_settlements: Dict(
-      fluid_ids.StableId,
+      #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
       List(fn(tree_types.TreeCommitOutcome) -> Nil),
     ),
     active_tree_commit_delivery: Option(ActiveTreeCommitDelivery),
+    closing: Bool,
     next_tree_commit_subscription_id: Int,
     next_tree_commit_event_id: Int,
     deferred_messages: List(Msg),
@@ -1113,6 +1191,7 @@ fn start_with_optional_seed(
         tree_commit_subscribers: [],
         tree_commit_settlements: dict.new(),
         active_tree_commit_delivery: None,
+        closing: False,
         next_tree_commit_subscription_id: 0,
         next_tree_commit_event_id: 0,
         deferred_messages: [],
@@ -1212,10 +1291,99 @@ pub fn tree_compatibility(
   address: String,
   view: tree_schema.ViewSchema,
 ) -> Result(tree_schema.Compatibility, String) {
+  tree_compatibility_on(runtime, address, tree_types.DocumentCheckout, view)
+}
+
+@target(erlang)
+pub fn tree_compatibility_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_schema.Compatibility, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeCompatibility(address, view, reply) },
+    sending: fn(reply) { TreeCompatibility(address, selector, view, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_fork(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_types.CheckoutSelector, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { ForkTree(address, selector, view, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_rebase_onto(
+  runtime: Subject(Msg),
+  address: String,
+  source: tree_types.CheckoutSelector,
+  target: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { RebaseTreeOnto(address, source, target, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_merge(
+  runtime: Subject(Msg),
+  address: String,
+  target: tree_types.CheckoutSelector,
+  source: tree_types.CheckoutSelector,
+  dispose_source: Bool,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) {
+      MergeTree(address, target, source, dispose_source, reply)
+    },
+  )
+}
+
+@target(erlang)
+pub fn tree_branch_status(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> tree_types.TreeBranchStatus {
+  case process.subject_owner(runtime) {
+    Ok(owner) ->
+      case process.is_alive(owner) {
+        True ->
+          process.call(
+            runtime,
+            waiting: connect_timeout_milliseconds,
+            sending: fn(reply) { TreeBranchStatus(address, selector, reply) },
+          )
+        False -> tree_types.BranchDisposed
+      }
+    Error(_) -> tree_types.BranchDisposed
+  }
+}
+
+@target(erlang)
+pub fn tree_dispose_branch(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { DisposeTreeBranch(address, selector, reply) },
   )
 }
 
@@ -1251,7 +1419,9 @@ pub fn tree_read(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeRead(address, path, reply) },
+    sending: fn(reply) {
+      TreeRead(address, tree_types.DocumentCheckout, path, reply)
+    },
   )
 }
 
@@ -1274,10 +1444,21 @@ pub fn tree_read_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_read_view_on(runtime, address, tree_types.DocumentCheckout, view, path)
+}
+
+@target(erlang)
+pub fn tree_read_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeReadView(address, view, path, reply) },
+    sending: fn(reply) { TreeReadView(address, selector, view, path, reply) },
   )
 }
 
@@ -1291,7 +1472,9 @@ pub fn tree_map_get(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeMapGet(address, path, key, reply) },
+    sending: fn(reply) {
+      TreeMapGet(address, tree_types.DocumentCheckout, path, key, reply)
+    },
   )
 }
 
@@ -1303,10 +1486,31 @@ pub fn tree_map_get_view(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_map_get_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+    key,
+  )
+}
+
+@target(erlang)
+pub fn tree_map_get_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeMapGetView(address, view, path, key, reply) },
+    sending: fn(reply) {
+      TreeMapGetView(address, selector, view, path, key, reply)
+    },
   )
 }
 
@@ -1319,7 +1523,9 @@ pub fn tree_map_entries(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeMapEntries(address, path, reply) },
+    sending: fn(reply) {
+      TreeMapEntries(address, tree_types.DocumentCheckout, path, reply)
+    },
   )
 }
 
@@ -1333,7 +1539,9 @@ pub fn tree_array_get(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeArrayGet(address, path, index, reply) },
+    sending: fn(reply) {
+      TreeArrayGet(address, tree_types.DocumentCheckout, path, index, reply)
+    },
   )
 }
 
@@ -1345,10 +1553,31 @@ pub fn tree_array_get_view(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_array_get_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+    index,
+  )
+}
+
+@target(erlang)
+pub fn tree_array_get_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeArrayGetView(address, view, path, index, reply) },
+    sending: fn(reply) {
+      TreeArrayGetView(address, selector, view, path, index, reply)
+    },
   )
 }
 
@@ -1361,7 +1590,9 @@ pub fn tree_array_values(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeArrayValues(address, path, reply) },
+    sending: fn(reply) {
+      TreeArrayValues(address, tree_types.DocumentCheckout, path, reply)
+    },
   )
 }
 
@@ -1372,10 +1603,29 @@ pub fn tree_array_values_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), String) {
+  tree_array_values_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+  )
+}
+
+@target(erlang)
+pub fn tree_array_values_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeArrayValuesView(address, view, path, reply) },
+    sending: fn(reply) {
+      TreeArrayValuesView(address, selector, view, path, reply)
+    },
   )
 }
 
@@ -1386,10 +1636,29 @@ pub fn tree_map_entries_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  tree_map_entries_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+  )
+}
+
+@target(erlang)
+pub fn tree_map_entries_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeMapEntriesView(address, view, path, reply) },
+    sending: fn(reply) {
+      TreeMapEntriesView(address, selector, view, path, reply)
+    },
   )
 }
 
@@ -1403,7 +1672,9 @@ pub fn tree_edit(
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeEdit(address, edit, reply) },
+    sending: fn(reply) {
+      TreeEdit(address, tree_types.DocumentCheckout, edit, reply)
+    },
   )
 }
 
@@ -1414,10 +1685,21 @@ pub fn tree_edit_view(
   view: tree_schema.ViewSchema,
   edit: tree_types.Edit,
 ) -> Result(Nil, String) {
+  tree_edit_view_on(runtime, address, tree_types.DocumentCheckout, view, edit)
+}
+
+@target(erlang)
+pub fn tree_edit_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  edit: tree_types.Edit,
+) -> Result(Nil, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeEditView(address, view, edit, reply) },
+    sending: fn(reply) { TreeEditView(address, selector, view, edit, reply) },
   )
 }
 
@@ -1428,11 +1710,28 @@ pub fn begin_tree_transaction(
   view: tree_schema.ViewSchema,
   constraints: List(tree_types.FieldPath),
 ) -> Result(Nil, String) {
+  begin_tree_transaction_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    constraints,
+  )
+}
+
+@target(erlang)
+pub fn begin_tree_transaction_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Nil, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) {
-      TreeTransactionBegin(address, view, constraints, reply)
+      TreeTransactionBegin(address, selector, view, constraints, reply)
     },
   )
 }
@@ -1442,10 +1741,19 @@ pub fn commit_tree_transaction(
   runtime: Subject(Msg),
   address: String,
 ) -> Result(Nil, String) {
+  commit_tree_transaction_on(runtime, address, tree_types.DocumentCheckout)
+}
+
+@target(erlang)
+pub fn commit_tree_transaction_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeTransactionCommit(address, reply) },
+    sending: fn(reply) { TreeTransactionCommit(address, selector, reply) },
   )
 }
 
@@ -1454,10 +1762,19 @@ pub fn abort_tree_transaction(
   runtime: Subject(Msg),
   address: String,
 ) -> Result(Nil, String) {
+  abort_tree_transaction_on(runtime, address, tree_types.DocumentCheckout)
+}
+
+@target(erlang)
+pub fn abort_tree_transaction_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeTransactionAbort(address, reply) },
+    sending: fn(reply) { TreeTransactionAbort(address, selector, reply) },
   )
 }
 
@@ -1467,16 +1784,71 @@ pub fn subscribe_tree_commits(
   address: String,
   handler: fn(TreeCommitEvent) -> Nil,
 ) -> SubscriptionToken {
-  process.call(
+  subscribe_tree_commits_on(
     runtime,
-    waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { SubscribeTreeCommits(address, handler, reply) },
+    address,
+    tree_types.DocumentCheckout,
+    handler,
   )
 }
 
 @target(erlang)
+pub fn subscribe_tree_commits_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  handler: fn(TreeCommitEvent) -> Nil,
+) -> SubscriptionToken {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) {
+      SubscribeTreeCommits(address, selector, handler, reply)
+    },
+  )
+}
+
+@target(erlang)
+@internal
+pub fn tree_commit_subscription_active(
+  token: SubscriptionToken,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Bool {
+  process.call(
+    token.runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) {
+      TreeCommitSubscriberActive(token.id, address, selector, reply)
+    },
+  )
+}
+
+@target(erlang)
+pub fn subscribe_tree_events_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  process.send(runtime, SubscribeTreeEvents(address, selector, handler))
+}
+
+@target(erlang)
 pub fn unsubscribe(token: SubscriptionToken) -> Nil {
-  process.send(token.runtime, UnsubscribeTreeCommits(token))
+  case process.subject_owner(token.runtime) {
+    Ok(owner) ->
+      case process.is_alive(owner) {
+        True ->
+          process.call(
+            token.runtime,
+            waiting: connect_timeout_milliseconds,
+            sending: fn(reply) { UnsubscribeTreeCommits(token, reply) },
+          )
+        False -> Nil
+      }
+    Error(_) -> Nil
+  }
 }
 
 @target(erlang)
@@ -1493,6 +1865,7 @@ pub fn tree_revertible_status(
             sending: fn(reply) {
               TreeRevertibleStatusRequested(
                 revertible.address,
+                revertible.selector,
                 revertible.id,
                 reply,
               )
@@ -1516,7 +1889,12 @@ pub fn tree_dispose_revertible(
             revertible.runtime,
             waiting: connect_timeout_milliseconds,
             sending: fn(reply) {
-              DisposeTreeRevertible(revertible.address, revertible.id, reply)
+              DisposeTreeRevertible(
+                revertible.address,
+                revertible.selector,
+                revertible.id,
+                reply,
+              )
             },
           )
         False -> Error("tree revertible is disposed")
@@ -1538,7 +1916,13 @@ pub fn tree_revert(
             revertible.runtime,
             waiting: connect_timeout_milliseconds,
             sending: fn(reply) {
-              RevertTree(revertible.address, revertible.id, dispose, reply)
+              RevertTree(
+                revertible.address,
+                revertible.selector,
+                revertible.id,
+                dispose,
+                reply,
+              )
             },
           )
         False -> Error("tree revertible is disposed")
@@ -1553,10 +1937,20 @@ pub fn tree_upgrade_schema(
   address: String,
   view: tree_schema.ViewSchema,
 ) -> Result(Nil, String) {
+  tree_upgrade_schema_on(runtime, address, tree_types.DocumentCheckout, view)
+}
+
+@target(erlang)
+pub fn tree_upgrade_schema_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(Nil, String) {
   process.call(
     runtime,
     waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeUpgradeSchema(address, view, reply) },
+    sending: fn(reply) { TreeUpgradeSchema(address, selector, view, reply) },
   )
 }
 
@@ -1960,13 +2354,368 @@ fn aquamarine_push(
 
 @target(erlang)
 fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
+  case state.closing {
+    True -> handle_closing(state, msg)
+    False -> handle_open(state, msg)
+  }
+}
+
+@target(erlang)
+fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case state.active_tree_commit_delivery {
     Some(active) ->
       case msg {
-        RetainTreeRevertible(_, _, _, event_id, _)
-          | RegisterTreeSettlement(_, event_id, _, _)
-          if event_id == active.event_id
+        Shutdown -> actor.continue(state)
+        CommitDeliveryFinished(event_id) if event_id == active.event_id ->
+          handle_message(state, msg)
+        MonitoredProcessDown(process.ProcessDown(monitor, _, _))
+          if monitor == active.monitor
         -> handle_message(state, msg)
+        TreeBranchStatus(_, _, reply) -> {
+          process.send(reply, tree_types.BranchDisposed)
+          actor.continue(state)
+        }
+        TreeCommitSubscriberActive(_, _, _, reply) -> {
+          process.send(reply, False)
+          actor.continue(state)
+        }
+        SubscribeTreeCommits(_, _, _, reply) -> {
+          process.send(
+            reply,
+            SubscriptionToken(
+              state.self,
+              state.next_tree_commit_subscription_id,
+            ),
+          )
+          actor.continue(state)
+        }
+        RetainTreeRevertible(_, _, _, _, _, _)
+        | RegisterTreeSettlement(_, _, _, _, _, _)
+        | UnsubscribeTreeCommits(_, _) -> reject_closing_message(state, msg)
+        TreeRevertibleStatusRequested(_, _, _, reply) -> {
+          process.send(reply, RevertibleDisposed)
+          actor.continue(state)
+        }
+        SubscribeTreeEvents(_, _, _) -> actor.continue(state)
+        _ -> reject_closing_message(state, msg)
+      }
+    None ->
+      case state.replaying_messages {
+        [] -> reject_closing_message(state, msg)
+        [next, ..rest] -> {
+          process.send(state.self, ReplayDeferred)
+          let rest = case msg {
+            ReplayDeferred -> rest
+            _ -> list.append(rest, [msg])
+          }
+          reject_closing_message(State(..state, replaying_messages: rest), next)
+        }
+      }
+  }
+}
+
+@target(erlang)
+fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
+  case msg {
+    Shutdown -> handle_message(state, msg)
+    ReplayDeferred -> actor.continue(state)
+    TreeBranchStatus(_, _, reply) -> {
+      process.send(reply, tree_types.BranchDisposed)
+      actor.continue(state)
+    }
+    TreeCommitSubscriberActive(_, _, _, reply) -> {
+      process.send(reply, False)
+      actor.continue(state)
+    }
+    SubscribeTreeCommits(_, _, _, reply) -> {
+      process.send(
+        reply,
+        SubscriptionToken(state.self, state.next_tree_commit_subscription_id),
+      )
+      actor.continue(state)
+    }
+    UnsubscribeTreeCommits(_, reply) -> {
+      process.send(reply, Nil)
+      actor.continue(state)
+    }
+    TreeRevertibleStatusRequested(_, _, _, reply) -> {
+      process.send(reply, RevertibleDisposed)
+      actor.continue(state)
+    }
+    SubscribeTreeEvents(_, _, _) -> actor.continue(state)
+    ConnectionObservationRequested(_)
+    | OperationsSinceSummary(_)
+    | IsSynced(_)
+    | ClientId(_)
+    | GetValue(_, _, _)
+    | GetCounterValue(_, _)
+    | GetPnCounterValue(_, _)
+    | GetGCounterValue(_, _)
+    | GetMvRegisterValues(_, _)
+    | GetLwwRegisterValue(_, _)
+    | GetLwwMap(_, _, _)
+    | GetLwwMapEntries(_, _)
+    | GetLwwMapKeys(_, _)
+    | GetPactMapValue(_, _, _)
+    | GetPactMapKeys(_, _)
+    | GetPactMapPending(_, _, _)
+    | GetPactMapPendingDetails(_, _, _)
+    | GetPactMapAccepted(_, _, _)
+    | GetOrderedSize(_, _)
+    | GetOrderedQueue(_, _)
+    | GetOrderedJobs(_, _)
+    | GetJsonOtView(_, _)
+    | GetRichTextView(_, _)
+    | GetOrMapValue(_, _, _)
+    | GetOrMapEntries(_, _)
+    | GetOrMapKeys(_, _)
+    | OrSetContains(_, _, _)
+    | GetOrSetValues(_, _)
+    | GSetContains(_, _, _)
+    | GetGSetValues(_, _)
+    | GetSequenceValues(_, _)
+    | GetSequenceLength(_, _)
+    | GetTextValue(_, _)
+    | GetTextLength(_, _)
+    | GetTextSubstring(_, _, _, _)
+    | TextResolveAnchor(_, _, _)
+    | TwoPSetContains(_, _, _)
+    | GetTwoPSetValues(_, _)
+    | DirectoryGet(_, _, _, _)
+    | DirectoryEntries(_, _, _)
+    | DirectorySubdirectories(_, _, _)
+    | DirectoryHasSubdirectory(_, _, _, _)
+    | GetRegisterValue(_, _, _, _)
+    | GetRegisterVersions(_, _, _)
+    | GetRegisterKeys(_, _)
+    | GetEntries(_, _)
+    | GetKeys(_, _)
+    | GetSize(_, _) -> handle_message(state, msg)
+    AwaitReady(reply)
+    | ResolveAddress(_, reply)
+    | ResolveSequence(_, reply)
+    | ResolveText(_, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    ResolveRoot(reply)
+    | ResolveTree(_, _, reply)
+    | OpenTree(_, reply)
+    | ResolveHandleAddress(_, reply)
+    | Summarize(reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    BindHandle(_, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    CreateMap(reply)
+    | CreateCounter(reply)
+    | CreatePnCounter(reply)
+    | CreateGCounter(reply)
+    | CreateMvRegister(reply)
+    | CreateLwwRegister(reply)
+    | CreateLwwMap(reply)
+    | CreatePactMap(reply)
+    | CreateOrderedCollection(reply)
+    | CreateSequence(reply)
+    | CreateText(reply)
+    | CreateOrMap(_, reply)
+    | CreateOrSet(reply)
+    | CreateGSet(reply)
+    | CreateTwoPSet(reply)
+    | CreateRegisterCollection(reply)
+    | CreateClaims(reply)
+    | CreateJsonOt(reply)
+    | CreateRichText(reply)
+    | CreateTaskManager(reply)
+    | CreateDirectory(reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    IncrementGCounter(_, _, reply)
+    | SetLwwRegister(_, _, reply)
+    | SetLwwMap(_, _, _, reply)
+    | RemoveLwwMap(_, _, reply)
+    | InsertSequenceItem(_, _, _, reply)
+    | DeleteSequenceItem(_, _, reply)
+    | MoveSequenceItem(_, _, _, reply)
+    | ReplaceSequenceItem(_, _, _, reply)
+    | InsertText(_, _, _, reply)
+    | DeleteRangeText(_, _, _, reply)
+    | ReplaceRangeText(_, _, _, _, reply)
+    | AppendText(_, _, reply)
+    | AddOrMapMember(_, _, _, reply)
+    | RemoveOrMapMember(_, _, _, reply)
+    | RemoveOrMapKeyWithResult(_, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    AcquireOrderedItem(_, reply) -> {
+      process.send(reply, "")
+      actor.continue(state)
+    }
+    AcquireOrderedItemWithOutcome(_, outcome, reply) -> {
+      process.send(outcome, ordered_collection_kernel.Aborted)
+      process.send(reply, "")
+      actor.continue(state)
+    }
+    TextAnchorAt(_, _, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    TreeCompatibility(_, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeHistoryEvidence(_, reply) | PendingSummaryEvidence(reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeRead(_, _, _, reply)
+    | TreeMapGet(_, _, _, _, reply)
+    | TreeArrayGet(_, _, _, _, reply)
+    | TreeArrayGetView(_, _, _, _, _, reply)
+    | TreeReadView(_, _, _, _, reply)
+    | TreeMapGetView(_, _, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeMapEntries(_, _, _, reply) | TreeMapEntriesView(_, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeArrayValues(_, _, _, reply) | TreeArrayValuesView(_, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeRetainedSnapshot(_, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    GetVersions(_, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    LoadVersion(_, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    GetClaim(_, _, reply) -> {
+      process.send(reply, Error(Nil))
+      actor.continue(state)
+    }
+    HasClaim(_, _, reply)
+    | TaskAssigned(_, _, reply)
+    | TaskQueued(_, _, reply) -> {
+      process.send(reply, False)
+      actor.continue(state)
+    }
+    ClaimOnce(_, _, _, _, reply) | CompareAndSetClaim(_, _, _, _, reply) -> {
+      process.send(reply, AlreadyPendingLocally)
+      actor.continue(state)
+    }
+    VolunteerTask(_, _, reply) -> {
+      process.send(reply, task_manager_kernel.DisconnectedBeforeAssignment)
+      actor.continue(state)
+    }
+    CompleteTask(_, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
+    TaskQueues(_, reply) -> {
+      process.send(reply, [])
+      actor.continue(state)
+    }
+    RebaseTreeOnto(_, _, _, reply)
+    | MergeTree(_, _, _, _, reply)
+    | DisposeTreeBranch(_, _, reply)
+    | TreeEdit(_, _, _, reply)
+    | TreeEditView(_, _, _, _, reply)
+    | TreeTransactionBegin(_, _, _, _, reply)
+    | TreeTransactionCommit(_, _, reply)
+    | TreeTransactionAbort(_, _, reply)
+    | FinishTreeTransactionCommit(_, _, reply)
+    | RegisterTreeSettlement(_, _, _, _, _, reply)
+    | RevertTree(_, _, _, _, reply)
+    | DisposeTreeRevertible(_, _, _, reply)
+    | TreeUpgradeSchema(_, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    ForkTree(_, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    RetainTreeRevertible(_, _, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    _ -> actor.continue(state)
+  }
+}
+
+@target(erlang)
+fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
+  case state.active_tree_commit_delivery {
+    Some(active) ->
+      case msg {
+        Shutdown ->
+          actor.continue(
+            State(
+              ..state,
+              subscribers: [],
+              tree_commit_subscribers: [],
+              tree_commit_settlements: dict.new(),
+              closing: True,
+            ),
+          )
+        RetainTreeRevertible(_, _, _, _, _, _)
+        | RegisterTreeSettlement(_, _, _, _, _, _)
+        | UnsubscribeTreeCommits(_, _)
+        | TreeCommitSubscriberActive(_, _, _, _)
+        | SubscribeTreeCommits(_, _, _, _)
+        | SubscribeTreeEvents(_, _, _)
+        | TreeRevertibleStatusRequested(_, _, _, _)
+        | TreeBranchStatus(_, _, _) -> handle_message(state, msg)
+        ForkTree(_, _, _, reply) -> {
+          process.send(
+            reply,
+            Error("tree operation is not allowed during commit delivery"),
+          )
+          actor.continue(state)
+        }
+        RebaseTreeOnto(_, _, _, reply)
+        | MergeTree(_, _, _, _, reply)
+        | DisposeTreeBranch(_, _, reply)
+        | TreeTransactionBegin(_, _, _, _, reply)
+        | RevertTree(_, _, _, _, reply)
+        | TreeUpgradeSchema(_, _, _, reply) -> {
+          process.send(
+            reply,
+            Error("tree operation is not allowed during commit delivery"),
+          )
+          actor.continue(state)
+        }
+        TreeTransactionCommit(_, _, reply)
+        | TreeTransactionAbort(_, _, reply) ->
+          case tree_transaction_reply_is_owner(state, reply) {
+            True ->
+              actor.continue(
+                State(..state, deferred_messages: [
+                  msg,
+                  ..state.deferred_messages
+                ]),
+              )
+            False -> {
+              process.send(
+                reply,
+                Error("tree operation is not allowed during commit delivery"),
+              )
+              actor.continue(state)
+            }
+          }
         CommitDeliveryFinished(event_id) if event_id == active.event_id ->
           handle_message(state, msg)
         MonitoredProcessDown(process.ProcessDown(monitor, _, _))
@@ -2250,7 +2999,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
-    TreeCompatibility(address, view, reply) -> {
+    TreeCompatibility(address, selector, view, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2259,13 +3008,143 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree compatibility requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_compatibility(core, address, view)
+            runtime_core.tree_compatibility_on(core, address, selector, view)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
+    ForkTree(address, selector, view, reply) ->
+      case state.phase {
+        Ready(core, None) ->
+          case runtime_core.fork_tree(core, address, selector, view) {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(#(core, id)) -> {
+              process.send(reply, Ok(tree_types.LocalCheckout(id)))
+              actor.continue(State(..state, phase: Ready(core, None)))
+            }
+          }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        Ready(_, Some(_)) | Connecting(_) | Reconnecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree fork requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+    RebaseTreeOnto(address, source, target, reply) ->
+      case state.phase {
+        Ready(core, None) ->
+          case runtime_core.rebase_tree_onto(core, address, source, target) {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(#(core, events)) -> {
+              process.send(reply, Ok(Nil))
+              actor.continue(fan_out_scoped(
+                State(..state, phase: Ready(core, None)),
+                events,
+              ))
+            }
+          }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        Ready(_, Some(_)) | Connecting(_) | Reconnecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree rebase requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+    MergeTree(address, target, source, dispose_source, reply) ->
+      case state.phase {
+        Ready(core, None) ->
+          case
+            runtime_core.merge_tree(
+              core,
+              address,
+              target,
+              source,
+              dispose_source,
+            )
+          {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(#(core, events, outbound)) -> {
+              let #(next, outcome) =
+                send_or_suspend(
+                  State(..state, phase: Ready(core, None)),
+                  core,
+                  send_outbound_checked(state.channel, core.client_id, outbound),
+                )
+              let next = case dispose_source {
+                True -> cleanup_tree_scope(next, address, source)
+                False -> next
+              }
+              process.send(reply, outcome)
+              actor.continue(fan_out_scoped(next, events))
+            }
+          }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        Ready(_, Some(_)) | Connecting(_) | Reconnecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree merge requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+    TreeBranchStatus(address, selector, reply) -> {
+      process.send(reply, case phase_core(state.phase) {
+        Some(core) ->
+          case runtime_core.tree_branch_status(core, address, selector) {
+            runtime_core.DocumentBranch -> tree_types.DocumentBranch
+            runtime_core.BranchValid -> tree_types.BranchValid
+            runtime_core.BranchDisposed -> tree_types.BranchDisposed
+          }
+        None -> tree_types.BranchDisposed
+      })
+      actor.continue(state)
+    }
+    DisposeTreeBranch(address, selector, reply) ->
+      case phase_core(state.phase) {
+        None -> {
+          process.send(reply, Error("tree branch is disposed"))
+          actor.continue(state)
+        }
+        Some(core) ->
+          case runtime_core.dispose_tree_branch(core, address, selector) {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(core) -> {
+              process.send(reply, Ok(Nil))
+              actor.continue(cleanup_tree_scope(
+                install_phase_core(state, core),
+                address,
+                selector,
+              ))
+            }
+          }
+      }
     TreeHistoryEvidence(address, reply) -> {
       process.send(
         reply,
@@ -2296,7 +3175,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
-    TreeRead(address, path, reply) -> {
+    TreeRead(address, selector, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2305,7 +3184,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_read(core, address, path)
+            runtime_core.tree_read_on(core, address, selector, path)
             |> result.map_error(string.inspect)
           },
         ),
@@ -2328,7 +3207,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
-    TreeMapGet(address, path, key, reply) -> {
+    TreeMapGet(address, selector, path, key, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2337,14 +3216,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_map_get(core, address, path, key)
+            runtime_core.tree_map_get_on(core, address, selector, path, key)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeMapEntries(address, path, reply) -> {
+    TreeMapEntries(address, selector, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2353,14 +3232,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_map_entries(core, address, path)
+            runtime_core.tree_map_entries_on(core, address, selector, path)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeArrayGet(address, path, index, reply) -> {
+    TreeArrayGet(address, selector, path, index, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2369,14 +3248,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_array_get(core, address, path, index)
+            runtime_core.tree_array_get_on(core, address, selector, path, index)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeReadView(address, view, path, reply) -> {
+    TreeReadView(address, selector, view, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2385,14 +3264,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_read_view(core, address, view, path)
+            runtime_core.tree_read_view_on(core, address, selector, view, path)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeArrayValues(address, path, reply) -> {
+    TreeArrayValues(address, selector, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2401,14 +3280,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_array_values(core, address, path)
+            runtime_core.tree_array_values_on(core, address, selector, path)
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeArrayGetView(address, view, path, index, reply) -> {
+    TreeArrayGetView(address, selector, view, path, index, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2417,14 +3296,21 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_array_get_view(core, address, view, path, index)
+            runtime_core.tree_array_get_view_on(
+              core,
+              address,
+              selector,
+              view,
+              path,
+              index,
+            )
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeArrayValuesView(address, view, path, reply) -> {
+    TreeArrayValuesView(address, selector, view, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2433,14 +3319,20 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_array_values_view(core, address, view, path)
+            runtime_core.tree_array_values_view_on(
+              core,
+              address,
+              selector,
+              view,
+              path,
+            )
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeMapGetView(address, view, path, key, reply) -> {
+    TreeMapGetView(address, selector, view, path, key, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2449,14 +3341,21 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_map_get_view(core, address, view, path, key)
+            runtime_core.tree_map_get_view_on(
+              core,
+              address,
+              selector,
+              view,
+              path,
+              key,
+            )
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeMapEntriesView(address, view, path, reply) -> {
+    TreeMapEntriesView(address, selector, view, path, reply) -> {
       process.send(
         reply,
         read_transaction_tree(
@@ -2465,66 +3364,20 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
-            runtime_core.tree_map_entries_view(core, address, view, path)
+            runtime_core.tree_map_entries_view_on(
+              core,
+              address,
+              selector,
+              view,
+              path,
+            )
             |> result.map_error(string.inspect)
           },
         ),
       )
       actor.continue(state)
     }
-    TreeEdit(address, operation, reply) ->
-      case transaction_tree_access(state, address, reply) {
-        Error(error) -> {
-          process.send(reply, Error(error))
-          actor.continue(state)
-        }
-        Ok(Nil) ->
-          case state.phase {
-            Ready(core, None) ->
-              case runtime_core.submit_tree_edits(core, address, [operation]) {
-                Error(error) -> {
-                  process.send(reply, Error(string.inspect(error)))
-                  actor.continue(state)
-                }
-                Ok(#(core, events, outbound)) -> {
-                  let #(next, outcome) =
-                    send_or_suspend(
-                      State(..state, phase: Ready(core, None)),
-                      core,
-                      send_outbound_checked(
-                        state.channel,
-                        core.client_id,
-                        outbound,
-                      ),
-                    )
-                  process.send(reply, case next.phase {
-                    Reconnecting(_) -> Ok(Nil)
-                    _ -> outcome
-                  })
-                  actor.continue(fan_out(next, events))
-                }
-              }
-            Ready(_, Some(_)) | Reconnecting(_) -> {
-              process.send(
-                reply,
-                Error("tree edit requires a ready document connection"),
-              )
-              actor.continue(state)
-            }
-            SuspendedPendingTree(_, reason) -> {
-              process.send(reply, Error(reason))
-              actor.continue(state)
-            }
-            Connecting(_) | Failed(_) -> {
-              process.send(
-                reply,
-                Error("tree edit requires a ready document connection"),
-              )
-              actor.continue(state)
-            }
-          }
-      }
-    TreeEditView(address, view, operation, reply) ->
+    TreeEdit(address, selector, operation, reply) ->
       case transaction_tree_access(state, address, reply) {
         Error(error) -> {
           process.send(reply, Error(error))
@@ -2534,7 +3387,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           case state.phase {
             Ready(core, None) ->
               case
-                runtime_core.submit_tree_edits_view(core, address, view, [
+                runtime_core.submit_tree_edits_on(core, address, selector, [
                   operation,
                 ])
               {
@@ -2557,7 +3410,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                     Reconnecting(_) -> Ok(Nil)
                     _ -> outcome
                   })
-                  actor.continue(fan_out(next, events))
+                  actor.continue(fan_out_scoped(next, events))
                 }
               }
             Ready(_, Some(_)) | Reconnecting(_) -> {
@@ -2580,71 +3433,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
             }
           }
       }
-    TreeTransactionBegin(address, view, constraints, reply) ->
-      handle_tree_transaction_begin(state, address, view, constraints, reply)
-    TreeTransactionCommit(address, reply) ->
-      handle_tree_transaction_commit(state, address, reply)
-    TreeTransactionAbort(address, reply) ->
-      handle_tree_transaction_abort(state, address, reply)
-    FinishTreeTransactionCommit(core, send_outcome, reply) ->
-      finish_tree_transaction_commit(state, core, send_outcome, reply)
-    MonitoredProcessDown(down) -> handle_monitored_process_down(state, down)
-    SubscribeTreeCommits(address, handler, reply) -> {
-      let id = state.next_tree_commit_subscription_id
-      let token = SubscriptionToken(state.self, id)
-      process.send(reply, token)
-      actor.continue(
-        State(
-          ..state,
-          tree_commit_subscribers: [
-            TreeCommitSubscriber(id, address, handler),
-            ..state.tree_commit_subscribers
-          ],
-          next_tree_commit_subscription_id: id + 1,
-        ),
-      )
-    }
-    UnsubscribeTreeCommits(token) ->
-      actor.continue(
-        State(
-          ..state,
-          tree_commit_subscribers: list.filter(
-            state.tree_commit_subscribers,
-            fn(subscriber) { subscriber.id != token.id },
-          ),
-        ),
-      )
-    RetainTreeRevertible(address, revision, kind, event_id, reply) ->
-      handle_retain_tree_revertible(
-        state,
-        address,
-        revision,
-        kind,
-        event_id,
-        reply,
-      )
-    RegisterTreeSettlement(revision, event_id, handler, reply) ->
-      handle_register_tree_settlement(state, revision, event_id, handler, reply)
-    TreeRevertibleStatusRequested(address, id, reply) -> {
-      let status = case phase_core(state.phase) {
-        Some(core) ->
-          case runtime_core.tree_revertible_is_valid(core, address, id) {
-            True -> RevertibleValid
-            False -> RevertibleDisposed
-          }
-        None -> RevertibleDisposed
-      }
-      process.send(reply, status)
-      actor.continue(state)
-    }
-    DisposeTreeRevertible(address, id, reply) ->
-      handle_dispose_tree_revertible(state, address, id, reply)
-    RevertTree(address, id, dispose, reply) ->
-      handle_revert_tree(state, address, id, dispose, reply)
-    CommitDeliveryFinished(event_id) ->
-      finish_tree_commit_delivery(state, event_id, None)
-    ReplayDeferred -> actor.continue(state)
-    TreeUpgradeSchema(address, view, reply) ->
+    TreeEditView(address, selector, view, operation, reply) ->
       case transaction_tree_access(state, address, reply) {
         Error(error) -> {
           process.send(reply, Error(error))
@@ -2653,7 +3442,15 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         Ok(Nil) ->
           case state.phase {
             Ready(core, None) ->
-              case runtime_core.submit_tree_upgrade(core, address, view) {
+              case
+                runtime_core.submit_tree_edits_view_on(
+                  core,
+                  address,
+                  selector,
+                  view,
+                  [operation],
+                )
+              {
                 Error(error) -> {
                   process.send(reply, Error(string.inspect(error)))
                   actor.continue(state)
@@ -2673,7 +3470,173 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                     Reconnecting(_) -> Ok(Nil)
                     _ -> outcome
                   })
-                  actor.continue(fan_out(next, events))
+                  actor.continue(fan_out_scoped(next, events))
+                }
+              }
+            Ready(_, Some(_)) | Reconnecting(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
+              actor.continue(state)
+            }
+            SuspendedPendingTree(_, reason) -> {
+              process.send(reply, Error(reason))
+              actor.continue(state)
+            }
+            Connecting(_) | Failed(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
+              actor.continue(state)
+            }
+          }
+      }
+    TreeTransactionBegin(address, selector, view, constraints, reply) ->
+      handle_tree_transaction_begin(
+        state,
+        address,
+        selector,
+        view,
+        constraints,
+        reply,
+      )
+    TreeTransactionCommit(address, selector, reply) ->
+      handle_tree_transaction_commit(state, address, selector, reply)
+    TreeTransactionAbort(address, selector, reply) ->
+      handle_tree_transaction_abort(state, address, selector, reply)
+    FinishTreeTransactionCommit(core, send_outcome, reply) ->
+      finish_tree_transaction_commit(state, core, send_outcome, reply)
+    MonitoredProcessDown(down) -> handle_monitored_process_down(state, down)
+    SubscribeTreeCommits(address, selector, handler, reply) -> {
+      let id = state.next_tree_commit_subscription_id
+      let token = SubscriptionToken(state.self, id)
+      process.send(reply, token)
+      actor.continue(
+        State(
+          ..state,
+          tree_commit_subscribers: [
+            TreeCommitSubscriber(id, address, selector, handler),
+            ..state.tree_commit_subscribers
+          ],
+          next_tree_commit_subscription_id: id + 1,
+        ),
+      )
+    }
+    UnsubscribeTreeCommits(token, reply) -> {
+      process.send(reply, Nil)
+      actor.continue(
+        State(
+          ..state,
+          tree_commit_subscribers: list.filter(
+            state.tree_commit_subscribers,
+            fn(subscriber) { subscriber.id != token.id },
+          ),
+        ),
+      )
+    }
+    TreeCommitSubscriberActive(id, address, selector, reply) -> {
+      process.send(
+        reply,
+        list.any(state.tree_commit_subscribers, fn(subscriber) {
+          subscriber.id == id
+          && subscriber.address == address
+          && subscriber.selector == selector
+        }),
+      )
+      actor.continue(state)
+    }
+    RetainTreeRevertible(address, selector, revision, kind, event_id, reply) ->
+      handle_retain_tree_revertible(
+        state,
+        address,
+        selector,
+        revision,
+        kind,
+        event_id,
+        reply,
+      )
+    RegisterTreeSettlement(
+      address,
+      selector,
+      revision,
+      event_id,
+      handler,
+      reply,
+    ) ->
+      handle_register_tree_settlement(
+        state,
+        address,
+        selector,
+        revision,
+        event_id,
+        handler,
+        reply,
+      )
+    TreeRevertibleStatusRequested(address, selector, id, reply) -> {
+      let status = case phase_core(state.phase) {
+        Some(core) ->
+          case
+            runtime_core.tree_revertible_is_valid_on(
+              core,
+              address,
+              selector,
+              id,
+            )
+          {
+            True -> RevertibleValid
+            False -> RevertibleDisposed
+          }
+        None -> RevertibleDisposed
+      }
+      process.send(reply, status)
+      actor.continue(state)
+    }
+    DisposeTreeRevertible(address, selector, id, reply) ->
+      handle_dispose_tree_revertible(state, address, selector, id, reply)
+    RevertTree(address, selector, id, dispose, reply) ->
+      handle_revert_tree(state, address, selector, id, dispose, reply)
+    CommitDeliveryFinished(event_id) ->
+      finish_tree_commit_delivery(state, event_id, None)
+    ReplayDeferred -> actor.continue(state)
+    TreeUpgradeSchema(address, selector, view, reply) ->
+      case transaction_tree_access(state, address, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(Nil) ->
+          case state.phase {
+            Ready(core, None) ->
+              case
+                runtime_core.submit_tree_upgrade_on(
+                  core,
+                  address,
+                  selector,
+                  view,
+                )
+              {
+                Error(error) -> {
+                  process.send(reply, Error(string.inspect(error)))
+                  actor.continue(state)
+                }
+                Ok(#(core, events, outbound)) -> {
+                  let #(next, outcome) =
+                    send_or_suspend(
+                      State(..state, phase: Ready(core, None)),
+                      core,
+                      send_outbound_checked(
+                        state.channel,
+                        core.client_id,
+                        outbound,
+                      ),
+                    )
+                  process.send(reply, case next.phase {
+                    Reconnecting(_) -> Ok(Nil)
+                    _ -> outcome
+                  })
+                  actor.continue(fan_out_scoped(next, events))
                 }
               }
             Ready(_, Some(_)) | Reconnecting(_) -> {
@@ -3431,7 +4394,14 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     Subscribe(address, subscriber) ->
       actor.continue(
         State(..state, subscribers: [
-          #(address, subscriber),
+          #(address, tree_types.DocumentCheckout, subscriber),
+          ..state.subscribers
+        ]),
+      )
+    SubscribeTreeEvents(address, selector, subscriber) ->
+      actor.continue(
+        State(..state, subscribers: [
+          #(address, selector, subscriber),
           ..state.subscribers
         ]),
       )
@@ -3538,6 +4508,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
 fn handle_tree_transaction_begin(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   constraints: List(tree_types.FieldPath),
   reply: Subject(Result(Nil, String)),
@@ -3551,9 +4522,10 @@ fn handle_tree_transaction_begin(
         }
         Ok(caller) ->
           case
-            runtime_core.begin_tree_transaction(
+            runtime_core.begin_tree_transaction_on(
               core,
               address,
+              selector,
               view,
               constraints,
             )
@@ -3571,6 +4543,7 @@ fn handle_tree_transaction_begin(
                     ..state,
                     active_tree_transaction: Some(ActiveTreeTransaction(
                       address,
+                      selector,
                       caller,
                       process.monitor(caller),
                     )),
@@ -3599,6 +4572,7 @@ fn handle_tree_transaction_begin(
 fn handle_tree_transaction_commit(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   reply: Subject(Result(Nil, String)),
 ) -> actor.Next(State, Msg) {
   case transaction_caller(state, reply) {
@@ -3609,9 +4583,13 @@ fn handle_tree_transaction_commit(
     Ok(_) ->
       case state.phase {
         Ready(core, None) ->
-          case runtime_core.commit_tree_transaction(core, address) {
+          case
+            runtime_core.commit_tree_transaction_on(core, address, selector)
+          {
             Error(error) ->
-              case runtime_core.abort_tree_transaction(core, address) {
+              case
+                runtime_core.abort_tree_transaction_on(core, address, selector)
+              {
                 Error(abort_error) -> {
                   let reason =
                     string.inspect(error)
@@ -3647,7 +4625,7 @@ fn handle_tree_transaction_commit(
                   core,
                   send_outbound_checked(state.channel, core.client_id, outbound),
                 )
-              let state = fan_out(state, events)
+              let state = fan_out_scoped(state, events)
               case state.active_tree_commit_delivery {
                 Some(_) -> {
                   process.send(
@@ -3730,6 +4708,7 @@ fn finish_tree_transaction_commit(
 fn handle_tree_transaction_abort(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   reply: Subject(Result(Nil, String)),
 ) -> actor.Next(State, Msg) {
   case transaction_caller(state, reply) {
@@ -3740,7 +4719,7 @@ fn handle_tree_transaction_abort(
     Ok(_) ->
       case state.phase {
         Ready(core, None) ->
-          case runtime_core.abort_tree_transaction(core, address) {
+          case runtime_core.abort_tree_transaction_on(core, address, selector) {
             Error(error) -> {
               let reason = string.inspect(error)
               process.send(reply, Error(reason))
@@ -3748,7 +4727,7 @@ fn handle_tree_transaction_abort(
             }
             Ok(#(core, events)) -> {
               let state = State(..state, phase: Ready(core, None))
-              let state = fan_out(state, events)
+              let state = fan_out_scoped(state, events)
               let #(state, outcome) = finish_tree_transaction(state, core)
               process.send(reply, outcome)
               actor.continue(state)
@@ -3805,7 +4784,9 @@ fn handle_tree_transaction_caller_down(
             discard_deferred_operations(release_tree_transaction_caller(state)),
           )
         Some(core) ->
-          case abort_all_tree_transactions(core, active.address) {
+          case
+            abort_all_tree_transactions(core, active.address, active.selector)
+          {
             Error(error) ->
               actor.continue(fail(
                 release_tree_transaction_caller(state),
@@ -3838,6 +4819,17 @@ fn transaction_caller(
     Some(active) if active.caller != caller ->
       Error("tree transaction uses another caller")
     Some(_) | None -> Ok(caller)
+  }
+}
+
+@target(erlang)
+fn tree_transaction_reply_is_owner(
+  state: State,
+  reply: Subject(Result(Nil, String)),
+) -> Bool {
+  case state.active_tree_transaction, process.subject_owner(reply) {
+    Some(active), Ok(caller) -> active.caller == caller
+    _, _ -> False
   }
 }
 
@@ -3913,7 +4905,11 @@ fn abort_tree_transaction_in_phase(
   core: runtime_core.Core,
   address: String,
 ) -> #(State, Result(Nil, String)) {
-  case runtime_core.abort_tree_transaction(core, address) {
+  let selector = case state.active_tree_transaction {
+    Some(active) -> active.selector
+    None -> tree_types.DocumentCheckout
+  }
+  case runtime_core.abort_tree_transaction_on(core, address, selector) {
     Error(error) -> {
       let reason = string.inspect(error)
       #(fail_active_tree_transaction(state, core, reason), Error(reason))
@@ -3944,15 +4940,17 @@ fn fail_active_tree_transaction(
 fn abort_all_tree_transactions(
   core: runtime_core.Core,
   address: String,
+  selector: tree_types.CheckoutSelector,
 ) -> Result(runtime_core.Core, runtime_core.CoreError) {
   case runtime_core.tree_transaction_depth(core) {
     0 -> Ok(core)
     _ -> {
-      use #(core, _) <- result.try(runtime_core.abort_tree_transaction(
+      use #(core, _) <- result.try(runtime_core.abort_tree_transaction_on(
         core,
         address,
+        selector,
       ))
-      abort_all_tree_transactions(core, address)
+      abort_all_tree_transactions(core, address, selector)
     }
   }
 }
@@ -3989,7 +4987,32 @@ fn install_phase_core(state: State, core: runtime_core.Core) -> State {
     Connecting(waiters) -> Connecting(waiters)
     Failed(reason) -> Failed(reason)
   }
+
   State(..state, phase: phase)
+}
+
+@target(erlang)
+fn cleanup_tree_scope(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> State {
+  State(
+    ..state,
+    subscribers: list.filter(state.subscribers, fn(subscriber) {
+      subscriber.0 != address || subscriber.1 != selector
+    }),
+    tree_commit_subscribers: list.filter(
+      state.tree_commit_subscribers,
+      fn(subscriber) {
+        subscriber.address != address || subscriber.selector != selector
+      },
+    ),
+    tree_commit_settlements: dict.filter(
+      state.tree_commit_settlements,
+      fn(key, _) { key.0 != address || key.1 != selector },
+    ),
+  )
 }
 
 @target(erlang)
@@ -4360,12 +5383,11 @@ fn handle_operation_delivery(
           let state = resolve_claim_waiters(state, resolutions)
           let state = resolve_acquire_waiters(state, resolutions)
           let state = apply_summary_events(state, summary_events)
-          let state = fan_out(state, events)
+          let state =
+            State(..state, phase: Ready(core, resubmit_at))
+            |> fan_out_scoped(runtime_core.scope_tree_events(core, events))
           let #(state, request_outcome) =
-            request_operations(
-              State(..state, phase: Ready(core, resubmit_at)),
-              request_from,
-            )
+            request_operations(state, request_from)
           case request_outcome {
             Error(reason) ->
               case state.phase {
@@ -5789,6 +6811,19 @@ fn push(channel: TransportHandle, event: String, payload: Json) -> Nil {
 /// Route events in sequence. Commit callbacks run outside the actor so their
 /// factory and settlement functions can call the actor synchronously.
 fn fan_out(state: State, events: List(#(String, ChannelEvent))) -> State {
+  fan_out_scoped(
+    state,
+    list.map(events, fn(event) {
+      #(event.0, tree_types.DocumentCheckout, event.1)
+    }),
+  )
+}
+
+@target(erlang)
+fn fan_out_scoped(
+  state: State,
+  events: List(runtime_core.ScopedTreeEvent),
+) -> State {
   case state.active_tree_commit_delivery {
     Some(active) ->
       State(
@@ -5803,12 +6838,13 @@ fn fan_out(state: State, events: List(#(String, ChannelEvent))) -> State {
     None ->
       case events {
         [] -> state
-        [#(address, event), ..rest] ->
+        [#(address, selector, event), ..rest] ->
           case event {
             TreeCommitApplied(revision, kind, local, revertible) ->
               start_tree_commit_delivery(
                 state,
                 address,
+                selector,
                 revision,
                 kind,
                 local,
@@ -5816,15 +6852,18 @@ fn fan_out(state: State, events: List(#(String, ChannelEvent))) -> State {
                 rest,
               )
             TreeCommitSettled(revision, outcome) ->
-              fan_out(settle_tree_commit(state, revision, outcome), rest)
+              fan_out_scoped(
+                settle_tree_commit(state, address, selector, revision, outcome),
+                rest,
+              )
             _ -> {
               list.each(state.subscribers, fn(subscriber) {
-                case subscriber.0 == address {
-                  True -> subscriber.1(event)
+                case subscriber.0 == address && subscriber.1 == selector {
+                  True -> subscriber.2(event)
                   False -> Nil
                 }
               })
-              fan_out(state, rest)
+              fan_out_scoped(state, rest)
             }
           }
       }
@@ -5835,18 +6874,19 @@ fn fan_out(state: State, events: List(#(String, ChannelEvent))) -> State {
 fn start_tree_commit_delivery(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   kind: tree_types.TreeCommitKind,
   local: Bool,
   revertible: Bool,
-  remaining_events: List(#(String, ChannelEvent)),
+  remaining_events: List(runtime_core.ScopedTreeEvent),
 ) -> State {
   let subscribers =
     list.filter(state.tree_commit_subscribers, fn(subscriber) {
-      subscriber.address == address
+      subscriber.address == address && subscriber.selector == selector
     })
   case subscribers {
-    [] -> fan_out(state, remaining_events)
+    [] -> fan_out_scoped(state, remaining_events)
     _ -> {
       let event_id = state.next_tree_commit_event_id
       let get_revertible = case local && revertible {
@@ -5856,10 +6896,19 @@ fn start_tree_commit_delivery(
               state.self,
               waiting: connect_timeout_milliseconds,
               sending: fn(reply) {
-                RetainTreeRevertible(address, revision, kind, event_id, reply)
+                RetainTreeRevertible(
+                  address,
+                  selector,
+                  revision,
+                  kind,
+                  event_id,
+                  reply,
+                )
               },
             )
-            |> result.map(fn(id) { TreeRevertible(state.self, address, id) })
+            |> result.map(fn(id) {
+              TreeRevertible(state.self, address, selector, id)
+            })
           })
         False -> None
       }
@@ -5870,7 +6919,14 @@ fn start_tree_commit_delivery(
               state.self,
               waiting: connect_timeout_milliseconds,
               sending: fn(reply) {
-                RegisterTreeSettlement(revision, event_id, handler, reply)
+                RegisterTreeSettlement(
+                  address,
+                  selector,
+                  revision,
+                  event_id,
+                  handler,
+                  reply,
+                )
               },
             )
           })
@@ -5879,13 +6935,33 @@ fn start_tree_commit_delivery(
       let event = TreeCommitEvent(kind, local, get_revertible, on_settled)
       let delivery =
         process.spawn_unlinked(fn() {
-          list.each(subscribers, fn(subscriber) { subscriber.handler(event) })
+          list.each(subscribers, fn(subscriber) {
+            case
+              process.call(
+                state.self,
+                waiting: connect_timeout_milliseconds,
+                sending: fn(reply) {
+                  TreeCommitSubscriberActive(
+                    subscriber.id,
+                    address,
+                    selector,
+                    reply,
+                  )
+                },
+              )
+            {
+              True -> subscriber.handler(event)
+              False -> Nil
+            }
+          })
           process.send(state.self, CommitDeliveryFinished(event_id))
         })
       State(
         ..state,
         active_tree_commit_delivery: Some(ActiveTreeCommitDelivery(
           event_id,
+          address,
+          selector,
           revision,
           False,
           process.monitor(delivery),
@@ -5901,6 +6977,7 @@ fn start_tree_commit_delivery(
 fn handle_retain_tree_revertible(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   kind: tree_types.TreeCommitKind,
   event_id: Int,
@@ -5909,6 +6986,8 @@ fn handle_retain_tree_revertible(
   case state.active_tree_commit_delivery {
     Some(active)
       if active.event_id == event_id
+      && active.address == address
+      && active.selector == selector
       && active.revision == revision
       && !active.acquired
     ->
@@ -5922,7 +7001,13 @@ fn handle_retain_tree_revertible(
         }
         Some(core) ->
           case
-            runtime_core.retain_tree_revertible(core, address, revision, kind)
+            runtime_core.retain_tree_revertible_on(
+              core,
+              address,
+              selector,
+              revision,
+              kind,
+            )
           {
             Error(error) -> {
               process.send(reply, Error(string.inspect(error)))
@@ -5951,6 +7036,8 @@ fn handle_retain_tree_revertible(
 @target(erlang)
 fn handle_register_tree_settlement(
   state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   event_id: Int,
   handler: fn(tree_types.TreeCommitOutcome) -> Nil,
@@ -5958,10 +7045,13 @@ fn handle_register_tree_settlement(
 ) -> actor.Next(State, Msg) {
   case state.active_tree_commit_delivery, phase_core(state.phase) {
     Some(active), Some(_)
-      if active.event_id == event_id && active.revision == revision
+      if active.event_id == event_id
+      && active.address == address
+      && active.selector == selector
+      && active.revision == revision
     -> {
       let callbacks =
-        dict.get(state.tree_commit_settlements, revision)
+        dict.get(state.tree_commit_settlements, #(address, selector, revision))
         |> result.unwrap([])
       process.send(reply, Ok(Nil))
       actor.continue(
@@ -5969,7 +7059,7 @@ fn handle_register_tree_settlement(
           ..state,
           tree_commit_settlements: dict.insert(
             state.tree_commit_settlements,
-            revision,
+            #(address, selector, revision),
             list.append(callbacks, [handler]),
           ),
         ),
@@ -5999,7 +7089,7 @@ fn finish_tree_commit_delivery(
       }
       let state =
         State(..state, active_tree_commit_delivery: None)
-        |> fan_out(active.remaining_events)
+        |> fan_out_scoped(active.remaining_events)
       case state.active_tree_commit_delivery {
         Some(_) -> actor.continue(state)
         None -> {
@@ -6008,6 +7098,10 @@ fn finish_tree_commit_delivery(
               state.replaying_messages,
               list.reverse(state.deferred_messages),
             )
+          let replaying = case state.closing {
+            True -> list.append(replaying, [Shutdown])
+            False -> replaying
+          }
           case replaying {
             [] -> Nil
             _ -> process.send(state.self, ReplayDeferred)
@@ -6025,31 +7119,54 @@ fn finish_tree_commit_delivery(
 @target(erlang)
 fn settle_tree_commit(
   state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   outcome: tree_types.TreeCommitOutcome,
 ) -> State {
-  case dict.get(state.tree_commit_settlements, revision) {
+  let key = #(address, selector, revision)
+  case dict.get(state.tree_commit_settlements, key) {
     Error(_) -> state
     Ok(callbacks) -> {
       let _ =
         process.spawn_unlinked(fn() {
           list.each(callbacks, fn(callback) {
-            let worker = process.spawn_unlinked(fn() { callback(outcome) })
-            let monitor = process.monitor(worker)
-            process.new_selector()
-            |> process.select_specific_monitor(monitor, fn(_) { Nil })
-            |> process.selector_receive_forever
-            process.demonitor_process(monitor)
+            case tree_scope_is_live(state.self, address, selector) {
+              False -> Nil
+              True -> {
+                let worker = process.spawn_unlinked(fn() { callback(outcome) })
+                let monitor = process.monitor(worker)
+                process.new_selector()
+                |> process.select_specific_monitor(monitor, fn(_) { Nil })
+                |> process.selector_receive_forever
+                process.demonitor_process(monitor)
+              }
+            }
           })
         })
       State(
         ..state,
-        tree_commit_settlements: dict.delete(
-          state.tree_commit_settlements,
-          revision,
-        ),
+        tree_commit_settlements: dict.delete(state.tree_commit_settlements, key),
       )
     }
+  }
+}
+
+@target(erlang)
+fn tree_scope_is_live(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Bool {
+  case process.subject_owner(runtime) {
+    Error(_) -> False
+    Ok(owner) ->
+      case process.is_alive(owner) {
+        False -> False
+        True ->
+          tree_branch_status(runtime, address, selector)
+          != tree_types.BranchDisposed
+      }
   }
 }
 
@@ -6057,6 +7174,7 @@ fn settle_tree_commit(
 fn handle_dispose_tree_revertible(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   id: tree_types.RevertibleId,
   reply: Subject(Result(Nil, String)),
 ) -> actor.Next(State, Msg) {
@@ -6066,7 +7184,9 @@ fn handle_dispose_tree_revertible(
       actor.continue(state)
     }
     Some(core) ->
-      case runtime_core.dispose_tree_revertible(core, address, id) {
+      case
+        runtime_core.dispose_tree_revertible_on(core, address, selector, id)
+      {
         Error(error) -> {
           process.send(reply, Error(string.inspect(error)))
           actor.continue(state)
@@ -6083,13 +7203,14 @@ fn handle_dispose_tree_revertible(
 fn handle_revert_tree(
   state: State,
   address: String,
+  selector: tree_types.CheckoutSelector,
   id: tree_types.RevertibleId,
   dispose: Bool,
   reply: Subject(Result(Nil, String)),
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, None) ->
-      case runtime_core.revert_tree(core, address, id) {
+      case runtime_core.revert_tree_on(core, address, selector, id) {
         Error(error) -> {
           process.send(reply, Error(string.inspect(error)))
           actor.continue(state)
@@ -6098,7 +7219,13 @@ fn handle_revert_tree(
           case
             case dispose {
               False -> Ok(core)
-              True -> runtime_core.dispose_tree_revertible(core, address, id)
+              True ->
+                runtime_core.dispose_tree_revertible_on(
+                  core,
+                  address,
+                  selector,
+                  id,
+                )
             }
           {
             Error(error) -> {
@@ -6110,9 +7237,7 @@ fn handle_revert_tree(
                 send_or_suspend(
                   State(..state, phase: Ready(core, None)),
                   core,
-                  send_outbound_checked(state.channel, core.client_id, [
-                    outbound,
-                  ]),
+                  send_outbound_checked(state.channel, core.client_id, outbound),
                 )
               case outcome {
                 Error(error) -> {
@@ -6121,7 +7246,7 @@ fn handle_revert_tree(
                 }
                 Ok(Nil) -> {
                   process.send(reply, Ok(Nil))
-                  actor.continue(fan_out(next, events))
+                  actor.continue(fan_out_scoped(next, events))
                 }
               }
             }
