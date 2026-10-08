@@ -293,6 +293,56 @@ test("undo helpers send explicit named-handle commands", async (t) => {
   });
 });
 
+test("branch helpers send exact client-owned checkout commands", async (t) => {
+  const process = child(`
+    const expected = [
+      { op: "fork", source: "main", name: "draft" },
+      {
+        op: "branchEdit",
+        branch: "draft",
+        edit: { kind: "object-set", value: "draft" },
+      },
+      { op: "rebaseBranch", source: "draft", target: "main" },
+      { op: "retainLastLocalCommit", name: "draft-edit", branch: "draft" },
+      { op: "revert", name: "draft-edit", dispose: true },
+      { op: "mergeBranch", target: "main", source: "draft", dispose: true },
+      { op: "disposeBranch", name: "draft" },
+    ];
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? { requestId, ok: true, result: null }
+          : {
+              requestId,
+              ok: false,
+              error: { code: "wrong-command", operation: command.op, message: line },
+            }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.equal(await channel.fork("main", "draft"), null);
+  assert.equal(await channel.branchEdit("draft", {
+    kind: "object-set",
+    value: "draft",
+  }), null);
+  assert.equal(await channel.rebaseBranch("draft", "main"), null);
+  assert.equal(await channel.retainLastLocalCommit("draft-edit", "draft"), null);
+  assert.equal(await channel.revert("draft-edit", true), null);
+  assert.equal(await channel.mergeBranch("main", "draft", true), null);
+  assert.equal(await channel.disposeBranch("draft"), null);
+});
+
 test("map helpers retain correlation when replies arrive in reverse", async (t) => {
   const process = child(`
     const requests = [];

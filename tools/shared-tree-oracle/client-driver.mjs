@@ -211,8 +211,32 @@ export class JsonLinesChannel {
     return this.#result({ command: "transaction", constraints, edits, result });
   }
 
-  retainLastLocalCommit(name) {
-    return this.#result({ op: "retainLastLocalCommit", name });
+  fork(source, name) {
+    return this.#result({ op: "fork", source, name });
+  }
+
+  branchEdit(branch, edit) {
+    return this.#result({ op: "branchEdit", branch, edit });
+  }
+
+  rebaseBranch(source, target) {
+    return this.#result({ op: "rebaseBranch", source, target });
+  }
+
+  mergeBranch(target, source, dispose) {
+    return this.#result({ op: "mergeBranch", target, source, dispose });
+  }
+
+  disposeBranch(name) {
+    return this.#result({ op: "disposeBranch", name });
+  }
+
+  retainLastLocalCommit(name, branch) {
+    return this.#result({
+      op: "retainLastLocalCommit",
+      name,
+      ...(branch === undefined ? {} : { branch }),
+    });
   }
 
   revertibleStatus(name) {
@@ -537,7 +561,14 @@ export async function startClient(target, descriptor, environment, options = {})
       constrainedArrayRemove: (targetPath, path, start, end) =>
         channel.constrainedArrayRemove(targetPath, path, start, end),
       transaction: (scope) => channel.transaction(scope),
-      retainLastLocalCommit: (name) => channel.retainLastLocalCommit(name),
+      fork: (source, name) => channel.fork(source, name),
+      branchEdit: (branch, edit) => channel.branchEdit(branch, edit),
+      rebaseBranch: (source, target) => channel.rebaseBranch(source, target),
+      mergeBranch: (target, source, dispose) =>
+        channel.mergeBranch(target, source, dispose),
+      disposeBranch: (name) => channel.disposeBranch(name),
+      retainLastLocalCommit: (name, branch) =>
+        channel.retainLastLocalCommit(name, branch),
       revertibleStatus: (name) => channel.revertibleStatus(name),
       disposeRevertible: (name) => channel.disposeRevertible(name),
       revert: (name, dispose) => channel.revert(name, dispose),
