@@ -1161,6 +1161,7 @@ fn observe_commit(
       #("handleAcquired", json.bool(acquired)),
       #("eventId", json.int(event_id)),
       #("actionId", json.string(action_id)),
+      #("branch", json.string(branch)),
       #("revision", optional_string(revision)),
     ]),
   )

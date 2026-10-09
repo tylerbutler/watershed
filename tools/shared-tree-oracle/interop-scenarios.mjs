@@ -7721,7 +7721,13 @@ function localBranchViewSchema(context, fieldKind) {
     );
 }
 
-async function openLocalBranchEnvironment(config, context, fieldKind, label) {
+async function openLocalBranchEnvironment(
+  config,
+  context,
+  fieldKind,
+  label,
+  implementations = ["upstream", ...nativeTargets],
+) {
   const containers = [];
   const natives = [];
   const store = localBranchStore(fieldKind);
@@ -7750,20 +7756,20 @@ async function openLocalBranchEnvironment(config, context, fieldKind, label) {
     ));
     const { jwt } = await tokenProvider(config)
       .fetchOrdererToken(config.tenantId, documentId);
-    for (const target of nativeTargets) {
-      natives.push(await nativeAdapter(target, config, {
+    const adapters = { upstream };
+    for (const target of nativeTargets.filter((target) =>
+      implementations.includes(target))) {
+      const native = await nativeAdapter(target, config, {
         runId: context.runId,
         documentId,
         tenant: config.tenantId,
         viewSchema: localBranchViewSchema(context, fieldKind),
-      }, jwt));
+      }, jwt);
+      natives.push(native);
+      adapters[target] = native;
     }
-    const adapters = {
-      upstream,
-      javascript: natives[0],
-      erlang: natives[1],
-    };
-    await Promise.all(nativeTargets.map((target) => adapters[target].awaitSynced()));
+    await Promise.all(Object.values(adapters).map((adapter) =>
+      adapter.awaitSynced()));
     await settle(adapters);
     if (fieldKind === "same-array-move") {
       await upstream.arrayInsert(["left"], 0, [
@@ -7879,7 +7885,7 @@ async function localBranchMainEdit(adapter, fieldKind, conflictClass, label) {
   }
 }
 
-async function assertLocalBranchResult(adapter, cell) {
+export async function assertLocalBranchResult(adapter, cell) {
   const branchLabel = `${cell.id}:branch`;
   const mainLabel = `${cell.id}:main`;
   const checks = [];
@@ -7926,13 +7932,19 @@ async function assertLocalBranchResult(adapter, cell) {
           ? [treeValue(`${cell.id}:left-0`), treeValue(mainLabel)]
           : [treeValue(`${cell.id}:left-0`)]).map(JSON.stringify));
     } else {
+      if (cell.conflictClass === "unrelated"
+        && ["array", "transaction"].includes(cell.fieldKind)) {
+        check(`${cell.fieldKind} left`, left, [treeValue(branchLabel)]);
+        check(`${cell.fieldKind} right`, right, [treeValue(mainLabel)]);
+        return checks;
+      }
       const values = left.map(JSON.stringify);
       const branchValue = cell.fieldKind === "identifier"
         ? `"${branchLabel}"`
-        : treeValue(branchLabel);
+        : JSON.stringify(treeValue(branchLabel));
       const mainValue = cell.fieldKind === "identifier"
         ? `"${mainLabel}"`
-        : treeValue(mainLabel);
+        : JSON.stringify(treeValue(mainLabel));
       assert(values.some((value) => value.includes(branchValue)),
         `${cell.id} lost the branch insertion`);
       if (cell.conflictClass === "overlapping") {
@@ -7945,11 +7957,11 @@ async function assertLocalBranchResult(adapter, cell) {
         expectedFragments: [
           cell.fieldKind === "identifier"
             ? branchValue
-            : JSON.stringify(branchValue),
+            : branchValue,
           ...(cell.conflictClass === "overlapping"
             ? [cell.fieldKind === "identifier"
                 ? mainValue
-                : JSON.stringify(mainValue)]
+                : mainValue]
             : []),
         ],
       });
@@ -8244,6 +8256,7 @@ async function runUndoRedoCell(config, context, cell) {
     context,
     cell.fieldKind,
     cell.id,
+    cell.authors,
   );
   let failure;
   const failureState = {
@@ -8662,6 +8675,13 @@ function localBranchCommitTrace(checkpoint, implementation) {
     ?.commits ?? [];
 }
 
+export function localBranchSourceTrace(commits, sourceBranch) {
+  return commits.filter(({ type, local, branch }) =>
+    type === "commit"
+    && local === true
+    && (branch === undefined || branch === sourceBranch));
+}
+
 export function exactLocalBranchEvidence({
   editOrder,
   sourceTrace,
@@ -8670,19 +8690,28 @@ export function exactLocalBranchEvidence({
   retained,
   merge = null,
 }) {
-  const sourceCommits = sourceTrace.filter(({ type, local, revision }) =>
-    type === "commit" && local === true && typeof revision === "string");
+  const sourceCommits = sourceTrace
+    .filter(({ type, local, eventId, actionId }) =>
+      type === "commit"
+      && local === true
+      && Number.isInteger(eventId)
+      && eventId > 0
+      && typeof actionId === "string")
+    .map((commit) => ({
+      ...commit,
+      branch: commit.branch ?? merge?.source ?? "draft",
+    }));
   const sourceActions = new Set(sourceCommits.map(({ actionId }) => actionId));
   const exactOperations = acceptedOperations;
   const mergeMessages = exactOperations.flatMap(({ commits }) =>
     commits.map(({ revision, originatorId, changeset }) => ({
-      revision: String(revision),
+      revision,
       originatorId: String(originatorId),
       changeset,
     })));
   const allocationRanges = exactOperations.flatMap(({ allocations }) =>
     allocations.map((allocation) => structuredClone(allocation)));
-  const settlementObservations = targetTrace
+  const settlementObservations = [...sourceTrace, ...targetTrace]
     .filter(({ type, actionId }) =>
       type === "settlement" && sourceActions.has(actionId))
     .map(({ outcome, revision, actionId }) => ({
@@ -8709,6 +8738,7 @@ export function exactLocalBranchEvidence({
         available: retained.factoryAvailable,
         outcome: retained.status,
         revision: retained.revision,
+        eventId: retained.eventId,
         actionId: retained.actionId,
       }],
       settlementObservations,
@@ -8716,11 +8746,19 @@ export function exactLocalBranchEvidence({
         ({ originatorId, revision }) => `${originatorId}:${revision}`,
       ),
       acceptedOperations: exactOperations,
+      branchCommands: [{
+        type: "merge",
+        sourceBranch: merge?.source ?? "draft",
+        targetBranch: merge?.target ?? "main",
+      }],
       mergeAttribution: {
         sourceBranch: merge?.source ?? "draft",
         targetBranch: merge?.target ?? "main",
         sourceActionIds: sourceCommits.map(({ actionId }) => actionId),
         sourceRevisions: sourceCommits.map(({ revision }) => revision),
+        sourceCommitIds: sourceCommits.map(
+          ({ branch, eventId }) => `${branch}:${eventId}`,
+        ),
         acceptedRevisions: mergeMessages.map(
           ({ originatorId, revision }) => `${originatorId}:${revision}`,
         ),
@@ -8735,12 +8773,16 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
     context,
     cell.fieldKind,
     cell.id,
+    cell.authors,
   );
   let error;
   try {
     const [branchAuthor, mainAuthor] = cell.authors;
     const branch = environment.adapters[branchAuthor];
     const main = environment.adapters[mainAuthor];
+    const activeAdapters = Object.fromEntries(cell.authors.map(
+      (implementation) => [implementation, environment.adapters[implementation]],
+    ));
     const label = `${cell.id}:branch`;
     const initialHistory = await serverHistory(environment.creator);
     if (cell.fieldKind === "same-array-move") {
@@ -8781,13 +8823,13 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
     const remoteVisibleBeforeMerge =
       branchResult.outboundCount !== 0
       || branchWireDelta !== 0;
-    const beforeMerge = await settle(environment.adapters);
+    const beforeMerge = await settle(activeAdapters);
     const mergeBaseline = await serverHistory(environment.creator);
     if (cell.strategy === "rebase") {
       await branch.rebaseBranch("draft", "main");
     }
     const merge = await branch.mergeBranch("main", "draft", true);
-    const settled = await settle(environment.adapters);
+    const settled = await settle(activeAdapters);
     const resultChecks = await assertLocalBranchResult(branch, cell);
     const history = await serverHistory(environment.creator);
     const acceptedHistory = history.filter(({ sequenceNumber }) =>
@@ -8872,7 +8914,7 @@ async function runLocalBranchIsolationImplementation(
     });
     const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "nested");
     await adapter.disposeBranch("parent");
-    const continued = await adapter.branchEdit("nested", {
+    await adapter.branchEdit("nested", {
       kind: "object-set",
       path: ["note"],
       value: `${id}:child-live`,
@@ -8888,12 +8930,10 @@ async function runLocalBranchIsolationImplementation(
     const acceptedHistory = history.filter(({ sequenceNumber }) =>
       sequenceNumber > (mergeBaseline.at(-1)?.sequenceNumber ?? 0));
     const trace = localBranchCommitTrace(settled, implementation);
-    const branchRevisions = new Set([
-      ...(edit.revisions ?? []),
-      ...(continued.revisions ?? []),
-    ].map(String));
-    const sourceTrace = localBranchCommitTrace(before, implementation)
-      .filter(({ revision }) => branchRevisions.has(String(revision)));
+    const sourceTrace = localBranchSourceTrace(
+      localBranchCommitTrace(before, implementation),
+      "nested",
+    );
     const evidence = exactLocalBranchEvidence({
       editOrder: ["branch"],
       sourceTrace,

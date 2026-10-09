@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   continueArrayReader,
+  localBranchReloadEvidence,
   loadRequests,
   nativeStorageLoad,
   storageLoad,
@@ -23,6 +24,19 @@ import {
   validateSummaryArtifact,
   validateTransactionReloadResults,
 } from "./summary-interop.mjs";
+
+test("local branch reload evidence preserves exact merge attribution", () => {
+  const mergeAttribution = {
+    sourceBranch: "draft",
+    targetBranch: "main",
+    sourceActionIds: ["action-1"],
+    sourceRevisions: ["revision-1"],
+    acceptedRevisions: ["origin:accepted-1"],
+  };
+  assert.equal(localBranchReloadEvidence({
+    mergeAttribution,
+  }).mergeAttribution, mergeAttribution);
+});
 
 test("local branch reload matrix covers both stages for every writer and reader", async () => {
   const calls = [];

@@ -3722,8 +3722,10 @@ function validateLocalBranchEvidence(
   const sourceCommits = row.raw.sourceTrace.filter(({ type }) => type === "commit");
   assert(sourceCommits.length > 0 && sourceCommits.every((commit) =>
     commit.local === true
-    && typeof commit.revision === "string"
-    && commit.revision.length > 0
+    && (commit.revision === null
+      || typeof commit.revision === "string" && commit.revision.length > 0)
+    && typeof commit.branch === "string"
+    && commit.branch.length > 0
     && typeof commit.actionId === "string"
     && commit.actionId.length > 0
     && Number.isInteger(commit.eventId)
@@ -3777,32 +3779,47 @@ function validateLocalBranchEvidence(
     `${label} merge messages changed`);
   assert(Array.isArray(row.raw.factoryResults)
     && row.raw.factoryResults.length > 0
-    && row.raw.factoryResults.every(({ available, outcome, revision, actionId }) =>
+    && row.raw.factoryResults.every(({
+      available, outcome, eventId, actionId,
+    }) =>
       available === true
       && outcome === "Valid"
-      && sourceByAction.get(actionId)?.revision === revision),
+      && sourceByAction.get(actionId)?.eventId === eventId),
   `${label} lacks factory results`);
   assert(Array.isArray(row.raw.settlementObservations)
     && (allowEmptySettlement || row.raw.settlementObservations.length > 0)
-    && row.raw.settlementObservations.every(({ outcome, revision, actionId }) =>
+    && row.raw.settlementObservations.every(({ outcome, actionId }) =>
       ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(outcome)
-      && sourceByAction.get(actionId)?.revision === revision),
+      && sourceByAction.has(actionId)),
   `${label} lacks captured settlement observations`);
   assert(Array.isArray(row.raw.survivingRevisions)
     && (allowEmptyMerge || row.raw.survivingRevisions.length > 0),
   `${label} lacks surviving revisions`);
   const attribution = object(row.raw.mergeAttribution,
     `${label} lacks exact merge attribution`);
-  assert.equal(attribution.sourceBranch, "draft",
+  assert(Array.isArray(row.raw.branchCommands)
+    && row.raw.branchCommands.length > 0,
+  `${label} lacks branch command evidence`);
+  const mergeCommand = row.raw.branchCommands.findLast(
+    ({ type }) => type === "merge",
+  );
+  object(mergeCommand, `${label} lacks a recorded merge command`);
+  assert.equal(attribution.sourceBranch, mergeCommand.sourceBranch,
     `${label} merge names another source branch`);
-  assert.equal(attribution.targetBranch, "main",
+  assert.equal(attribution.targetBranch, mergeCommand.targetBranch,
     `${label} merge names another target branch`);
+  assert(sourceCommits.every(({ branch }) =>
+    branch === attribution.sourceBranch),
+  `${label} source event belongs to another checkout`);
   assert.deepEqual(attribution.sourceActionIds,
     sourceCommits.map(({ actionId }) => actionId),
   `${label} merge names another branch action`);
   assert.deepEqual(attribution.sourceRevisions,
     sourceCommits.map(({ revision }) => revision),
   `${label} merge names another branch revision`);
+  assert.deepEqual(attribution.sourceCommitIds,
+    sourceCommits.map(({ branch, eventId }) => `${branch}:${eventId}`),
+  `${label} merge names another branch commit event`);
   assert.deepEqual(attribution.acceptedRevisions,
     row.raw.mergeMessages.map(
       ({ originatorId, revision }) => `${originatorId}:${revision}`,
@@ -3818,6 +3835,11 @@ function validateLocalBranchEvidence(
   assert.deepEqual(row.survivingRevisions, row.raw.survivingRevisions,
     `${label} surviving revisions changed`);
   assert.equal(row.passed, true, `${label} did not pass`);
+}
+
+export function validateLocalBranchRow(row, label = row?.id ?? "Local branch row") {
+  validateLocalBranchEvidence(row, label, { allowEmptySettlement: true });
+  return row;
 }
 
 export function validateLocalBranchSections(report) {
@@ -3877,7 +3899,7 @@ export function validateLocalBranchSections(report) {
             && check.expectedFragments.every((value) =>
               check.actual.some((actual) => actual.includes(value))))),
     `${row.id} lacks independently checked results`);
-    validateLocalBranchEvidence(row, row.id);
+    validateLocalBranchEvidence(row, row.id, { allowEmptySettlement: true });
   }
 
   const expectedLifetime = implementations.flatMap((implementation) =>

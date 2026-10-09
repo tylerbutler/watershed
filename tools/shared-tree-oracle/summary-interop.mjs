@@ -4937,6 +4937,23 @@ export async function runUndoRedoReloadMatrix(config, context, {
   return matrix;
 }
 
+export function localBranchReloadEvidence(raw) {
+  return {
+    editOrder: raw.editOrder,
+    sourceTrace: raw.sourceTrace,
+    targetTrace: raw.targetTrace,
+    allocationRanges: raw.allocationRanges,
+    allocationContext: raw.allocationContext,
+    mergeMessages: raw.mergeMessages,
+    factoryResults: raw.factoryResults,
+    settlementObservations: raw.settlementObservations,
+    survivingRevisions: raw.survivingRevisions,
+    acceptedOperations: raw.acceptedOperations,
+    branchCommands: raw.branchCommands,
+    mergeAttribution: raw.mergeAttribution,
+  };
+}
+
 async function runLocalBranchReloadReader(
   config,
   context,
@@ -5004,16 +5021,10 @@ async function runLocalBranchReloadReader(
       mergeMessages: raw.mergeMessages,
       passed: true,
       raw: {
-        editOrder: ["branch", "summary", "continuation"],
-        sourceTrace: raw.sourceTrace,
-        targetTrace: raw.targetTrace,
-        allocationRanges: raw.allocationRanges,
-        allocationContext: raw.allocationContext,
-        mergeMessages: raw.mergeMessages,
-        factoryResults: raw.factoryResults,
-        settlementObservations: raw.settlementObservations,
-        survivingRevisions: raw.survivingRevisions,
-        acceptedOperations: raw.acceptedOperations,
+        ...localBranchReloadEvidence({
+          ...raw,
+          editOrder: ["branch", "summary", "continuation"],
+        }),
         publication,
         loadEvidence,
         boundaryStorageResponses: fresh.boundaryStorageResponses(),

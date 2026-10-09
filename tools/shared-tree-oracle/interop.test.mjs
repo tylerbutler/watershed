@@ -76,6 +76,7 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
         type: "commit",
         local: true,
         revision,
+        branch: "draft",
         actionId: "branch-action",
         eventId: 1,
         kind: "Default",
@@ -97,6 +98,7 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
         available: true,
         outcome: "Valid",
         revision,
+        eventId: 1,
         actionId: "branch-action",
       }],
       settlementObservations: [{
@@ -118,8 +120,13 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
         targetBranch: "main",
         sourceActionIds: ["branch-action"],
         sourceRevisions: [revision],
+        sourceCommitIds: ["draft:1"],
         acceptedRevisions: [`${originatorId}:${revision}`],
       },
+      branchCommands: [
+        { type: "fork", sourceBranch: "main", targetBranch: "draft" },
+        { type: "merge", sourceBranch: "draft", targetBranch: "main" },
+      ],
       acceptedBeforeDrop: {
         outerSequenceNumber: 1,
         clientId: "branch-client",
@@ -280,6 +287,73 @@ test("local branch validation rejects a merge from the wrong branch revision", (
     () => validateLocalBranchSections(report),
     /accepted revision/,
   );
+});
+
+test("local branch validation accepts the recorded nested merge source", () => {
+  const report = localBranchReport();
+  const row = report.localBranchIsolation.implementations[0];
+  row.raw.sourceTrace[0].branch = "nested";
+  row.raw.mergeAttribution.sourceBranch = "nested";
+  row.raw.mergeAttribution.sourceCommitIds = ["nested:1"];
+  row.raw.branchCommands = [
+    { type: "fork", sourceBranch: "parent", targetBranch: "nested" },
+    { type: "merge", sourceBranch: "nested", targetBranch: "main" },
+  ];
+  assert.equal(validateLocalBranchSections(report), report);
+});
+
+test("local branch validation rejects a source event from another checkout", () => {
+  const report = localBranchReport();
+  const row = report.localBranchIsolation.implementations[0];
+  row.raw.mergeAttribution.sourceBranch = "nested";
+  row.raw.branchCommands = [
+    { type: "fork", sourceBranch: "parent", targetBranch: "nested" },
+    { type: "merge", sourceBranch: "nested", targetBranch: "main" },
+  ];
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /another checkout/,
+  );
+});
+
+test("local branch validation accepts actual event identity without a revision", () => {
+  const report = localBranchReport();
+  const row = report.localBranchIsolation.implementations[0];
+  const commit = row.raw.sourceTrace[0];
+  commit.branch = "draft";
+  commit.revision = null;
+  row.raw.factoryResults[0].revision = null;
+  row.raw.settlementObservations[0].revision = null;
+  row.raw.mergeAttribution.sourceRevisions = [null];
+  row.raw.mergeAttribution.sourceCommitIds = ["draft:1"];
+  assert.equal(validateLocalBranchSections(report), report);
+});
+
+test("local branch transaction result checks accept canonical values in both arrays", async () => {
+  const cell = {
+    id: "transaction-unrelated",
+    fieldKind: "transaction",
+    conflictClass: "unrelated",
+  };
+  const branchLabel = `${cell.id}:branch`;
+  const mainLabel = `${cell.id}:main`;
+  const value = (label) => ({ kind: "string", value: label });
+  const checks = await scenarios.assertLocalBranchResult({
+    arrayValues: async (path) =>
+      path[0] === "left" ? [value(branchLabel)] : [value(mainLabel)],
+  }, cell);
+  assert.deepEqual(checks, [
+    {
+      name: "transaction left",
+      actual: [value(branchLabel)],
+      expected: [value(branchLabel)],
+    },
+    {
+      name: "transaction right",
+      actual: [value(mainLabel)],
+      expected: [value(mainLabel)],
+    },
+  ]);
 });
 
 test("local branch validation rejects missing raw accepted operations", () => {

@@ -11,10 +11,12 @@ import {
   decodeTreeSubmissions,
   decodedEvidence,
   executeScheduleAction,
+  exactLocalBranchEvidence,
   freshReload,
   interceptedTreeMessageCount,
   generateSchedules,
   identifierPairCells,
+  localBranchSourceTrace,
   nativeAdapter,
   matchReconnectOperations,
   reconciledRaceCheckpoint,
@@ -64,6 +66,76 @@ test("combined schema and data changes retain both kinds", () => {
   assert.deepEqual(commitKinds({
     changeset: [{ schema: { old: {}, new: {} }, data: { changes: [] } }],
   }), ["schema", "data"]);
+});
+
+test("exact branch evidence records the actual merge source and target", () => {
+  const evidence = exactLocalBranchEvidence({
+    editOrder: ["branch"],
+    sourceTrace: [{
+      type: "commit",
+      local: true,
+      revision: "nested-1",
+      eventId: 1,
+      actionId: "action-1",
+    }],
+    targetTrace: [],
+    acceptedOperations: [],
+    retained: {
+      factoryAvailable: true,
+      status: "Valid",
+      revision: "nested-1",
+      actionId: "action-1",
+    },
+    merge: { source: "nested", target: "main" },
+  });
+
+  assert.deepEqual(evidence.raw.branchCommands, [{
+    type: "merge",
+    sourceBranch: "nested",
+    targetBranch: "main",
+  }]);
+});
+
+test("exact branch evidence retains native commit events without revisions", () => {
+  const evidence = exactLocalBranchEvidence({
+    editOrder: ["branch"],
+    sourceTrace: [{
+      type: "commit",
+      local: true,
+      revision: null,
+      eventId: 7,
+      actionId: "native-action",
+      factoryAvailable: true,
+      handleAcquired: true,
+    }],
+    targetTrace: [],
+    acceptedOperations: [],
+    retained: {
+      factoryAvailable: true,
+      status: "Valid",
+      revision: null,
+      eventId: 7,
+      actionId: "native-action",
+    },
+    merge: { source: "nested", target: "main" },
+  });
+
+  assert.equal(evidence.raw.sourceTrace.length, 1);
+  assert.deepEqual(evidence.raw.mergeAttribution.sourceCommitIds, ["nested:7"]);
+});
+
+test("local branch source trace keeps revisionless native checkout events", () => {
+  const native = {
+    type: "commit",
+    local: true,
+    revision: null,
+    eventId: 7,
+    actionId: "native-action",
+  };
+  assert.deepEqual(localBranchSourceTrace([
+    native,
+    { ...native, eventId: 8, actionId: "main-action", branch: "main" },
+  ], "nested"), [native]);
 });
 
 test("identifier field validation requires real authors and protocol refusals", () => {

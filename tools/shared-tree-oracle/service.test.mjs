@@ -26,6 +26,7 @@ import {
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
+import { validateLocalBranchRow } from "./interop.mjs";
 import {
   nativeAdapter,
   publishUpstreamSummary,
@@ -393,18 +394,21 @@ test("local branch service cell resolves overlapping object edits", {
     "../../test/fixtures/shared_tree/cases/schema-profile.json",
     import.meta.url,
   ), "utf8"));
-  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
-    runId: "object-overlap-service-cell",
-    viewSchema: fixture.input.summary.tree.indexes.tree.Schema
-      .tree.SchemaString.content,
-  }, {
-    id: "local-branch:upstream<->javascript:object:overlapping:branch-first:rebase",
-    authors: ["upstream", "javascript"],
-    fieldKind: "object",
-    conflictClass: "overlapping",
-    order: "branch-first",
-    strategy: "rebase",
-  }));
+  await withLocalFloodgate(async (config) => {
+    const row = await runLocalBranchConcurrentCell(config, {
+      runId: "object-overlap-service-cell",
+      viewSchema: fixture.input.summary.tree.indexes.tree.Schema
+        .tree.SchemaString.content,
+    }, {
+      id: "local-branch:upstream<->javascript:object:overlapping:branch-first:rebase",
+      authors: ["upstream", "javascript"],
+      fieldKind: "object",
+      conflictClass: "overlapping",
+      order: "branch-first",
+      strategy: "rebase",
+    });
+    assert.equal(validateLocalBranchRow(row, row.id), row);
+  });
 });
 
 test("local branch service cell preserves identifier branch insertion", {
