@@ -2728,6 +2728,7 @@ test("seed 42 covers a complete undo and redo lifecycle", () => {
     "initial",
     "optimistic",
     "undo-held-0",
+    "undo-peer-settled-0",
     "undo-settled-0",
     "redo-settled-0",
     "settled",

@@ -2805,12 +2805,7 @@ function generateSchedule({ seed, index, profile }) {
           };
   const finish = [
     peerEdit,
-    ...(profile === "array" ? [{
-      type: "checkpoint",
-      label: `undo-peer-settled-${index}`,
-      stage: "quiescent",
-      preconditions: { connected: [...implementations] },
-    }, transactionAction(peer, {
+    ...(profile === "array" ? [transactionAction(peer, {
         constraints: [],
         edits: [{
           op: "array-insert",
@@ -2820,6 +2815,12 @@ function generateSchedule({ seed, index, profile }) {
         }],
         result: "commit",
       }, false)] : []),
+    {
+      type: "checkpoint",
+      label: `undo-peer-settled-${index}`,
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    },
     {
       type: "revert",
       author,
