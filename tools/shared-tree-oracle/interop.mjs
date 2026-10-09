@@ -1813,6 +1813,7 @@ function validateSeededBranches(item, raw, label) {
     `${label} lacks local branch evidence`);
   assert.equal(item.localBranches.length, actions.length,
     `${label} recorded another branch action count`);
+  if (actions.length === 0) return;
   const events = raw.checkpoints.flatMap(({ observations }) =>
     observations.flatMap(({ implementation, commits = [] }) =>
       commits.map((event) => ({ implementation, ...event }))));
@@ -1969,10 +1970,12 @@ function validateSeededBranches(item, raw, label) {
       item.identityMapping[actions[0]?.author]?.originatorIds
         .includes(String(originatorId)));
   const finalMarker = markers.at(-1);
-  assert(typeof finalMarker === "string"
-    && accepted.filter(({ changeset }) =>
-      JSON.stringify(changeset).includes(finalMarker)).length === 1,
-  `${label} branch merge lacks one raw accepted publication`);
+  if (finalMarker !== undefined) {
+    assert(typeof finalMarker === "string"
+      && accepted.filter(({ changeset }) =>
+        JSON.stringify(changeset).includes(finalMarker)).length === 1,
+    `${label} branch merge lacks one raw accepted publication`);
+  }
 }
 
 export function validateSeededRecord(

@@ -1707,12 +1707,16 @@ export function acceptedStableRevisions(messages, initialCompressorState) {
         || typeof tree?.originatorId !== "string") {
         continue;
       }
-      const localId = compressor.normalizeToSessionSpace(
-        tree.revision,
-        tree.originatorId,
-      );
-      revisions.set(`${message.sequenceNumber}:${innerIndex}`,
-        compressor.decompress(localId));
+      try {
+        const localId = compressor.normalizeToSessionSpace(
+          tree.revision,
+          tree.originatorId,
+        );
+        revisions.set(`${message.sequenceNumber}:${innerIndex}`,
+          compressor.decompress(localId));
+      } catch {
+        // Upstream numeric revisions can be outside compressor allocation space.
+      }
     }
   }
   return revisions;

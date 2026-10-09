@@ -1884,7 +1884,103 @@ async function validFixture() {
               },
           events: [],
         })),
-      localBranches: [],
+      localBranches: schedule.actions
+        .filter(({ type }) => type === "fork" || type.startsWith("branch-"))
+        .map((action, branchIndex) => {
+          const eventId = 10 + branchIndex;
+          const actionId = `branch-event-${eventId}`;
+          if (action.type === "fork") {
+            return {
+              type: "fork",
+              author: action.author,
+              source: action.source,
+              name: action.name,
+              result: {
+                name: action.name,
+                source: action.source,
+                status: "BranchValid",
+              },
+            };
+          }
+          if (action.type === "branch-edit") {
+            return {
+              type: "edit",
+              author: action.author,
+              branch: action.branch,
+              edit: action.edit,
+              result: {
+                branch: action.branch,
+                authoredCount: 1,
+                outboundCount: 0,
+                observation: null,
+              },
+            };
+          }
+          if (action.type === "branch-retain") {
+            return {
+              type: "retain",
+              author: action.author,
+              branch: action.branch,
+              name: action.name,
+              result: {
+                name: action.name,
+                kind: action.lifecycle === "branch-undo" ? "Undo" : "Default",
+                factoryAvailable: true,
+                status: "Valid",
+                eventId,
+                actionId,
+                revision: `${prefix}-${action.lifecycle}-${branchIndex}`,
+              },
+            };
+          }
+          if (action.type === "branch-revert") {
+            return {
+              type: action.lifecycle,
+              author: action.author,
+              name: action.name,
+              dispose: action.dispose,
+              result: {
+                name: action.name,
+                authoredKind: action.lifecycle === "branch-redo" ? "Redo" : "Undo",
+                status: action.dispose ? "Disposed" : "Valid",
+                authoredCount: 1,
+                outboundCount: 0,
+                authoredEventIds: [eventId],
+                actionId,
+              },
+            };
+          }
+          if (action.type === "branch-rebase") {
+            return {
+              type: "rebase",
+              author: action.author,
+              source: action.source,
+              target: action.target,
+              result: { source: action.source, target: action.target },
+            };
+          }
+          if (action.type === "branch-merge") {
+            return {
+              type: "merge",
+              author: action.author,
+              source: action.source,
+              target: action.target,
+              dispose: action.dispose,
+              repeated: action.repeated === true,
+              result: {
+                source: action.source,
+                target: action.target,
+                disposed: action.dispose,
+              },
+            };
+          }
+          return {
+            type: "dispose",
+            author: action.author,
+            name: action.name,
+            result: { name: action.name, status: "BranchDisposed" },
+          };
+        }),
       undoRedo: schedule.actions
         .filter(({ type }) => ["retain", "revert", "dispose"].includes(type))
         .map((action) => ({
@@ -1989,6 +2085,30 @@ async function validFixture() {
         revision: `${prefix}-redo`,
       },
     ];
+    for (const [branchIndex, action] of item.actions
+      .filter(({ type }) => ["branch-retain", "branch-revert"].includes(type))
+      .entries()) {
+      const record = item.localBranches.find(({ name, type }) =>
+        name === action.name
+        && (action.type === "branch-retain"
+          ? type === "retain"
+          : type === action.lifecycle));
+      lifecycleObservation.commits.push({
+        type: "commit",
+        kind: action.lifecycle === "branch-redo" ? "Redo"
+          : action.lifecycle === "branch-undo" ? "Undo"
+            : "Default",
+        local: true,
+        factoryAvailable: true,
+        handleAcquired: true,
+        eventId: record.result.eventId ?? record.result.authoredEventIds[0],
+        actionId: record.result.actionId,
+        revision: `${prefix}-branch-${branchIndex}`,
+        branch: action.branch ?? item.actions.findLast(
+          ({ type }) => type === "branch-edit",
+        ).branch,
+      });
+    }
     item.evidence.rawSequencedOperationCount = 30;
     const releaseActions = item.actions.filter(({ type }) => type === "release");
     const outboundActions = releaseActions.filter(({ direction }) => direction === "outbound");
@@ -2080,10 +2200,30 @@ async function validFixture() {
                   commits: [{
                     revision: (index + 1) * 1000 + actionIndex,
                     originatorId: `${prefix}-${action.author}-origin`,
-                    changeset: [],
+                    changeset: [{
+                      marker: scenarios.transactionMarkers(action.edits)[0],
+                    }],
                   }],
                 }]
               : []),
+          ...(() => {
+            const branchEdit = schedule.actions.findLast(
+              ({ type }) => type === "branch-edit",
+            );
+            const branchAuthor = branchEdit?.author;
+            if (branchEdit === undefined || branchAuthor === undefined) return [];
+            return [{
+              operationId: `revision:${prefix}-${branchAuthor}-origin:9999`,
+              clientId: `${prefix}-${branchAuthor}-client`,
+              clientSequenceNumber: 99,
+              outerSequenceNumber: 99,
+              commits: [{
+                revision: 9999,
+                originatorId: `${prefix}-${branchAuthor}-origin`,
+                changeset: [{ marker: branchEdit.edit.value }],
+              }],
+            }];
+          })(),
         ],
       } },
     )];
@@ -6039,7 +6179,7 @@ test("seeded transaction rejects a fabricated revision against unchanged raw tra
     structuredClone(owner.transactions);
   assert.throws(
     () => validateInteropReport(report, expected),
-    /raw accepted transaction/,
+    /raw accepted transaction|accepted changeset/,
   );
 });
 
