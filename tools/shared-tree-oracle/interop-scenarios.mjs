@@ -7888,14 +7888,14 @@ async function assertLocalBranchResult(adapter, cell) {
     checks.push({ name, actual, expected });
   };
   if (cell.fieldKind === "object") {
-    check("title", await adapter.read(["title"]), {
-      present: true,
-      value: { kind: "string", value: branchLabel },
-    });
+    const root = (await adapter.checkpoint()).wholeTree;
+    const field = (name) => root.value.fields
+      .find(([fieldName]) => fieldName === name)?.[1];
+    check("title", field("title"), { kind: "string", value: branchLabel });
     if (cell.conflictClass === "unrelated") {
-      check("rating", await adapter.read(["rating"]), {
-        present: true,
-        value: { kind: "number", value: mainLabel.length },
+      check("rating", field("rating"), {
+        kind: "number",
+        value: mainLabel.length,
       });
     }
   } else if (cell.fieldKind === "map") {

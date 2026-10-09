@@ -386,6 +386,27 @@ test("local branch service cell applies a transaction", {
   }));
 });
 
+test("local branch service cell resolves overlapping object edits", {
+  timeout: 120_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/schema-profile.json",
+    import.meta.url,
+  ), "utf8"));
+  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
+    runId: "object-overlap-service-cell",
+    viewSchema: fixture.input.summary.tree.indexes.tree.Schema
+      .tree.SchemaString.content,
+  }, {
+    id: "local-branch:upstream<->javascript:object:overlapping:branch-first:rebase",
+    authors: ["upstream", "javascript"],
+    fieldKind: "object",
+    conflictClass: "overlapping",
+    order: "branch-first",
+    strategy: "rebase",
+  }));
+});
+
 test("native local branch handles undo before merge", {
   timeout: 180_000,
 }, async () => {
