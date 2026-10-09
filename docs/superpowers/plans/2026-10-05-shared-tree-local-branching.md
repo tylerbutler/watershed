@@ -831,6 +831,24 @@ coordinator/raw artifact validation.
 **Produces:** Mandatory branch sections, mixed-client schedules, and summary
 writer/reader evidence tied to actual native I/O.
 
+**Execution status:** In progress, not accepted. This continuation started
+from `18ec7c4a` on `main`, with user approval to commit verified chunks.
+Initial client and service changes are in `07dc6b1b`, `8f22af62`,
+`ac0efe71`, and `126e35dd`. The native baseline passed 1,083 Erlang and
+1,056 JavaScript tests plus the storage, bootstrap, and creation smokes.
+At `126e35dd`, the required Node suites plus scenario tests passed all
+260 tests, formatting passed, and the generated corpus check verified
+63 upstream cases.
+
+Those results do not close Task 9. Review found gaps in checkout-scoped
+retention, seeded artifact and transaction validation, raw branch-evidence
+binding, overlapping edit coverage, merge attribution, publication-specific
+reload evidence, and accepted-before-drop proof. Fixes and re-review are
+required. No full 300-schedule interoperability run has a passing final
+report. The reported refusal-injection race has not yet been reproduced
+against the unchanged execution base, so its baseline attribution remains
+unverified. Keep Task 10 publication and Task 11 release acceptance open.
+
 - [ ] **Step 1: Add command protocol RED for actual client-owned branches.**
 
   ```json
