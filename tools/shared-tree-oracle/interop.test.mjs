@@ -716,6 +716,16 @@ test("seeded validation rejects removed and impossible recorded branches", () =>
   }
 });
 
+test("seeded validation accepts raw fork tree evidence", () => {
+  const item = structuredClone(round3Fixture.seededBranch.measured);
+  const raw = structuredClone(round3Fixture.seededBranch.raw);
+  item.checkpoints = structuredClone(raw.checkpoints);
+  const fork = item.localBranches.find(({ type }) => type === "fork");
+  fork.result.sourceTree = structuredClone(item.checkpoints[0].observations[0].wholeTree);
+  fork.result.branchTree = structuredClone(fork.result.sourceTree);
+  assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
+});
+
 test("seeded transaction rejects an unrelated same-author accepted edit", () => {
   const item = structuredClone(round3Fixture.seededTransaction.measured);
   const raw = structuredClone(round3Fixture.seededTransaction.raw);

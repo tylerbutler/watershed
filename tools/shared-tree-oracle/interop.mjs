@@ -1836,11 +1836,16 @@ function validateSeededBranches(item, raw, label) {
         `${label} fork used an invalid source checkout`);
       assert(!checkouts.has(action.name),
         `${label} fork reused a checkout`);
-      assert.deepEqual(result, {
-        name: action.name,
-        source: action.source,
-        status: "BranchValid",
-      }, `${label} fork returned another checkout`);
+      assert.equal(result.name, action.name,
+        `${label} fork returned another checkout`);
+      assert.equal(result.source, action.source,
+        `${label} fork returned another source`);
+      assert.equal(result.status, "BranchValid",
+        `${label} fork returned an invalid checkout`);
+      if (result.sourceTree !== undefined || result.branchTree !== undefined) {
+        assert.deepEqual(result.branchTree, result.sourceTree,
+          `${label} fork changed the checkout tree`);
+      }
       checkouts.set(action.name, "valid");
       continue;
     }
