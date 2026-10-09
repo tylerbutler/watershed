@@ -4,7 +4,9 @@
 **Status:** Runtime-local scope and checkout-registry architecture approved in
 conversation. Task 1 captured the pinned contract. User review selected
 upstream-compatible independent cross-checkout callback edits instead of the
-original refusal boundary; native implementation has not started.
+original refusal boundary. Native local checkouts and real-service proof are
+implemented through Task 9. Task 10 profile publication and Task 11 full
+release acceptance remain open.
 **Milestone:** M6, local branching only.
 **Parent:** [Native SharedTree interoperability](2026-09-21-shared-tree-design.md)
 and [M5 undo and redo](2026-10-02-shared-tree-undo-redo-design.md).

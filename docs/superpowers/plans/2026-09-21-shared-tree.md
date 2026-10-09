@@ -22,13 +22,15 @@ service.
 
 **Spec:** [Native SharedTree interoperability](../specs/2026-09-21-shared-tree-design.md)
 
-## Current roadmap (code review: 2026-10-04)
+## Current roadmap
 
 The initial reconciliation compared the implementation at `dad2b680` with the
 eight SharedTree plans, committed profile/corpus, recipes, and workflow
 definitions. The M5 continuation started at `8194fbc5` and ran the local gates
 recorded below after the profile commits. The numbered M0/M1 tasks and their
-test counts remain historical acceptance records.
+test counts remain historical acceptance records. The local branching
+continuation started at `18ec7c4a` and completed Task 9 through `5e8050a4`;
+its service evidence is recorded below.
 
 | Area | Current status | Plan or remaining scope |
 | --- | --- | --- |
@@ -38,7 +40,7 @@ test counts remain historical acceptance records.
 | M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
 | M5: transactions and undo/redo | Implemented and published, with passing local native, codec, service, creation, and repository tests. Full build and standalone browser acceptance remain blocked by a reproduced baseline pnpm policy failure. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; combined evidence below. |
-| M6: branching | Deferred as a public feature. | Local fork/rebase/merge needs its own design; experimental shared branches require a separate profile/version decision. Internal history branches are not a public branching API. |
+| M6: branching | Runtime-local facades and real-service proof are implemented through Task 9; profile publication and full release acceptance remain open. | [Local branching](2026-10-05-shared-tree-local-branching.md), Tasks 10-11. Shared/persisted branches remain excluded and require a separate profile/version decision. |
 | M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
@@ -48,9 +50,11 @@ and the profile names application-owned stacks, commit kinds, reconnect,
 object/map/array/move/transaction reversion, and sequenced outcomes. The local
 M5 evidence below covers native behavior and real-service interoperability;
 the full build and standalone SharedTree browser gate remain blocked. No
-hosted workflow was dispatched for this continuation. M6 is branching.
+hosted workflow was dispatched for that continuation. The local M6 slice has
+separate native and service evidence; it is not yet published in the supported
+profile.
 
-The current manifest has 55 generated cases and 29 registered native semantic
+The current manifest has 63 generated cases and 29 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
 7,500 for the deep run. `.github/workflows/shared-tree.yml` runs the native
 checks automatically; `.github/workflows/shared-tree-interop.yml` runs service
@@ -68,6 +72,41 @@ checkout-local schema isolation, the upstream drop-on-rebase behavior and view
 compatibility, dependent edits, JavaScript/BEAM parity, and merge, undo,
 retention, wire, and summary boundaries. This deferral is not an M6 support
 claim or authorization to change the pinned codecs or versions.
+
+### M6 local branching Task 9 validation
+
+Task 9 is complete through `5e8050a4`, from execution base `18ec7c4a` on
+`main` with user approval. Upstream, JavaScript, and BEAM client drivers own
+real local checkouts. Their branch commands, scoped handles, events, merge
+traffic, allocation, reconnect, and summary continuation are checked against
+captured client and service evidence.
+
+The final interoperability run is
+`cc306c0d-c744-484b-aa1e-105eb4934ae2`, using the unchanged Fluid 3.1.0 and
+Floodgate references. It executed 300 seed-42 schedules with zero skips or
+divergences. Its branch sections contain three isolation rows, 168
+unrelated/overlapping conflict cells, six lifetime rows, four native reconnect
+rows, and all 18 before/after-merge writer/reader reload cells. All 168
+concurrent target settlements are retained in the report.
+
+After the final fixes, the required Node suites plus scenario tests passed
+314 tests with no failures or skips. The native gate passed 1,084 Erlang and
+1,057 JavaScript tests plus storage/bootstrap/creation smokes; the final
+service coordinator reran its narrower corpus selection with 1,067 Erlang
+and 1,040 JavaScript tests. Native creation interoperability also passed
+(run `a8b3d422-dbbe-478d-bdfe-66afb53cdae0`). The generated-corpus check
+verified 63 cases.
+
+Review fixed false-claim acceptance, contextual revision decoding, exact
+merge attribution, storage/replay binding, checkout-scoped retention, and
+settlement projection. Complete test footers are required; partial passing
+output is not acceptance evidence. The [local branching plan](2026-10-05-shared-tree-local-branching.md#task-9-prove-local-branch-merges-through-pinned-floodgate)
+records the final proof and the limits of earlier runs.
+
+This does not close M6. Task 10 publishes the local profile and permanent
+gates; Task 11 performs full repository, build, browser, and acceptance-matrix
+closure. No hosted workflow was dispatched, and shared/persisted branches
+remain outside this scope.
 
 ### M5 combined validation
 
@@ -2348,7 +2387,7 @@ new scope needs its own approved design and interoperability proof.
 | --- | --- | --- |
 | M5 release acceptance | Published slices and recorded local native/service evidence | Resolve the baseline pnpm policy/lockfile mismatch before completing full build and standalone browser acceptance. Hosted workflows were not dispatched in this continuation. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
-| M6 local branching | Existing modular history and M5 retention rules | [Local branching plan](2026-10-05-shared-tree-local-branching.md): public fork/rebase/merge and branch lifetime without reclaiming live revertible history. Pinned oracle contract captured; native implementation awaits the Task 1 review gate. |
+| M6 local branching publication and release | Native facades and Task 9 real-service proof | [Local branching plan](2026-10-05-shared-tree-local-branching.md), Tasks 10-11: publish the runtime-local profile and permanent gates, then complete full regression and acceptance closure. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
 | Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
 | Richer Lustre and typed schema UX | Stable native facade | Transaction and commit/revertible effects, application-owned stack examples, and typed consumers without changing kernel or bootstrap contracts. |
@@ -2364,8 +2403,9 @@ staging is historical. The remaining work can split as follows:
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
 | M5 release owner | Remaining full-build/browser acceptance and any hosted release evidence. | Preserve the published profile, recorded local proof, and unsupported-feature exclusions. |
+| M6 profile and release owner | Local branching Tasks 10-11. | Preserve the completed native/service contract; shared/persisted branches remain excluded. |
 | Selected M7 consumers | Richer bindings, typed consumers, application-owned stack examples, and browser coverage. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
-| New-scope design/oracle work | Local branching, array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
+| New-scope design/oracle work | Array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 
 Further M7 container lifecycle work can overlap the consumer lane after its
 contracts stabilize, but it needs one owner for attach, alias, bootstrap, and

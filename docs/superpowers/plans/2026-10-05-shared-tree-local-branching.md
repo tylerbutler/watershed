@@ -831,33 +831,52 @@ coordinator/raw artifact validation.
 **Produces:** Mandatory branch sections, mixed-client schedules, and summary
 writer/reader evidence tied to actual native I/O.
 
-**Execution status:** In progress, not accepted. This continuation started
+**Execution status:** Complete through `5e8050a4`. This continuation started
 from `18ec7c4a` on `main`, with user approval to commit verified chunks.
-Initial client and service changes are in `07dc6b1b`, `8f22af62`,
-`ac0efe71`, and `126e35dd`. The native baseline passed 1,083 Erlang and
-1,056 JavaScript tests plus the storage, bootstrap, and creation smokes.
-At `126e35dd`, the required Node suites plus scenario tests passed all
-260 tests, formatting passed, and the generated corpus check verified
-63 upstream cases.
+The upstream, JavaScript, and BEAM clients own real named checkouts and
+checkout-scoped retained handles. The coordinator schedules commands; it
+does not simulate branches or generate native changesets.
 
-Those results do not close Task 9. Review found gaps in checkout-scoped
-retention, seeded artifact and transaction validation, raw branch-evidence
-binding, overlapping edit coverage, merge attribution, publication-specific
-reload evidence, and accepted-before-drop proof. Fixes and re-review are
-required. The reported refusal-injection race was not reproduced against
-the unchanged execution base, so its baseline attribution remains unverified.
+The final report is
+`tools/shared-tree-oracle/.output/interop/cc306c0d-c744-484b-aa1e-105eb4934ae2/report.json`.
+It records the unchanged Fluid 3.1.0 and Floodgate references, 300 generated
+and executed schedules with seed 42, zero skips and divergences, and all
+five required branch sections:
 
-At `98722540`, run `0b4934ba-983d-48cd-8f8a-4d4f784af1da` produced a complete
-real-service report with 300 seed-42 schedules, zero skips and divergences,
-and all five branch sections (3 isolation, 168 concurrent, 6 lifetime,
-4 reconnect, and 18 reload cells). This is execution evidence, not yet
-Task 9 acceptance. Re-review against that report still found seven
-evidence-validation gaps, plus incorrect contextual reconstruction of
-stable revision IDs. Coherently altered claims can pass while the
-recorded I/O stays unchanged; reload merge attribution also includes
-earlier reader continuation traffic. Fix those gaps and re-review before
-closing this task. Keep Task 10 publication and Task 11 release acceptance
-open.
+| Section | Recorded coverage |
+| --- | --- |
+| Isolation | All three implementations |
+| Concurrent | 168 cells: three pairs, seven edit kinds, two orders, two reconciliation strategies, and unrelated/overlapping edits |
+| Lifetime | Six preserved/disposed-source and branch-undo cells |
+| Reconnect | Four native cells, including accepted-before-drop recovery |
+| Reload | Exactly 18 writer/stage/reader cells, with continued edit/undo/redo and no historical checkouts |
+
+Review fixes bind claims to the original client responses, checkout events,
+decoded service operations, allocation context, storage responses, and
+replay evidence. Regressions reject coherently altered identities, revisions,
+trees, requests, and outcomes while recorded I/O stays unchanged. All 168
+concurrent target settlements are preserved. Native corpus accounting requires
+a complete test footer; a passing line alone does not establish completion.
+
+| Command or check | Observed result |
+| --- | --- |
+| Required Node suites plus `interop-scenarios.test.mjs`, after the final fixes | 314 passed, zero failures or skips |
+| Final scoped mutation/producer/reload regressions | Nine passed; fresh real sections validate and the source-identity, missing-settlement, and invented-outcome mutations reject |
+| `just shared-tree-test` | 1,084 Erlang and 1,057 JavaScript tests passed, plus storage, bootstrap, and creation smokes |
+| Oracle generated-corpus check | Verified 63 upstream cases |
+| `just shared-tree-create-interop` | Passed; run `a8b3d422-dbbe-478d-bdfe-66afb53cdae0` |
+| `just shared-tree-interop`, after the final fixes | Passed; the report above records JavaScript 1,040 and Erlang 1,067 corpus tests |
+
+The last native and creation runs preceded the final Node-only evidence fixes;
+the final interoperability run executed both native corpus targets again.
+The earlier passing reports were not acceptance evidence: their validators
+still admitted false claims, which later review fixed. The reported
+refusal-injection race was never reproduced on the unchanged execution base
+and is not a claimed baseline waiver.
+
+Task 10 profile publication and Task 11 full regression and section 5
+acceptance audit remain open. No hosted workflow was dispatched, and this
+task does not close M6 or authorize shared or persisted branches.
 
 - [x] **Step 1: Add command protocol RED for actual client-owned branches.**
 
@@ -873,7 +892,7 @@ open.
   Name lookup is client-local; coordinators must not simulate checkouts,
   generate changesets, or supply native IDs.
 
-- [ ] **Step 2: Require complete branch report sections with mutation REDs.**
+- [x] **Step 2: Require complete branch report sections with mutation REDs.**
 
   ```javascript
   const requiredLocalBranchSections = [
@@ -890,7 +909,7 @@ open.
   required by the captured contract, service identity, or continuation cell.
   Derive report rows from raw evidence, not coordinators' asserted booleans.
 
-- [ ] **Step 3: Run deterministic pair scenarios.**
+- [x] **Step 3: Run deterministic pair scenarios.**
 
   Pair upstream/JS, upstream/BEAM, JS/BEAM. For each supported field kind and
   transaction: A forks and edits; B edits main; A rebases or directly merges.
@@ -898,7 +917,7 @@ open.
   merge, and branch undo before merge. Require no remote visibility before
   merge and exact surviving revisions afterward.
 
-- [ ] **Step 4: Prove reconnect and persistence.**
+- [x] **Step 4: Prove reconnect and persistence.**
 
   Reconnect each native writer with live branches and a pending-main origin.
   For writers upstream/JS/BEAM, summarize before merge and after merge; each
@@ -906,7 +925,7 @@ open.
   writer/reader-stage cells. All readers have no historical local branches.
   Include merged undo/redo continuation and accepted-before-drop deduplication.
 
-- [ ] **Step 5: Extend the existing seeded schedule and run gates.**
+- [x] **Step 5: Extend the existing seeded schedule and run gates.**
 
   Add fork, edit, nested fork, rebase, merge, disposal, branch undo/redo, and
   summary actions. Retain branch names, ancestry, commit kinds, ranges, and
