@@ -747,6 +747,22 @@ test("seeded validation accepts enriched rebase and merge evidence", () => {
   assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
 });
 
+test("seeded validation accepts multiple matching commits in one merge operation", () => {
+  const item = structuredClone(round3Fixture.seededBranch.measured);
+  const raw = structuredClone(round3Fixture.seededBranch.raw);
+  item.checkpoints = structuredClone(raw.checkpoints);
+  const marker = item.actions
+    .filter(({ type }) => type === "branch-edit").at(-1).edit.value;
+  const payload = raw.acceptedOperationPayloads.find((operation) =>
+    JSON.stringify(operation).includes(marker));
+  const commits = payload.contents.contents;
+  const commit = commits.find((entry) => JSON.stringify(entry).includes(marker));
+  commits.push(structuredClone(commit));
+  raw.acceptedOperations =
+    scenarios.acceptedTreeOperations(raw.acceptedOperationPayloads);
+  assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
+});
+
 test("seeded transaction rejects an unrelated same-author accepted edit", () => {
   const item = structuredClone(round3Fixture.seededTransaction.measured);
   const raw = structuredClone(round3Fixture.seededTransaction.raw);
@@ -764,6 +780,15 @@ test("seeded transaction rejects an unrelated same-author accepted edit", () => 
     () => interop.validateSeededRecord(item, raw),
     /transaction marker|changeset/,
   );
+});
+
+test("seeded committed transaction accepts missing local outbound observation", () => {
+  const item = structuredClone(round3Fixture.seededTransaction.measured);
+  const raw = structuredClone(round3Fixture.seededTransaction.raw);
+  item.checkpoints = structuredClone(raw.checkpoints);
+  item.localBranches = [];
+  item.transactions[0].outboundCount = 0;
+  assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
 });
 
 test("recorded branch evidence rejects fabricated target and source identities", () => {

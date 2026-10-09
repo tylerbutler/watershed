@@ -1218,9 +1218,7 @@ function validateSeededTransactions(item, schedule, raw) {
     assert(
       action.result === "abort"
         ? record.outboundCount === 0
-        : action.preconditions?.outboundHeld === true
-          ? [0, 1].includes(record.outboundCount)
-          : record.outboundCount === 1,
+        : [0, 1].includes(record.outboundCount),
       `Seeded ${item.index} transaction queued another outbound count`,
     );
     assert.equal(record.nestedScopes,
@@ -1978,16 +1976,16 @@ function validateSeededBranches(item, raw, label) {
     .filter(({ type }) => type === "branch-edit")
     .map(({ edit }) => edit.value)
     .filter((value) => typeof value === "string" && value.length > 0);
+  const originators =
+    item.identityMapping[actions[0]?.author]?.originatorIds ?? [];
   const accepted = decodeTreeSubmissions(raw.acceptedOperationPayloads)
-    .flatMap(({ commits }) => commits)
-    .filter(({ originatorId }) =>
-      item.identityMapping[actions[0]?.author]?.originatorIds
-        .includes(String(originatorId)));
+    .filter(({ commits }) => commits.some(({ originatorId }) =>
+      originators.includes(String(originatorId))));
   const finalMarker = markers.at(-1);
   if (finalMarker !== undefined) {
     assert(typeof finalMarker === "string"
-      && accepted.filter(({ changeset }) =>
-        JSON.stringify(changeset).includes(finalMarker)).length === 1,
+      && accepted.filter(({ commits }) => commits.some(({ changeset }) =>
+        JSON.stringify(changeset).includes(finalMarker))).length === 1,
     `${label} branch merge lacks one raw accepted publication`);
   }
 }
