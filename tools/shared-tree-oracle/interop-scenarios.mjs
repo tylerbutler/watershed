@@ -12,6 +12,7 @@ import { SharedMap } from "@fluidframework/map/internal";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
 import {
   createIdCompressor,
+  deserializeIdCompressor,
   isStableId,
 } from "@fluidframework/id-compressor/internal";
 import {
@@ -1676,8 +1677,14 @@ export function decodeTreeSubmissions(messages) {
   });
 }
 
-export function acceptedStableRevisions(messages) {
+export function acceptedStableRevisions(messages, initialCompressorState) {
+  assert(typeof initialCompressorState === "string",
+    "Stable revision decoding requires initial compressor state");
   const revisions = new Map();
+  const compressor = deserializeIdCompressor(
+    initialCompressorState,
+    "00000000-0000-4000-8000-000000000000",
+  );
   for (const message of messages) {
     if (message.type !== "op") continue;
     const outer = parsed(message.contents);
@@ -1686,6 +1693,12 @@ export function acceptedStableRevisions(messages) {
       : outer?.type === "component"
         ? [{ contents: outer }]
         : [];
+    for (const item of items) {
+      if (item.contents?.type !== "idAllocation") continue;
+      const range = allocation(item.contents.contents);
+      if (range === undefined) continue;
+      compressor.finalizeCreationRange(item.contents.contents);
+    }
     for (const [innerIndex, item] of items.entries()) {
       const tree = item.contents?.type === "component"
         ? item.contents.contents?.contents?.content?.contents
@@ -1694,17 +1707,10 @@ export function acceptedStableRevisions(messages) {
         || typeof tree?.originatorId !== "string") {
         continue;
       }
-      const range = items.map(({ contents }) =>
-        contents?.type === "idAllocation"
-          ? allocation(contents.contents)
-          : undefined)
-        .find((candidate) => candidate?.sessionId === tree.originatorId);
-      if (range === undefined) continue;
-      const compressor = createIdCompressor(range.sessionId);
-      let localId;
-      for (let count = 0; count < range.last; count += 1) {
-        localId = compressor.generateCompressedId();
-      }
+      const localId = compressor.normalizeToSessionSpace(
+        tree.revision,
+        tree.originatorId,
+      );
       revisions.set(`${message.sequenceNumber}:${innerIndex}`,
         compressor.decompress(localId));
     }
@@ -4809,7 +4815,10 @@ export async function nativeAdapter(
         const sequences = new Set(held.flatMap(({ sequenceNumbers }) => sequenceNumbers));
         return sequenceNumbers.every((sequenceNumber) => sequences.has(sequenceNumber));
       }, `${target} held inbound sequences`);
-      return { heldSequenceNumbers: held.flatMap(({ sequenceNumbers }) => sequenceNumbers) };
+      return {
+        heldSequenceNumbers: held.flatMap(({ sequenceNumbers }) => sequenceNumbers),
+        heldFrames: structuredClone(held),
+      };
     },
     async releaseInbound(options = {}) {
       const held = client.gate.evidence().held.slice(inboundEvidenceOffset)
@@ -5696,7 +5705,7 @@ export function decodedEvidence(history, adapters, authors) {
   return { decoded, submissions };
 }
 
-function transactionMarkers(edits) {
+export function transactionMarkers(edits) {
   const markers = [];
   const visit = (value) => {
     if (Array.isArray(value)) {
@@ -8835,6 +8844,8 @@ export function exactLocalBranchEvidence({
       acceptedOperations: exactOperations,
       acceptedOperationPayloads: structuredClone(acceptedOperationPayloads),
       branchCommands: structuredClone(branchCommands),
+      retainedResponse: structuredClone(retained),
+      ...(merge === null ? {} : { mergeResult: structuredClone(merge) }),
       mergeAttribution: {
         sourceBranch: merge?.source ?? "draft",
         targetBranch: merge?.target ?? "main",
@@ -9409,6 +9420,7 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
         clientId: accepted.clientId,
         revisions: accepted.commits.map(({ revision }) => String(revision)),
         heldInbound,
+        transportConnections: structuredClone(adapter.evidence().connections),
         beforeDisconnectCheckpoint: {
           clientId: beforeDisconnectCheckpoint.clientId,
           sequenceNumber: beforeDisconnectCheckpoint.sequenceNumber,
@@ -10316,7 +10328,10 @@ export async function runSeededSchedule(config, context, schedule) {
     }
     const finalHistory = await serverHistory(state.creator);
     const decoded = decodedEvidence(finalHistory, state.adapters, implementations);
-    const stableRevisions = acceptedStableRevisions(finalHistory);
+    const stableRevisions = acceptedStableRevisions(
+      finalHistory,
+      state.creator.initialCompressorState,
+    );
     const mapping = identityMapping(state.adapters, decoded.decoded);
     state.transactions = state.transactions.map((transaction) => {
       if (transaction.outcome === "aborted") {

@@ -36,6 +36,10 @@ import { nativeStorageLoad } from "./summary-interop.mjs";
 const oracleDirectory = resolve(import.meta.dirname);
 const repository = resolve(oracleDirectory, "../..");
 const profilePath = join(repository, "test/fixtures/shared_tree/profile.json");
+const round3Fixture = JSON.parse(await readFile(join(
+  repository,
+  "test/fixtures/shared_tree/task9/review-round3.json",
+), "utf8"));
 const reference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -170,9 +174,18 @@ function localBranchStorage(reader) {
       })).toString("base64"),
     }),
   ];
+  const boundaryReplayEvidence = {
+    handshakes: [{ initialMessageSequenceNumbers: [snapshotSequenceNumber + 1] }],
+    delivered: [],
+  };
   return {
     boundaryStorageResponses,
-    loadEvidence: nativeStorageLoad(boundaryStorageResponses, version),
+    boundaryReplayEvidence,
+    loadEvidence: {
+      ...nativeStorageLoad(boundaryStorageResponses, version),
+      replayStartSequenceNumber: snapshotSequenceNumber,
+      replayEvidence: "native-handshake",
+    },
   };
 }
 
@@ -299,11 +312,43 @@ function localBranchEvidence(
         },
         { type: "merge", sourceBranch: "draft", targetBranch: "main" },
       ],
+      retained: {
+        actionId: "branch-action",
+        eventId: 1,
+        revision: sourceRevision,
+        revisionResolution: { actionId: "branch-action" },
+        transportConnections: [{
+          connectionId: "branch-connection",
+          clientId: "branch-client",
+        }],
+      },
+      merge: {
+        source: "draft",
+        target: "main",
+        disposed: false,
+        authoredCount: 1,
+        outboundCount: 1,
+      },
+      branchResult: {
+        branch: "draft",
+        revisions: [sourceRevision],
+      },
       acceptedBeforeDrop: {
         outerSequenceNumber: 1,
         clientId: "branch-client",
         revisions: [String(revision)],
-        heldInbound: { heldSequenceNumbers: [1] },
+        heldInbound: {
+          heldSequenceNumbers: [1],
+          heldFrames: [{
+            connectionId: "branch-connection",
+            hash: "held-frame-hash",
+            sequenceNumbers: [1],
+          }],
+        },
+        transportConnections: [{
+          connectionId: "branch-connection",
+          state: "opened",
+        }],
         beforeDisconnectCheckpoint: {
           clientId: "branch-client",
           sequenceNumber: 0,
@@ -345,6 +390,7 @@ function localBranchEvidence(
     const storage = localBranchStorage(storageReader);
     evidence.raw.loadEvidence = storage.loadEvidence;
     evidence.raw.boundaryStorageResponses = storage.boundaryStorageResponses;
+    evidence.raw.boundaryReplayEvidence = storage.boundaryReplayEvidence;
   }
   return evidence;
 }
@@ -490,6 +536,43 @@ function localBranchReport() {
                   ),
                 };
                 row.raw.resultChecks = localBranchResultChecks(row);
+                if (fieldKind === "identifier") {
+                  const peers = row.raw.resultChecks.find(
+                    ({ name }) => name === "identifier peer arrays",
+                  ).actual;
+                  const wholeTree = ({ left, right }) => ({
+                    present: true,
+                    value: {
+                      kind: "object",
+                      fields: [
+                        ...["left", "right"].map((name) => [
+                          name,
+                          {
+                            kind: "array",
+                            elements: (name === "left" ? left : right).map(
+                              ({ id, label }) => ({
+                                kind: "object",
+                                fields: [
+                                  ["id", { kind: "string", value: id }],
+                                  ["label", { kind: "string", value: label }],
+                                ],
+                              }),
+                            ),
+                          },
+                        ]),
+                      ],
+                    },
+                  });
+                  row.raw.settled = {
+                    observations: Object.entries(peers).map(
+                      ([implementation, arrays]) => ({
+                        implementation,
+                        wholeTree: wholeTree(arrays),
+                        commits: structuredClone(row.raw.targetTrace),
+                      }),
+                    ),
+                  };
+                }
                 return row;
               }))))),
     },
@@ -523,7 +606,35 @@ function localBranchReport() {
           kind,
           mergeSubmissionCount: 1,
           ...localBranchEvidence(),
-        }))),
+        })).map((row) => {
+          row.raw.beforeMerge = {
+            observations: [
+              {
+                implementation: row.writer,
+                clientId: "branch-client",
+              },
+              {
+                implementation: "upstream",
+                clientId: "peer-client",
+              },
+            ],
+          };
+          row.raw.settled = {
+            observations: [
+              {
+                implementation: row.writer,
+                clientId: "branch-client-reconnected",
+                commits: structuredClone(row.raw.targetTrace),
+              },
+              {
+                implementation: "upstream",
+                clientId: "peer-client",
+                commits: [],
+              },
+            ],
+          };
+          return row;
+        })),
     },
     localBranchReloadMatrix: {
       ...section(),
@@ -541,10 +652,215 @@ function localBranchReport() {
               redoApplied: true,
             },
             ...localBranchEvidence({}, ["branch", "main"], reader),
-          })))),
+          })).map((row) => {
+            if (row.stage !== "after-merge") return row;
+            const changeset = [{ marker: `local-branch-${row.writer}` }];
+            row.mergeMessages[0].changeset = changeset;
+            row.raw.mergeMessages[0].changeset = structuredClone(changeset);
+            row.raw.acceptedOperations[0].commits[0].changeset =
+              structuredClone(changeset);
+            row.raw.acceptedOperationPayloads[0].contents.contents[1]
+              .contents.contents.contents.content.contents.changeset =
+                structuredClone(changeset);
+            row.raw.mergeResult = structuredClone(row.raw.merge);
+            row.raw.mergeWriterCheckpoint = {
+              implementation: row.writer,
+              clientId: "branch-client",
+            };
+            return row;
+          }))),
     },
   };
 }
+
+function reportWithRecordedRow(section, row) {
+  const report = localBranchReport();
+  const rows = section === "localBranchIsolation"
+    ? report[section].implementations
+    : report[section].cells;
+  const index = rows.findIndex(({ id, implementation }) =>
+    (id ?? implementation) === (row.id ?? row.implementation));
+  assert(index >= 0, `Missing recorded ${section} row`);
+  rows[index] = structuredClone(row);
+  return report;
+}
+
+test("seeded validation rejects removed and impossible recorded branches", () => {
+  for (const [name, mutate] of [
+    ["all branch records removed", (item) => { item.localBranches = []; }],
+    ["impossible merge record", (item) => {
+      item.localBranches = [{
+        type: "merge",
+        author: "not-a-client",
+        source: "never-forked",
+        target: "other-document",
+        dispose: true,
+        repeated: false,
+        result: {
+          source: "never-forked",
+          target: "other-document",
+          disposed: true,
+        },
+      }];
+    }],
+  ]) {
+    const item = structuredClone(round3Fixture.seededBranch.measured);
+    const raw = structuredClone(round3Fixture.seededBranch.raw);
+    item.checkpoints = structuredClone(raw.checkpoints);
+    mutate(item);
+    assert.throws(
+      () => interop.validateSeededRecord(item, raw),
+      /branch/,
+      name,
+    );
+  }
+});
+
+test("seeded transaction rejects an unrelated same-author accepted edit", () => {
+  const item = structuredClone(round3Fixture.seededTransaction.measured);
+  const raw = structuredClone(round3Fixture.seededTransaction.raw);
+  item.checkpoints = structuredClone(raw.checkpoints);
+  const transaction = item.transactions[0];
+  transaction.commitRevision = "31ab4ed1-f075-4af1-bfeb-7a57e0510da8";
+  transaction.acceptedOperation = {
+    outerSequenceNumber: 10,
+    innerIndex: 1,
+    revision: "1028",
+    originatorId: "31ab4ed1-f075-4af1-bfeb-7a57e0510da6",
+    stableRevision: "31ab4ed1-f075-4af1-bfeb-7a57e0510da8",
+  };
+  assert.throws(
+    () => interop.validateSeededRecord(item, raw),
+    /transaction marker|changeset/,
+  );
+});
+
+test("recorded branch evidence rejects fabricated target and source identities", () => {
+  const report = reportWithRecordedRow(
+    "localBranchConcurrent",
+    round3Fixture.concurrent,
+  );
+  const row = report.localBranchConcurrent.cells.find(
+    ({ id }) => id === round3Fixture.concurrent.id,
+  );
+  row.raw.targetTrace = [{}];
+  row.raw.settlementObservations = [];
+  const source = row.raw.sourceTrace[0];
+  source.actionId = "fabricated-source-action";
+  source.eventId = 999999;
+  row.raw.factoryResults[0].actionId = source.actionId;
+  row.raw.factoryResults[0].eventId = source.eventId;
+  const retain = row.raw.branchCommands.find(({ type }) => type === "retain");
+  retain.actionId = source.actionId;
+  retain.eventId = source.eventId;
+  row.raw.mergeAttribution.sourceActionIds = [source.actionId];
+  row.raw.mergeAttribution.sourceCommitIds =
+    [`${source.branch}:${source.eventId}`];
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /target trace|source action|factory|retain/,
+  );
+});
+
+test("recorded identifier results reject copied wrong peer labels", () => {
+  const report = reportWithRecordedRow(
+    "localBranchConcurrent",
+    round3Fixture.identifier,
+  );
+  const row = report.localBranchConcurrent.cells.find(
+    ({ id }) => id === round3Fixture.identifier.id,
+  );
+  const peers = row.raw.resultChecks.find(
+    ({ name }) => name === "identifier peer arrays",
+  );
+  for (const arrays of Object.values(peers.actual)) {
+    for (const point of [...arrays.left, ...arrays.right]) {
+      point.label = "WRONG";
+    }
+  }
+  peers.expected = structuredClone(peers.actual);
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /identifier.*label|peer.*array/,
+  );
+});
+
+test("recorded identifier results reject moving main between peer arrays", () => {
+  const report = reportWithRecordedRow(
+    "localBranchConcurrent",
+    round3Fixture.identifier,
+  );
+  const row = report.localBranchConcurrent.cells.find(
+    ({ id }) => id === round3Fixture.identifier.id,
+  );
+  const peers = row.raw.resultChecks.find(
+    ({ name }) => name === "identifier peer arrays",
+  );
+  for (const arrays of Object.values(peers.actual)) {
+    arrays.left.push(arrays.right.shift());
+  }
+  peers.expected = structuredClone(peers.actual);
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /identifier.*right|peer.*array/,
+  );
+});
+
+test("recorded reload rejects reader continuations as merge attribution", () => {
+  const report = reportWithRecordedRow(
+    "localBranchReloadMatrix",
+    round3Fixture.contaminatedReload,
+  );
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /merge attribution|merge message/,
+  );
+});
+
+test("recorded reload rejects invented replay and storage requests", () => {
+  const report = reportWithRecordedRow(
+    "localBranchReloadMatrix",
+    round3Fixture.reload,
+  );
+  const row = report.localBranchReloadMatrix.cells.find(
+    ({ id }) => id === round3Fixture.reload.id,
+  );
+  row.raw.loadEvidence.replayStartSequenceNumber = 999999;
+  row.raw.loadEvidence.selectedSummaryRequests.push("invented-summary");
+  row.raw.loadEvidence.selectedTreeRequests.push("invented-tree");
+  row.raw.loadEvidence.selectedBlobRequests.push({
+    id: "invented-blob",
+    byteLength: 1,
+    hash: "invented-hash",
+  });
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /replay|request/,
+  );
+});
+
+test("recorded accepted-before-drop rejects invented client identities", () => {
+  const report = reportWithRecordedRow(
+    "localBranchReconnect",
+    round3Fixture.reconnect,
+  );
+  const row = report.localBranchReconnect.cells.find(
+    ({ id }) => id === round3Fixture.reconnect.id,
+  );
+  const proof = row.raw.acceptedBeforeDrop;
+  proof.beforeDisconnectCheckpoint.clientId = "not-the-accepted-author";
+  proof.peerReceiptCheckpoint.clientId = "not-a-real-peer";
+  proof.afterReconnectCheckpoint.clientId = "not-a-real-reconnection";
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /pre-drop author differs|peer receipt differs|reconnect identity differs/,
+  );
+});
 
 test("local branch validation derives edit order from raw client evidence", () => {
   const report = localBranchReport();
@@ -646,6 +962,7 @@ test("local branch validation accepts the recorded nested merge source", () => {
   row.raw.sourceTrace[0].branch = "nested";
   row.raw.mergeAttribution.sourceBranch = "nested";
   row.raw.mergeAttribution.sourceCommitIds = ["nested:1"];
+  row.raw.merge.source = "nested";
   row.raw.branchCommands = [
     { type: "fork", sourceBranch: "main", targetBranch: "parent" },
     { type: "fork", sourceBranch: "parent", targetBranch: "nested" },
@@ -697,6 +1014,7 @@ test("local branch validation accepts actual event identity without a revision",
   row.raw.settlementObservations[0].revision = null;
   row.raw.mergeAttribution.sourceRevisions = [null];
   row.raw.mergeAttribution.sourceCommitIds = ["draft:1"];
+  row.raw.branchResult.revisions = [null];
   assert.equal(validateLocalBranchSections(report), report);
 });
 

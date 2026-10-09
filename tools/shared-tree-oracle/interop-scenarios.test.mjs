@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { SchemaFactory } from "fluid-framework/alpha";
+import { createIdCompressor } from "@fluidframework/id-compressor/internal";
 import {
+  acceptedStableRevisions,
   commitKinds,
   decodeReconnectPayload,
   decodeTreeSubmissions,
@@ -2802,6 +2804,62 @@ test("grouped decoding preserves every allocation and inner tree commit", () => 
       changeset: [],
     })),
   }]);
+});
+
+test("stable revision decoding uses each grouped wire revision", () => {
+  const sessionId = "11111111-1111-4111-8111-111111111111";
+  const initialCompressorState = createIdCompressor(
+    "22222222-2222-4222-8222-222222222222",
+  ).serialize(false);
+  const messages = [{
+    type: "op",
+    sequenceNumber: 12,
+    clientId: "client",
+    clientSequenceNumber: 3,
+    referenceSequenceNumber: 8,
+    contents: JSON.stringify({
+      type: "groupedBatch",
+      contents: [
+        {
+          contents: {
+            type: "idAllocation",
+            contents: {
+              sessionId,
+              ids: {
+                firstGenCount: 1,
+                count: 2,
+                requestedClusterSize: 512,
+                localIdRanges: [[1, 2]],
+              },
+            },
+          },
+        },
+        ...[-1, -2].map((revision) => ({
+          contents: {
+            type: "component",
+            contents: {
+              contents: {
+                content: {
+                  contents: {
+                    revision,
+                    originatorId: sessionId,
+                    changeset: [],
+                  },
+                },
+              },
+            },
+          },
+        })),
+      ],
+    }),
+  }];
+
+  assert.deepEqual([
+    ...acceptedStableRevisions(messages, initialCompressorState),
+  ], [
+    ["12:1", "11111111-1111-4111-8111-111111111111"],
+    ["12:2", "11111111-1111-4111-8111-111111111112"],
+  ]);
 });
 
 test("measured upstream submissions omit unavailable batch IDs", () => {

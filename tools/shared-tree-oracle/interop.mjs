@@ -46,6 +46,7 @@ import {
   runSeededSchedules,
   runTransactionScenarios,
   runUndoRedoScenarios,
+  transactionMarkers,
   validateIdentifierFields,
   validateTransactionCallbacks,
   validateTransactionConstraints,
@@ -68,6 +69,7 @@ import {
   runSchemaReloadMatrices,
   runTransactionReloadMatrix,
   runUndoRedoReloadMatrix,
+  loadRequests,
   storageLoad,
   validateArrayResults,
   validateIdentifierReloadResults,
@@ -1193,7 +1195,7 @@ function measuredPayload(item) {
   };
 }
 
-function validateSeededTransactions(item, schedule) {
+function validateSeededTransactions(item, schedule, raw) {
   const scheduled = schedule.actions.filter(({ type }) => type === "transaction");
   assert(Array.isArray(item.transactions),
     `Seeded ${item.index} lacks transaction evidence`);
@@ -1248,6 +1250,30 @@ function validateSeededTransactions(item, schedule) {
       assert(item.identityMapping[record.author].originatorIds.includes(
         record.acceptedOperation.originatorId,
       ), `Seeded ${item.index} transaction has another originator`);
+      if (raw !== undefined) {
+        const markers = transactionMarkers(action.edits);
+        assert(markers.length > 0,
+          `Seeded ${item.index} committed transaction lacks a unique marker`);
+        const accepted = decodeTreeSubmissions(
+          raw.acceptedOperationPayloads,
+        ).flatMap((submission) => submission.commits.map((commit) => ({
+          outerSequenceNumber: submission.outerSequenceNumber,
+          innerIndex: commit.innerIndex,
+          revision: String(commit.revision),
+          originatorId: String(commit.originatorId),
+          changeset: commit.changeset,
+        }))).filter((commit) =>
+          commit.outerSequenceNumber
+            === record.acceptedOperation.outerSequenceNumber
+          && commit.innerIndex === record.acceptedOperation.innerIndex
+          && commit.revision === String(record.acceptedOperation.revision)
+          && commit.originatorId === record.acceptedOperation.originatorId);
+        assert.equal(accepted.length, 1,
+          `Seeded ${item.index} transaction lacks its accepted changeset`);
+        const encoded = JSON.stringify(accepted[0].changeset);
+        assert(markers.every((marker) => encoded.includes(marker)),
+          `Seeded ${item.index} accepted changeset lacks its transaction marker`);
+      }
     }
   }
 }
@@ -1754,6 +1780,7 @@ function validateSeededRawLifecycle(item, raw, label) {
   })));
   const stableRevisions = acceptedStableRevisions(
     raw.acceptedOperationPayloads,
+    raw.initialCompressorState,
   );
   for (const transaction of item.transactions) {
     if (transaction.outcome === "aborted") continue;
@@ -1777,6 +1804,186 @@ function validateSeededRawLifecycle(item, raw, label) {
       : matches[0],
       `${label} raw accepted transaction differs from its report`);
   }
+}
+
+function validateSeededBranches(item, raw, label) {
+  const actions = item.actions.filter(({ type }) =>
+    type === "fork" || type.startsWith("branch-"));
+  assert(Array.isArray(item.localBranches),
+    `${label} lacks local branch evidence`);
+  assert.equal(item.localBranches.length, actions.length,
+    `${label} recorded another branch action count`);
+  const events = raw.checkpoints.flatMap(({ observations }) =>
+    observations.flatMap(({ implementation, commits = [] }) =>
+      commits.map((event) => ({ implementation, ...event }))));
+  const checkouts = new Map([["main", "valid"]]);
+  for (const [index, action] of actions.entries()) {
+    const record = object(item.localBranches[index],
+      `${label} lacks branch action ${index}`);
+    const result = successfulResult(record.result,
+      `${label} branch action ${index}`);
+    assert.equal(record.author, action.author,
+      `${label} branch action ${index} changed author`);
+    if (action.type === "fork") {
+      assert.equal(record.type, "fork",
+        `${label} branch action ${index} changed type`);
+      assert.equal(record.source, action.source,
+        `${label} fork names another source`);
+      assert.equal(record.name, action.name,
+        `${label} fork names another checkout`);
+      assert.equal(checkouts.get(action.source), "valid",
+        `${label} fork used an invalid source checkout`);
+      assert(!checkouts.has(action.name),
+        `${label} fork reused a checkout`);
+      assert.deepEqual(result, {
+        name: action.name,
+        source: action.source,
+        status: "BranchValid",
+      }, `${label} fork returned another checkout`);
+      checkouts.set(action.name, "valid");
+      continue;
+    }
+    if (action.type === "branch-edit") {
+      assert.equal(record.type, "edit",
+        `${label} branch edit changed type`);
+      assert.equal(record.branch, action.branch,
+        `${label} branch edit names another checkout`);
+      assert.deepEqual(record.edit, action.edit,
+        `${label} branch edit changed its operation`);
+      assert.equal(checkouts.get(action.branch), "valid",
+        `${label} branch edit used an invalid checkout`);
+      assert.equal(result.branch, action.branch,
+        `${label} branch edit returned another checkout`);
+      assert.equal(result.authoredCount, 1,
+        `${label} branch edit authored another commit count`);
+      assert.equal(result.outboundCount, 0,
+        `${label} branch edit escaped its checkout`);
+      continue;
+    }
+    if (action.type === "branch-retain") {
+      assert.equal(record.type, "retain",
+        `${label} branch retain changed type`);
+      assert.equal(record.branch, action.branch,
+        `${label} branch retain names another checkout`);
+      assert.equal(record.name, action.name,
+        `${label} branch retain names another handle`);
+      assert.equal(checkouts.get(action.branch), "valid",
+        `${label} branch retain used an invalid checkout`);
+      const matches = events.filter((event) =>
+        event.implementation === action.author
+        && event.type === "commit"
+        && event.local === true
+        && event.actionId === result.actionId
+        && event.eventId === result.eventId
+        && event.branch === action.branch);
+      assert(matches.length > 0,
+        `${label} branch retain lacks its checkout event identity`);
+      assert.equal(result.name, action.name,
+        `${label} branch retain returned another handle`);
+      assert.equal(result.status, "Valid",
+        `${label} branch retain returned an invalid handle`);
+      assert.equal(result.factoryAvailable, true,
+        `${label} branch retain lacks its factory`);
+      continue;
+    }
+    if (action.type === "branch-revert") {
+      assert.equal(record.type, action.lifecycle,
+        `${label} branch revert changed type`);
+      assert.equal(record.name, action.name,
+        `${label} branch revert names another handle`);
+      assert.equal(record.dispose, action.dispose,
+        `${label} branch revert changed disposal`);
+      const kind = action.lifecycle === "branch-redo" ? "Redo" : "Undo";
+      const matches = events.filter((event) =>
+        event.implementation === action.author
+        && event.type === "commit"
+        && event.local === true
+        && event.actionId === result.actionId
+        && result.authoredEventIds.includes(event.eventId)
+        && event.kind === kind);
+      assert(matches.length > 0,
+        `${label} branch revert lacks its authored event identity`);
+      assert.equal(result.authoredKind, kind,
+        `${label} branch revert authored another kind`);
+      assert.equal(result.status, action.dispose ? "Disposed" : "Valid",
+        `${label} branch revert returned another handle status`);
+      continue;
+    }
+    if (action.type === "branch-rebase") {
+      assert.equal(record.type, "rebase",
+        `${label} branch rebase changed type`);
+      assert.equal(checkouts.get(action.source), "valid",
+        `${label} branch rebase used an invalid source checkout`);
+      assert.equal(checkouts.get(action.target), "valid",
+        `${label} branch rebase used an invalid target checkout`);
+      assert.deepEqual(result, {
+        source: action.source,
+        target: action.target,
+      }, `${label} branch rebase returned other checkouts`);
+      continue;
+    }
+    if (action.type === "branch-merge") {
+      assert.equal(record.type, "merge",
+        `${label} branch merge changed type`);
+      assert.equal(record.source, action.source,
+        `${label} branch merge names another source`);
+      assert.equal(record.target, action.target,
+        `${label} branch merge names another target`);
+      assert.equal(record.dispose, action.dispose,
+        `${label} branch merge changed disposal`);
+      assert.equal(record.repeated, action.repeated === true,
+        `${label} branch merge changed repetition`);
+      assert.equal(checkouts.get(action.source), "valid",
+        `${label} branch merge used an invalid source checkout`);
+      assert.equal(checkouts.get(action.target), "valid",
+        `${label} branch merge used an invalid target checkout`);
+      assert.deepEqual(result, {
+        target: action.target,
+        source: action.source,
+        disposed: action.dispose,
+      }, `${label} branch merge returned other checkouts`);
+      if (action.dispose) checkouts.set(action.source, "disposed");
+      continue;
+    }
+    assert.equal(action.type, "branch-dispose",
+      `${label} has an unknown branch action`);
+    assert.equal(record.type, "dispose",
+      `${label} branch dispose changed type`);
+    assert.equal(record.name, action.name,
+      `${label} branch dispose names another checkout`);
+    assert.equal(checkouts.get(action.name), "valid",
+      `${label} branch dispose used an invalid checkout`);
+    assert.deepEqual(result, {
+      name: action.name,
+      status: "BranchDisposed",
+    }, `${label} branch dispose returned another checkout`);
+    checkouts.set(action.name, "disposed");
+  }
+  const markers = actions
+    .filter(({ type }) => type === "branch-edit")
+    .map(({ edit }) => edit.value)
+    .filter((value) => typeof value === "string" && value.length > 0);
+  const accepted = decodeTreeSubmissions(raw.acceptedOperationPayloads)
+    .flatMap(({ commits }) => commits)
+    .filter(({ originatorId }) =>
+      item.identityMapping[actions[0]?.author]?.originatorIds
+        .includes(String(originatorId)));
+  const finalMarker = markers.at(-1);
+  assert(typeof finalMarker === "string"
+    && accepted.filter(({ changeset }) =>
+      JSON.stringify(changeset).includes(finalMarker)).length === 1,
+  `${label} branch merge lacks one raw accepted publication`);
+}
+
+export function validateSeededRecord(
+  item,
+  raw,
+  label = `Seeded ${item?.index}`,
+) {
+  validateSeededTransactions(item, { actions: item.actions }, raw);
+  validateSeededRawLifecycle(item, raw, label);
+  validateSeededBranches(item, raw, label);
+  return item;
 }
 
 function measured(item, expected, authors, evidence, label) {
@@ -1902,7 +2109,7 @@ function measured(item, expected, authors, evidence, label) {
       assert.deepEqual(evidence.get(reference).claim.measured,
         seededMeasuredPayload(item),
       `${label} artifact measured payload differs`);
-      validateSeededRawLifecycle(
+      validateSeededRecord(
         item,
         evidence.get(reference).claim.raw,
         label,
@@ -3825,6 +4032,27 @@ function validateLocalBranchResultChecks(row) {
       ids.actual,
       `${row.id} peer identifiers differ from the exact identities`,
     );
+    const settled = object(row.raw.settled,
+      `${row.id} lacks raw settled identifier results`);
+    const fromTree = (wholeTree) => {
+      const fields = new Map(wholeTree?.value?.fields ?? []);
+      const points = (name) => (fields.get(name)?.elements ?? []).map((node) => {
+        const point = new Map(node.fields ?? []);
+        return {
+          id: point.get("id")?.value,
+          label: point.get("label")?.value,
+        };
+      });
+      return { left: points("left"), right: points("right") };
+    };
+    for (const author of row.authors) {
+      const observation = settled.observations.find(
+        ({ implementation }) => implementation === author,
+      );
+      object(observation, `${row.id} lacks ${author} settled identifier tree`);
+      assert.deepEqual(peers.actual[author], fromTree(observation.wholeTree),
+        `${row.id} peer identifier arrays differ from the raw settled tree`);
+    }
   }
   assert.equal(checks.size, row.fieldKind === "object"
     ? row.conflictClass === "unrelated" ? 2 : 1
@@ -3864,6 +4092,53 @@ function validateLocalBranchEvidence(
   `${label} has fabricated source trace`);
   const sourceByAction = new Map(sourceCommits.map((commit) =>
     [commit.actionId, commit]));
+  const retained = object(
+    row.raw.sourceRetained ?? row.raw.retainedResponse ?? row.raw.retained,
+    `${label} lacks the retained source response`);
+  const retainedCommit = sourceByAction.get(retained.actionId);
+  assert(retainedCommit
+    && retainedCommit.eventId === retained.eventId
+    && retained.revisionResolution?.actionId === retained.actionId,
+  `${label} retained response differs from its source event`);
+  const sourceResponses = [
+    row.raw.edit,
+    row.raw.continued,
+    row.raw.branchResult,
+  ].filter((response) =>
+    response?.branch === sourceCommits[0]?.branch
+    && Array.isArray(response.revisions));
+  if (sourceResponses.length > 0) {
+    const responseRevisions =
+      sourceResponses.flatMap(({ revisions }) => revisions);
+    assert.deepEqual(
+      sourceCommits.slice(0, responseRevisions.length)
+        .map(({ revision }) => revision),
+      responseRevisions,
+      `${label} source events differ from branch edit responses`,
+    );
+  }
+  if (row.raw.lifecycle !== undefined) {
+    const lifecycle = row.raw.lifecycle;
+    assert(lifecycle.authoredEventIds.every((eventId) =>
+      sourceCommits.some((commit) =>
+        commit.eventId === eventId
+        && commit.actionId === lifecycle.actionId
+        && commit.kind === lifecycle.authoredKind)),
+    `${label} branch lifecycle differs from its authored source event`);
+  }
+  assert(row.raw.targetTrace.every((event) =>
+    (event?.type === undefined || event.type === "settlement")
+    && typeof event.actionId === "string"
+    && ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(event.outcome)),
+  `${label} has fabricated target trace`);
+  if (row.raw.settled !== undefined && row.raw.targetTrace.length > 0) {
+    const settledEvents = row.raw.settled.observations.flatMap(
+      ({ commits = [] }) => commits,
+    );
+    assert(row.raw.targetTrace.every((event) =>
+      settledEvents.some((candidate) => isDeepStrictEqual(candidate, event))),
+    `${label} target trace differs from the settled checkpoint`);
+  }
   assert(Array.isArray(row.raw.allocationRanges),
     `${label} lacks allocation ranges`);
   object(row.raw.allocationContext, `${label} lacks allocation context`);
@@ -4008,6 +4283,21 @@ function validateLocalBranchEvidence(
     `${label} merge names another source branch`);
   assert.equal(attribution.targetBranch, mergeCommand?.targetBranch ?? "main",
     `${label} merge names another target branch`);
+  if (row.raw.mergeResult !== undefined || row.raw.merge !== undefined) {
+    const mergeResult = row.raw.mergeResult ?? row.raw.merge;
+    assert.equal(mergeResult.source, attribution.sourceBranch,
+      `${label} merge response names another source checkout`);
+    assert.equal(mergeResult.target, attribution.targetBranch,
+      `${label} merge response names another target checkout`);
+    if (typeof mergeResult.disposed === "boolean") {
+      assert.equal(mergeResult.disposed, mergeCommand?.disposed === true,
+        `${label} merge response changed source disposal`);
+    }
+    if (Number.isInteger(mergeResult.authoredCount)) {
+      assert.equal(mergeResult.authoredCount, sourceCommits.length,
+        `${label} merge response names another source commit count`);
+    }
+  }
   assert(sourceCommits.every(({ branch }) =>
     branch === attribution.sourceBranch),
   `${label} source event belongs to another checkout`);
@@ -4169,6 +4459,19 @@ export function validateLocalBranchSections(report) {
           proof.outerSequenceNumber,
         ),
       `${row.id} did not hold the specific author acknowledgement`);
+      assert(Array.isArray(proof.heldInbound.heldFrames),
+        `${row.id} lacks the raw held acknowledgement frame`);
+      const heldFrames = proof.heldInbound.heldFrames.filter(
+        ({ sequenceNumbers }) =>
+          sequenceNumbers?.includes(proof.outerSequenceNumber),
+      );
+      assert.equal(heldFrames.length, 1,
+        `${row.id} lacks one raw held acknowledgement frame`);
+      assert(typeof heldFrames[0].connectionId === "string"
+        && heldFrames[0].connectionId.length > 0
+        && typeof heldFrames[0].hash === "string"
+        && heldFrames[0].hash.length > 0,
+      `${row.id} held acknowledgement lacks transport identity`);
       const beforeDisconnect = object(proof.beforeDisconnectCheckpoint,
         `${row.id} lacks the pre-disconnect author identity`);
       const peerReceipt = object(proof.peerReceiptCheckpoint,
@@ -4195,6 +4498,28 @@ export function validateLocalBranchSections(report) {
           && outerSequenceNumber === proof.outerSequenceNumber,
       );
       assert(accepted, `${row.id} acceptance watermark names another operation`);
+      assert.equal(beforeDisconnect.clientId, accepted.clientId,
+        `${row.id} pre-drop author differs from the accepted operation`);
+      const beforeWriter = row.raw.beforeMerge.observations.find(
+        ({ implementation }) => implementation === row.writer,
+      );
+      const beforePeer = row.raw.beforeMerge.observations.find(
+        ({ implementation }) => implementation !== row.writer,
+      );
+      const afterWriter = row.raw.settled.observations.find(
+        ({ implementation }) => implementation === row.writer,
+      );
+      assert.equal(beforeWriter?.clientId, beforeDisconnect.clientId,
+        `${row.id} pre-drop author differs from the raw writer checkpoint`);
+      assert.equal(beforePeer?.clientId, peerReceipt.clientId,
+        `${row.id} peer receipt differs from the raw peer checkpoint`);
+      assert.equal(afterWriter?.clientId, afterReconnect.clientId,
+        `${row.id} reconnect identity differs from the raw settled checkpoint`);
+      const connectionIds = proof.transportConnections
+        .filter(({ state }) => state === "opened")
+        .map(({ connectionId }) => connectionId);
+      assert(connectionIds.includes(heldFrames[0].connectionId),
+        `${row.id} held frame belongs to another client transport`);
       assert.deepEqual(proof.revisions,
         accepted.commits.map(({ revision }) => String(revision)),
       `${row.id} acceptance watermark names another revision`);
@@ -4267,26 +4592,60 @@ export function validateLocalBranchSections(report) {
     `${row.id} lacks boundary storage responses`);
     const reconstructedLoad = row.reader === "upstream"
       ? storageLoad(row.raw.boundaryStorageResponses, publication.version)
-      : nativeStorageLoad(row.raw.boundaryStorageResponses, publication.version);
+      : loadRequests({
+          http: row.raw.boundaryStorageResponses,
+          ...object(row.raw.boundaryReplayEvidence,
+            `${row.id} lacks raw native replay evidence`),
+        }, publication.version);
     assert.deepEqual(load.rawLoadIdentity, reconstructedLoad.rawLoadIdentity,
       `${row.id} copied load identity differs from raw storage responses`);
-    assert(reconstructedLoad.selectedSummaryRequests.every((request) =>
-      load.selectedSummaryRequests.includes(request)),
+    assert.deepEqual(load.selectedSummaryRequests,
+      reconstructedLoad.selectedSummaryRequests,
     `${row.id} copied summary requests differ from raw storage responses`);
-    assert(reconstructedLoad.selectedTreeRequests.every((request) =>
-      load.selectedTreeRequests.includes(request)),
+    assert.deepEqual(load.selectedTreeRequests,
+      reconstructedLoad.selectedTreeRequests,
     `${row.id} copied tree requests differ from raw storage responses`);
-    const copiedBlobIds = load.selectedBlobRequests.map((request) =>
-      typeof request === "string" ? request : request.id);
-    const reconstructedBlobIds =
-      reconstructedLoad.selectedBlobRequests.map((request) =>
-        typeof request === "string" ? request : request.id);
-    assert(reconstructedBlobIds.every((request) =>
-      copiedBlobIds.includes(request)),
+    assert.deepEqual(load.selectedBlobRequests,
+      reconstructedLoad.selectedBlobRequests,
     `${row.id} copied blob requests differ from raw storage responses`);
+    assert.equal(load.replayStartSequenceNumber,
+      reconstructedLoad.replayStartSequenceNumber,
+    `${row.id} copied replay start differs from raw transport evidence`);
+    assert.equal(load.replayEvidence, reconstructedLoad.replayEvidence,
+      `${row.id} copied replay kind differs from raw transport evidence`);
     if (reconstructedLoad.storageResponses !== undefined) {
       assert.deepEqual(load.storageResponses, reconstructedLoad.storageResponses,
         `${row.id} copied storage identities differ from raw responses`);
+    }
+    if (row.stage === "after-merge") {
+      assert.equal(row.raw.acceptedOperations.length, 1,
+        `${row.id} merge attribution includes unrelated operations`);
+      const operation = row.raw.acceptedOperations[0];
+      assert.equal(operation.commits.length, 1,
+        `${row.id} merge attribution includes unrelated commits`);
+      const checkpoint = object(row.raw.mergeWriterCheckpoint,
+        `${row.id} lacks the writer checkpoint before merge`);
+      assert.equal(checkpoint.implementation, row.writer,
+        `${row.id} checkpoint names another writer before merge`);
+      assert.equal(operation.clientId, checkpoint.clientId,
+        `${row.id} merge operation has another writer origin`);
+      assert(JSON.stringify(operation.commits[0].changeset)
+        .includes(`local-branch-${row.writer}`),
+      `${row.id} accepted operation lacks the branch merge edit`);
+      const merge = object(row.raw.mergeResult,
+        `${row.id} lacks its merge command response`);
+      assert.equal(merge.source, "draft",
+        `${row.id} merge response names another source`);
+      assert.equal(merge.target, "main",
+        `${row.id} merge response names another target`);
+      if (Number.isInteger(merge.authoredCount)) {
+        assert.equal(merge.authoredCount, 1,
+          `${row.id} merge response names another authored count`);
+      }
+      if (Number.isInteger(merge.outboundCount)) {
+        assert.equal(merge.outboundCount, 1,
+          `${row.id} merge response names another outbound count`);
+      }
     }
   }
   return report;

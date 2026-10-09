@@ -4465,6 +4465,9 @@ async function openUndoRedoReader(
       boundaryStorageResponses() {
         return structuredClone(session.storageObservations);
       },
+      replayEvidence() {
+        return undefined;
+      },
       close() {
         if (!session.container.closed) session.container.dispose();
       },
@@ -4483,6 +4486,13 @@ async function openUndoRedoReader(
     },
     boundaryStorageResponses() {
       return structuredClone(adapter.evidence().http);
+    },
+    replayEvidence() {
+      const evidence = adapter.evidence();
+      return {
+        handshakes: structuredClone(evidence.handshakes ?? []),
+        delivered: structuredClone(evidence.delivered ?? []),
+      };
     },
     close: () => adapter.close(),
   };
@@ -4951,6 +4961,9 @@ export function localBranchReloadEvidence(raw) {
     acceptedOperations: raw.acceptedOperations,
     acceptedOperationPayloads: raw.acceptedOperationPayloads,
     branchCommands: raw.branchCommands,
+    sourceRetained: raw.retainedResponse ?? raw.retained,
+    mergeResult: raw.mergeResult,
+    mergeWriterCheckpoint: raw.mergeWriterCheckpoint,
     mergeAttribution: raw.mergeAttribution,
   };
 }
@@ -4978,6 +4991,8 @@ async function runLocalBranchReloadReader(
   try {
     await fresh.adapter.awaitSynced();
     const loadEvidence = fresh.loadEvidence(publication.version);
+    const boundaryStorageResponses = fresh.boundaryStorageResponses();
+    const boundaryReplayEvidence = fresh.replayEvidence();
     assert.equal(loadEvidence.loadedVersion, publication.version,
       `${writer} ${stage}->${reader} loaded another publication version`);
     assert.equal(loadEvidence.snapshotSequenceNumber,
@@ -5028,7 +5043,8 @@ async function runLocalBranchReloadReader(
         }),
         publication,
         loadEvidence,
-        boundaryStorageResponses: fresh.boundaryStorageResponses(),
+        boundaryStorageResponses,
+        boundaryReplayEvidence,
         loaded,
         historicalBranchError,
         retained,
@@ -5093,7 +5109,6 @@ async function runLocalBranchReloadWriter(config, context, writer) {
     const adapters = { upstream, javascript: natives[0], erlang: natives[1] };
     const environment = { containers, creator, documentId, jwt };
     await settle(adapters);
-    const baseline = await serverHistory(creator);
     const branchFork = await adapters[writer].fork("main", "draft");
     const branchEdit = await adapters[writer].branchEdit("draft", {
       kind: "object-set",
@@ -5153,6 +5168,8 @@ async function runLocalBranchReloadWriter(config, context, writer) {
         beforeRaw,
       ));
     }
+    const mergeWriterCheckpoint = await adapters[writer].checkpoint();
+    const beforeMergeHistory = await serverHistory(creator);
     const branchMerge =
       await adapters[writer].mergeBranch("main", "draft", true);
     const merged = await settle(adapters);
@@ -5168,7 +5185,7 @@ async function runLocalBranchReloadWriter(config, context, writer) {
     const afterTree = merged.observations[0].wholeTree;
     const afterHistory = (await serverHistory(creator))
       .filter(({ sequenceNumber }) =>
-        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0));
+        sequenceNumber > (beforeMergeHistory.at(-1)?.sequenceNumber ?? 0));
     const afterRaw = exactLocalBranchEvidence({
       editOrder: ["branch", "summary", "continuation"],
       sourceTrace: branchSourceTrace,
@@ -5206,6 +5223,7 @@ async function runLocalBranchReloadWriter(config, context, writer) {
         },
       ],
     }).raw;
+    afterRaw.mergeWriterCheckpoint = mergeWriterCheckpoint;
     for (const reader of implementations) {
       row.push(await runLocalBranchReloadReader(
         config,
