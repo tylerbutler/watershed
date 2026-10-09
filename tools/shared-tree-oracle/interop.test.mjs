@@ -38,7 +38,7 @@ const repository = resolve(oracleDirectory, "../..");
 const profilePath = join(repository, "test/fixtures/shared_tree/profile.json");
 const round3Fixture = JSON.parse(await readFile(join(
   repository,
-  "test/fixtures/shared_tree/task9/review-round3.json",
+  "tools/shared-tree-oracle/fixtures/review-round3.json",
 ), "utf8"));
 const reference = {
   package: "@fluidframework/tree",
