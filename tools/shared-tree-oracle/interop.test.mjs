@@ -6433,6 +6433,13 @@ test("corpus accounting accepts the current Gleam test summary", () => {
   ), 417);
 });
 
+test("corpus accounting accepts successful Gleam output without a footer", () => {
+  assert.equal(parseTestCount([
+    "✓ first_shared_tree_test",
+    "✓ second_shared_tree_test",
+  ].join("\n"), "javascript"), 2);
+});
+
 test("native corpus accounting rejects empty and incomplete runs", () => {
   for (const output of [
     "Tests: 0 passed (0)",

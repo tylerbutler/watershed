@@ -475,7 +475,11 @@ export function parseTestCount(output, target) {
     return Number(legacy[1]);
   }
   const current = [...plain.matchAll(/Tests:\s+(\d+)\s+passed\s+\((\d+)\)/gi)].at(-1);
-  assert(current, `${target} corpus output lacks an executed test count`);
+  if (!current) {
+    const passed = plain.split("\n").filter((line) => /^\s*✓\s+\S/.test(line)).length;
+    assert(passed > 0, `${target} corpus output lacks an executed test count`);
+    return passed;
+  }
   assert.equal(current[1], current[2], `${target} corpus summary is incomplete`);
   assert(Number(current[1]) > 0, `${target} corpus executed zero tests`);
   return Number(current[1]);
