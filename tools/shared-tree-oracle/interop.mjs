@@ -1680,14 +1680,27 @@ function seededEvidence(item, label) {
     observations
       .filter(({ implementation }) => lifecycleAuthors.has(implementation))
       .flatMap(({ commits }) => commits ?? []));
+  const lifecycleByIdentity = new Map();
+  for (const event of lifecycleEvents) {
+    if (!["commit", "settlement"].includes(event.type)
+      || !["Undo", "Redo"].includes(event.kind)) {
+      continue;
+    }
+    const identity = `${event.type}:${event.actionId}:${event.eventId}`;
+    const existing = lifecycleByIdentity.get(identity);
+    if (existing === undefined) lifecycleByIdentity.set(identity, event);
+    else assert.deepEqual(event, existing,
+      `${label} lifecycle event identity changed across checkpoints`);
+  }
+  const uniqueLifecycleEvents = [...lifecycleByIdentity.values()];
   const revertActions = lifecycleActions.filter(({ type }) => type === "revert");
   const expectedKinds = revertActions.map(({ lifecycle }) =>
     lifecycle === "redo" ? "Redo" : "Undo");
-  const commitEvents = lifecycleEvents.filter(
+  const commitEvents = uniqueLifecycleEvents.filter(
     ({ type, local, kind }) =>
       type === "commit" && local === true && ["Undo", "Redo"].includes(kind),
   );
-  const settlementEvents = lifecycleEvents.filter(
+  const settlementEvents = uniqueLifecycleEvents.filter(
     ({ type, kind }) =>
       type === "settlement" && ["Undo", "Redo"].includes(kind),
   );

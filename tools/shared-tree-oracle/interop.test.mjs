@@ -5661,6 +5661,28 @@ test("seeded artifacts project local branch evidence", async () => {
   assert.doesNotThrow(() => validateInteropReport(report, expected));
 });
 
+test("seeded lifecycle accepts cumulative checkpoint event snapshots", async () => {
+  const { expected, report } = await validFixture();
+  const owner = report.seeded.find(({ undoRedo }) =>
+    undoRedo.some(({ type }) => type === "undo"));
+  const author = owner.undoRedo.find(({ type }) => type === "undo").author;
+  const finalObservation = owner.checkpoints.at(-1).observations.find(
+    ({ implementation }) => implementation === author,
+  );
+  const earlierObservation = owner.checkpoints.at(-2).observations.find(
+    ({ implementation }) => implementation === author,
+  );
+  earlierObservation.commits ??= [];
+  earlierObservation.commits.push(...structuredClone(
+    finalObservation.commits.filter(({ kind }) =>
+      ["Undo", "Redo"].includes(kind)),
+  ));
+  const artifact = expected.artifacts.get(owner.artifacts[0]).claim;
+  artifact.measured.checkpoints = structuredClone(owner.checkpoints);
+  artifact.raw.checkpoints = structuredClone(owner.checkpoints);
+  assert.doesNotThrow(() => validateInteropReport(report, expected));
+});
+
 test("seeded committed transactions require an accepted operation", async () => {
   const { expected, report } = await validFixture();
   const owner = report.seeded.find(({ transactions }) =>
