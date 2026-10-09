@@ -4602,6 +4602,7 @@ export async function nativeAdapter(
   const nativeLoadIdentities = [];
   const resolvedRevisions = new Map();
   const handleBranches = new Map();
+  const actionBranches = new Map();
   try {
     success(await client.request({ command: "subscribe" }), `${target} subscribe`);
   } catch (error) {
@@ -4705,6 +4706,9 @@ export async function nativeAdapter(
     async retainLastLocalCommit(name, branch) {
       const result = await client.retainLastLocalCommit(name, branch);
       handleBranches.set(name, branch ?? "main");
+      if (typeof result.actionId === "string") {
+        actionBranches.set(result.actionId, branch ?? "main");
+      }
       if (typeof result.actionId === "string"
         && typeof result.revision === "string") {
         resolvedRevisions.set(result.actionId, result.revision);
@@ -4789,7 +4793,12 @@ export async function nativeAdapter(
         events: reply.result.events,
         commits: reply.result.commits.map((event) => {
           const revision = resolvedRevisions.get(event.actionId);
-          return revision === undefined ? event : { ...event, revision };
+          const branch = actionBranches.get(event.actionId);
+          return {
+            ...event,
+            ...(revision === undefined ? {} : { revision }),
+            ...(branch === undefined || branch === "main" ? {} : { branch }),
+          };
         }),
         history: reply.result.history,
         readError: reply.result.readError,

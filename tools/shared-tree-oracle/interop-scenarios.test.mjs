@@ -1399,6 +1399,67 @@ test("native adapter delegates branch lifecycle to the real client", async () =>
   await native.close();
 });
 
+test("native adapter scopes retained commit events to their checkout", async () => {
+  const native = await nativeAdapter("erlang", {}, {}, "", {
+    createClient: async () => ({
+      instanceId: "native-branch-retain",
+      gate: {
+        evidence() {
+          return {
+            connections: [],
+            inboundOccurrences: [],
+            outboundOccurrences: [],
+          };
+        },
+      },
+      async request({ command }) {
+        if (command === "subscribe") return { ok: true };
+        assert.equal(command, "checkpoint");
+        return {
+          ok: true,
+          sequenceNumber: 12,
+          observation: {
+            clientId: "native-client",
+            pendingTreeCount: 0,
+            inFlightCount: 0,
+          },
+          result: {
+            root: null,
+            events: [],
+            commits: [{
+              type: "commit",
+              kind: "Default",
+              local: true,
+              eventId: 9,
+              actionId: "branch-action",
+              revision: null,
+            }],
+            history: { pending: [], trunk: [] },
+            readError: null,
+          },
+        };
+      },
+      async retainLastLocalCommit(name, branch) {
+        return {
+          name,
+          kind: "Default",
+          factoryAvailable: true,
+          status: "Valid",
+          eventId: 9,
+          actionId: "branch-action",
+          revision: null,
+          outboundRecords: [],
+        };
+      },
+      async close() {},
+    }),
+  });
+  await native.retainLastLocalCommit("branch-edit", "nested");
+  const checkpoint = await native.checkpoint();
+  assert.equal(checkpoint.commits[0].branch, "nested");
+  await native.close();
+});
+
 test("upstream array adapter resolves recursive map paths with array values", async () => {
   const root = initialArrayRoot();
   const session = {
