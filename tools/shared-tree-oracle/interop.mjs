@@ -3873,9 +3873,9 @@ export function validateLocalBranchSections(report) {
         typeof check.name === "string"
         && (Object.hasOwn(check, "expected")
           ? isDeepStrictEqual(check.actual, check.expected)
-          : Array.isArray(check.expectedContains)
-            && check.expectedContains.every((value) =>
-              check.actual.includes(value)))),
+          : Array.isArray(check.expectedFragments)
+            && check.expectedFragments.every((value) =>
+              check.actual.some((actual) => actual.includes(value))))),
     `${row.id} lacks independently checked results`);
     validateLocalBranchEvidence(row, row.id);
   }

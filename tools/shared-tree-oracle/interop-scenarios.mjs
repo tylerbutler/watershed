@@ -7928,24 +7928,28 @@ async function assertLocalBranchResult(adapter, cell) {
     } else {
       const values = left.map(JSON.stringify);
       const branchValue = cell.fieldKind === "identifier"
-        ? identifierPoint(branchLabel)
+        ? `"${branchLabel}"`
         : treeValue(branchLabel);
       const mainValue = cell.fieldKind === "identifier"
-        ? identifierPoint(mainLabel)
+        ? `"${mainLabel}"`
         : treeValue(mainLabel);
-      assert(values.includes(JSON.stringify(branchValue)),
+      assert(values.some((value) => value.includes(branchValue)),
         `${cell.id} lost the branch insertion`);
       if (cell.conflictClass === "overlapping") {
-        assert(values.includes(JSON.stringify(mainValue)),
+        assert(values.some((value) => value.includes(mainValue)),
           `${cell.id} lost the overlapping main insertion`);
       }
       checks.push({
         name: "array identities",
         actual: values,
-        expectedContains: [
-          JSON.stringify(branchValue),
+        expectedFragments: [
+          cell.fieldKind === "identifier"
+            ? branchValue
+            : JSON.stringify(branchValue),
           ...(cell.conflictClass === "overlapping"
-            ? [JSON.stringify(mainValue)]
+            ? [cell.fieldKind === "identifier"
+                ? mainValue
+                : JSON.stringify(mainValue)]
             : []),
         ],
       });

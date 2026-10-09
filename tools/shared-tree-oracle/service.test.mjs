@@ -407,6 +407,26 @@ test("local branch service cell resolves overlapping object edits", {
   }));
 });
 
+test("local branch service cell preserves identifier branch insertion", {
+  timeout: 120_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/identifier-schema.json",
+    import.meta.url,
+  ), "utf8"));
+  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
+    runId: "identifier-branch-service-cell",
+    identifierViewSchema: JSON.stringify(fixture.input.schema),
+  }, {
+    id: "local-branch:upstream<->javascript:identifier:unrelated:branch-first:rebase",
+    authors: ["upstream", "javascript"],
+    fieldKind: "identifier",
+    conflictClass: "unrelated",
+    order: "branch-first",
+    strategy: "rebase",
+  }));
+});
+
 test("native local branch handles undo before merge", {
   timeout: 180_000,
 }, async () => {
