@@ -25,6 +25,7 @@ import {
   validateTransactionReconnectResults,
 } from "./client-interop.mjs";
 import {
+  acceptedStableRevisions,
   acceptedTreeOperations,
   decodeTreeSubmissions,
   generateSchedules,
@@ -1233,7 +1234,10 @@ function validateSeededTransactions(item, schedule) {
       assert(record.acceptedOperation
         && typeof record.acceptedOperation === "object",
       `Seeded ${item.index} committed transaction lacks an accepted operation`);
-      assert.equal(record.acceptedOperation.revision, record.commitRevision,
+      assert.equal(
+        record.acceptedOperation.stableRevision
+          ?? record.acceptedOperation.revision,
+        record.commitRevision,
         `Seeded ${item.index} accepted another transaction revision`);
       assert(Number.isInteger(record.acceptedOperation.outerSequenceNumber)
         && record.acceptedOperation.outerSequenceNumber > 0,
@@ -1748,15 +1752,29 @@ function validateSeededRawLifecycle(item, raw, label) {
     revision: String(commit.revision),
     originatorId: String(commit.originatorId),
   })));
+  const stableRevisions = acceptedStableRevisions(
+    raw.acceptedOperationPayloads,
+  );
   for (const transaction of item.transactions) {
     if (transaction.outcome === "aborted") continue;
     const originators = item.identityMapping[transaction.author].originatorIds;
-    const matches = acceptedCommits.filter(({ revision, originatorId }) =>
-      revision === transaction.commitRevision
+    const usesStableRevision =
+      typeof transaction.acceptedOperation.stableRevision === "string";
+    const matches = acceptedCommits.filter(({
+      outerSequenceNumber,
+      innerIndex,
+      revision,
+      originatorId,
+    }) =>
+      (usesStableRevision
+        ? stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
+        : revision) === transaction.commitRevision
       && originators.includes(originatorId));
     assert.equal(matches.length, 1,
       `${label} lacks one raw accepted transaction`);
-    assert.deepEqual(transaction.acceptedOperation, matches[0],
+    assert.deepEqual(transaction.acceptedOperation, usesStableRevision
+      ? { ...matches[0], stableRevision: transaction.commitRevision }
+      : matches[0],
       `${label} raw accepted transaction differs from its report`);
   }
 }

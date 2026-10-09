@@ -10,6 +10,7 @@ import {
 } from "fluid-framework/alpha";
 import { SharedMap } from "@fluidframework/map/internal";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
+import { createIdCompressor } from "@fluidframework/id-compressor/internal";
 import {
   defineDataStore,
   sharedObjectRegistryFromIterable,
@@ -1672,6 +1673,42 @@ export function decodeTreeSubmissions(messages) {
   });
 }
 
+export function acceptedStableRevisions(messages) {
+  const revisions = new Map();
+  for (const message of messages) {
+    if (message.type !== "op") continue;
+    const outer = parsed(message.contents);
+    const items = outer?.type === "groupedBatch" && Array.isArray(outer.contents)
+      ? outer.contents
+      : outer?.type === "component"
+        ? [{ contents: outer }]
+        : [];
+    for (const [innerIndex, item] of items.entries()) {
+      const tree = item.contents?.type === "component"
+        ? item.contents.contents?.contents?.content?.contents
+        : undefined;
+      if (!Number.isSafeInteger(tree?.revision)
+        || typeof tree?.originatorId !== "string") {
+        continue;
+      }
+      const range = items.map(({ contents }) =>
+        contents?.type === "idAllocation"
+          ? allocation(contents.contents)
+          : undefined)
+        .find((candidate) => candidate?.sessionId === tree.originatorId);
+      if (range === undefined) continue;
+      const compressor = createIdCompressor(range.sessionId);
+      let localId;
+      for (let count = 0; count < range.last; count += 1) {
+        localId = compressor.generateCompressedId();
+      }
+      revisions.set(`${message.sequenceNumber}:${innerIndex}`,
+        compressor.decompress(localId));
+    }
+  }
+  return revisions;
+}
+
 function pairCells(family, ordered = false) {
   return orderedPairs.flatMap((authors) => {
     const base = {
@@ -2805,6 +2842,12 @@ function generateSchedule({ seed, index, profile }) {
           };
   const finish = [
     peerEdit,
+    ...(profile === "array" ? [{
+      type: "checkpoint",
+      label: `undo-peer-authored-${index}`,
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    }] : []),
     ...(profile === "array" ? [transactionAction(peer, {
         constraints: [],
         edits: [{
@@ -9905,12 +9948,9 @@ export async function executeScheduleAction(
     if (action.result === "abort") {
       assert.equal(result.outboundCount, 0,
         "Seeded aborted transaction queued an outbound operation");
-    } else if (action.preconditions?.outboundHeld === true) {
-      assert([0, 1].includes(result.outboundCount),
-        "Seeded held transaction reported an invalid outbound operation count");
     } else {
-      assert.equal(result.outboundCount, 1,
-        "Seeded transaction queued another outbound operation count");
+      assert([0, 1].includes(result.outboundCount),
+        "Seeded transaction reported an invalid outbound operation count");
     }
     if (action.result === "commit") {
       assert(typeof result.commitRevision === "string"
@@ -9920,6 +9960,7 @@ export async function executeScheduleAction(
     state.transactions.push({
       author: action.author,
       constraints: action.constraints,
+      edits: structuredClone(action.edits),
       requestedResult: action.result,
       outcome: result.outcome,
       editsApplied: result.callback.editsApplied,
@@ -10252,14 +10293,20 @@ export async function runSeededSchedule(config, context, schedule) {
     }
     const finalHistory = await serverHistory(state.creator);
     const decoded = decodedEvidence(finalHistory, state.adapters, implementations);
+    const stableRevisions = acceptedStableRevisions(finalHistory);
     const mapping = identityMapping(state.adapters, decoded.decoded);
     state.transactions = state.transactions.map((transaction) => {
       if (transaction.outcome === "aborted") {
         return { ...transaction, acceptedOperation: null };
       }
-      const accepted = decoded.submissions.filter(({ author, revision }) =>
+      const accepted = decoded.submissions.filter(({
+        author,
+        outerSequenceNumber,
+        innerIndex,
+      }) =>
         author === transaction.author
-        && String(revision) === transaction.commitRevision);
+        && stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
+          === transaction.commitRevision);
       assert.equal(accepted.length, 1,
         "Seeded committed transaction lacks one attributable accepted operation");
       return {
@@ -10269,6 +10316,7 @@ export async function runSeededSchedule(config, context, schedule) {
           innerIndex: accepted[0].innerIndex,
           revision: String(accepted[0].revision),
           originatorId: String(accepted[0].originatorId),
+          stableRevision: transaction.commitRevision,
         },
       };
     });

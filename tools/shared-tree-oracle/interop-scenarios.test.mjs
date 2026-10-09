@@ -1900,6 +1900,42 @@ test("seeded held transactions keep authored revision with coalesced transport",
   assert.equal(state.transactions[0].commitRevision, "transaction-revision");
 });
 
+test("seeded transactions keep authored revision when a pending edit coalesces transport", async () => {
+  const state = {
+    adapters: {
+      erlang: {
+        async transaction() {
+          return {
+            outcome: "committed",
+            callback: { outcome: "committed", editsApplied: 1, nested: [] },
+            commitRevision: "transaction-revision",
+            outboundCount: 0,
+            events: [],
+          };
+        },
+      },
+    },
+    connected: { erlang: true },
+    held: { erlang: { inbound: false, outbound: false } },
+    quiescent: false,
+    summaries: [],
+    transactions: [],
+  };
+  await executeScheduleAction({}, {}, { profile: "array" }, {
+    type: "transaction",
+    author: "erlang",
+    constraints: [],
+    edits: [],
+    result: "commit",
+    preconditions: {
+      connected: ["erlang"],
+      pathType: "array",
+    },
+  }, state);
+  assert.equal(state.transactions[0].outboundCount, 0);
+  assert.equal(state.transactions[0].commitRevision, "transaction-revision");
+});
+
 test("replay cannot label a different or infrastructure failure as reproduced", () => {
   const original = {
     error: { name: "AssertionError", code: "ERR_ASSERTION", message: "roots differ" },
@@ -2890,6 +2926,26 @@ test("seed 42 covers a complete undo and redo lifecycle", () => {
     "redo-settled-0",
     "settled",
   ]);
+});
+
+test("seeded undo transactions author after the peer edit is accepted", () => {
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile, actions }) =>
+      profile === "array"
+      && actions.some(({ type, edits = [] }) =>
+        type === "transaction"
+        && JSON.stringify(edits).includes("undo-transaction")));
+  const transactionIndex = schedule.actions.findIndex(
+    ({ type, edits = [] }) =>
+      type === "transaction"
+      && JSON.stringify(edits).includes("undo-transaction"),
+  );
+  assert.deepEqual(schedule.actions[transactionIndex - 1], {
+    type: "checkpoint",
+    label: `undo-peer-authored-${schedule.index}`,
+    stage: "quiescent",
+    preconditions: { connected: ["upstream", "javascript", "erlang"] },
+  });
 });
 
 test("seed 42 covers local branch lifecycle and summary actions", () => {
