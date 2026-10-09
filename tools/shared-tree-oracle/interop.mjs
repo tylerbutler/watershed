@@ -475,11 +475,7 @@ export function parseTestCount(output, target) {
     return Number(legacy[1]);
   }
   const current = [...plain.matchAll(/Tests:\s+(\d+)\s+passed\s+\((\d+)\)/gi)].at(-1);
-  if (!current) {
-    const passed = plain.split("\n").filter((line) => /^\s*✓\s+\S/.test(line)).length;
-    assert(passed > 0, `${target} corpus output lacks an executed test count`);
-    return passed;
-  }
+  assert(current, `${target} corpus output lacks an executed test count`);
   assert.equal(current[1], current[2], `${target} corpus summary is incomplete`);
   assert(Number(current[1]) > 0, `${target} corpus executed zero tests`);
   return Number(current[1]);
@@ -4108,13 +4104,34 @@ function validateLocalBranchEvidence(
   const sourceByAction = new Map(sourceCommits.map((commit) =>
     [commit.actionId, commit]));
   const retained = object(
-    row.raw.sourceRetained ?? row.raw.retainedResponse ?? row.raw.retained,
+    row.raw.sourceRetained ?? row.raw.retained,
     `${label} lacks the retained source response`);
+  if (row.raw.retainedResponse !== undefined) {
+    assert.deepEqual(row.raw.retainedResponse, retained,
+      `${label} retained response differs from the original capture`);
+  }
   const retainedCommit = sourceByAction.get(retained.actionId);
   assert(retainedCommit
     && retainedCommit.eventId === retained.eventId
     && retained.revisionResolution?.actionId === retained.actionId,
   `${label} retained response differs from its source event`);
+  if (row.raw.beforeMerge !== undefined) {
+    const sourceImplementation =
+      row.authors?.[0] ?? row.implementation ?? row.writer;
+    const sourceCheckpoint = row.raw.beforeMerge.observations.find(
+      ({ implementation }) => implementation === sourceImplementation,
+    );
+    object(sourceCheckpoint,
+      `${label} lacks its source before-merge checkpoint`);
+    assert(Array.isArray(sourceCheckpoint.commits),
+      `${label} source before-merge checkpoint lacks commit events`);
+    assert(sourceCommits.every((commit) => {
+      const { branch: _branch, ...captured } = commit;
+      return sourceCheckpoint.commits.some((candidate) =>
+        isDeepStrictEqual(candidate, captured)
+        || isDeepStrictEqual(candidate, commit));
+    }), `${label} source event differs from the before-merge checkpoint`);
+  }
   const sourceResponses = [
     row.raw.edit,
     row.raw.continued,
@@ -4142,17 +4159,26 @@ function validateLocalBranchEvidence(
     `${label} branch lifecycle differs from its authored source event`);
   }
   assert(row.raw.targetTrace.every((event) =>
-    (event?.type === undefined || event.type === "settlement")
+    event?.type === "settlement"
+    && (event.eventId === undefined
+      || Number.isInteger(event.eventId) && event.eventId > 0)
     && typeof event.actionId === "string"
     && ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(event.outcome)),
   `${label} has fabricated target trace`);
-  if (row.raw.settled !== undefined && row.raw.targetTrace.length > 0) {
-    const settledEvents = row.raw.settled.observations.flatMap(
-      ({ commits = [] }) => commits,
+  if (row.raw.settled !== undefined) {
+    const sourceImplementation =
+      row.authors?.[0] ?? row.implementation ?? row.writer;
+    const targetCheckpoint = row.raw.settled.observations.find(
+      ({ implementation }) => implementation === sourceImplementation,
     );
-    assert(row.raw.targetTrace.every((event) =>
-      settledEvents.some((candidate) => isDeepStrictEqual(candidate, event))),
-    `${label} target trace differs from the settled checkpoint`);
+    object(targetCheckpoint, `${label} lacks its target settled checkpoint`);
+    assert(Array.isArray(targetCheckpoint.commits),
+      `${label} target settled checkpoint lacks commit events`);
+    assert.deepEqual(
+      row.raw.targetTrace,
+      targetCheckpoint.commits.filter(({ type }) => type === "settlement"),
+      `${label} target settlements differ from the settled checkpoint`,
+    );
   }
   assert(Array.isArray(row.raw.allocationRanges),
     `${label} lacks allocation ranges`);
@@ -4216,9 +4242,10 @@ function validateLocalBranchEvidence(
   `${label} lacks factory results`);
   assert(Array.isArray(row.raw.settlementObservations)
     && (allowEmptySettlement || row.raw.settlementObservations.length > 0)
-    && row.raw.settlementObservations.every(({ outcome, actionId }) =>
-      ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(outcome)
-      && sourceByAction.has(actionId)),
+    && isDeepStrictEqual(
+      row.raw.settlementObservations,
+      row.raw.targetTrace,
+    ),
   `${label} lacks captured settlement observations`);
   assert(Array.isArray(row.raw.survivingRevisions)
     && (allowEmptyMerge || row.raw.survivingRevisions.length > 0),

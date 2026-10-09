@@ -8810,7 +8810,6 @@ export function exactLocalBranchEvidence({
       ...commit,
       branch: commit.branch ?? merge?.source ?? "draft",
     }));
-  const sourceActions = new Set(sourceCommits.map(({ actionId }) => actionId));
   const exactOperations = acceptedOperations;
   const mergeMessages = exactOperations.flatMap(({ commits }) =>
     commits.map(({ revision, originatorId, changeset }) => ({
@@ -8820,14 +8819,9 @@ export function exactLocalBranchEvidence({
     })));
   const allocationRanges = exactOperations.flatMap(({ allocations }) =>
     allocations.map((allocation) => structuredClone(allocation)));
-  const settlementObservations = [...sourceTrace, ...targetTrace]
-    .filter(({ type, actionId }) =>
-      type === "settlement" && sourceActions.has(actionId))
-    .map(({ outcome, revision, actionId }) => ({
-      outcome,
-      revision,
-      actionId,
-    }));
+  const settlementObservations = targetTrace
+    .filter(({ type }) => type === "settlement")
+    .map((event) => structuredClone(event));
   return {
     mergeMessages,
     survivingRevisions: mergeMessages.map(
@@ -8857,7 +8851,7 @@ export function exactLocalBranchEvidence({
       acceptedOperations: exactOperations,
       acceptedOperationPayloads: structuredClone(acceptedOperationPayloads),
       branchCommands: structuredClone(branchCommands),
-      retainedResponse: structuredClone(retained),
+      retained,
       ...(merge === null ? {} : { mergeResult: structuredClone(merge) }),
       mergeAttribution: {
         sourceBranch: merge?.source ?? "draft",

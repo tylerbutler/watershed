@@ -236,9 +236,12 @@ function localBranchEvidence(
         actionId: "branch-action",
       }],
       settlementObservations: [{
-        outcome: "FullyApplied",
-        revision,
+        type: "settlement",
+        revision: sourceRevision,
         actionId: "branch-action",
+        eventId: 1,
+        kind: "Default",
+        outcome: "FullyApplied",
       }],
       survivingRevisions: [`${originatorId}:${revision}`],
       acceptedOperations: [{
@@ -612,10 +615,12 @@ function localBranchReport() {
               {
                 implementation: row.writer,
                 clientId: "branch-client",
+                commits: structuredClone(row.raw.sourceTrace),
               },
               {
                 implementation: "upstream",
                 clientId: "peer-client",
+                commits: [],
               },
             ],
           };
@@ -817,6 +822,87 @@ test("recorded branch evidence rejects fabricated target and source identities",
     () => validateLocalBranchSections(report),
     /target trace|source action|factory|retain/,
   );
+});
+
+test("recorded branch evidence binds source identity to original captured evidence", () => {
+  const report = reportWithRecordedRow(
+    "localBranchConcurrent",
+    round3Fixture.concurrent,
+  );
+  const row = report.localBranchConcurrent.cells.find(
+    ({ id }) => id === round3Fixture.concurrent.id,
+  );
+  const source = row.raw.sourceTrace[0];
+  source.actionId = "never-authored";
+  source.eventId = 999999;
+  row.raw.retainedResponse.actionId = source.actionId;
+  row.raw.retainedResponse.eventId = source.eventId;
+  row.raw.retainedResponse.revisionResolution.actionId = source.actionId;
+  row.raw.factoryResults[0].actionId = source.actionId;
+  row.raw.factoryResults[0].eventId = source.eventId;
+  const retain = row.raw.branchCommands.find(({ type }) => type === "retain");
+  retain.actionId = source.actionId;
+  retain.eventId = source.eventId;
+  row.raw.mergeAttribution.sourceActionIds = [source.actionId];
+  row.raw.mergeAttribution.sourceCommitIds =
+    [`${source.branch}:${source.eventId}`];
+
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /retained|before-merge|source event/,
+  );
+});
+
+test("recorded branch evidence accepts actual target checkout settlements", () => {
+  const report = reportWithRecordedRow(
+    "localBranchConcurrent",
+    round3Fixture.concurrent,
+  );
+  const row = report.localBranchConcurrent.cells.find(
+    ({ id }) => id === round3Fixture.concurrent.id,
+  );
+  const actual = row.raw.settled.observations
+    .find(({ implementation }) => implementation === row.authors[0])
+    .commits.filter(({ type }) => type === "settlement");
+  row.raw.targetTrace = structuredClone(actual);
+  row.raw.settlementObservations = structuredClone(actual);
+
+  assert.doesNotThrow(() => validateLocalBranchSections(report));
+});
+
+test("recorded branch evidence rejects missing and invented target settlements", () => {
+  for (const mutate of [
+    (row) => {
+      row.raw.targetTrace = [];
+      row.raw.settlementObservations = [];
+    },
+    (row) => {
+      const source = row.raw.sourceTrace[0];
+      row.raw.targetTrace = [{
+        type: "settlement",
+        kind: source.kind,
+        outcome: "FullyDropped",
+        eventId: source.eventId,
+        actionId: source.actionId,
+        revision: source.revision,
+      }];
+      row.raw.settlementObservations =
+        structuredClone(row.raw.targetTrace);
+    },
+  ]) {
+    const report = reportWithRecordedRow(
+      "localBranchConcurrent",
+      round3Fixture.concurrent,
+    );
+    const row = report.localBranchConcurrent.cells.find(
+      ({ id }) => id === round3Fixture.concurrent.id,
+    );
+    mutate(row);
+    assert.throws(
+      () => validateLocalBranchSections(report),
+      /target settlement|settled checkpoint/,
+    );
+  }
 });
 
 test("recorded identifier results reject copied wrong peer labels", () => {
@@ -1067,6 +1153,7 @@ test("local branch validation accepts actual event identity without a revision",
   commit.branch = "draft";
   commit.revision = null;
   row.raw.factoryResults[0].revision = null;
+  row.raw.targetTrace[0].revision = null;
   row.raw.settlementObservations[0].revision = null;
   row.raw.mergeAttribution.sourceRevisions = [null];
   row.raw.mergeAttribution.sourceCommitIds = ["draft:1"];
@@ -6479,19 +6566,18 @@ test("corpus accounting accepts the current Gleam test summary", () => {
   ), 417);
 });
 
-test("corpus accounting accepts successful Gleam output without a footer", () => {
-  assert.equal(parseTestCount([
-    "✓ first_shared_tree_test",
-    "✓ second_shared_tree_test",
-  ].join("\n"), "javascript"), 2);
-});
-
 test("native corpus accounting rejects empty and incomplete runs", () => {
   for (const output of [
     "Tests: 0 passed (0)",
     "Tests: 1 passed (2)",
     "1 tests, 1 failures",
     "No test summary was emitted",
+    "✓ first_shared_tree_test",
+    [
+      "✓ first_shared_tree_test",
+      "✗ second_shared_tree_test",
+      "Tests: 1 passed, 1 failed (2)",
+    ].join("\n"),
   ]) {
     for (const target of ["javascript", "erlang"]) {
       assert.throws(() => parseTestCount(output, target));

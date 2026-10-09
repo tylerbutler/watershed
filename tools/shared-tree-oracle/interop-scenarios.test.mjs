@@ -133,6 +133,50 @@ test("exact branch evidence retains native commit events without revisions", () 
   assert.deepEqual(evidence.raw.mergeAttribution.sourceCommitIds, ["nested:7"]);
 });
 
+test("exact branch evidence preserves target checkout settlement identities", () => {
+  const targetSettlement = {
+    type: "settlement",
+    kind: "Default",
+    outcome: "FullyApplied",
+    eventId: 3,
+    actionId: "event-3",
+    revision: "-1",
+  };
+  const evidence = exactLocalBranchEvidence({
+    editOrder: ["branch"],
+    sourceTrace: [{
+      type: "commit",
+      local: true,
+      revision: "event-1",
+      eventId: 1,
+      actionId: "event-1",
+    }],
+    targetTrace: [{
+      type: "commit",
+      local: true,
+      revision: "-1",
+      eventId: 3,
+      actionId: "event-3",
+    }, targetSettlement],
+    acceptedOperations: [],
+    retained: {
+      factoryAvailable: true,
+      status: "Valid",
+      revision: "event-1",
+      eventId: 1,
+      actionId: "event-1",
+    },
+    merge: { source: "draft", target: "main" },
+    branchCommands: [
+      { type: "fork", sourceBranch: "main", targetBranch: "draft" },
+      { type: "merge", sourceBranch: "draft", targetBranch: "main" },
+    ],
+  });
+
+  assert.deepEqual(evidence.raw.targetTrace, [targetSettlement]);
+  assert.deepEqual(evidence.raw.settlementObservations, [targetSettlement]);
+});
+
 test("local branch source trace keeps revisionless native checkout events", () => {
   const native = {
     type: "commit",
