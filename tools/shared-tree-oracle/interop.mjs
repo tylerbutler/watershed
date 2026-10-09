@@ -1738,6 +1738,27 @@ function validateSeededRawLifecycle(item, raw, label) {
       );
     }
   }
+  assert(Array.isArray(raw.acceptedOperationPayloads),
+    `${label} lacks raw accepted transaction traffic`);
+  const acceptedCommits = decodeTreeSubmissions(
+    raw.acceptedOperationPayloads,
+  ).flatMap((submission) => submission.commits.map((commit) => ({
+    outerSequenceNumber: submission.outerSequenceNumber,
+    innerIndex: commit.innerIndex,
+    revision: String(commit.revision),
+    originatorId: String(commit.originatorId),
+  })));
+  for (const transaction of item.transactions) {
+    if (transaction.outcome === "aborted") continue;
+    const originators = item.identityMapping[transaction.author].originatorIds;
+    const matches = acceptedCommits.filter(({ revision, originatorId }) =>
+      revision === transaction.commitRevision
+      && originators.includes(originatorId));
+    assert.equal(matches.length, 1,
+      `${label} lacks one raw accepted transaction`);
+    assert.deepEqual(transaction.acceptedOperation, matches[0],
+      `${label} raw accepted transaction differs from its report`);
+  }
 }
 
 function measured(item, expected, authors, evidence, label) {
@@ -3756,6 +3777,15 @@ function validateLocalBranchEvidence(
     && Array.isArray(operation.allocations)
     && Array.isArray(operation.commits)),
   `${label} has invalid raw accepted operations`);
+  assert(Array.isArray(row.raw.acceptedOperationPayloads),
+    `${label} lacks preserved accepted operation bytes`);
+  assert.deepEqual(
+    row.raw.acceptedOperations,
+    acceptedTreeOperations(row.raw.acceptedOperationPayloads, {
+      includeAllocations: true,
+    }),
+    `${label} raw accepted operations differ from preserved bytes`,
+  );
   assert.equal(row.raw.allocationContext.operationCount,
     row.raw.acceptedOperations.length,
   `${label} allocation context names another operation count`);

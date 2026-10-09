@@ -8687,6 +8687,7 @@ export function exactLocalBranchEvidence({
   sourceTrace,
   targetTrace,
   acceptedOperations,
+  acceptedOperationPayloads = [],
   retained,
   merge = null,
 }) {
@@ -8746,6 +8747,7 @@ export function exactLocalBranchEvidence({
         ({ originatorId, revision }) => `${originatorId}:${revision}`,
       ),
       acceptedOperations: exactOperations,
+      acceptedOperationPayloads: structuredClone(acceptedOperationPayloads),
       branchCommands: [{
         type: "merge",
         sourceBranch: merge?.source ?? "draft",
@@ -8848,6 +8850,7 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
         acceptedHistory,
         { includeAllocations: true },
       ),
+      acceptedOperationPayloads: acceptedHistory,
       retained,
       merge,
     });
@@ -8861,6 +8864,7 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
           acceptedHistory,
           { includeAllocations: true },
         ),
+        acceptedOperationPayloads: acceptedHistory,
         retained,
         merge,
       })}`);
@@ -8942,6 +8946,7 @@ async function runLocalBranchIsolationImplementation(
         acceptedHistory,
         { includeAllocations: true },
       ),
+      acceptedOperationPayloads: acceptedHistory,
       retained,
       merge,
     });
@@ -9023,16 +9028,18 @@ export async function runLocalBranchLifetimeCell(
     }
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
+    const acceptedHistory = history.filter(({ sequenceNumber }) =>
+      sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0));
     const targetTrace = localBranchCommitTrace(settled, implementation);
     const evidence = exactLocalBranchEvidence({
       editOrder: ["branch"],
       sourceTrace: localBranchCommitTrace(beforeMerge, implementation),
       targetTrace,
       acceptedOperations: acceptedTreeOperations(
-        history.filter(({ sequenceNumber }) =>
-          sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+        acceptedHistory,
         { includeAllocations: true },
       ),
+      acceptedOperationPayloads: acceptedHistory,
       retained,
     });
     return {
@@ -9144,6 +9151,7 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
         acceptedHistory,
         { includeAllocations: true },
       ),
+      acceptedOperationPayloads: acceptedHistory,
       retained,
       merge: { source: "draft", target: "main" },
     });

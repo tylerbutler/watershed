@@ -61,9 +61,10 @@ const localBranchPairs = [
 ];
 
 function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
-  const revision = "branch-a";
+  const sourceRevision = "branch-a";
+  const revision = -1;
   const originatorId = "branch-origin";
-  const changeset = { fieldChanges: [{ field: "title" }] };
+  const changeset = [{ fieldChanges: [{ field: "title" }] }];
   const mergeMessage = { revision, originatorId, changeset };
   return {
     remoteVisibleBeforeMerge: false,
@@ -75,7 +76,7 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
       sourceTrace: [{
         type: "commit",
         local: true,
-        revision,
+        revision: sourceRevision,
         branch: "draft",
         actionId: "branch-action",
         eventId: 1,
@@ -85,19 +86,19 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
       }],
       targetTrace: [{
         type: "settlement",
-        revision,
+        revision: sourceRevision,
         actionId: "branch-action",
         eventId: 1,
         kind: "Default",
         outcome: "FullyApplied",
       }],
-      allocationRanges: [{ firstGenCount: 4, count: 4 }],
+      allocationRanges: [{ first: 4, last: 7, sessionId: originatorId }],
       allocationContext: { required: true, operationCount: 1 },
       mergeMessages: [mergeMessage],
       factoryResults: [{
         available: true,
         outcome: "Valid",
-        revision,
+        revision: sourceRevision,
         eventId: 1,
         actionId: "branch-action",
       }],
@@ -112,14 +113,56 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
         clientId: "branch-client",
         clientSequenceNumber: 1,
         outerSequenceNumber: 1,
-        allocations: [{ firstGenCount: 4, count: 4 }],
+        allocations: [{ first: 4, last: 7, sessionId: originatorId }],
         commits: [mergeMessage],
+      }],
+      acceptedOperationPayloads: [{
+        type: "op",
+        clientId: "branch-client",
+        clientSequenceNumber: 1,
+        referenceSequenceNumber: 0,
+        sequenceNumber: 1,
+        contents: {
+          type: "groupedBatch",
+          contents: [
+            {
+              contents: {
+                type: "idAllocation",
+                contents: {
+                  sessionId: originatorId,
+                  ids: {
+                    firstGenCount: 4,
+                    count: 4,
+                    requestedClusterSize: 512,
+                    localIdRanges: [[4, 4]],
+                  },
+                },
+              },
+            },
+            {
+              contents: {
+                type: "component",
+                contents: {
+                  contents: {
+                    content: {
+                      contents: {
+                        revision,
+                        originatorId,
+                        changeset,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
       }],
       mergeAttribution: {
         sourceBranch: "draft",
         targetBranch: "main",
         sourceActionIds: ["branch-action"],
-        sourceRevisions: [revision],
+        sourceRevisions: [sourceRevision],
         sourceCommitIds: ["draft:1"],
         acceptedRevisions: [`${originatorId}:${revision}`],
       },
@@ -130,7 +173,7 @@ function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
       acceptedBeforeDrop: {
         outerSequenceNumber: 1,
         clientId: "branch-client",
-        revisions: [revision],
+        revisions: [String(revision)],
         peerDeliveredThrough: 1,
         authorAcknowledgementHeld: true,
       },
@@ -283,9 +326,10 @@ test("local branch validation rejects a merge from the wrong branch revision", (
   row.raw.mergeMessages = [wrong];
   row.raw.survivingRevisions = ["main-origin:main-b"];
   row.raw.acceptedOperations[0].commits = [wrong];
+  row.raw.mergeAttribution.acceptedRevisions = ["main-origin:main-b"];
   assert.throws(
     () => validateLocalBranchSections(report),
-    /accepted revision/,
+    /raw accepted operations/,
   );
 });
 
@@ -5206,6 +5250,28 @@ test("seeded committed transactions require an accepted operation", async () => 
   assert.throws(
     () => validateInteropReport(report, expected),
     /accepted operation/,
+  );
+});
+
+test("seeded transaction rejects a fabricated revision against unchanged raw traffic", async () => {
+  const { expected, report } = await validFixture();
+  const owner = report.seeded.find(({ transactions }) =>
+    transactions.some(({ outcome }) => outcome === "committed"));
+  const transaction = owner.transactions.find(
+    ({ outcome }) => outcome === "committed",
+  );
+  transaction.commitRevision = "never-authored";
+  transaction.acceptedOperation = {
+    ...transaction.acceptedOperation,
+    revision: "never-authored",
+    outerSequenceNumber: 999999,
+    innerIndex: 99,
+  };
+  expected.artifacts.get(owner.artifacts[0]).claim.measured.transactions =
+    structuredClone(owner.transactions);
+  assert.throws(
+    () => validateInteropReport(report, expected),
+    /raw accepted transaction/,
   );
 });
 
