@@ -506,7 +506,13 @@ function localBranchReport() {
               : "BranchDisposed",
           repeatedMergeAuthoredCount: 0,
           ...localBranchEvidence(),
-        }))),
+        })).map((row) => {
+          if (row.kind === "preserved-source-repeated-merge") {
+            row.raw.branchCommands.findLast(({ type }) => type === "merge")
+              .authoredCount = 0;
+          }
+          return row;
+        })),
     },
     localBranchReconnect: {
       ...section(),
@@ -816,6 +822,16 @@ test("local branch reload rejects copied publication identity with unchanged raw
     () => validateLocalBranchSections(report),
     /select the published summary version|raw storage responses/,
   );
+});
+
+test("local branch reload accepts an absent merge settlement callback", () => {
+  const report = localBranchReport();
+  const row = report.localBranchReloadMatrix.cells.find(
+    ({ stage }) => stage === "after-merge",
+  );
+  row.raw.targetTrace = [];
+  row.raw.settlementObservations = [];
+  assert.doesNotThrow(() => validateLocalBranchSections(report));
 });
 
 test("local branch validation rejects incomplete service evidence", () => {

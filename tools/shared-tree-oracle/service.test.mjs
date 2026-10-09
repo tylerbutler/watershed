@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
 import {
@@ -26,15 +26,20 @@ import {
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
-import { validateLocalBranchRow } from "./interop.mjs";
+import {
+  validateLocalBranchRow,
+  validateLocalBranchSections,
+} from "./interop.mjs";
 import {
   nativeAdapter,
   publishUpstreamSummary,
   runLocalBranchConcurrentCell,
   runLocalBranchLifetimeCell,
   runLocalBranchReconnectCell,
+  runLocalBranchScenarios,
   upstreamAdapter,
 } from "./interop-scenarios.mjs";
+import { runLocalBranchReloadMatrix } from "./summary-interop.mjs";
 
 test("service profile names supported M5 behavior and its limits", () => {
   for (const feature of [
@@ -354,17 +359,20 @@ test("local branch service cell moves within a seeded array", {
     import.meta.url,
   ), "utf8"));
   const arrayViewSchema = fixture.input.schemas.objectArrays;
-  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
-    runId: "same-array-move-service-cell",
-    arrayViewSchema,
-  }, {
-    id: "local-branch:upstream<->javascript:same-array-move:unrelated:branch-first:rebase",
-    authors: ["upstream", "javascript"],
-    fieldKind: "same-array-move",
-    conflictClass: "unrelated",
-    order: "branch-first",
-    strategy: "rebase",
-  }));
+  await withLocalFloodgate(async (config) => {
+    const row = await runLocalBranchConcurrentCell(config, {
+      runId: "same-array-move-service-cell",
+      arrayViewSchema,
+    }, {
+      id: "local-branch:upstream<->javascript:same-array-move:unrelated:branch-first:rebase",
+      authors: ["upstream", "javascript"],
+      fieldKind: "same-array-move",
+      conflictClass: "unrelated",
+      order: "branch-first",
+      strategy: "rebase",
+    });
+    assert.equal(validateLocalBranchRow(row, row.id), row);
+  });
 });
 
 test("local branch service cell applies a transaction", {
@@ -374,17 +382,20 @@ test("local branch service cell applies a transaction", {
     "../../test/fixtures/shared_tree/cases/array-schema-content.json",
     import.meta.url,
   ), "utf8"));
-  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
-    runId: "transaction-service-cell",
-    arrayViewSchema: fixture.input.schemas.objectArrays,
-  }, {
-    id: "local-branch:upstream<->javascript:transaction:overlapping:branch-first:rebase",
-    authors: ["upstream", "javascript"],
-    fieldKind: "transaction",
-    conflictClass: "overlapping",
-    order: "branch-first",
-    strategy: "rebase",
-  }));
+  await withLocalFloodgate(async (config) => {
+    const row = await runLocalBranchConcurrentCell(config, {
+      runId: "transaction-service-cell",
+      arrayViewSchema: fixture.input.schemas.objectArrays,
+    }, {
+      id: "local-branch:upstream<->javascript:transaction:overlapping:branch-first:rebase",
+      authors: ["upstream", "javascript"],
+      fieldKind: "transaction",
+      conflictClass: "overlapping",
+      order: "branch-first",
+      strategy: "rebase",
+    });
+    assert.equal(validateLocalBranchRow(row, row.id), row);
+  });
 });
 
 test("local branch service cell resolves overlapping object edits", {
@@ -418,17 +429,20 @@ test("local branch service cell preserves identifier branch insertion", {
     "../../test/fixtures/shared_tree/cases/identifier-schema.json",
     import.meta.url,
   ), "utf8"));
-  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
-    runId: "identifier-branch-service-cell",
-    identifierViewSchema: JSON.stringify(fixture.input.schema),
-  }, {
-    id: "local-branch:upstream<->javascript:identifier:unrelated:branch-first:rebase",
-    authors: ["upstream", "javascript"],
-    fieldKind: "identifier",
-    conflictClass: "unrelated",
-    order: "branch-first",
-    strategy: "rebase",
-  }));
+  await withLocalFloodgate(async (config) => {
+    const row = await runLocalBranchConcurrentCell(config, {
+      runId: "identifier-branch-service-cell",
+      identifierViewSchema: JSON.stringify(fixture.input.schema),
+    }, {
+      id: "local-branch:upstream<->javascript:identifier:unrelated:branch-first:rebase",
+      authors: ["upstream", "javascript"],
+      fieldKind: "identifier",
+      conflictClass: "unrelated",
+      order: "branch-first",
+      strategy: "rebase",
+    });
+    assert.equal(validateLocalBranchRow(row, row.id), row);
+  });
 });
 
 test("native local branch handles undo before merge", {
@@ -467,6 +481,49 @@ test("native branch merge is accepted once before reconnect", {
       }, writer, "accepted-before-drop");
       assert.equal(result.mergeSubmissionCount, 1);
     }
+  });
+});
+
+test("all real local branch sections pass the final validator", {
+  timeout: 1_800_000,
+}, async () => {
+  const [objectFixture, mapFixture, arrayFixture, identifierFixture] =
+    await Promise.all([
+      "schema-profile.json",
+      "map-schema-content.json",
+      "array-schema-content.json",
+      "identifier-schema.json",
+    ].map(async (name) => JSON.parse(await readFile(new URL(
+      `../../test/fixtures/shared_tree/cases/${name}`,
+      import.meta.url,
+    ), "utf8"))));
+  const context = {
+    runId: "local-branch-final-sections",
+    viewSchema: objectFixture.input.summary.tree.indexes.tree.Schema
+      .tree.SchemaString.content,
+    mapViewSchema: mapFixture.input.schemas.objectContainedMap,
+    arrayViewSchema: arrayFixture.input.schemas.objectArrays,
+    identifierViewSchema: JSON.stringify(identifierFixture.input.schema),
+  };
+  await withLocalFloodgate(async (config) => {
+    const local = await runLocalBranchScenarios(config, context);
+    const localBranchReloadMatrix =
+      await runLocalBranchReloadMatrix(config, context);
+    const report = {
+      localBranchIsolation: local.isolation,
+      localBranchConcurrent: local.concurrent,
+      localBranchLifetime: local.lifetime,
+      localBranchReconnect: local.reconnect,
+      localBranchReloadMatrix,
+    };
+    if (process.env.TASK9_SECTION_ARTIFACT) {
+      await writeFile(
+        process.env.TASK9_SECTION_ARTIFACT,
+        `${JSON.stringify(report)}\n`,
+        { mode: 0o600 },
+      );
+    }
+    assert.equal(validateLocalBranchSections(report), report);
   });
 });
 

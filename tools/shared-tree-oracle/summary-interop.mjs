@@ -4949,6 +4949,7 @@ export function localBranchReloadEvidence(raw) {
     settlementObservations: raw.settlementObservations,
     survivingRevisions: raw.survivingRevisions,
     acceptedOperations: raw.acceptedOperations,
+    acceptedOperationPayloads: raw.acceptedOperationPayloads,
     branchCommands: raw.branchCommands,
     mergeAttribution: raw.mergeAttribution,
   };

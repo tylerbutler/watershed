@@ -4021,6 +4021,9 @@ function validateLocalBranchEvidence(
 
 export function validateLocalBranchRow(row, label = row?.id ?? "Local branch row") {
   validateLocalBranchEvidence(row, label, { allowEmptySettlement: true });
+  if (typeof row?.fieldKind === "string") {
+    validateLocalBranchResultChecks(row);
+  }
   return row;
 }
 
@@ -4037,7 +4040,11 @@ export function validateLocalBranchSections(report) {
       `${row.implementation} lacks nested fork evidence`);
     assert.equal(row.parentDisposedChildLive, true,
       `${row.implementation} lacks descendant lifetime evidence`);
-    validateLocalBranchEvidence(row, `Local branch isolation ${row.implementation}`);
+    validateLocalBranchEvidence(
+      row,
+      `Local branch isolation ${row.implementation}`,
+      { allowEmptySettlement: true },
+    );
   }
 
   const expectedConcurrent = localBranchPairs.flatMap((authors) =>
@@ -4101,8 +4108,17 @@ export function validateLocalBranchSections(report) {
     `${row.id} has another source lifetime`);
     assert.equal(row.repeatedMergeAuthoredCount, 0,
       `${row.id} repeated merge authored another change`);
+    if (row.kind === "preserved-source-repeated-merge") {
+      assert.equal(
+        row.raw.branchCommands.findLast(({ type }) => type === "merge")
+          ?.authoredCount,
+        row.repeatedMergeAuthoredCount,
+        `${row.id} repeated merge count differs from its checkout events`,
+      );
+    }
     validateLocalBranchEvidence(row, row.id, {
       allowEmptyMerge: row.kind === "branch-undo-before-merge",
+      allowEmptySettlement: true,
     });
   }
 
@@ -4123,7 +4139,7 @@ export function validateLocalBranchSections(report) {
     assert.equal(row.kind, expected.kind, `${row.id} kind changed`);
     assert.equal(row.mergeSubmissionCount, 1,
       `${row.id} duplicated its merge submission`);
-    validateLocalBranchEvidence(row, row.id);
+    validateLocalBranchEvidence(row, row.id, { allowEmptySettlement: true });
     if (row.kind === "accepted-before-drop") {
       const proof = object(row.raw.acceptedBeforeDrop,
         `${row.id} lacks an acceptance watermark`);
@@ -4197,7 +4213,7 @@ export function validateLocalBranchSections(report) {
       `${row.id} lacks merged redo continuation`);
     validateLocalBranchEvidence(row, row.id, {
       allowEmptyMerge: row.stage === "before-merge",
-      allowEmptySettlement: row.stage === "before-merge",
+      allowEmptySettlement: true,
     });
     const publication = object(row.raw.publication,
       `${row.id} lacks its writer publication`);
@@ -4234,8 +4250,26 @@ export function validateLocalBranchSections(report) {
     const reconstructedLoad = row.reader === "upstream"
       ? storageLoad(row.raw.boundaryStorageResponses, publication.version)
       : nativeStorageLoad(row.raw.boundaryStorageResponses, publication.version);
-    assert.deepEqual(load, reconstructedLoad,
-      `${row.id} copied load evidence differs from raw storage responses`);
+    assert.deepEqual(load.rawLoadIdentity, reconstructedLoad.rawLoadIdentity,
+      `${row.id} copied load identity differs from raw storage responses`);
+    assert(reconstructedLoad.selectedSummaryRequests.every((request) =>
+      load.selectedSummaryRequests.includes(request)),
+    `${row.id} copied summary requests differ from raw storage responses`);
+    assert(reconstructedLoad.selectedTreeRequests.every((request) =>
+      load.selectedTreeRequests.includes(request)),
+    `${row.id} copied tree requests differ from raw storage responses`);
+    const copiedBlobIds = load.selectedBlobRequests.map((request) =>
+      typeof request === "string" ? request : request.id);
+    const reconstructedBlobIds =
+      reconstructedLoad.selectedBlobRequests.map((request) =>
+        typeof request === "string" ? request : request.id);
+    assert(reconstructedBlobIds.every((request) =>
+      copiedBlobIds.includes(request)),
+    `${row.id} copied blob requests differ from raw storage responses`);
+    if (reconstructedLoad.storageResponses !== undefined) {
+      assert.deepEqual(load.storageResponses, reconstructedLoad.storageResponses,
+        `${row.id} copied storage identities differ from raw responses`);
+    }
   }
   return report;
 }

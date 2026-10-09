@@ -33,9 +33,13 @@ test("local branch reload evidence preserves exact merge attribution", () => {
     sourceRevisions: ["revision-1"],
     acceptedRevisions: ["origin:accepted-1"],
   };
-  assert.equal(localBranchReloadEvidence({
+  const acceptedOperationPayloads = [{ sequenceNumber: 7 }];
+  const evidence = localBranchReloadEvidence({
     mergeAttribution,
-  }).mergeAttribution, mergeAttribution);
+    acceptedOperationPayloads,
+  });
+  assert.equal(evidence.mergeAttribution, mergeAttribution);
+  assert.equal(evidence.acceptedOperationPayloads, acceptedOperationPayloads);
 });
 
 test("local branch reload matrix covers both stages for every writer and reader", async () => {

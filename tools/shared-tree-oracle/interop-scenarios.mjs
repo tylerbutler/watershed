@@ -8811,8 +8811,17 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
         "draft",
         localBranchEdit(cell.fieldKind, label),
       );
-      branchWireDelta = (await serverHistory(environment.creator)).length
-        - beforeBranchHistory.length;
+      const branchHistory = (await serverHistory(environment.creator)).filter(
+        ({ sequenceNumber }) =>
+          sequenceNumber
+            > (beforeBranchHistory.at(-1)?.sequenceNumber ?? 0),
+      );
+      branchWireDelta = decodeTreeSubmissions(branchHistory).filter(
+        ({ clientId, commits }) =>
+          branch.clientIds.has(clientId)
+          && commits.some(({ changeset }) =>
+            JSON.stringify(changeset).includes(label)),
+      ).length;
       assert.equal(branchResult.outboundCount, 0,
         `${cell.id} branch edit emitted document traffic`);
     };
@@ -8948,6 +8957,7 @@ async function runLocalBranchIsolationImplementation(
     context,
     "object",
     id,
+    [implementation],
   );
   let error;
   try {
@@ -9065,6 +9075,7 @@ export async function runLocalBranchLifetimeCell(
     context,
     "object",
     id,
+    [implementation],
   );
   let error;
   try {
@@ -9134,17 +9145,26 @@ export async function runLocalBranchLifetimeCell(
         sourceStatus: merge.sourceStatus,
       });
       sourceStatusAfterFirstMerge = "BranchValid";
-      const beforeRepeat = await serverHistory(environment.creator);
+      const repeatBefore = await adapter.checkpoint();
       const repeatedMerge = await adapter.mergeBranch("main", "draft", false);
+      const repeatAfter = await adapter.checkpoint();
+      const existingEvents = new Set((repeatBefore.commits ?? []).map(
+        ({ eventId, actionId }) => `${eventId}:${actionId}`,
+      ));
+      repeatedMergeAuthoredCount = (repeatAfter.commits ?? []).filter(
+        ({ type, local, eventId, actionId }) =>
+          type === "commit"
+          && local === true
+          && !existingEvents.has(`${eventId}:${actionId}`),
+      ).length;
       branchCommands.push({
         type: "merge",
         sourceBranch: repeatedMerge.source,
         targetBranch: repeatedMerge.target,
         disposed: repeatedMerge.disposed,
         sourceStatus: repeatedMerge.sourceStatus,
+        authoredCount: repeatedMergeAuthoredCount,
       });
-      const afterRepeat = await serverHistory(environment.creator);
-      repeatedMergeAuthoredCount = afterRepeat.length - beforeRepeat.length;
       const dispose = await adapter.disposeBranch("draft");
       branchCommands.push({
         type: "dispose",
