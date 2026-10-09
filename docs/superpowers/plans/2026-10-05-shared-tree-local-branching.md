@@ -844,12 +844,22 @@ Those results do not close Task 9. Review found gaps in checkout-scoped
 retention, seeded artifact and transaction validation, raw branch-evidence
 binding, overlapping edit coverage, merge attribution, publication-specific
 reload evidence, and accepted-before-drop proof. Fixes and re-review are
-required. No full 300-schedule interoperability run has a passing final
-report. The reported refusal-injection race has not yet been reproduced
-against the unchanged execution base, so its baseline attribution remains
-unverified. Keep Task 10 publication and Task 11 release acceptance open.
+required. The reported refusal-injection race was not reproduced against
+the unchanged execution base, so its baseline attribution remains unverified.
 
-- [ ] **Step 1: Add command protocol RED for actual client-owned branches.**
+At `98722540`, run `0b4934ba-983d-48cd-8f8a-4d4f784af1da` produced a complete
+real-service report with 300 seed-42 schedules, zero skips and divergences,
+and all five branch sections (3 isolation, 168 concurrent, 6 lifetime,
+4 reconnect, and 18 reload cells). This is execution evidence, not yet
+Task 9 acceptance. Re-review against that report still found seven
+evidence-validation gaps, plus incorrect contextual reconstruction of
+stable revision IDs. Coherently altered claims can pass while the
+recorded I/O stays unchanged; reload merge attribution also includes
+earlier reader continuation traffic. Fix those gaps and re-review before
+closing this task. Keep Task 10 publication and Task 11 release acceptance
+open.
+
+- [x] **Step 1: Add command protocol RED for actual client-owned branches.**
 
   ```json
   {"op":"fork","source":"main","name":"draft"}
