@@ -2948,6 +2948,21 @@ test("seeded undo transactions author after the peer edit is accepted", () => {
   });
 });
 
+test("seeded held transactions author before another pending edit", () => {
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile }) => profile === "array");
+  const transactionIndex = schedule.actions.findIndex(
+    ({ type, result }) => type === "transaction" && result === "commit",
+  );
+  const pendingEditIndex = schedule.actions.findIndex(
+    ({ type, author, preconditions }) =>
+      type === "array-insert"
+      && author === schedule.actions[transactionIndex].author
+      && preconditions.outboundHeld === true,
+  );
+  assert(transactionIndex < pendingEditIndex);
+});
+
 test("seed 42 covers local branch lifecycle and summary actions", () => {
   const schedules = generateSchedules({ seed: 42, iterations: 300 });
   const actionTypes = new Set(schedules.flatMap(({ actions }) =>

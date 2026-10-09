@@ -2494,14 +2494,6 @@ function generatedArrayActions(seed, index, template, roles, random) {
     actions.push(control("hold-outbound", author, false));
   }
 
-  actions.push(arrayEdit("array-insert", roles.first, {
-    path: ["left"],
-    index: 1,
-    values: [
-      { kind: "string", value: `${template}-${roles.first}` },
-      { kind: "number", value: magnitude + 7 },
-    ],
-  }, true));
   actions.push(transactionAction(roles.first, {
     constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
     edits: [
@@ -2537,6 +2529,14 @@ function generatedArrayActions(seed, index, template, roles, random) {
     }],
     result: "abort",
   }));
+  actions.push(arrayEdit("array-insert", roles.first, {
+    path: ["left"],
+    index: 1,
+    values: [
+      { kind: "string", value: `${template}-${roles.first}` },
+      { kind: "number", value: magnitude + 7 },
+    ],
+  }, true));
   switch (template) {
     case "array-same-gap":
       actions.push(arrayEdit("array-insert", roles.second, {
