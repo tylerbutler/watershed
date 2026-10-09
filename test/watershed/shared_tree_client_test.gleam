@@ -361,7 +361,7 @@ pub fn shared_tree_client_decodes_local_branch_commands_test() -> Nil {
     Ok(client_protocol.Request(10, client_protocol.Fork("main", "draft"))),
   )
   client_protocol.decode_request(
-    "{\"requestId\":11,\"op\":\"branchEdit\",\"branch\":\"draft\",\"edit\":{\"kind\":\"object-set\",\"path\":[\"title\"],\"value\":\"draft\"}}",
+    "{\"requestId\":11,\"op\":\"branchEdit\",\"branch\":\"draft\",\"edit\":{\"kind\":\"object-set\",\"value\":\"draft\"}}",
   )
   |> expect.to_equal(
     Ok(client_protocol.Request(
@@ -369,6 +369,18 @@ pub fn shared_tree_client_decodes_local_branch_commands_test() -> Nil {
       client_protocol.BranchEditCommand(
         "draft",
         client_protocol.BranchSet(["title"], StringValue("draft")),
+      ),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":111,\"op\":\"branchEdit\",\"branch\":\"draft\",\"edit\":{\"kind\":\"object-set\",\"path\":[\"rating\"],\"value\":5}}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      111,
+      client_protocol.BranchEditCommand(
+        "draft",
+        client_protocol.BranchSet(["rating"], NumberValue(5.0)),
       ),
     )),
   )
@@ -405,6 +417,11 @@ pub fn shared_tree_client_decodes_local_branch_commands_test() -> Nil {
       client_protocol.BranchRetainLastLocalCommit("draft", "edit"),
     )),
   )
+  client_protocol.decode_request(
+    "{\"requestId\":16,\"op\":\"branchEdit\",\"branch\":\"draft\",\"edit\":{\"kind\":\"object-set\",\"path\":\"title\",\"value\":\"draft\"}}",
+  )
+  |> expect.to_be_error()
+  Nil
 }
 
 pub fn shared_tree_client_rejects_invalid_map_commands_test() -> Nil {

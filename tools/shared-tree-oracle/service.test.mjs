@@ -486,6 +486,82 @@ test("native clients own local forks and publish ordinary merged edits", {
   }
 });
 
+test("native retained commits stay with the requested checkout", {
+  timeout: 180_000,
+}, async () => {
+  const schemaFixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/schema-profile.json",
+    import.meta.url,
+  ), "utf8"));
+  const viewSchema = schemaFixture.input.summary.tree.indexes.tree.Schema
+    .tree.SchemaString.content;
+  for (const target of ["javascript", "erlang"]) {
+    await withLocalFloodgate(async (config) => {
+      const containers = [];
+      let native;
+      try {
+        const creator = await openSession(config, containers);
+        const documentId = creator.container.resolvedUrl.id;
+        await publishUpstreamSummary(
+          config,
+          containers,
+          documentId,
+          `Task 9 ${target} checkout retention bootstrap`,
+        );
+        const peerSession = await openSession(config, containers, documentId);
+        const jwt = (await tokenProvider(config).fetchOrdererToken(
+          config.tenantId,
+          documentId,
+        )).jwt;
+        native = await nativeAdapter(target, config, {
+          runId: `native-checkout-retention-${target}`,
+          documentId,
+          tenant: config.tenantId,
+          viewSchema,
+        }, jwt);
+        const peer = upstreamAdapter(peerSession);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+
+        await native.set(["rating"], 7);
+        await native.fork("main", "first");
+        await native.fork("main", "second");
+        await native.branchEdit("first", {
+          kind: "object-set",
+          value: "first",
+        });
+        await native.branchEdit("second", {
+          kind: "object-set",
+          value: "second",
+        });
+        await native.retainLastLocalCommit("main-edit", "main");
+        await native.retainLastLocalCommit("first-edit", "first");
+        const firstUndo = await native.revert("first-edit", true);
+        assert.equal(firstUndo.outboundCount, 0);
+        await native.mergeBranch("main", "first", true);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+        assert.equal(peerSession.data.view.root.title, "");
+        assert.equal(peerSession.data.view.root.rating, 7);
+
+        await native.mergeBranch("main", "second", true);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+        assert.equal(peerSession.data.view.root.title, "second");
+
+        const mainUndo = await native.revert("main-edit", true);
+        assert.equal(mainUndo.outboundCount, 1);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+        assert.equal(peerSession.data.view.root.rating, 0);
+      } finally {
+        await native?.close();
+        cleanupOwned(containers);
+      }
+    });
+  }
+});
+
 test("the service bootstrap is a real SharedMap containing a hierarchical tree handle", {
   timeout: 30_000,
 }, async () => {

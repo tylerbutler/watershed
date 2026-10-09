@@ -406,7 +406,17 @@ fn decode_branch_edit(data: Dynamic) -> Result(BranchEdit, ProtocolError) {
   use kind <- result.try(nonempty(data, "kind"))
   case kind {
     "object-set" -> {
-      use path <- result.try(decode_path(data))
+      use path <- result.try(
+        decode.run(data, {
+          use path <- decode.optional_field(
+            "path",
+            ["title"],
+            decode.list(decode.string),
+          )
+          decode.success(path)
+        })
+        |> result.map_error(fn(_) { invalid("path", "invalid or missing path") }),
+      )
       use value <- result.try(required(data, "value", decode.dynamic))
       decode_branch_value(value)
       |> result.map(fn(value) { BranchSet(path, value) })

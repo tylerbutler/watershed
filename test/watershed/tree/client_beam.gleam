@@ -127,7 +127,13 @@ pub fn main() -> Nil {
                       process.spawn_unlinked(fn() {
                         let handle_store = process.new_subject()
                         process.send(handle_store_ready, handle_store)
-                        handle_store_loop(handle_store, dict.new(), None, [], 0)
+                        handle_store_loop(
+                          handle_store,
+                          dict.new(),
+                          dict.new(),
+                          [],
+                          0,
+                        )
                       })
                       let handle_store =
                         process.receive_forever(from: handle_store_ready)
@@ -141,7 +147,7 @@ pub fn main() -> Nil {
                         process.receive_forever(from: branch_store_ready)
                       let _ =
                         watershed.subscribe_tree_commits(tree, fn(event) {
-                          observe_commit(event, handle_store)
+                          observe_commit(event, "main", handle_store)
                         })
                       loop(
                         document,
@@ -579,7 +585,7 @@ fn execute(
             })
             let _ =
               watershed.subscribe_tree_commits(branch, fn(event) {
-                observe_commit(event, handle_store)
+                observe_commit(event, name, handle_store)
               })
             Ok(
               json.object([
@@ -705,7 +711,7 @@ fn execute(
           process.call(handle_store, waiting: 1000, sending: fn(reply) {
             RetainHandle(
               name,
-              True,
+              "main",
               fn() {
                 watershed.tree_history_evidence(tree)
                 |> result.map(protocol.history_commit_ids)
@@ -731,7 +737,7 @@ fn execute(
             process.call(handle_store, waiting: 1000, sending: fn(reply) {
               RetainHandle(
                 name,
-                False,
+                branch,
                 fn() {
                   watershed.tree_history_evidence(branch_tree)
                   |> result.map(protocol.history_commit_ids)
@@ -1336,11 +1342,12 @@ type HandleMessage {
     Option(watershed.TreeRevertible),
     Option(String),
     String,
+    String,
   )
   SettleCommit(TreeCommitKind, TreeCommitOutcome, String)
   RetainHandle(
     String,
-    Bool,
+    String,
     fn() -> List(#(String, String)),
     fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
@@ -1455,6 +1462,7 @@ fn revertible_status(handle: watershed.TreeRevertible) -> String {
 @target(erlang)
 fn observe_commit(
   event: watershed.TreeCommitEvent,
+  branch: String,
   handle_store: process.Subject(HandleMessage),
 ) -> Nil {
   let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
@@ -1476,6 +1484,7 @@ fn observe_commit(
       acquired,
       None,
       action_id,
+      branch,
     ),
   )
   case settlement {
@@ -1530,6 +1539,7 @@ fn await_revert_commit(
       acquired,
       revision,
       action_id,
+      _branch,
     )) -> {
       let event_id = next_event_id + 1
       let commit =
@@ -1564,10 +1574,12 @@ fn handle_store_loop(
       TreeCommitKind,
       Option(String),
       fn() -> List(#(String, String)),
+      String,
       Bool,
     ),
   ),
-  last_local: Option(
+  last_local: Dict(
+    String,
     #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String), String),
   ),
   commits: List(Json),
@@ -1575,7 +1587,15 @@ fn handle_store_loop(
 ) -> Nil {
   let message = process.receive_forever(from: subject)
   case message {
-    CaptureCommit(kind, local, factory_available, acquired, revision, action_id) -> {
+    CaptureCommit(
+      kind,
+      local,
+      factory_available,
+      acquired,
+      revision,
+      action_id,
+      branch,
+    ) -> {
       let event_id = next_event_id + 1
       let commit =
         json.object([
@@ -1589,7 +1609,14 @@ fn handle_store_loop(
           #("revision", optional_string(revision)),
         ])
       let next = case acquired {
-        Some(handle) -> Some(#(handle, kind, event_id, revision, action_id))
+        Some(handle) ->
+          dict.insert(last_local, branch, #(
+            handle,
+            kind,
+            event_id,
+            revision,
+            action_id,
+          ))
         None -> last_local
       }
       handle_store_loop(subject, handles, next, [commit, ..commits], event_id)
@@ -1610,9 +1637,9 @@ fn handle_store_loop(
         ],
         next_event_id,
       )
-    RetainHandle(name, publishes, revisions, outbound, reply) ->
-      case last_local {
-        None -> {
+    RetainHandle(name, branch, revisions, outbound, reply) ->
+      case dict.get(last_local, branch) {
+        Error(_) -> {
           process.send(
             reply,
             Error(facade(
@@ -1628,7 +1655,8 @@ fn handle_store_loop(
             next_event_id,
           )
         }
-        Some(entry) -> {
+        Ok(entry) -> {
+          let publishes = branch == "main"
           let revision = case publishes, entry.3 {
             False, _ -> None
             True, Some(_) -> entry.3
@@ -1668,9 +1696,10 @@ fn handle_store_loop(
               entry.1,
               revision,
               revisions,
+              branch,
               publishes,
             )),
-            None,
+            dict.delete(last_local, branch),
             commits,
             next_event_id,
           )
@@ -1750,7 +1779,7 @@ fn handle_store_loop(
                     await_submitted_revisions(
                       entry.3,
                       before_revisions,
-                      case entry.4 {
+                      case entry.5 {
                         True -> entry.2
                         False -> None
                       },
@@ -1764,7 +1793,7 @@ fn handle_store_loop(
                   ))
                   use _ <- result.try(require_revert_evidence(
                     list.length(submitted_revisions)
-                      == case entry.4 {
+                      == case entry.5 {
                       True -> 1
                       False -> 0
                     },
@@ -1838,7 +1867,13 @@ fn handle_store_loop(
               process.send(reply, Ok(value))
               let next = case acquired {
                 Some(handle) ->
-                  Some(#(handle, authored_kind, event_id, revision, action_id))
+                  dict.insert(last_local, entry.4, #(
+                    handle,
+                    authored_kind,
+                    event_id,
+                    revision,
+                    action_id,
+                  ))
                 None -> last_local
               }
               handle_store_loop(
