@@ -2489,11 +2489,6 @@ function generatedArrayActions(seed, index, template, roles, random) {
       preconditions: { connected: [...implementations] },
     },
   ];
-  for (const author of [roles.first, roles.second, roles.third]) {
-    actions.push(control("hold-inbound", author, false));
-    actions.push(control("hold-outbound", author, false));
-  }
-
   actions.push(transactionAction(roles.first, {
     constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
     edits: [
@@ -2518,7 +2513,7 @@ function generatedArrayActions(seed, index, template, roles, random) {
       },
     ],
     result: "commit",
-  }));
+  }, false));
   actions.push(transactionAction(roles.first, {
     constraints: [],
     edits: [{
@@ -2528,7 +2523,17 @@ function generatedArrayActions(seed, index, template, roles, random) {
       values: [arrayPoint(`tx-abort-${seed}-${index}`, magnitude + 10)],
     }],
     result: "abort",
-  }));
+  }, false));
+  actions.push({
+    type: "checkpoint",
+    label: `transaction-authored-${index}`,
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(control("hold-inbound", author, false));
+    actions.push(control("hold-outbound", author, false));
+  }
   actions.push(arrayEdit("array-insert", roles.first, {
     path: ["left"],
     index: 1,

@@ -2963,6 +2963,26 @@ test("seeded held transactions author before another pending edit", () => {
   assert(transactionIndex < pendingEditIndex);
 });
 
+test("seeded committed transactions author before outbound delivery is held", () => {
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile }) => profile === "array");
+  const transactionIndex = schedule.actions.findIndex(
+    ({ type, result }) => type === "transaction" && result === "commit",
+  );
+  const holdIndex = schedule.actions.findIndex(
+    ({ type, author }) =>
+      ["hold-inbound", "hold-outbound"].includes(type)
+      && author === schedule.actions[transactionIndex].author,
+  );
+  assert(transactionIndex < holdIndex);
+  assert.deepEqual(schedule.actions[holdIndex - 1], {
+    type: "checkpoint",
+    label: `transaction-authored-${schedule.index}`,
+    stage: "quiescent",
+    preconditions: { connected: ["upstream", "javascript", "erlang"] },
+  });
+});
+
 test("seed 42 covers local branch lifecycle and summary actions", () => {
   const schedules = generateSchedules({ seed: 42, iterations: 300 });
   const actionTypes = new Set(schedules.flatMap(({ actions }) =>
