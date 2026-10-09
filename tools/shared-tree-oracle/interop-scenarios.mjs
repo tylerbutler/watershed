@@ -4166,7 +4166,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         outcome: callback.outcome,
         callback,
         events: emitted,
-        commitRevision: outboundCount > 0
+        commitRevision: callback.outcome === "committed"
           ? String(pending.at(-1).revision)
           : null,
         outboundCount,
@@ -9469,6 +9469,11 @@ export async function executeScheduleAction(
       assert.equal(result.outboundCount, 1,
         "Seeded transaction queued another outbound operation count");
     }
+    if (action.result === "commit") {
+      assert(typeof result.commitRevision === "string"
+        && result.commitRevision.length > 0,
+      "Seeded committed transaction lacks an authored revision");
+    }
     state.transactions.push({
       author: action.author,
       constraints: action.constraints,
@@ -9805,6 +9810,25 @@ export async function runSeededSchedule(config, context, schedule) {
     const finalHistory = await serverHistory(state.creator);
     const decoded = decodedEvidence(finalHistory, state.adapters, implementations);
     const mapping = identityMapping(state.adapters, decoded.decoded);
+    state.transactions = state.transactions.map((transaction) => {
+      if (transaction.outcome === "aborted") {
+        return { ...transaction, acceptedOperation: null };
+      }
+      const accepted = decoded.submissions.filter(({ author, revision }) =>
+        author === transaction.author
+        && String(revision) === transaction.commitRevision);
+      assert.equal(accepted.length, 1,
+        "Seeded committed transaction lacks one attributable accepted operation");
+      return {
+        ...transaction,
+        acceptedOperation: {
+          outerSequenceNumber: accepted[0].outerSequenceNumber,
+          innerIndex: accepted[0].innerIndex,
+          revision: String(accepted[0].revision),
+          originatorId: String(accepted[0].originatorId),
+        },
+      };
+    });
     for (const implementation of implementations) {
       assert(mapping[implementation].originatorIds.length > 0,
         `${implementation} lacks an accepted non-noop submission`);

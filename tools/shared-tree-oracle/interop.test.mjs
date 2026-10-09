@@ -886,8 +886,17 @@ async function validFixture() {
             ? null
             : `${prefix}-${action.author}-transaction`,
           outboundCount: action.result === "abort" ? 0 : 1,
+          acceptedOperation: action.result === "abort"
+            ? null
+            : {
+                outerSequenceNumber: index + 1,
+                innerIndex: 0,
+                revision: `${prefix}-${action.author}-transaction`,
+                originatorId: `${prefix}-${action.author}-origin`,
+              },
           events: [],
         })),
+      localBranches: [],
       undoRedo: schedule.actions
         .filter(({ type }) => ["retain", "revert", "dispose"].includes(type))
         .map((action) => ({
@@ -1054,6 +1063,7 @@ async function validFixture() {
         reloads: item.reloads,
         schemaTransitions: item.schemaTransitions,
         transactions: item.transactions,
+        localBranches: item.localBranches,
         undoRedo: item.undoRedo,
         evidence: item.evidence,
       }, raw: {
@@ -4896,6 +4906,20 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
       fixtureExpected.artifacts.get(reference).claim.measured.evidence.submissions =
         structuredClone(copy.seeded[0].evidence.submissions);
     }],
+    ["missing seeded local branch evidence", (copy) => {
+      delete copy.seeded[0].localBranches;
+    }],
+    ["missing held transaction accepted operation", (copy, fixtureExpected) => {
+      const transaction = copy.seeded
+        .flatMap(({ transactions }) => transactions)
+        .find(({ outcome }) => outcome === "committed");
+      transaction.acceptedOperation = null;
+      const owner = copy.seeded.find(({ transactions }) =>
+        transactions.includes(transaction));
+      const reference = owner.artifacts[0];
+      fixtureExpected.artifacts.get(reference).claim.measured.transactions =
+        structuredClone(owner.transactions);
+    }],
     ["changed seeded expansion", (copy) => {
       copy.seeded[0].actions = [{ type: "checkpoint" }];
     }],
@@ -4945,6 +4969,27 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
       size: 20,
     }]]),
   }), /verified artifact evidence/);
+});
+
+test("seeded artifacts project local branch evidence", async () => {
+  const { expected, report } = await validFixture();
+  assert.doesNotThrow(() => validateInteropReport(report, expected));
+});
+
+test("seeded committed transactions require an accepted operation", async () => {
+  const { expected, report } = await validFixture();
+  const owner = report.seeded.find(({ transactions }) =>
+    transactions.some(({ outcome }) => outcome === "committed"));
+  const transaction = owner.transactions.find(
+    ({ outcome }) => outcome === "committed",
+  );
+  transaction.acceptedOperation = null;
+  expected.artifacts.get(owner.artifacts[0]).claim.measured.transactions =
+    structuredClone(owner.transactions);
+  assert.throws(
+    () => validateInteropReport(report, expected),
+    /accepted operation/,
+  );
 });
 
 test("artifact evidence is nonempty, regular, and contained by the owned root", async () => {

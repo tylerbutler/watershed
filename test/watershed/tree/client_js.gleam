@@ -961,9 +961,9 @@ fn run_transaction(
   use observation <- result.try(outcome)
   let outbound =
     int.max(observe(document).pending_tree_count - before_pending, 0)
-  let revision = case outbound > 0 {
-    False -> None
-    True ->
+  let revision = case observation.outcome {
+    "aborted" -> None
+    _ ->
       case watershed.tree_history_evidence(tree) {
         Ok(history) -> protocol.last_pending_revision(history)
         Error(_) -> None

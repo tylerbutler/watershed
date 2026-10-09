@@ -1743,7 +1743,7 @@ test("seeded map actions keep path and key separate", async () => {
   assert.equal(state.quiescent, false);
 });
 
-test("seeded held transactions allow coalesced pending transport", async () => {
+test("seeded held transactions reject a missing authored revision", async () => {
   const state = {
     adapters: {
       javascript: {
@@ -1752,6 +1752,47 @@ test("seeded held transactions allow coalesced pending transport", async () => {
             outcome: "committed",
             callback: { outcome: "committed", editsApplied: 1, nested: [] },
             commitRevision: null,
+            outboundCount: 0,
+            events: [],
+          };
+        },
+      },
+    },
+    connected: { javascript: true },
+    held: { javascript: { inbound: false, outbound: true } },
+    quiescent: true,
+    summaries: [],
+    transactions: [],
+  };
+  await assert.rejects(() => executeScheduleAction(
+    {},
+    {},
+    { profile: "array" },
+    {
+      type: "transaction",
+      author: "javascript",
+      constraints: [],
+      edits: [],
+      result: "commit",
+      preconditions: {
+        connected: ["javascript"],
+        outboundHeld: true,
+        pathType: "array",
+      },
+    },
+    state,
+  ), /authored revision/);
+});
+
+test("seeded held transactions keep authored revision with coalesced transport", async () => {
+  const state = {
+    adapters: {
+      javascript: {
+        async transaction() {
+          return {
+            outcome: "committed",
+            callback: { outcome: "committed", editsApplied: 1, nested: [] },
+            commitRevision: "transaction-revision",
             outboundCount: 0,
             events: [],
           };
@@ -1777,6 +1818,7 @@ test("seeded held transactions allow coalesced pending transport", async () => {
     },
   }, state);
   assert.equal(state.transactions[0].outboundCount, 0);
+  assert.equal(state.transactions[0].commitRevision, "transaction-revision");
 });
 
 test("replay cannot label a different or infrastructure failure as reproduced", () => {

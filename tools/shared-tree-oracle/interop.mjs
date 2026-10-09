@@ -1208,8 +1208,14 @@ function validateSeededTransactions(item, schedule) {
       `Seeded ${item.index} transaction changed the requested result`);
     assert.equal(record.outcome, action.result === "abort" ? "aborted" : "committed",
       `Seeded ${item.index} transaction reported another outcome`);
-    assert.equal(record.outboundCount, action.result === "abort" ? 0 : 1,
-      `Seeded ${item.index} transaction queued another outbound count`);
+    assert(
+      action.result === "abort"
+        ? record.outboundCount === 0
+        : action.preconditions?.outboundHeld === true
+          ? [0, 1].includes(record.outboundCount)
+          : record.outboundCount === 1,
+      `Seeded ${item.index} transaction queued another outbound count`,
+    );
     assert.equal(record.nestedScopes,
       action.edits.filter(({ op }) => op === "transaction").length,
       `Seeded ${item.index} transaction changed the nested scope count`);
@@ -1218,10 +1224,26 @@ function validateSeededTransactions(item, schedule) {
     if (action.result === "abort") {
       assert.equal(record.commitRevision, null,
         `Seeded ${item.index} aborted transaction kept a commit`);
+      assert.equal(record.acceptedOperation, null,
+        `Seeded ${item.index} aborted transaction has an accepted operation`);
     } else {
       assert(typeof record.commitRevision === "string"
         && record.commitRevision.length > 0,
       `Seeded ${item.index} committed transaction lacks a revision`);
+      assert(record.acceptedOperation
+        && typeof record.acceptedOperation === "object",
+      `Seeded ${item.index} committed transaction lacks an accepted operation`);
+      assert.equal(record.acceptedOperation.revision, record.commitRevision,
+        `Seeded ${item.index} accepted another transaction revision`);
+      assert(Number.isInteger(record.acceptedOperation.outerSequenceNumber)
+        && record.acceptedOperation.outerSequenceNumber > 0,
+      `Seeded ${item.index} transaction lacks an accepted sequence`);
+      assert(Number.isInteger(record.acceptedOperation.innerIndex)
+        && record.acceptedOperation.innerIndex >= 0,
+      `Seeded ${item.index} transaction lacks an accepted inner index`);
+      assert(item.identityMapping[record.author].originatorIds.includes(
+        record.acceptedOperation.originatorId,
+      ), `Seeded ${item.index} transaction has another originator`);
     }
   }
 }
@@ -1243,6 +1265,7 @@ function seededMeasuredPayload(item) {
     reloads: item.reloads,
     schemaTransitions: item.schemaTransitions,
     transactions: item.transactions,
+    localBranches: item.localBranches,
     undoRedo: item.undoRedo,
     evidence: item.evidence,
   };
