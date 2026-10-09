@@ -9459,8 +9459,16 @@ export async function executeScheduleAction(
       "Seeded transaction reported another outcome");
     assert.equal(result.callback.outcome, expected,
       "Seeded transaction callback reported another outcome");
-    assert.equal(result.outboundCount, action.result === "abort" ? 0 : 1,
-      "Seeded transaction queued another outbound operation count");
+    if (action.result === "abort") {
+      assert.equal(result.outboundCount, 0,
+        "Seeded aborted transaction queued an outbound operation");
+    } else if (action.preconditions?.outboundHeld === true) {
+      assert([0, 1].includes(result.outboundCount),
+        "Seeded held transaction reported an invalid outbound operation count");
+    } else {
+      assert.equal(result.outboundCount, 1,
+        "Seeded transaction queued another outbound operation count");
+    }
     state.transactions.push({
       author: action.author,
       constraints: action.constraints,

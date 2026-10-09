@@ -1743,6 +1743,42 @@ test("seeded map actions keep path and key separate", async () => {
   assert.equal(state.quiescent, false);
 });
 
+test("seeded held transactions allow coalesced pending transport", async () => {
+  const state = {
+    adapters: {
+      javascript: {
+        async transaction() {
+          return {
+            outcome: "committed",
+            callback: { outcome: "committed", editsApplied: 1, nested: [] },
+            commitRevision: null,
+            outboundCount: 0,
+            events: [],
+          };
+        },
+      },
+    },
+    connected: { javascript: true },
+    held: { javascript: { inbound: false, outbound: true } },
+    quiescent: true,
+    summaries: [],
+    transactions: [],
+  };
+  await executeScheduleAction({}, {}, { profile: "array" }, {
+    type: "transaction",
+    author: "javascript",
+    constraints: [],
+    edits: [],
+    result: "commit",
+    preconditions: {
+      connected: ["javascript"],
+      outboundHeld: true,
+      pathType: "array",
+    },
+  }, state);
+  assert.equal(state.transactions[0].outboundCount, 0);
+});
+
 test("replay cannot label a different or infrastructure failure as reproduced", () => {
   const original = {
     error: { name: "AssertionError", code: "ERR_ASSERTION", message: "roots differ" },
