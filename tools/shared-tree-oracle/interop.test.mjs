@@ -726,6 +726,27 @@ test("seeded validation accepts raw fork tree evidence", () => {
   assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
 });
 
+test("seeded validation accepts enriched rebase and merge evidence", () => {
+  const item = structuredClone(round3Fixture.seededBranch.measured);
+  const raw = structuredClone(round3Fixture.seededBranch.raw);
+  item.checkpoints = structuredClone(raw.checkpoints);
+  const tree = structuredClone(item.checkpoints[0].observations[0].wholeTree);
+  const rebase = item.localBranches.find(({ type }) => type === "rebase");
+  Object.assign(rebase.result, {
+    sourceTree: tree,
+    targetBefore: tree,
+    targetAfter: tree,
+  });
+  const merge = item.localBranches.find(({ type }) => type === "merge");
+  Object.assign(merge.result, {
+    authoredCount: 1,
+    outboundCount: 1,
+    targetTree: tree,
+    sourceStatus: "BranchValid",
+  });
+  assert.doesNotThrow(() => interop.validateSeededRecord(item, raw));
+});
+
 test("seeded transaction rejects an unrelated same-author accepted edit", () => {
   const item = structuredClone(round3Fixture.seededTransaction.measured);
   const raw = structuredClone(round3Fixture.seededTransaction.raw);

@@ -1926,10 +1926,14 @@ function validateSeededBranches(item, raw, label) {
         `${label} branch rebase used an invalid source checkout`);
       assert.equal(checkouts.get(action.target), "valid",
         `${label} branch rebase used an invalid target checkout`);
-      assert.deepEqual(result, {
-        source: action.source,
-        target: action.target,
-      }, `${label} branch rebase returned other checkouts`);
+      assert.equal(result.source, action.source,
+        `${label} branch rebase returned another source`);
+      assert.equal(result.target, action.target,
+        `${label} branch rebase returned another target`);
+      if (result.targetBefore !== undefined || result.targetAfter !== undefined) {
+        assert.deepEqual(result.targetAfter, result.targetBefore,
+          `${label} branch rebase changed the target checkout`);
+      }
       continue;
     }
     if (action.type === "branch-merge") {
@@ -1947,11 +1951,12 @@ function validateSeededBranches(item, raw, label) {
         `${label} branch merge used an invalid source checkout`);
       assert.equal(checkouts.get(action.target), "valid",
         `${label} branch merge used an invalid target checkout`);
-      assert.deepEqual(result, {
-        target: action.target,
-        source: action.source,
-        disposed: action.dispose,
-      }, `${label} branch merge returned other checkouts`);
+      assert.equal(result.target, action.target,
+        `${label} branch merge returned another target`);
+      assert.equal(result.source, action.source,
+        `${label} branch merge returned another source`);
+      assert.equal(result.disposed, action.dispose,
+        `${label} branch merge returned another disposal state`);
       if (action.dispose) checkouts.set(action.source, "disposed");
       continue;
     }
