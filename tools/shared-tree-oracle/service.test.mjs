@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
 import {
@@ -14,16 +15,25 @@ import {
   preflight,
   observedDocumentServiceFactory,
   openSession,
+  arrayServiceStore,
   mapServiceStore,
   excludedFeatures,
   serviceConfig,
   serviceStore,
   supportedFeatures,
+  tokenProvider,
   runServiceCommand,
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
-import { upstreamAdapter } from "./interop-scenarios.mjs";
+import {
+  nativeAdapter,
+  publishUpstreamSummary,
+  runLocalBranchConcurrentCell,
+  runLocalBranchLifetimeCell,
+  runLocalBranchReconnectCell,
+  upstreamAdapter,
+} from "./interop-scenarios.mjs";
 
 test("service profile names supported M5 behavior and its limits", () => {
   for (const feature of [
@@ -247,6 +257,233 @@ test("review follow-up retains held upstream commits without inventing sends", {
       cleanupOwned(containers);
     }
   });
+});
+
+test("upstream adapter owns local forks and publishes only merged edits", {
+  timeout: 60_000,
+}, async () => {
+  await withLocalFloodgate(async (config) => {
+    const containers = [];
+    try {
+      const authorSession = await openSession(config, containers);
+      const peerSession = await openSession(
+        config,
+        containers,
+        authorSession.container.resolvedUrl.id,
+      );
+      const author = upstreamAdapter(authorSession);
+      const peer = upstreamAdapter(peerSession);
+      const titleOf = (tree) =>
+        tree.value.fields.find(([name]) => name === "title")[1].value;
+      await author.awaitSynced();
+      await peer.awaitSynced();
+      const beforeTitle = peerSession.data.view.root.title;
+
+      assert.equal((await author.fork("main", "parent")).status, "BranchValid");
+      assert.equal((await author.fork("parent", "draft")).status, "BranchValid");
+      const edit = await author.branchEdit("draft", {
+        kind: "object-set",
+        path: ["title"],
+        value: "draft",
+      });
+      assert.equal(edit.outboundCount, 0);
+      assert.equal(titleOf(edit.tree), "draft");
+      const retained = await author.retainLastLocalCommit("draft-edit", "draft");
+      assert.equal(retained.factoryAvailable, true);
+      await author.disposeBranch("parent");
+      await peer.checkpoint();
+      assert.equal(peerSession.data.view.root.title, beforeTitle);
+
+      await author.rebaseBranch("draft", "main");
+      const merge = await author.mergeBranch("main", "draft", true);
+      assert.equal(titleOf(merge.targetTree), "draft");
+      assert.equal(authorSession.data.view.root.title, "draft");
+      await author.awaitSynced();
+      const accepted = await author.checkpoint();
+      await peer.awaitSynced(accepted.sequenceNumber);
+      assert.equal(merge.disposed, true);
+      await peer.checkpoint();
+      assert.equal(peerSession.data.view.root.title, "draft");
+    } finally {
+      cleanupOwned(containers);
+    }
+  });
+});
+
+test("upstream local forks preserve seeded same-array move state", {
+  timeout: 60_000,
+}, async () => {
+  await withLocalFloodgate(async (config) => {
+    const containers = [];
+    try {
+      const session = await openSession(
+        config,
+        containers,
+        undefined,
+        false,
+        { store: arrayServiceStore },
+      );
+      const adapter = upstreamAdapter(session);
+      await adapter.arrayInsert(["left"], 0, [
+        { kind: "string", value: "zero" },
+        { kind: "string", value: "one" },
+        { kind: "string", value: "two" },
+      ]);
+      await adapter.fork("main", "draft");
+      const edit = await adapter.branchEdit("draft", {
+        kind: "array-move",
+        sourcePath: ["left"],
+        sourceStart: 0,
+        sourceEnd: 1,
+        destinationPath: ["left"],
+        destinationGap: 2,
+      });
+      assert.equal(edit.outboundCount, 0);
+    } finally {
+      cleanupOwned(containers);
+    }
+  });
+});
+
+test("local branch service cell moves within a seeded array", {
+  timeout: 120_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/array-schema-content.json",
+    import.meta.url,
+  ), "utf8"));
+  const arrayViewSchema = fixture.input.schemas.objectArrays;
+  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
+    runId: "same-array-move-service-cell",
+    arrayViewSchema,
+  }, {
+    id: "local-branch:upstream<->javascript:same-array-move:branch-first:rebase",
+    authors: ["upstream", "javascript"],
+    fieldKind: "same-array-move",
+    order: "branch-first",
+    strategy: "rebase",
+  }));
+});
+
+test("local branch service cell applies a transaction", {
+  timeout: 120_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/array-schema-content.json",
+    import.meta.url,
+  ), "utf8"));
+  await withLocalFloodgate((config) => runLocalBranchConcurrentCell(config, {
+    runId: "transaction-service-cell",
+    arrayViewSchema: fixture.input.schemas.objectArrays,
+  }, {
+    id: "local-branch:upstream<->javascript:transaction:branch-first:rebase",
+    authors: ["upstream", "javascript"],
+    fieldKind: "transaction",
+    order: "branch-first",
+    strategy: "rebase",
+  }));
+});
+
+test("native local branch handles undo before merge", {
+  timeout: 180_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/schema-profile.json",
+    import.meta.url,
+  ), "utf8"));
+  const viewSchema = fixture.input.summary.tree.indexes.tree.Schema
+    .tree.SchemaString.content;
+  await withLocalFloodgate(async (config) => {
+    for (const implementation of ["javascript", "erlang"]) {
+      await runLocalBranchLifetimeCell(config, {
+        runId: `branch-undo-${implementation}`,
+        viewSchema,
+      }, implementation, "branch-undo-before-merge");
+    }
+  });
+});
+
+test("native branch merge is accepted once before reconnect", {
+  timeout: 180_000,
+}, async () => {
+  const fixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/schema-profile.json",
+    import.meta.url,
+  ), "utf8"));
+  const viewSchema = fixture.input.summary.tree.indexes.tree.Schema
+    .tree.SchemaString.content;
+  await withLocalFloodgate(async (config) => {
+    for (const writer of ["javascript", "erlang"]) {
+      const result = await runLocalBranchReconnectCell(config, {
+        runId: `branch-reconnect-${writer}`,
+        viewSchema,
+      }, writer, "accepted-before-drop");
+      assert.equal(result.mergeSubmissionCount, 1);
+    }
+  });
+});
+
+test("native clients own local forks and publish ordinary merged edits", {
+  timeout: 120_000,
+}, async () => {
+  const schemaFixture = JSON.parse(await readFile(new URL(
+    "../../test/fixtures/shared_tree/cases/schema-profile.json",
+    import.meta.url,
+  ), "utf8"));
+  const viewSchema = schemaFixture.input.summary.tree.indexes.tree.Schema
+    .tree.SchemaString.content;
+  for (const target of ["javascript", "erlang"]) {
+    await withLocalFloodgate(async (config) => {
+      const containers = [];
+      let native;
+      try {
+        const creator = await openSession(config, containers);
+        const documentId = creator.container.resolvedUrl.id;
+        await publishUpstreamSummary(
+          config,
+          containers,
+          documentId,
+          `Task 9 ${target} branch bootstrap`,
+        );
+        const peerSession = await openSession(config, containers, documentId);
+        const jwt = (await tokenProvider(config).fetchOrdererToken(
+          config.tenantId,
+          documentId,
+        )).jwt;
+        native = await nativeAdapter(target, config, {
+          runId: `native-branch-${target}`,
+          documentId,
+          tenant: config.tenantId,
+          viewSchema,
+        }, jwt);
+        const peer = upstreamAdapter(peerSession);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+
+        await native.fork("main", "draft");
+        const edit = await native.branchEdit("draft", {
+          kind: "object-set",
+          path: ["title"],
+          value: "draft",
+        });
+        assert.equal(edit.outboundCount, 0);
+        await peer.set(["rating"], 17);
+        await peer.awaitSynced();
+        await native.awaitSynced();
+        assert.equal(peerSession.data.view.root.title, "");
+
+        await native.rebaseBranch("draft", "main");
+        await native.mergeBranch("main", "draft", true);
+        await native.awaitSynced();
+        await peer.awaitSynced();
+        assert.equal(peerSession.data.view.root.title, "draft");
+        assert.equal(peerSession.data.view.root.rating, 17);
+      } finally {
+        await native?.close();
+        cleanupOwned(containers);
+      }
+    });
+  }
 });
 
 test("the service bootstrap is a real SharedMap containing a hierarchical tree handle", {

@@ -145,6 +145,9 @@ pub fn main() -> Promise(Nil) {
                     }
                     Ok(tree) -> {
                       let active_tree = transport_js.new_cell(tree)
+                      let branches = transport_js.new_cell(dict.new())
+                      let branch_subscriptions =
+                        transport_js.new_cell(dict.new())
                       let events = transport_js.new_cell([])
                       let commits = transport_js.new_cell([])
                       let handles = transport_js.new_cell(dict.new())
@@ -169,6 +172,8 @@ pub fn main() -> Promise(Nil) {
                             handle,
                             config,
                             active_tree,
+                            branches,
+                            branch_subscriptions,
                             events,
                             commits,
                             handles,
@@ -244,16 +249,128 @@ fn require_revert_evidence(
 }
 
 @target(javascript)
+fn named_tree(
+  main: watershed.SharedTree,
+  branches: Cell(Dict(String, watershed.SharedTree)),
+  name: String,
+  operation: String,
+) -> Result(watershed.SharedTree, protocol.ProtocolError) {
+  case name {
+    "main" -> Ok(main)
+    _ ->
+      dict.get(transport_js.get_cell(branches), name)
+      |> result.map_error(fn(_) {
+        facade(operation, "Unknown branch: " <> name)
+      })
+  }
+}
+
+@target(javascript)
+fn remove_branch(
+  name: String,
+  branches: Cell(Dict(String, watershed.SharedTree)),
+  subscriptions: Cell(Dict(String, watershed.SubscriptionToken)),
+) -> Nil {
+  case dict.get(transport_js.get_cell(subscriptions), name) {
+    Ok(subscription) -> watershed.unsubscribe(subscription)
+    Error(_) -> Nil
+  }
+  transport_js.set_cell(
+    branches,
+    dict.delete(transport_js.get_cell(branches), name),
+  )
+  transport_js.set_cell(
+    subscriptions,
+    dict.delete(transport_js.get_cell(subscriptions), name),
+  )
+}
+
+@target(javascript)
+fn run_branch_edit(
+  document: watershed.Document(a),
+  tree: watershed.SharedTree,
+  events: Cell(List(Json)),
+  edit: protocol.BranchEdit,
+) -> Result(Json, protocol.ProtocolError) {
+  case edit {
+    protocol.BranchSet(path, value) ->
+      map_result("branchEdit", watershed.tree_set(tree, path, value), fn(_) {
+        json.null()
+      })
+    protocol.BranchClear(path) ->
+      map_result("branchEdit", watershed.tree_clear(tree, path), fn(_) {
+        json.null()
+      })
+    protocol.BranchMapSet(path, key, value) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_map_set(tree, path, key, value),
+        fn(_) { json.null() },
+      )
+    protocol.BranchMapDelete(path, key) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_map_delete(tree, path, key),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayInsert(path, index, values) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_insert(tree, path, index, values),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayRemove(path, start, end) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_remove(tree, path, start, end),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_move(
+          tree,
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+        ),
+        fn(_) { json.null() },
+      )
+    protocol.BranchTransaction(scope) ->
+      run_transaction(document, tree, events, scope)
+  }
+}
+
+@target(javascript)
 fn execute(
   raw: String,
   document: watershed.Document(a),
   handle: Json,
   config: protocol.Descriptor,
   active_tree: Cell(watershed.SharedTree),
+  branches: Cell(Dict(String, watershed.SharedTree)),
+  branch_subscriptions: Cell(Dict(String, watershed.SubscriptionToken)),
   events: Cell(List(Json)),
   commits: Cell(List(Json)),
   handles: Cell(
-    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+    Dict(
+      String,
+      #(
+        watershed.TreeRevertible,
+        TreeCommitKind,
+        Option(String),
+        watershed.SharedTree,
+        Bool,
+      ),
+    ),
   ),
   last_local: Cell(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
@@ -420,14 +537,193 @@ fn execute(
           }
         protocol.Transaction(scope) ->
           run_transaction(document, tree, events, scope)
+        protocol.Fork(source, name) -> {
+          use _ <- result.try(
+            case
+              name == "main"
+              || dict.has_key(transport_js.get_cell(branches), name)
+            {
+              True ->
+                Error(facade("fork", "Branch name already exists: " <> name))
+              False -> Ok(Nil)
+            },
+          )
+          use source_tree <- result.try(named_tree(
+            tree,
+            branches,
+            source,
+            "fork",
+          ))
+          use branch <- result.try(
+            watershed.tree_fork(source_tree)
+            |> result.map_error(fn(reason) { facade("fork", reason) }),
+          )
+          let subscriber =
+            watershed.subscribe_tree_commits(branch, fn(event) {
+              observe_commit(
+                event,
+                branch,
+                commits,
+                last_local,
+                commit_event_count,
+              )
+            })
+          transport_js.set_cell(
+            branches,
+            dict.insert(transport_js.get_cell(branches), name, branch),
+          )
+          transport_js.set_cell(
+            branch_subscriptions,
+            dict.insert(
+              transport_js.get_cell(branch_subscriptions),
+              name,
+              subscriber,
+            ),
+          )
+          Ok(
+            json.object([
+              #("name", json.string(name)),
+              #("source", json.string(source)),
+              #("status", json.string("BranchValid")),
+            ]),
+          )
+        }
+        protocol.BranchEditCommand(branch, edit) -> {
+          use branch_tree <- result.try(named_tree(
+            tree,
+            branches,
+            branch,
+            "branchEdit",
+          ))
+          let before_commits = list.length(transport_js.get_cell(commits))
+          let before_sends = transport_js.get_cell(outbound_send_count)
+          use observation <- result.try(run_branch_edit(
+            document,
+            branch_tree,
+            events,
+            edit,
+          ))
+          Ok(
+            json.object([
+              #("branch", json.string(branch)),
+              #(
+                "authoredCount",
+                json.int(
+                  list.length(transport_js.get_cell(commits)) - before_commits,
+                ),
+              ),
+              #(
+                "outboundCount",
+                json.int(
+                  transport_js.get_cell(outbound_send_count) - before_sends,
+                ),
+              ),
+              #("observation", observation),
+            ]),
+          )
+        }
+        protocol.RebaseBranch(source, target) -> {
+          use source_tree <- result.try(named_tree(
+            tree,
+            branches,
+            source,
+            "rebaseBranch",
+          ))
+          use target_tree <- result.try(named_tree(
+            tree,
+            branches,
+            target,
+            "rebaseBranch",
+          ))
+          use _ <- result.try(
+            watershed.tree_rebase_onto(source_tree, target_tree)
+            |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
+          )
+          Ok(
+            json.object([
+              #("source", json.string(source)),
+              #("target", json.string(target)),
+            ]),
+          )
+        }
+        protocol.MergeBranch(target, source, dispose) -> {
+          use target_tree <- result.try(named_tree(
+            tree,
+            branches,
+            target,
+            "mergeBranch",
+          ))
+          use source_tree <- result.try(named_tree(
+            tree,
+            branches,
+            source,
+            "mergeBranch",
+          ))
+          use _ <- result.try(
+            watershed.tree_merge(target_tree, source_tree, dispose)
+            |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
+          )
+          case dispose && source != "main" {
+            True -> remove_branch(source, branches, branch_subscriptions)
+            False -> Nil
+          }
+          Ok(
+            json.object([
+              #("target", json.string(target)),
+              #("source", json.string(source)),
+              #("disposed", json.bool(dispose)),
+            ]),
+          )
+        }
+        protocol.DisposeBranch(name) -> {
+          use branch <- result.try(named_tree(
+            tree,
+            branches,
+            name,
+            "disposeBranch",
+          ))
+          use _ <- result.try(
+            watershed.tree_dispose_branch(branch)
+            |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
+          )
+          remove_branch(name, branches, branch_subscriptions)
+          Ok(
+            json.object([
+              #("name", json.string(name)),
+              #("status", json.string("BranchDisposed")),
+            ]),
+          )
+        }
         protocol.RetainLastLocalCommit(name) ->
-          retain_last_local_commit(name, handles, last_local, outbound_sends)
+          retain_last_local_commit(
+            tree,
+            True,
+            name,
+            handles,
+            last_local,
+            outbound_sends,
+          )
+        protocol.BranchRetainLastLocalCommit(branch, name) -> {
+          use branch_tree <- result.try(named_tree(
+            tree,
+            branches,
+            branch,
+            "retainLastLocalCommit",
+          ))
+          retain_last_local_commit(
+            branch_tree,
+            False,
+            name,
+            handles,
+            last_local,
+            outbound_sends,
+          )
+        }
         protocol.RevertibleStatus(name) ->
           revertible_status_for_name(name, handles)
         protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
         protocol.Revert(name, dispose) ->
           revert_handle(
-            tree,
             name,
             dispose,
             handles,
@@ -881,9 +1177,20 @@ fn observe_commit(
 
 @target(javascript)
 fn retain_last_local_commit(
+  tree: watershed.SharedTree,
+  publishes: Bool,
   name: String,
   handles: Cell(
-    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+    Dict(
+      String,
+      #(
+        watershed.TreeRevertible,
+        TreeCommitKind,
+        Option(String),
+        watershed.SharedTree,
+        Bool,
+      ),
+    ),
   ),
   last_local: Cell(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
@@ -900,7 +1207,7 @@ fn retain_last_local_commit(
       transport_js.set_cell(
         handles,
         transport_js.get_cell(handles)
-          |> dict.insert(name, #(entry.0, entry.1, entry.3)),
+          |> dict.insert(name, #(entry.0, entry.1, entry.3, tree, publishes)),
       )
       transport_js.set_cell(last_local, None)
       let outbound_records =
@@ -931,7 +1238,16 @@ fn retain_last_local_commit(
 fn revertible_status_for_name(
   name: String,
   handles: Cell(
-    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+    Dict(
+      String,
+      #(
+        watershed.TreeRevertible,
+        TreeCommitKind,
+        Option(String),
+        watershed.SharedTree,
+        Bool,
+      ),
+    ),
   ),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
@@ -953,7 +1269,16 @@ fn revertible_status_for_name(
 fn dispose_revertible(
   name: String,
   handles: Cell(
-    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+    Dict(
+      String,
+      #(
+        watershed.TreeRevertible,
+        TreeCommitKind,
+        Option(String),
+        watershed.SharedTree,
+        Bool,
+      ),
+    ),
   ),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
@@ -977,11 +1302,19 @@ fn dispose_revertible(
 
 @target(javascript)
 fn revert_handle(
-  tree: watershed.SharedTree,
   name: String,
   dispose: Bool,
   handles: Cell(
-    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+    Dict(
+      String,
+      #(
+        watershed.TreeRevertible,
+        TreeCommitKind,
+        Option(String),
+        watershed.SharedTree,
+        Bool,
+      ),
+    ),
   ),
   last_local: Cell(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
@@ -1000,16 +1333,19 @@ fn revert_handle(
   let before_event_count = transport_js.get_cell(commit_event_count)
   let before_send_count = transport_js.get_cell(outbound_send_count)
   let before_commits =
-    watershed.tree_history_evidence(tree)
+    watershed.tree_history_evidence(entry.3)
     |> result.map(protocol.history_commit_ids)
     |> result.unwrap([])
-  use originator <- result.try(
-    list.find(before_commits, fn(commit) { Some(commit.0) == entry.2 })
-    |> result.map(fn(commit) { commit.1 })
-    |> result.map_error(fn(_) {
-      facade("revert", "Revert target lacks an originator")
-    }),
-  )
+  use originator <- result.try(case entry.4, entry.2 {
+    False, _ -> Ok(None)
+    True, Some(revision) ->
+      list.find(before_commits, fn(commit) { commit.0 == revision })
+      |> result.map(fn(commit) { Some(commit.1) })
+      |> result.map_error(fn(_) {
+        facade("revert", "Revert target lacks an originator")
+      })
+    True, None -> Error(facade("revert", "Revert target lacks a revision"))
+  })
   use _ <- result.try(
     watershed.tree_revert(entry.0, dispose)
     |> result.map_error(fn(reason) { facade("revert", reason) }),
@@ -1021,11 +1357,11 @@ fn revert_handle(
   })
   let before_revisions = list.map(before_commits, fn(commit) { commit.0 })
   let submitted_revisions =
-    watershed.tree_history_evidence(tree)
+    watershed.tree_history_evidence(entry.3)
     |> result.map(protocol.history_commit_ids)
     |> result.unwrap([])
     |> list.filter(fn(commit) {
-      commit.1 == originator && !list.contains(before_revisions, commit.0)
+      Some(commit.1) == originator && !list.contains(before_revisions, commit.0)
     })
     |> list.map(fn(commit) { commit.0 })
   let authored_event_ids = [authored.2]
@@ -1042,7 +1378,11 @@ fn revert_handle(
     "Revert authored another local commit count",
   ))
   use _ <- result.try(require_revert_evidence(
-    list.length(submitted_revisions) == 1,
+    list.length(submitted_revisions)
+      == case entry.4 {
+      True -> 1
+      False -> 0
+    },
     "Revert submitted another operation count",
   ))
   let status = revertible_status(entry.0)

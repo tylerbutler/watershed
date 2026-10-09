@@ -353,6 +353,60 @@ pub fn shared_tree_client_decodes_revertible_status_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_client_decodes_local_branch_commands_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":10,\"op\":\"fork\",\"source\":\"main\",\"name\":\"draft\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(10, client_protocol.Fork("main", "draft"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":11,\"op\":\"branchEdit\",\"branch\":\"draft\",\"edit\":{\"kind\":\"object-set\",\"path\":[\"title\"],\"value\":\"draft\"}}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      11,
+      client_protocol.BranchEditCommand(
+        "draft",
+        client_protocol.BranchSet(["title"], StringValue("draft")),
+      ),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":12,\"op\":\"rebaseBranch\",\"source\":\"draft\",\"target\":\"main\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      12,
+      client_protocol.RebaseBranch("draft", "main"),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":13,\"op\":\"mergeBranch\",\"target\":\"main\",\"source\":\"draft\",\"dispose\":true}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      13,
+      client_protocol.MergeBranch("main", "draft", True),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":14,\"op\":\"disposeBranch\",\"name\":\"draft\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(14, client_protocol.DisposeBranch("draft"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":15,\"op\":\"retainLastLocalCommit\",\"name\":\"edit\",\"branch\":\"draft\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      15,
+      client_protocol.BranchRetainLastLocalCommit("draft", "edit"),
+    )),
+  )
+}
+
 pub fn shared_tree_client_rejects_invalid_map_commands_test() -> Nil {
   list.each(
     [

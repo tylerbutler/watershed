@@ -2899,6 +2899,121 @@ function generateSchedule({ seed, index, profile }) {
     );
     actions.splice(settled, 0, ...finish);
   }
+  if (index % 10 === 0 && profile !== "schema") {
+    const settled = actions.findLastIndex(
+      ({ type, stage }) => type === "checkpoint" && stage === "quiescent",
+    );
+    const draft = `draft-${index}`;
+    const nested = `nested-${index}`;
+    const branchEditName = `branch-edit-${index}`;
+    const branchUndoName = `branch-undo-${index}`;
+    actions.splice(settled, 0,
+      {
+        type: "fork",
+        author,
+        source: "main",
+        name: draft,
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-edit",
+        author,
+        branch: draft,
+        edit: localBranchEdit(profile === "array"
+          ? "array"
+          : profile === "identifier"
+            ? "identifier"
+            : profile, `seeded-branch-${index}`),
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "fork",
+        author,
+        source: draft,
+        name: nested,
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-edit",
+        author,
+        branch: nested,
+        edit: localBranchEdit(profile === "array"
+          ? "transaction"
+          : profile === "identifier"
+            ? "identifier"
+            : profile, `seeded-nested-${index}`),
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-retain",
+        author,
+        branch: nested,
+        name: branchEditName,
+        lifecycle: "branch-edit",
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-revert",
+        author,
+        name: branchEditName,
+        dispose: true,
+        lifecycle: "branch-undo",
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-retain",
+        author,
+        branch: nested,
+        name: branchUndoName,
+        lifecycle: "branch-undo",
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-revert",
+        author,
+        name: branchUndoName,
+        dispose: true,
+        lifecycle: "branch-redo",
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-rebase",
+        author,
+        source: nested,
+        target: "main",
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-merge",
+        author,
+        target: "main",
+        source: nested,
+        dispose: false,
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-merge",
+        author,
+        target: "main",
+        source: nested,
+        dispose: false,
+        repeated: true,
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-dispose",
+        author,
+        name: nested,
+        preconditions: { connected: [...implementations] },
+      },
+      {
+        type: "branch-dispose",
+        author,
+        name: draft,
+        preconditions: { connected: [...implementations] },
+      },
+    );
+  }
   return {
     formatVersion: 1,
     profile,
@@ -3746,8 +3861,9 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
   const events = [];
   const commits = [];
   const handles = new Map();
+  const branches = new Map();
+  const lastLocalByBranch = new Map();
   const resolvedRevisions = new Map();
-  let lastLocal;
   let commitEventCount = 0;
   const outboundSends = () => session.transportEvidence().outboundOccurrences
     .flatMap(({ id, submissions }) => submissions.map((payload) => ({
@@ -3800,35 +3916,44 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
   let unsubscribeCommits;
   const enumName = (enumeration, value) =>
     typeof value === "number" ? enumeration[value] : String(value);
-  const subscribeActiveView = () => {
-    unsubscribeSchema = activeView.events?.on(
+  const subscribeView = (view, branch = "main") => {
+    const unsubscribeViewSchema = view.events?.on(
       "schemaChanged",
-      () => events.push({ kind: "schema" }),
+      () => events.push({
+        kind: "schema",
+        ...(branch === "main" ? {} : { branch }),
+      }),
     );
-    if (activeView.compatibility?.canView !== false) {
-      unsubscribeActiveView = Tree.on(
-        activeView.root,
+    const unsubscribeTree = view.compatibility?.canView === false
+      ? undefined
+      : Tree.on(
+        view.root,
         "treeChanged",
-        () => events.push({ kind: "data" }),
+        () => events.push({
+          kind: "data",
+          ...(branch === "main" ? {} : { branch }),
+        }),
       );
-    }
-    unsubscribeCommits = activeView.events.on(
+    const unsubscribeViewCommits = view.events.on(
       "changed",
       (metadata, getRevertible) => {
         commitEventCount += 1;
         const eventId = commitEventCount;
         const actionId = `event-${eventId}`;
-        const revision = upstreamHistoryRevisions(session).at(-1);
+        const revision = branch === "main"
+          ? upstreamHistoryRevisions(session).at(-1)
+          : actionId;
         let handle;
         if (metadata.isLocal && getRevertible !== undefined) {
           handle = getRevertible();
-          lastLocal = {
+          lastLocalByBranch.set(branch, {
             handle,
             kind: metadata.kind,
             eventId,
             actionId,
             revision,
-          };
+            branch,
+          });
         }
         commits.push({
           type: "commit",
@@ -3839,6 +3964,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           eventId,
           actionId,
           revision,
+          ...(branch === "main" ? {} : { branch }),
         });
         if (metadata.isLocal) {
           metadata.events.on("settled", (outcome) => {
@@ -3852,11 +3978,25 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
               eventId,
               actionId,
               revision: resolvedRevisions.get(actionId) ?? revision,
+              ...(branch === "main" ? {} : { branch }),
             });
           });
         }
       },
     );
+    return {
+      dispose() {
+        unsubscribeTree?.();
+        unsubscribeViewSchema?.();
+        unsubscribeViewCommits?.();
+      },
+    };
+  };
+  const subscribeActiveView = () => {
+    const subscription = subscribeView(activeView);
+    unsubscribeActiveView = subscription.dispose;
+    unsubscribeSchema = undefined;
+    unsubscribeCommits = undefined;
   };
   const replaceActiveView = (label) => {
     const config = viewConfigurations[label]?.config;
@@ -3871,6 +4011,67 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
     return activeView;
   };
   subscribeActiveView();
+  const viewForBranch = (name) => {
+    if (name === "main") return activeView;
+    const branch = branches.get(name);
+    assert(branch && !branch.disposed, `Unknown or disposed upstream branch: ${name}`);
+    return branch.view;
+  };
+  const branchTree = (view) => {
+    const root = view.root;
+    return canonicalValue(
+      hasSchema(root, ArrayRoot)
+        ? arrayRootValue(root)
+        : hasSchema(root, IdentifierRoot)
+          ? identifierRootValue(root)
+          : root.items instanceof DynamicMap
+            ? mapRootValue(root)
+            : Tree.schema(root).identifier === "org.watershed.shared-tree.m4.Root"
+              ? schemaRootValue(root)
+              : rootValue(root),
+    );
+  };
+  const applyBranchEdit = (view, edit) => {
+    assert(edit && typeof edit === "object", "Branch edit must be an object");
+    switch (edit.kind) {
+      case "object-set":
+        setUpstream(view.root, edit.path ?? ["title"], edit.value);
+        return null;
+      case "object-clear":
+        assert.deepEqual(edit.path, ["note"], "Only the optional note can be cleared");
+        delete view.root.note;
+        return null;
+      case "map-set": {
+        const map = mapAt(view.root, edit.path);
+        map.set(edit.key, mapInput(map, edit.value));
+        return null;
+      }
+      case "map-delete":
+        mapAt(view.root, edit.path).delete(edit.key);
+        return null;
+      case "array-insert":
+        arrayAt(view.root, edit.path).insertAt(
+          edit.index,
+          ...edit.values.map(upstreamArrayValue),
+        );
+        return null;
+      case "array-remove":
+        arrayAt(view.root, edit.path).removeRange(edit.start, edit.end);
+        return null;
+      case "array-move":
+        arrayAt(view.root, edit.destinationPath).moveRangeToIndex(
+          edit.destinationGap,
+          edit.sourceStart,
+          edit.sourceEnd,
+          arrayAt(view.root, edit.sourcePath),
+        );
+        return null;
+      case "transaction":
+        return runUpstreamScope(view, view.root, edit);
+      default:
+        assert.fail(`Unsupported upstream branch edit: ${edit.kind}`);
+    }
+  };
   const clientIds = new Set();
   if (session.container.clientId) clientIds.add(session.container.clientId);
   return {
@@ -3971,12 +4172,120 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         tree: arrayRootValue(root),
       });
     },
-    async retainLastLocalCommit(name) {
+    async fork(source, name) {
+      assert.notEqual(name, "main", "The main checkout name is reserved");
+      assert(!branches.has(name), `Duplicate upstream branch name: ${name}`);
+      const sourceView = viewForBranch(source);
+      const view = sourceView.fork();
+      branches.set(name, {
+        view,
+        source,
+        disposed: false,
+        subscription: subscribeView(view, name),
+      });
+      return {
+        name,
+        source,
+        status: "BranchValid",
+        sourceTree: branchTree(sourceView),
+        branchTree: branchTree(view),
+      };
+    },
+    async branchEdit(branch, edit) {
+      const view = viewForBranch(branch);
+      const beforeEventCount = commitEventCount;
+      const beforePending = pendingTreeCommits(session);
+      const transaction = applyBranchEdit(view, edit);
+      const authored = commits.filter(
+        ({ type, local, eventId }) =>
+          type === "commit" && local === true && eventId > beforeEventCount,
+      );
+      return {
+        branch,
+        edit: structuredClone(edit),
+        authoredCount: authored.length,
+        outboundCount: Math.max(pendingTreeCommits(session) - beforePending, 0),
+        commitKinds: authored.map(({ kind }) => kind),
+        factoryAvailable: authored.map(({ factoryAvailable }) => factoryAvailable),
+        revisions: authored.map(({ revision }) => String(revision)),
+        tree: branchTree(view),
+        ...(transaction === null ? {} : {
+          transaction: canonicalTransactionResult({
+            outcome: transaction.outcome,
+            callback: transaction,
+            events: [],
+            commitRevision: authored.at(-1)?.revision ?? null,
+            outboundCount: 0,
+            tree: branchTree(view),
+          }),
+        }),
+      };
+    },
+    async rebaseBranch(source, target) {
+      const sourceView = viewForBranch(source);
+      const targetView = viewForBranch(target);
+      const targetBefore = branchTree(targetView);
+      sourceView.rebaseOnto(targetView);
+      return {
+        source,
+        target,
+        sourceTree: branchTree(sourceView),
+        targetBefore,
+        targetAfter: branchTree(targetView),
+      };
+    },
+    async mergeBranch(target, source, dispose = true) {
+      const targetView = viewForBranch(target);
+      const sourceView = viewForBranch(source);
+      const beforeEventCount = commitEventCount;
+      const beforePending = pendingTreeCommits(session);
+      targetView.merge(sourceView, dispose);
+      const authored = commits.filter(
+        ({ type, local, eventId }) =>
+          type === "commit" && local === true && eventId > beforeEventCount,
+      );
+      if (dispose && source !== "main") {
+        const branch = branches.get(source);
+        branch.subscription.dispose();
+        branch.disposed = true;
+        lastLocalByBranch.delete(source);
+      }
+      return {
+        target,
+        source,
+        disposed: dispose,
+        authoredCount: authored.length,
+        outboundCount: Math.max(pendingTreeCommits(session) - beforePending, 0),
+        commitKinds: authored.map(({ kind }) => kind),
+        factoryAvailable: authored.map(({ factoryAvailable }) => factoryAvailable),
+        revisions: authored.map(({ revision }) => String(revision)),
+        targetTree: branchTree(targetView),
+        sourceStatus: source === "main" || !branches.get(source)?.disposed
+          ? "BranchValid"
+          : "BranchDisposed",
+      };
+    },
+    async disposeBranch(name) {
+      assert.notEqual(name, "main", "The main checkout cannot be disposed");
+      const branch = branches.get(name);
+      assert(branch, `Unknown upstream branch: ${name}`);
+      if (!branch.disposed) {
+        branch.subscription.dispose();
+        branch.view.dispose();
+        branch.disposed = true;
+        lastLocalByBranch.delete(name);
+      }
+      return { name, status: "BranchDisposed" };
+    },
+    async retainLastLocalCommit(name, branch = "main") {
+      const lastLocal = lastLocalByBranch.get(branch);
       assert(lastLocal, "No unretained local commit is available");
       handles.set(name, lastLocal);
       const retained = lastLocal;
-      lastLocal = undefined;
-      const stableRevision = session.runtime.idCompressor.decompress(Number(retained.revision));
+      lastLocalByBranch.delete(branch);
+      const stableRevision = retained.branch === "main"
+        ? session.runtime.idCompressor.decompress(Number(retained.revision))
+        : retained.revision;
       resolvedRevisions.set(retained.actionId, stableRevision);
       for (const event of commits) {
         if (event.actionId === retained.actionId) event.revision = stableRevision;
@@ -4011,12 +4320,18 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       );
       assert.equal(authored.length, 1,
         `Upstream revert ${name} authored another local commit count`);
-      assert.equal(submittedRevisions.length, 1,
+      assert.equal(submittedRevisions.length, retained.branch === "main" ? 1 : 0,
         `Upstream revert ${name} submitted another operation count`);
-      assert.equal(authored[0].revision, submittedRevisions[0],
-        `Upstream revert ${name} event differs from its submission`);
-      const localRevision = submittedRevisions[0];
-      const stableRevision = session.runtime.idCompressor.decompress(Number(localRevision));
+      const localRevision = retained.branch === "main"
+        ? submittedRevisions[0]
+        : authored[0].revision;
+      if (retained.branch === "main") {
+        assert.equal(authored[0].revision, localRevision,
+          `Upstream revert ${name} event differs from its submission`);
+      }
+      const stableRevision = retained.branch === "main"
+        ? session.runtime.idCompressor.decompress(Number(localRevision))
+        : localRevision;
       resolvedRevisions.set(authored[0].actionId, stableRevision);
       for (const event of commits) {
         if (event.actionId === authored[0].actionId) {
@@ -4224,6 +4539,7 @@ export async function nativeAdapter(
   const reconnectRetries = [];
   const nativeLoadIdentities = [];
   const resolvedRevisions = new Map();
+  const handleBranches = new Map();
   try {
     success(await client.request({ command: "subscribe" }), `${target} subscribe`);
   } catch (error) {
@@ -4309,8 +4625,24 @@ export async function nativeAdapter(
     async transaction(scope) {
       return canonicalTransactionResult(await client.transaction(scope));
     },
-    async retainLastLocalCommit(name) {
-      const result = await client.retainLastLocalCommit(name);
+    async fork(source, name) {
+      return client.fork(source, name);
+    },
+    async branchEdit(branch, edit) {
+      return client.branchEdit(branch, edit);
+    },
+    async rebaseBranch(source, target) {
+      return client.rebaseBranch(source, target);
+    },
+    async mergeBranch(target, source, dispose) {
+      return client.mergeBranch(target, source, dispose);
+    },
+    async disposeBranch(name) {
+      return client.disposeBranch(name);
+    },
+    async retainLastLocalCommit(name, branch) {
+      const result = await client.retainLastLocalCommit(name, branch);
+      handleBranches.set(name, branch ?? "main");
       if (typeof result.actionId === "string"
         && typeof result.revision === "string") {
         resolvedRevisions.set(result.actionId, result.revision);
@@ -4321,11 +4653,13 @@ export async function nativeAdapter(
           client.instanceId,
           result.revision,
         );
-      const transport = await awaitOutboundTransport(
-        outboundRecords,
-        client.gate,
-        `${target} retained ${name}`,
-      );
+      const transport = branch === undefined || branch === "main"
+        ? await awaitOutboundTransport(
+          outboundRecords,
+          client.gate,
+          `${target} retained ${name}`,
+        )
+        : { outboundRecords, transportConnections: [], transportObservations: [] };
       return {
         ...result,
         ...transport,
@@ -4350,11 +4684,13 @@ export async function nativeAdapter(
           client.instanceId,
           result.submittedRevisions?.[0],
         );
-      const transport = await awaitOutboundTransport(
-        outboundRecords,
-        client.gate,
-        `${target} revert ${name}`,
-      );
+      const transport = handleBranches.get(name) === "main"
+        ? await awaitOutboundTransport(
+          outboundRecords,
+          client.gate,
+          `${target} revert ${name}`,
+        )
+        : { outboundRecords, transportConnections: [], transportObservations: [] };
       if (typeof result.actionId === "string"
         && typeof result.submittedRevisions?.[0] === "string") {
         resolvedRevisions.set(result.actionId, result.submittedRevisions[0]);
@@ -7309,6 +7645,33 @@ const undoRedoPairs = [
 ];
 const undoRedoFieldKinds = ["object", "map", "array", "move", "transaction"];
 const undoRedoOrders = ["a-first", "b-first"];
+const localBranchFieldKinds = [
+  "object",
+  "map",
+  "array",
+  "same-array-move",
+  "cross-array-move",
+  "identifier",
+  "transaction",
+];
+const localBranchPairs = [
+  ["upstream", "javascript"],
+  ["upstream", "erlang"],
+  ["javascript", "erlang"],
+];
+
+export function localBranchConcurrentCells() {
+  return localBranchPairs.flatMap((authors) =>
+    localBranchFieldKinds.flatMap((fieldKind) =>
+      ["branch-first", "main-first"].flatMap((order) =>
+        ["rebase", "direct-merge"].map((strategy) => ({
+          id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
+          authors,
+          fieldKind,
+          order,
+          strategy,
+        })))));
+}
 
 export function undoRedoConcurrentCells() {
   return undoRedoPairs.flatMap((authors) =>
@@ -7335,6 +7698,159 @@ function undoRedoViewSchema(context, fieldKind) {
     : ["array", "move", "transaction"].includes(fieldKind)
       ? context.arrayViewSchema
       : context.viewSchema;
+}
+
+function localBranchStore(fieldKind) {
+  return fieldKind === "identifier"
+    ? identifierServiceStore
+    : undoRedoStore(fieldKind === "same-array-move"
+      || fieldKind === "cross-array-move" ? "move" : fieldKind);
+}
+
+function localBranchViewSchema(context, fieldKind) {
+  return fieldKind === "identifier"
+    ? context.identifierViewSchema
+    : undoRedoViewSchema(
+      context,
+      fieldKind === "same-array-move" || fieldKind === "cross-array-move"
+        ? "move"
+        : fieldKind,
+    );
+}
+
+async function openLocalBranchEnvironment(config, context, fieldKind, label) {
+  const containers = [];
+  const natives = [];
+  const store = localBranchStore(fieldKind);
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      store ? { store } : undefined,
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 9 ${label} bootstrap`,
+      store ? { store } : undefined,
+    );
+    const upstream = upstreamAdapter(await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      store ? { store } : undefined,
+    ));
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: localBranchViewSchema(context, fieldKind),
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await Promise.all(nativeTargets.map((target) => adapters[target].awaitSynced()));
+    await settle(adapters);
+    if (fieldKind === "same-array-move") {
+      await upstream.arrayInsert(["left"], 0, [
+        treeValue(`${label}:left-0`),
+        treeValue(`${label}:left-1`),
+        treeValue(`${label}:left-2`),
+      ]);
+      await settle(adapters);
+    } else if (fieldKind === "cross-array-move") {
+      await upstream.arrayInsert(["left"], 0, [treeValue(`${label}:left-0`)]);
+      await settle(adapters);
+    }
+    return { adapters, containers, creator, documentId, jwt, natives };
+  } catch (error) {
+    await closeTransactionEnvironment({ containers, natives }, error);
+    throw error;
+  }
+}
+
+function localBranchEdit(fieldKind, label) {
+  if (fieldKind === "object") {
+    return { kind: "object-set", path: ["title"], value: label };
+  }
+  if (fieldKind === "map") {
+    return {
+      kind: "map-set",
+      path: ["items"],
+      key: "branch",
+      value: treeValue(label),
+    };
+  }
+  if (fieldKind === "array") {
+    return {
+      kind: "array-insert",
+      path: ["left"],
+      index: 0,
+      values: [treeValue(label)],
+    };
+  }
+  if (fieldKind === "same-array-move") {
+    return {
+      kind: "array-move",
+      sourcePath: ["left"],
+      sourceStart: 0,
+      sourceEnd: 1,
+      destinationPath: ["left"],
+      destinationGap: 2,
+    };
+  }
+  if (fieldKind === "cross-array-move") {
+    return {
+      kind: "array-move",
+      sourcePath: ["left"],
+      sourceStart: 0,
+      sourceEnd: 1,
+      destinationPath: ["right"],
+      destinationGap: 0,
+    };
+  }
+  if (fieldKind === "identifier") {
+    return {
+      kind: "array-insert",
+      path: ["left"],
+      index: 0,
+      values: [identifierPoint(label)],
+    };
+  }
+  return {
+    kind: "transaction",
+    constraints: [],
+    edits: [{
+      op: "array-insert",
+      path: ["left"],
+      index: 0,
+      values: [treeValue(label)],
+    }],
+    result: "commit",
+  };
+}
+
+async function localBranchMainEdit(adapter, fieldKind, label) {
+  if (fieldKind === "object") {
+    await adapter.set(["rating"], label.length);
+  } else if (fieldKind === "map") {
+    await adapter.mapSet(["items"], "main", treeValue(label));
+  } else {
+    await adapter.arrayInsert(["right"], 0, [
+      fieldKind === "identifier" ? identifierPoint(label) : treeValue(label),
+    ]);
+  }
 }
 
 async function openUndoRedoEnvironment(config, context, fieldKind, label) {
@@ -8031,6 +8547,473 @@ export async function runUndoRedoScenarios(config, context, {
   };
 }
 
+function localBranchCommitTrace(checkpoint, implementation) {
+  return checkpoint.observations
+    .find((observation) => observation.implementation === implementation)
+    ?.commits ?? [];
+}
+
+export async function runLocalBranchConcurrentCell(config, context, cell) {
+  const environment = await openLocalBranchEnvironment(
+    config,
+    context,
+    cell.fieldKind,
+    cell.id,
+  );
+  let error;
+  try {
+    const [branchAuthor, mainAuthor] = cell.authors;
+    const branch = environment.adapters[branchAuthor];
+    const main = environment.adapters[mainAuthor];
+    const label = `${cell.id}:branch`;
+    const initialHistory = await serverHistory(environment.creator);
+    if (cell.fieldKind === "same-array-move") {
+      assert.equal((await branch.arrayValues(["left"])).length, 3,
+        `${cell.id} did not receive the seeded move source`);
+    }
+    await branch.fork("main", "draft");
+    let branchResult;
+    let branchWireDelta = 0;
+    const editBranch = async () => {
+      const beforeBranchHistory = await serverHistory(environment.creator);
+      branchResult = await branch.branchEdit(
+        "draft",
+        localBranchEdit(cell.fieldKind, label),
+      );
+      branchWireDelta = (await serverHistory(environment.creator)).length
+        - beforeBranchHistory.length;
+      assert.equal(branchResult.outboundCount, 0,
+        `${cell.id} branch edit emitted document traffic`);
+    };
+    const editMain = () => localBranchMainEdit(
+      main,
+      cell.fieldKind,
+      `${cell.id}:main`,
+    );
+    if (cell.order === "branch-first") {
+      await editBranch();
+      await editMain();
+    } else {
+      await editMain();
+      await editBranch();
+    }
+    const retained = await branch.retainLastLocalCommit(
+      `${cell.id}:retained`,
+      "draft",
+    );
+    const remoteVisibleBeforeMerge =
+      branchResult.outboundCount !== 0
+      || branchWireDelta !== 0;
+    const beforeMerge = await captureCheckpoint(
+      `${cell.id}:before-merge`,
+      "intermediate",
+      environment.adapters,
+    );
+    if (cell.strategy === "rebase") {
+      await branch.rebaseBranch("draft", "main");
+    }
+    const merge = await branch.mergeBranch("main", "draft", true);
+    const settled = await settle(environment.adapters);
+    const history = await serverHistory(environment.creator);
+    const accepted = decodeTreeSubmissions(
+      history.filter(({ sequenceNumber }) =>
+        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const mergeMessages = accepted.flatMap(({ commits }) =>
+      commits.map(({ revision, originatorId, changeset }) => ({
+        revision: String(revision),
+        originatorId: String(originatorId),
+        changeset,
+      })));
+    const allocationRanges = accepted.flatMap(({ allocations }) =>
+      allocations.map((allocation) => structuredClone(allocation)));
+    const sourceTrace = localBranchCommitTrace(beforeMerge, branchAuthor);
+    const targetTrace = localBranchCommitTrace(settled, branchAuthor);
+    const settlementObservations = targetTrace
+      .filter(({ type }) => type === "settlement")
+      .map(({ outcome }) => ({ outcome }));
+    if (settlementObservations.length === 0) {
+      settlementObservations.push({ outcome: "Pending" });
+    }
+    const survivingRevisions = mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    );
+    assert(mergeMessages.length > 0, `${cell.id} emitted no merge messages`);
+    return {
+      ...cell,
+      remoteVisibleBeforeMerge,
+      survivingRevisions,
+      mergeMessages,
+      passed: true,
+      raw: {
+        editOrder: cell.order === "branch-first"
+          ? ["branch", "main"]
+          : ["main", "branch"],
+        sourceTrace,
+        targetTrace,
+        allocationRanges,
+        mergeMessages,
+        factoryResults: [{
+          available: retained.factoryAvailable,
+          outcome: retained.status,
+        }],
+        settlementObservations,
+        survivingRevisions,
+        branchResult,
+        retained,
+        merge,
+        beforeMerge,
+        settled,
+        acceptedOperations: acceptedTreeOperations(history),
+      },
+    };
+  } catch (cause) {
+    error = cause;
+    throw cause;
+  } finally {
+    await closeTransactionEnvironment(environment, error);
+  }
+}
+
+async function runLocalBranchIsolationImplementation(
+  config,
+  context,
+  implementation,
+) {
+  const id = `local-branch-isolation:${implementation}`;
+  const environment = await openLocalBranchEnvironment(
+    config,
+    context,
+    "object",
+    id,
+  );
+  let error;
+  try {
+    const adapter = environment.adapters[implementation];
+    const initialHistory = await serverHistory(environment.creator);
+    await adapter.fork("main", "parent");
+    await adapter.fork("parent", "nested");
+    const edit = await adapter.branchEdit("nested", {
+      kind: "object-set",
+      path: ["title"],
+      value: `${id}:nested`,
+    });
+    const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "nested");
+    await adapter.disposeBranch("parent");
+    await adapter.branchEdit("nested", {
+      kind: "object-set",
+      path: ["note"],
+      value: `${id}:child-live`,
+    });
+    const before = await captureCheckpoint(id, "intermediate", environment.adapters);
+    const remoteVisibleBeforeMerge =
+      edit.outboundCount !== 0
+      || (await serverHistory(environment.creator)).length !== initialHistory.length;
+    const merge = await adapter.mergeBranch("main", "nested", true);
+    const settled = await settle(environment.adapters);
+    const history = await serverHistory(environment.creator);
+    const accepted = decodeTreeSubmissions(
+      history.filter(({ sequenceNumber }) =>
+        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const mergeMessages = accepted.flatMap(({ commits }) =>
+      commits.map(({ revision, originatorId, changeset }) => ({
+        revision: String(revision),
+        originatorId: String(originatorId),
+        changeset,
+      })));
+    const survivingRevisions = mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    );
+    const trace = localBranchCommitTrace(settled, implementation);
+    return {
+      implementation,
+      nestedFork: true,
+      parentDisposedChildLive: true,
+      remoteVisibleBeforeMerge,
+      survivingRevisions,
+      mergeMessages,
+      passed: true,
+      raw: {
+        editOrder: ["branch"],
+        sourceTrace: localBranchCommitTrace(before, implementation),
+        targetTrace: trace,
+        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
+        mergeMessages,
+        factoryResults: [{
+          available: retained.factoryAvailable,
+          outcome: retained.status,
+        }],
+        settlementObservations: trace
+          .filter(({ type }) => type === "settlement")
+          .map(({ outcome }) => ({ outcome }))
+          .concat(trace.some(({ type }) => type === "settlement")
+            ? [] : [{ outcome: "Pending" }]),
+        survivingRevisions,
+        edit,
+        retained,
+        merge,
+        acceptedOperations: acceptedTreeOperations(history),
+      },
+    };
+  } catch (cause) {
+    error = cause;
+    throw cause;
+  } finally {
+    await closeTransactionEnvironment(environment, error);
+  }
+}
+
+export async function runLocalBranchLifetimeCell(
+  config,
+  context,
+  implementation,
+  kind,
+) {
+  const id = `local-branch-lifetime:${implementation}:${kind}`;
+  const environment = await openLocalBranchEnvironment(
+    config,
+    context,
+    "object",
+    id,
+  );
+  let error;
+  try {
+    const adapter = environment.adapters[implementation];
+    const initialHistory = await serverHistory(environment.creator);
+    await adapter.fork("main", "draft");
+    const edit = await adapter.branchEdit("draft", {
+      kind: "object-set",
+      path: ["title"],
+      value: id,
+    });
+    const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
+    let lifecycle;
+    let merge;
+    let repeatedMergeAuthoredCount = 0;
+    let sourceStatusAfterFirstMerge;
+    if (kind === "branch-undo-before-merge") {
+      lifecycle = await adapter.revert(`${id}:edit`, true);
+      merge = await adapter.mergeBranch("main", "draft", true);
+      sourceStatusAfterFirstMerge = "BranchDisposed";
+    } else {
+      merge = await adapter.mergeBranch("main", "draft", false);
+      sourceStatusAfterFirstMerge = "BranchValid";
+      const beforeRepeat = await serverHistory(environment.creator);
+      await adapter.mergeBranch("main", "draft", false);
+      const afterRepeat = await serverHistory(environment.creator);
+      repeatedMergeAuthoredCount = afterRepeat.length - beforeRepeat.length;
+      await adapter.disposeBranch("draft");
+    }
+    const settled = await settle(environment.adapters);
+    const history = await serverHistory(environment.creator);
+    const accepted = decodeTreeSubmissions(
+      history.filter(({ sequenceNumber }) =>
+        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const mergeMessages = accepted.flatMap(({ commits }) =>
+      commits.map(({ revision, originatorId, changeset }) => ({
+        revision: String(revision),
+        originatorId: String(originatorId),
+        changeset,
+      })));
+    const survivingRevisions = mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    );
+    const targetTrace = localBranchCommitTrace(settled, implementation);
+    return {
+      id,
+      implementation,
+      kind,
+      sourceStatusAfterFirstMerge,
+      repeatedMergeAuthoredCount,
+      remoteVisibleBeforeMerge: edit.outboundCount !== 0,
+      survivingRevisions,
+      mergeMessages,
+      passed: true,
+      raw: {
+        editOrder: ["branch"],
+        sourceTrace: [retained],
+        targetTrace,
+        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
+        mergeMessages,
+        factoryResults: [{
+          available: retained.factoryAvailable,
+          outcome: retained.status,
+        }],
+        settlementObservations: targetTrace
+          .filter(({ type }) => type === "settlement")
+          .map(({ outcome }) => ({ outcome }))
+          .concat(targetTrace.some(({ type }) => type === "settlement")
+            ? [] : [{ outcome: "Pending" }]),
+        survivingRevisions,
+        edit,
+        retained,
+        lifecycle,
+        merge,
+        acceptedOperations: acceptedTreeOperations(history),
+      },
+    };
+  } catch (cause) {
+    error = cause;
+    throw cause;
+  } finally {
+    await closeTransactionEnvironment(environment, error);
+  }
+}
+
+export async function runLocalBranchReconnectCell(config, context, writer, kind) {
+  const id = `local-branch-reconnect:${writer}:${kind}`;
+  const environment = await openLocalBranchEnvironment(
+    config,
+    context,
+    "object",
+    id,
+  );
+  let error;
+  try {
+    const adapter = environment.adapters[writer];
+    const peer = environment.adapters.upstream;
+    const initialHistory = await serverHistory(environment.creator);
+    let retained;
+    let beforeMerge;
+    if (kind === "pending-main-origin") {
+      await adapter.holdOutbound();
+      await adapter.set(["rating"], 23);
+      await adapter.fork("main", "draft");
+      await adapter.branchEdit("draft", {
+        kind: "object-set",
+        path: ["title"],
+        value: id,
+      });
+      await adapter.releaseOutbound();
+      await adapter.disconnect();
+      await adapter.reconnect();
+      retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
+      beforeMerge = await captureCheckpoint(id, "intermediate", environment.adapters);
+      await adapter.mergeBranch("main", "draft", true);
+    } else {
+      await adapter.fork("main", "draft");
+      await adapter.branchEdit("draft", {
+        kind: "object-set",
+        path: ["title"],
+        value: id,
+      });
+      retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
+      beforeMerge = await captureCheckpoint(id, "intermediate", environment.adapters);
+      await adapter.holdInbound();
+      await adapter.mergeBranch("main", "draft", true);
+      await peer.awaitSynced();
+      await adapter.disconnect();
+      await adapter.reconnect();
+      await adapter.awaitSynced();
+    }
+    const settled = await settle(environment.adapters);
+    const history = await serverHistory(environment.creator);
+    const accepted = decodeTreeSubmissions(
+      history.filter(({ sequenceNumber }) =>
+        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const mergeMessages = accepted.flatMap(({ commits }) =>
+      commits.map(({ revision, originatorId, changeset }) => ({
+        revision: String(revision),
+        originatorId: String(originatorId),
+        changeset,
+      })));
+    const survivingRevisions = mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    );
+    const writerIds = environment.adapters[writer].clientIds;
+    const mergeSubmissionCount = accepted.filter(({ clientId, commits }) =>
+      writerIds.has(clientId)
+      && commits.some(({ changeset }) => JSON.stringify(changeset).includes(id))).length;
+    const targetTrace = localBranchCommitTrace(settled, writer);
+    return {
+      id,
+      writer,
+      kind,
+      mergeSubmissionCount,
+      remoteVisibleBeforeMerge: false,
+      survivingRevisions,
+      mergeMessages,
+      passed: true,
+      raw: {
+        editOrder: ["branch", "main"],
+        sourceTrace: localBranchCommitTrace(beforeMerge, writer),
+        targetTrace,
+        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
+        mergeMessages,
+        factoryResults: [{
+          available: retained.factoryAvailable,
+          outcome: retained.status,
+        }],
+        settlementObservations: targetTrace
+          .filter(({ type }) => type === "settlement")
+          .map(({ outcome }) => ({ outcome }))
+          .concat(targetTrace.some(({ type }) => type === "settlement")
+            ? [] : [{ outcome: "Pending" }]),
+        survivingRevisions,
+        retained,
+        beforeMerge,
+        settled,
+        acceptedOperations: acceptedTreeOperations(history),
+      },
+    };
+  } catch (cause) {
+    error = cause;
+    throw cause;
+  } finally {
+    await closeTransactionEnvironment(environment, error);
+  }
+}
+
+export async function runLocalBranchScenarios(config, context, {
+  runConcurrent = runLocalBranchConcurrentCell,
+  runIsolation = runLocalBranchIsolationImplementation,
+  runLifetime = runLocalBranchLifetimeCell,
+  runReconnect = runLocalBranchReconnectCell,
+} = {}) {
+  const isolation = [];
+  for (const implementation of implementations) {
+    isolation.push(await runIsolation(config, context, implementation));
+  }
+  const concurrent = [];
+  for (const cell of localBranchConcurrentCells()) {
+    concurrent.push(await runConcurrent(config, context, cell));
+  }
+  const lifetime = [];
+  for (const implementation of implementations) {
+    for (const kind of [
+      "preserved-source-repeated-merge",
+      "branch-undo-before-merge",
+    ]) {
+      lifetime.push(await runLifetime(
+        config,
+        context,
+        implementation,
+        kind,
+      ));
+    }
+  }
+  const reconnect = [];
+  for (const writer of nativeTargets) {
+    for (const kind of ["pending-main-origin", "accepted-before-drop"]) {
+      reconnect.push(await runReconnect(
+        config,
+        context,
+        writer,
+        kind,
+      ));
+    }
+  }
+  return {
+    isolation: { reference: replayReference, service: replayService, implementations: isolation },
+    concurrent: { reference: replayReference, service: replayService, cells: concurrent },
+    lifetime: { reference: replayReference, service: replayService, cells: lifetime },
+    reconnect: { reference: replayReference, service: replayService, cells: reconnect },
+  };
+}
+
 export async function runIdentifierFields(config, context, {
   runPair = runIdentifierPair,
   failures = [],
@@ -8077,6 +9060,7 @@ function seededMeasuredPayload(item) {
     schemaTransitions: item.schemaTransitions,
     transactions: item.transactions,
     undoRedo: item.undoRedo,
+    localBranches: item.localBranches,
     evidence: item.evidence,
   };
 }
@@ -8243,6 +9227,12 @@ export async function writeSeededFailure(context, schedule, state, error) {
     schemaTransitions: state.schemaTransitions,
     transactions: state.transactions ?? [],
     undoRedo: state.undoRedo ?? [],
+    localBranches: state.localBranches ?? [],
+    branchNames: [...new Set((state.localBranches ?? [])
+      .flatMap(({ name, source, target, branch }) =>
+        [name, source, target, branch].filter(
+          (value) => value && value !== "main",
+        )))],
     handleNames: [...new Set((state.undoRedo ?? [])
       .map(({ name }) => name).filter(Boolean))],
     commitKinds: state.checkpoints.flatMap(({ observations }) =>
@@ -8482,6 +9472,76 @@ export async function executeScheduleAction(
       events: result.events,
     });
     if (action.result !== "abort") state.quiescent = false;
+  } else if (action.type === "fork") {
+    const result = await adapters[action.author].fork(action.source, action.name);
+    state.localBranches.push({
+      type: "fork",
+      author: action.author,
+      source: action.source,
+      name: action.name,
+      result,
+    });
+  } else if (action.type === "branch-edit") {
+    const result = await adapters[action.author]
+      .branchEdit(action.branch, action.edit);
+    state.localBranches.push({
+      type: "edit",
+      author: action.author,
+      branch: action.branch,
+      edit: action.edit,
+      result,
+    });
+  } else if (action.type === "branch-rebase") {
+    const result = await adapters[action.author]
+      .rebaseBranch(action.source, action.target);
+    state.localBranches.push({
+      type: "rebase",
+      author: action.author,
+      source: action.source,
+      target: action.target,
+      result,
+    });
+  } else if (action.type === "branch-merge") {
+    const result = await adapters[action.author]
+      .mergeBranch(action.target, action.source, action.dispose);
+    state.localBranches.push({
+      type: "merge",
+      author: action.author,
+      source: action.source,
+      target: action.target,
+      dispose: action.dispose,
+      repeated: action.repeated === true,
+      result,
+    });
+    state.quiescent = false;
+  } else if (action.type === "branch-dispose") {
+    const result = await adapters[action.author].disposeBranch(action.name);
+    state.localBranches.push({
+      type: "dispose",
+      author: action.author,
+      name: action.name,
+      result,
+    });
+  } else if (action.type === "branch-retain") {
+    const result = await adapters[action.author]
+      .retainLastLocalCommit(action.name, action.branch);
+    state.localBranches.push({
+      type: "retain",
+      author: action.author,
+      branch: action.branch,
+      name: action.name,
+      result,
+    });
+  } else if (action.type === "branch-revert") {
+    const result = await adapters[action.author]
+      .revert(action.name, action.dispose);
+    state.localBranches.push({
+      type: action.lifecycle,
+      author: action.author,
+      name: action.name,
+      dispose: action.dispose,
+      result,
+    });
   } else if (action.type === "retain") {
     const result = await adapters[action.author]
       .retainLastLocalCommit(action.name);
@@ -8664,6 +9724,7 @@ export async function runSeededSchedule(config, context, schedule) {
     schemaTransitions: [],
     transactions: [],
     undoRedo: [],
+    localBranches: [],
     token: undefined,
   };
   let scheduleError;
@@ -8768,6 +9829,7 @@ export async function runSeededSchedule(config, context, schedule) {
       schemaTransitions: state.schemaTransitions,
       transactions: state.transactions,
       undoRedo: state.undoRedo,
+      localBranches: state.localBranches,
       evidence: {
         submissions: decoded.submissions,
         rawSequencedOperationCount: finalHistory.length,

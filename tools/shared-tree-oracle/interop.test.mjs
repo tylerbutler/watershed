@@ -19,6 +19,7 @@ import {
   parseInteropOptions,
   runInteropCommand,
   validateInteropReport,
+  validateLocalBranchSections,
 } from "./interop.mjs";
 import {
   generateSchedules,
@@ -44,6 +45,177 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const implementations = ["upstream", "javascript", "erlang"];
+const localBranchFieldKinds = [
+  "object",
+  "map",
+  "array",
+  "same-array-move",
+  "cross-array-move",
+  "identifier",
+  "transaction",
+];
+const localBranchPairs = [
+  ["upstream", "javascript"],
+  ["upstream", "erlang"],
+  ["javascript", "erlang"],
+];
+
+function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
+  return {
+    remoteVisibleBeforeMerge: false,
+    survivingRevisions: ["branch-a", "main-b"],
+    mergeMessages: [{ revision: "branch-a", kind: "Default" }],
+    passed: true,
+    raw: {
+      editOrder,
+      sourceTrace: [{ revision: "branch-a", kind: "Default" }],
+      targetTrace: [{ revision: "main-b", kind: "Default" }],
+      allocationRanges: [{ firstGenCount: 4, count: 4 }],
+      mergeMessages: [{ revision: "branch-a", kind: "Default" }],
+      factoryResults: [{ available: true, outcome: "Valid" }],
+      settlementObservations: [{ outcome: "FullyApplied" }],
+      survivingRevisions: ["branch-a", "main-b"],
+    },
+    ...overrides,
+  };
+}
+
+function localBranchReport() {
+  const section = () => ({
+    reference: { ...reference },
+    service: { ...service },
+  });
+  return {
+    localBranchIsolation: {
+      ...section(),
+      implementations: implementations.map((implementation) => ({
+        implementation,
+        nestedFork: true,
+        parentDisposedChildLive: true,
+        ...localBranchEvidence(),
+      })),
+    },
+    localBranchConcurrent: {
+      ...section(),
+      cells: localBranchPairs.flatMap((authors) =>
+        localBranchFieldKinds.flatMap((fieldKind) =>
+          ["branch-first", "main-first"].flatMap((order) =>
+            ["rebase", "direct-merge"].map((strategy) => ({
+              id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
+              authors,
+              fieldKind,
+              order,
+              strategy,
+              ...localBranchEvidence(
+                {},
+                order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
+              ),
+            }))))),
+    },
+    localBranchLifetime: {
+      ...section(),
+      cells: implementations.flatMap((implementation) =>
+        ["preserved-source-repeated-merge", "branch-undo-before-merge"].map((kind) => ({
+          id: `local-branch-lifetime:${implementation}:${kind}`,
+          implementation,
+          kind,
+          sourceStatusAfterFirstMerge:
+            kind === "preserved-source-repeated-merge"
+              ? "BranchValid"
+              : "BranchDisposed",
+          repeatedMergeAuthoredCount: 0,
+          ...localBranchEvidence(),
+        }))),
+    },
+    localBranchReconnect: {
+      ...section(),
+      cells: implementations.slice(1).flatMap((writer) =>
+        ["pending-main-origin", "accepted-before-drop"].map((kind) => ({
+          id: `local-branch-reconnect:${writer}:${kind}`,
+          writer,
+          kind,
+          mergeSubmissionCount: 1,
+          ...localBranchEvidence(),
+        }))),
+    },
+    localBranchReloadMatrix: {
+      ...section(),
+      cells: implementations.flatMap((writer) =>
+        ["before-merge", "after-merge"].flatMap((stage) =>
+          implementations.map((reader) => ({
+            id: `local-branch-reload:${writer}:${stage}:${reader}`,
+            writer,
+            reader,
+            stage,
+            historicalBranches: 0,
+            continuation: {
+              editApplied: true,
+              undoApplied: true,
+              redoApplied: true,
+            },
+            ...localBranchEvidence(),
+          })))),
+    },
+  };
+}
+
+test("local branch validation derives edit order from raw client evidence", () => {
+  const report = localBranchReport();
+  assert.equal(validateLocalBranchSections(report), report);
+  delete report.localBranchConcurrent.cells[0].raw.editOrder;
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /edit order/,
+  );
+});
+
+test("local branch validation rejects incomplete service evidence", () => {
+  const mutations = [
+    ["missing section", (report) => { delete report.localBranchIsolation; }],
+    ["missing implementation", (report) => {
+      report.localBranchIsolation.implementations.pop();
+    }],
+    ["missing field row", (report) => {
+      report.localBranchConcurrent.cells.splice(0, 1);
+    }],
+    ["wrong edit order", (report) => {
+      report.localBranchConcurrent.cells[0].raw.editOrder.reverse();
+    }],
+    ["missing source trace", (report) => {
+      report.localBranchConcurrent.cells[0].raw.sourceTrace = [];
+    }],
+    ["missing target trace", (report) => {
+      report.localBranchConcurrent.cells[0].raw.targetTrace = [];
+    }],
+    ["missing allocation", (report) => {
+      delete report.localBranchConcurrent.cells[0].raw.allocationRanges;
+    }],
+    ["missing merge message", (report) => {
+      report.localBranchConcurrent.cells[0].raw.mergeMessages = [];
+    }],
+    ["missing factory result", (report) => {
+      report.localBranchConcurrent.cells[0].raw.factoryResults = [];
+    }],
+    ["missing settlement", (report) => {
+      report.localBranchConcurrent.cells[0].raw.settlementObservations = [];
+    }],
+    ["wrong service identity", (report) => {
+      report.localBranchLifetime.service.revision = "other";
+    }],
+    ["missing continuation", (report) => {
+      delete report.localBranchReloadMatrix.cells[0].continuation.redoApplied;
+    }],
+  ];
+  for (const [name, mutate] of mutations) {
+    const report = localBranchReport();
+    mutate(report);
+    assert.throws(
+      () => validateLocalBranchSections(report),
+      undefined,
+      name,
+    );
+  }
+});
 
 async function temporaryDirectory(prefix) {
   const directory = await mkdtemp(join(tmpdir(), prefix));
@@ -2814,6 +2986,7 @@ async function validFixture() {
     undoRedoConcurrent,
     undoRedoReconnect,
     undoRedoReloadMatrix,
+    ...localBranchReport(),
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {

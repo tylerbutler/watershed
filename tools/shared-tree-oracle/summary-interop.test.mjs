@@ -12,6 +12,7 @@ import {
   runArtifactInterop,
   restoreArrayReader,
   runMapReloadMatrix,
+  runLocalBranchReloadMatrix,
   runReloadMatrix,
   runSchemaReloadMatrix,
   validateArrayResults,
@@ -22,6 +23,25 @@ import {
   validateSummaryArtifact,
   validateTransactionReloadResults,
 } from "./summary-interop.mjs";
+
+test("local branch reload matrix covers both stages for every writer and reader", async () => {
+  const calls = [];
+  const result = await runLocalBranchReloadMatrix({}, {}, {
+    runWriter: async (_config, _context, writer) => {
+      calls.push(writer);
+      return ["before-merge", "after-merge"].flatMap((stage) =>
+        ["upstream", "javascript", "erlang"].map((reader) => ({
+          writer,
+          reader,
+          stage,
+        })));
+    },
+  });
+  assert.deepEqual(calls, ["upstream", "javascript", "erlang"]);
+  assert.equal(result.cells.length, 18);
+  assert.equal(new Set(result.cells.map(({ writer, reader, stage }) =>
+    `${writer}:${reader}:${stage}`)).size, 18);
+});
 
 test("array reader continuation preserves pre-existing right-side tail values", async () => {
   const initial = {

@@ -124,7 +124,13 @@ pub type Command {
   ArrayMove(FieldPath, Int, Int, FieldPath, Int)
   ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
   Transaction(TransactionScope)
+  Fork(String, String)
+  BranchEditCommand(String, BranchEdit)
+  RebaseBranch(String, String)
+  MergeBranch(String, String, Bool)
+  DisposeBranch(String)
   RetainLastLocalCommit(String)
+  BranchRetainLastLocalCommit(String, String)
   RevertibleStatus(String)
   DisposeRevertible(String)
   Revert(String, Bool)
@@ -137,6 +143,17 @@ pub type Command {
   Subscribe
   Unsubscribe
   Close
+}
+
+pub type BranchEdit {
+  BranchSet(FieldPath, TreeValue)
+  BranchClear(FieldPath)
+  BranchMapSet(FieldPath, String, TreeValue)
+  BranchMapDelete(FieldPath, String)
+  BranchArrayInsert(FieldPath, Int, List(TreeValue))
+  BranchArrayRemove(FieldPath, Int, Int)
+  BranchArrayMove(FieldPath, Int, Int, FieldPath, Int)
+  BranchTransaction(TransactionScope)
 }
 
 pub type Request {
@@ -319,8 +336,40 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       Ok(ConstrainedArrayRemove(target_path, path, start, end))
     }
     "transaction" -> decode_transaction_scope(data) |> result.map(Transaction)
-    "retainLastLocalCommit" ->
-      nonempty(data, "name") |> result.map(RetainLastLocalCommit)
+    "fork" -> {
+      use source <- result.try(nonempty(data, "source"))
+      use name <- result.try(nonempty(data, "name"))
+      Ok(Fork(source, name))
+    }
+    "branchEdit" -> {
+      use branch <- result.try(nonempty(data, "branch"))
+      use edit <- result.try(required(data, "edit", decode.dynamic))
+      decode_branch_edit(edit)
+      |> result.map(fn(edit) { BranchEditCommand(branch, edit) })
+    }
+    "rebaseBranch" -> {
+      use source <- result.try(nonempty(data, "source"))
+      use target <- result.try(nonempty(data, "target"))
+      Ok(RebaseBranch(source, target))
+    }
+    "mergeBranch" -> {
+      use target <- result.try(nonempty(data, "target"))
+      use source <- result.try(nonempty(data, "source"))
+      use dispose <- result.try(required(data, "dispose", decode.bool))
+      Ok(MergeBranch(target, source, dispose))
+    }
+    "disposeBranch" -> nonempty(data, "name") |> result.map(DisposeBranch)
+    "retainLastLocalCommit" -> {
+      use name <- result.try(nonempty(data, "name"))
+      case decode.run(data, decode.at(["branch"], decode.string)) {
+        Ok(branch) ->
+          case string.is_empty(branch) {
+            True -> Error(invalid("branch", "empty branch"))
+            False -> Ok(BranchRetainLastLocalCommit(branch, name))
+          }
+        Error(_) -> Ok(RetainLastLocalCommit(name))
+      }
+    }
     "revertibleStatus" -> nonempty(data, "name") |> result.map(RevertibleStatus)
     "disposeRevertible" ->
       nonempty(data, "name") |> result.map(DisposeRevertible)
@@ -351,6 +400,89 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     _ -> Error(invalid(command, "unknown command"))
   })
   Ok(Request(id, decoded))
+}
+
+fn decode_branch_edit(data: Dynamic) -> Result(BranchEdit, ProtocolError) {
+  use kind <- result.try(nonempty(data, "kind"))
+  case kind {
+    "object-set" -> {
+      use path <- result.try(decode_path(data))
+      use value <- result.try(required(data, "value", decode.dynamic))
+      decode_branch_value(value)
+      |> result.map(fn(value) { BranchSet(path, value) })
+    }
+    "object-clear" -> decode_path(data) |> result.map(BranchClear)
+    "map-set" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      use value <- result.try(required(data, "value", decode.dynamic))
+      decode_branch_value(value)
+      |> result.map(fn(value) { BranchMapSet(path, key, value) })
+    }
+    "map-delete" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      Ok(BranchMapDelete(path, key))
+    }
+    "array-insert" -> {
+      use path <- result.try(decode_path(data))
+      use index <- result.try(decode_safe_index(data, "index"))
+      use values <- result.try(required(
+        data,
+        "values",
+        decode.list(decode.dynamic),
+      ))
+      list.try_map(values, decode_branch_value)
+      |> result.map(fn(values) { BranchArrayInsert(path, index, values) })
+    }
+    "array-remove" -> {
+      use path <- result.try(decode_path(data))
+      use start <- result.try(decode_safe_index(data, "start"))
+      use end <- result.try(decode_safe_index(data, "end"))
+      Ok(BranchArrayRemove(path, start, end))
+    }
+    "array-move" -> {
+      use source_path <- result.try(decode_named_path(data, "sourcePath"))
+      use source_start <- result.try(decode_safe_index(data, "sourceStart"))
+      use source_end <- result.try(decode_safe_index(data, "sourceEnd"))
+      use destination_path <- result.try(decode_named_path(
+        data,
+        "destinationPath",
+      ))
+      use destination_gap <- result.try(decode_safe_index(
+        data,
+        "destinationGap",
+      ))
+      Ok(BranchArrayMove(
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      ))
+    }
+    "transaction" ->
+      decode_transaction_scope(data) |> result.map(BranchTransaction)
+    _ -> Error(invalid("edit", "unknown branch edit kind"))
+  }
+}
+
+fn decode_branch_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
+  case decode_value(value) {
+    Ok(value) -> Ok(value)
+    Error(_) ->
+      decode.run(
+        value,
+        decode.one_of(decode.map(decode.string, StringValue), or: [
+          decode.map(decode.bool, BooleanValue),
+          decode.map(decode.float, NumberValue),
+          decode.map(decode.int, fn(value) { NumberValue(int.to_float(value)) }),
+        ]),
+      )
+      |> result.map_error(fn(_) {
+        invalid("value", "invalid branch edit value")
+      })
+  }
 }
 
 fn decode_path(data: Dynamic) -> Result(FieldPath, ProtocolError) {

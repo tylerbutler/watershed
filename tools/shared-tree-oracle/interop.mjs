@@ -38,6 +38,7 @@ import {
   runDeterministicCases,
   runFailureCases,
   runIdentifierFields,
+  runLocalBranchScenarios,
   runSchemaCompatibility,
   runSchemaRaces,
   runSchemaReconnect,
@@ -59,6 +60,7 @@ import {
 import {
   runArrayReloadMatrix,
   runIdentifierReloadMatrix,
+  runLocalBranchReloadMatrix,
   runMapReloadMatrix,
   nativeStorageLoad,
   runReloadMatrix,
@@ -94,6 +96,27 @@ export const requiredUndoRedoSections = [
   "undoRedoConcurrent",
   "undoRedoReconnect",
   "undoRedoReloadMatrix",
+];
+export const requiredLocalBranchSections = [
+  "localBranchIsolation",
+  "localBranchConcurrent",
+  "localBranchLifetime",
+  "localBranchReconnect",
+  "localBranchReloadMatrix",
+];
+const localBranchFieldKinds = [
+  "object",
+  "map",
+  "array",
+  "same-array-move",
+  "cross-array-move",
+  "identifier",
+  "transaction",
+];
+const localBranchPairs = [
+  ["upstream", "javascript"],
+  ["upstream", "erlang"],
+  ["javascript", "erlang"],
 ];
 const requiredSchemaRaceIds = requiredSchemaRaceCells().map(({ id }) => id);
 const oracleDirectory = resolve(import.meta.dirname);
@@ -799,6 +822,12 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   const undoRedoReloadMatrix =
     await runUndoRedoReloadMatrix(config, context);
 
+  await writeStatus(runDirectory, "local-branch");
+  log("shared-tree interop: local branch service matrices");
+  const localBranch = await runLocalBranchScenarios(config, context);
+  const localBranchReloadMatrix =
+    await runLocalBranchReloadMatrix(config, context);
+
   await writeStatus(runDirectory, "reload");
   log("shared-tree interop: selected-summary reload matrix");
   const reload = await runReloadMatrix(config, context);
@@ -904,6 +933,11 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     undoRedoConcurrent: undoRedo.concurrent,
     undoRedoReconnect: undoRedo.reconnect,
     undoRedoReloadMatrix,
+    localBranchIsolation: localBranch.isolation,
+    localBranchConcurrent: localBranch.concurrent,
+    localBranchLifetime: localBranch.lifetime,
+    localBranchReconnect: localBranch.reconnect,
+    localBranchReloadMatrix,
     corpus,
     skipped: [],
     divergences: [],
@@ -3640,6 +3674,180 @@ function validateUndoRedoSections(report, evidence, expected) {
   }
 }
 
+function validateLocalBranchService(section, name) {
+  object(section, `Missing ${name}`);
+  assert.deepEqual(section.reference, reference,
+    `${name} uses another reference`);
+  assert.deepEqual(section.service, service,
+    `${name} uses another service`);
+}
+
+function validateLocalBranchEvidence(
+  row,
+  label,
+  { allowEmptyMerge = false } = {},
+) {
+  object(row.raw, `${label} lacks raw client evidence`);
+  assert(Array.isArray(row.raw.editOrder) && row.raw.editOrder.length > 0,
+    `${label} lacks edit order`);
+  for (const trace of ["sourceTrace", "targetTrace"]) {
+    assert(Array.isArray(row.raw[trace]) && row.raw[trace].length > 0,
+      `${label} lacks ${trace}`);
+  }
+  assert(Array.isArray(row.raw.allocationRanges),
+    `${label} lacks allocation ranges`);
+  assert(Array.isArray(row.raw.mergeMessages)
+    && (allowEmptyMerge || row.raw.mergeMessages.length > 0),
+  `${label} lacks exact merge messages`);
+  assert.deepEqual(row.raw.mergeMessages, row.mergeMessages,
+    `${label} merge messages changed`);
+  assert(Array.isArray(row.raw.factoryResults)
+    && row.raw.factoryResults.length > 0
+    && row.raw.factoryResults.every(({ available, outcome }) =>
+      available === true && typeof outcome === "string" && outcome.length > 0),
+  `${label} lacks factory results`);
+  assert(Array.isArray(row.raw.settlementObservations)
+    && row.raw.settlementObservations.length > 0
+    && row.raw.settlementObservations.every(({ outcome }) =>
+      ["FullyApplied", "FullyDropped", "NewContentOnly", "Pending"].includes(outcome)),
+  `${label} lacks captured settlement observations`);
+  assert(Array.isArray(row.raw.survivingRevisions)
+    && (allowEmptyMerge || row.raw.survivingRevisions.length > 0),
+  `${label} lacks surviving revisions`);
+  assert.equal(row.remoteVisibleBeforeMerge, false,
+    `${label} exposed a local fork remotely`);
+  assert.deepEqual(row.survivingRevisions, row.raw.survivingRevisions,
+    `${label} surviving revisions changed`);
+  assert.equal(row.passed, true, `${label} did not pass`);
+}
+
+export function validateLocalBranchSections(report) {
+  for (const name of requiredLocalBranchSections) {
+    validateLocalBranchService(report[name], name);
+  }
+
+  const isolation = report.localBranchIsolation;
+  assert.deepEqual(isolation.implementations.map(({ implementation }) => implementation),
+    implementations, "Local branch isolation lacks an implementation");
+  for (const row of isolation.implementations) {
+    assert.equal(row.nestedFork, true,
+      `${row.implementation} lacks nested fork evidence`);
+    assert.equal(row.parentDisposedChildLive, true,
+      `${row.implementation} lacks descendant lifetime evidence`);
+    validateLocalBranchEvidence(row, `Local branch isolation ${row.implementation}`);
+  }
+
+  const expectedConcurrent = localBranchPairs.flatMap((authors) =>
+    localBranchFieldKinds.flatMap((fieldKind) =>
+      ["branch-first", "main-first"].flatMap((order) =>
+        ["rebase", "direct-merge"].map((strategy) => ({
+          id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
+          authors,
+          fieldKind,
+          order,
+          strategy,
+        })))));
+  const concurrent = exactCells(
+    report.localBranchConcurrent.cells,
+    expectedConcurrent,
+    "Local branch concurrent results",
+  );
+  for (const row of report.localBranchConcurrent.cells) {
+    const expected = concurrent.get(row.id);
+    assert.deepEqual(row.authors, expected.authors,
+      `${row.id} authors changed`);
+    assert.equal(row.fieldKind, expected.fieldKind,
+      `${row.id} field kind changed`);
+    assert.equal(row.order, expected.order, `${row.id} edit order changed`);
+    assert.deepEqual(row.raw.editOrder,
+      row.order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
+    `${row.id} raw edit order changed`);
+    assert.equal(row.strategy, expected.strategy,
+      `${row.id} merge strategy changed`);
+    validateLocalBranchEvidence(row, row.id);
+  }
+
+  const expectedLifetime = implementations.flatMap((implementation) =>
+    ["preserved-source-repeated-merge", "branch-undo-before-merge"].map((kind) => ({
+      id: `local-branch-lifetime:${implementation}:${kind}`,
+      implementation,
+      kind,
+    })));
+  const lifetime = exactCells(
+    report.localBranchLifetime.cells,
+    expectedLifetime,
+    "Local branch lifetime results",
+  );
+  for (const row of report.localBranchLifetime.cells) {
+    const expected = lifetime.get(row.id);
+    assert.equal(row.implementation, expected.implementation,
+      `${row.id} implementation changed`);
+    assert.equal(row.kind, expected.kind, `${row.id} kind changed`);
+    assert.equal(row.sourceStatusAfterFirstMerge,
+      row.kind === "preserved-source-repeated-merge"
+        ? "BranchValid"
+        : "BranchDisposed",
+    `${row.id} has another source lifetime`);
+    assert.equal(row.repeatedMergeAuthoredCount, 0,
+      `${row.id} repeated merge authored another change`);
+    validateLocalBranchEvidence(row, row.id);
+  }
+
+  const expectedReconnect = nativeTargets.flatMap((writer) =>
+    ["pending-main-origin", "accepted-before-drop"].map((kind) => ({
+      id: `local-branch-reconnect:${writer}:${kind}`,
+      writer,
+      kind,
+    })));
+  const reconnect = exactCells(
+    report.localBranchReconnect.cells,
+    expectedReconnect,
+    "Local branch reconnect results",
+  );
+  for (const row of report.localBranchReconnect.cells) {
+    const expected = reconnect.get(row.id);
+    assert.equal(row.writer, expected.writer, `${row.id} writer changed`);
+    assert.equal(row.kind, expected.kind, `${row.id} kind changed`);
+    assert.equal(row.mergeSubmissionCount, 1,
+      `${row.id} duplicated its merge submission`);
+    validateLocalBranchEvidence(row, row.id);
+  }
+
+  const expectedReload = implementations.flatMap((writer) =>
+    ["before-merge", "after-merge"].flatMap((stage) =>
+      implementations.map((reader) => ({
+        id: `local-branch-reload:${writer}:${stage}:${reader}`,
+        writer,
+        reader,
+        stage,
+      }))));
+  const reload = exactCells(
+    report.localBranchReloadMatrix.cells,
+    expectedReload,
+    "Local branch reload results",
+  );
+  assert.equal(report.localBranchReloadMatrix.cells.length, 18,
+    "Local branch reload matrix must contain exactly 18 cells");
+  for (const row of report.localBranchReloadMatrix.cells) {
+    const expected = reload.get(row.id);
+    assert.equal(row.writer, expected.writer, `${row.id} writer changed`);
+    assert.equal(row.reader, expected.reader, `${row.id} reader changed`);
+    assert.equal(row.stage, expected.stage, `${row.id} stage changed`);
+    assert.equal(row.historicalBranches, 0,
+      `${row.id} restored a historical branch`);
+    assert.equal(row.continuation?.editApplied, true,
+      `${row.id} lacks continuation editing`);
+    assert.equal(row.continuation?.undoApplied, true,
+      `${row.id} lacks merged undo continuation`);
+    assert.equal(row.continuation?.redoApplied, true,
+      `${row.id} lacks merged redo continuation`);
+    validateLocalBranchEvidence(row, row.id, {
+      allowEmptyMerge: row.stage === "before-merge",
+    });
+  }
+  return report;
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
@@ -3697,6 +3905,7 @@ export function validateInteropReport(report, expected) {
   validateIdentifierSections(report, expected, evidence);
   validateTransactionSections(report, expected, evidence);
   validateUndoRedoSections(report, evidence, expected);
+  validateLocalBranchSections(report);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(

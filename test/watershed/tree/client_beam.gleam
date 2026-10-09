@@ -131,6 +131,14 @@ pub fn main() -> Nil {
                       })
                       let handle_store =
                         process.receive_forever(from: handle_store_ready)
+                      let branch_store_ready = process.new_subject()
+                      process.spawn_unlinked(fn() {
+                        let branch_store = process.new_subject()
+                        process.send(branch_store_ready, branch_store)
+                        branch_store_loop(branch_store, dict.new())
+                      })
+                      let branch_store =
+                        process.receive_forever(from: branch_store_ready)
                       let _ =
                         watershed.subscribe_tree_commits(tree, fn(event) {
                           observe_commit(event, handle_store)
@@ -144,6 +152,7 @@ pub fn main() -> Nil {
                         False,
                         handle_store,
                         outbound_store,
+                        branch_store,
                       )
                       watershed.close(document)
                     }
@@ -195,6 +204,7 @@ fn loop(
   active: Bool,
   handle_store: process.Subject(HandleMessage),
   outbound_store: process.Subject(OutboundMessage),
+  branch_store: process.Subject(BranchMessage),
 ) -> Nil {
   case read_line() {
     Error(_) -> Nil
@@ -213,6 +223,7 @@ fn loop(
                 active,
                 handle_store,
                 outbound_store,
+                branch_store,
               )
             write_line(output)
           })
@@ -225,6 +236,7 @@ fn loop(
             active,
             handle_store,
             outbound_store,
+            branch_store,
           )
         }
         _ -> {
@@ -239,6 +251,7 @@ fn loop(
               active,
               handle_store,
               outbound_store,
+              branch_store,
             )
           write_line(output)
           case closing {
@@ -253,6 +266,7 @@ fn loop(
                 next_active,
                 handle_store,
                 outbound_store,
+                branch_store,
               )
           }
         }
@@ -272,6 +286,7 @@ fn execute(
   active: Bool,
   handle_store: process.Subject(HandleMessage),
   outbound_store: process.Subject(OutboundMessage),
+  branch_store: process.Subject(BranchMessage),
 ) -> #(
   String,
   watershed.SharedTree,
@@ -541,13 +556,159 @@ fn execute(
           active,
           False,
         )
+        protocol.Fork(source, name) -> {
+          let outcome = {
+            use source_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              source,
+              "fork",
+            ))
+            use branch <- result.try(
+              watershed.tree_fork(source_tree)
+              |> result.map_error(fn(reason) { facade("fork", reason) }),
+            )
+            let stored =
+              process.call(branch_store, waiting: 1000, sending: fn(reply) {
+                StoreBranch(name, branch, reply)
+              })
+            use _ <- result.try(case stored {
+              True -> Ok(Nil)
+              False ->
+                Error(facade("fork", "Branch name already exists: " <> name))
+            })
+            let _ =
+              watershed.subscribe_tree_commits(branch, fn(event) {
+                observe_commit(event, handle_store)
+              })
+            Ok(
+              json.object([
+                #("name", json.string(name)),
+                #("source", json.string(source)),
+                #("status", json.string("BranchValid")),
+              ]),
+            )
+          }
+          #(outcome, tree, events, active, False)
+        }
+        protocol.BranchEditCommand(branch, edit) -> {
+          let before = outbound_snapshot(outbound_store)
+          let outcome = {
+            use branch_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              branch,
+              "branchEdit",
+            ))
+            use observation <- result.try(run_branch_edit(
+              document,
+              branch_tree,
+              edit,
+            ))
+            let after = outbound_snapshot(outbound_store)
+            Ok(
+              json.object([
+                #("branch", json.string(branch)),
+                #("authoredCount", json.int(1)),
+                #(
+                  "outboundCount",
+                  json.int(list.length(after) - list.length(before)),
+                ),
+                #("observation", observation),
+              ]),
+            )
+          }
+          #(outcome, tree, events, active, False)
+        }
+        protocol.RebaseBranch(source, target) -> {
+          let outcome = {
+            use source_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              source,
+              "rebaseBranch",
+            ))
+            use target_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              target,
+              "rebaseBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_rebase_onto(source_tree, target_tree)
+              |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
+            )
+            Ok(
+              json.object([
+                #("source", json.string(source)),
+                #("target", json.string(target)),
+              ]),
+            )
+          }
+          #(outcome, tree, events, active, False)
+        }
+        protocol.MergeBranch(target, source, dispose) -> {
+          let outcome = {
+            use target_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              target,
+              "mergeBranch",
+            ))
+            use source_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              source,
+              "mergeBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_merge(target_tree, source_tree, dispose)
+              |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
+            )
+            case dispose && source != "main" {
+              True -> process.send(branch_store, RemoveBranch(source))
+              False -> Nil
+            }
+            Ok(
+              json.object([
+                #("target", json.string(target)),
+                #("source", json.string(source)),
+                #("disposed", json.bool(dispose)),
+              ]),
+            )
+          }
+          #(outcome, tree, events, active, False)
+        }
+        protocol.DisposeBranch(name) -> {
+          let outcome = {
+            use branch <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              name,
+              "disposeBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_dispose_branch(branch)
+              |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
+            )
+            process.send(branch_store, RemoveBranch(name))
+            Ok(
+              json.object([
+                #("name", json.string(name)),
+                #("status", json.string("BranchDisposed")),
+              ]),
+            )
+          }
+          #(outcome, tree, events, active, False)
+        }
         protocol.RetainLastLocalCommit(name) -> #(
           process.call(handle_store, waiting: 1000, sending: fn(reply) {
             RetainHandle(
               name,
+              True,
               fn() {
                 watershed.tree_history_evidence(tree)
-                |> result.map(protocol.history_revisions)
+                |> result.map(protocol.history_commit_ids)
                 |> result.unwrap([])
               },
               fn() { outbound_snapshot(outbound_store) },
@@ -559,6 +720,30 @@ fn execute(
           active,
           False,
         )
+        protocol.BranchRetainLastLocalCommit(branch, name) -> {
+          let outcome = {
+            use branch_tree <- result.try(named_branch_tree(
+              tree,
+              branch_store,
+              branch,
+              "retainLastLocalCommit",
+            ))
+            process.call(handle_store, waiting: 1000, sending: fn(reply) {
+              RetainHandle(
+                name,
+                False,
+                fn() {
+                  watershed.tree_history_evidence(branch_tree)
+                  |> result.map(protocol.history_commit_ids)
+                  |> result.unwrap([])
+                },
+                fn() { outbound_snapshot(outbound_store) },
+                reply,
+              )
+            })
+          }
+          #(outcome, tree, events, active, False)
+        }
         protocol.RevertibleStatus(name) -> #(
           process.call(handle_store, waiting: 1000, sending: fn(reply) {
             HandleStatus(name, reply)
@@ -707,7 +892,108 @@ fn require_revert_evidence(
 }
 
 @target(erlang)
+fn named_branch_tree(
+  main: watershed.SharedTree,
+  branch_store: process.Subject(BranchMessage),
+  name: String,
+  operation: String,
+) -> Result(watershed.SharedTree, protocol.ProtocolError) {
+  case name {
+    "main" -> Ok(main)
+    _ ->
+      process.call(branch_store, waiting: 1000, sending: fn(reply) {
+        LookupBranch(name, reply)
+      })
+      |> result.map_error(fn(_) {
+        facade(operation, "Unknown branch: " <> name)
+      })
+  }
+}
+
+@target(erlang)
+fn run_branch_edit(
+  document: watershed.Document(a),
+  tree: watershed.SharedTree,
+  edit: protocol.BranchEdit,
+) -> Result(Json, protocol.ProtocolError) {
+  case edit {
+    protocol.BranchSet(path, value) ->
+      map_result("branchEdit", watershed.tree_set(tree, path, value), fn(_) {
+        json.null()
+      })
+    protocol.BranchClear(path) ->
+      map_result("branchEdit", watershed.tree_clear(tree, path), fn(_) {
+        json.null()
+      })
+    protocol.BranchMapSet(path, key, value) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_map_set(tree, path, key, value),
+        fn(_) { json.null() },
+      )
+    protocol.BranchMapDelete(path, key) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_map_delete(tree, path, key),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayInsert(path, index, values) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_insert(tree, path, index, values),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayRemove(path, start, end) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_remove(tree, path, start, end),
+        fn(_) { json.null() },
+      )
+    protocol.BranchArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      map_result(
+        "branchEdit",
+        watershed.tree_array_move(
+          tree,
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+        ),
+        fn(_) { json.null() },
+      )
+    protocol.BranchTransaction(scope) ->
+      run_transaction(document, tree, None, False, scope)
+  }
+}
+
+@target(erlang)
 fn await_submitted_revisions(
+  revisions: fn() -> List(#(String, String)),
+  before: List(#(String, String)),
+  retained_revision: Option(String),
+  attempts: Int,
+) -> Result(List(String), protocol.ProtocolError) {
+  case retained_revision {
+    None -> Ok([])
+    Some(_) ->
+      await_submitted_revisions_for_originator(
+        revisions,
+        before,
+        retained_revision,
+        attempts,
+      )
+  }
+}
+
+@target(erlang)
+fn await_submitted_revisions_for_originator(
   revisions: fn() -> List(#(String, String)),
   before: List(#(String, String)),
   retained_revision: Option(String),
@@ -734,7 +1020,7 @@ fn await_submitted_revisions(
       Error(facade("revert", "Revert submitted no attributable operation"))
     _, _ -> {
       process.sleep(25)
-      await_submitted_revisions(
+      await_submitted_revisions_for_originator(
         revisions,
         before,
         retained_revision,
@@ -1054,7 +1340,8 @@ type HandleMessage {
   SettleCommit(TreeCommitKind, TreeCommitOutcome, String)
   RetainHandle(
     String,
-    fn() -> List(String),
+    Bool,
+    fn() -> List(#(String, String)),
     fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
@@ -1074,6 +1361,36 @@ type HandleMessage {
 type OutboundMessage {
   RecordOutbound(Json)
   SnapshotOutbound(process.Subject(List(Json)))
+}
+
+@target(erlang)
+type BranchMessage {
+  LookupBranch(String, process.Subject(Result(watershed.SharedTree, Nil)))
+  StoreBranch(String, watershed.SharedTree, process.Subject(Bool))
+  RemoveBranch(String)
+}
+
+@target(erlang)
+fn branch_store_loop(
+  subject: process.Subject(BranchMessage),
+  branches: Dict(String, watershed.SharedTree),
+) -> Nil {
+  case process.receive_forever(from: subject) {
+    LookupBranch(name, reply) -> {
+      process.send(reply, dict.get(branches, name))
+      branch_store_loop(subject, branches)
+    }
+    StoreBranch(name, tree, reply) -> {
+      let fresh = !dict.has_key(branches, name) && name != "main"
+      process.send(reply, fresh)
+      branch_store_loop(subject, case fresh {
+        True -> dict.insert(branches, name, tree)
+        False -> branches
+      })
+    }
+    RemoveBranch(name) ->
+      branch_store_loop(subject, dict.delete(branches, name))
+  }
 }
 
 @target(erlang)
@@ -1242,7 +1559,13 @@ fn handle_store_loop(
   subject: process.Subject(HandleMessage),
   handles: Dict(
     String,
-    #(watershed.TreeRevertible, TreeCommitKind, Option(String)),
+    #(
+      watershed.TreeRevertible,
+      TreeCommitKind,
+      Option(String),
+      fn() -> List(#(String, String)),
+      Bool,
+    ),
   ),
   last_local: Option(
     #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String), String),
@@ -1287,7 +1610,7 @@ fn handle_store_loop(
         ],
         next_event_id,
       )
-    RetainHandle(name, revisions, outbound, reply) ->
+    RetainHandle(name, publishes, revisions, outbound, reply) ->
       case last_local {
         None -> {
           process.send(
@@ -1306,9 +1629,14 @@ fn handle_store_loop(
           )
         }
         Some(entry) -> {
-          let revision = case entry.3 {
-            Some(_) -> entry.3
-            None -> revisions() |> list.last |> option.from_result
+          let revision = case publishes, entry.3 {
+            False, _ -> None
+            True, Some(_) -> entry.3
+            True, None ->
+              revisions()
+              |> list.map(fn(entry) { entry.0 })
+              |> list.last
+              |> option.from_result
           }
           let outbound_records =
             outbound()
@@ -1335,7 +1663,13 @@ fn handle_store_loop(
           )
           handle_store_loop(
             subject,
-            dict.insert(handles, name, #(entry.0, entry.1, revision)),
+            dict.insert(handles, name, #(
+              entry.0,
+              entry.1,
+              revision,
+              revisions,
+              publishes,
+            )),
             None,
             commits,
             next_event_id,
@@ -1380,7 +1714,7 @@ fn handle_store_loop(
       process.send(reply, outcome)
       handle_store_loop(subject, handles, last_local, commits, next_event_id)
     }
-    RevertHandle(name, dispose, revisions, outbound, reply) ->
+    RevertHandle(name, dispose, _revisions, outbound, reply) ->
       case dict.get(handles, name) {
         Error(_) -> {
           process.send(
@@ -1396,7 +1730,7 @@ fn handle_store_loop(
           )
         }
         Ok(entry) -> {
-          let before_revisions = revisions()
+          let before_revisions = entry.3()
           let before_outbound = outbound()
           let outcome = case watershed.tree_revert(entry.0, dispose) {
             Error(reason) -> Error(facade("revert", reason))
@@ -1414,9 +1748,12 @@ fn handle_store_loop(
                 )) -> {
                   use submitted_revisions <- result.try(
                     await_submitted_revisions(
-                      revisions,
+                      entry.3,
                       before_revisions,
-                      entry.2,
+                      case entry.4 {
+                        True -> entry.2
+                        False -> None
+                      },
                       40,
                     ),
                   )
@@ -1426,7 +1763,11 @@ fn handle_store_loop(
                     "Revert authored another local commit count",
                   ))
                   use _ <- result.try(require_revert_evidence(
-                    list.length(submitted_revisions) == 1,
+                    list.length(submitted_revisions)
+                      == case entry.4 {
+                      True -> 1
+                      False -> 0
+                    },
                     "Revert submitted another operation count",
                   ))
                   let submitted_revision =

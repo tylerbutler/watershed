@@ -4936,6 +4936,262 @@ export async function runUndoRedoReloadMatrix(config, context, {
   return matrix;
 }
 
+async function runLocalBranchReloadReader(
+  config,
+  context,
+  environment,
+  writer,
+  reader,
+  stage,
+  publication,
+  publishedTree,
+  raw,
+) {
+  const fresh = await openUndoRedoReader(
+    config,
+    context,
+    environment.containers,
+    environment.documentId,
+    environment.jwt,
+    reader,
+  );
+  let failure;
+  try {
+    await fresh.adapter.awaitSynced();
+    const loaded = await fresh.adapter.checkpoint();
+    assert.deepEqual(loaded.wholeTree, publishedTree,
+      `${writer} ${stage}->${reader} loaded another branch publication`);
+    let historicalBranchError;
+    try {
+      await fresh.adapter.disposeBranch("draft");
+    } catch (error) {
+      historicalBranchError = error?.cause?.message ?? error?.message ?? String(error);
+    }
+    assert(historicalBranchError,
+      `${writer} ${stage}->${reader} restored a historical branch`);
+    const name = `local-branch-reload:${writer}:${stage}:${reader}`;
+    await fresh.adapter.set(["note"], name);
+    const retained = await fresh.adapter.retainLastLocalCommit(`${name}:edit`);
+    const undo = await fresh.adapter.revert(`${name}:edit`, true);
+    const retainedUndo = await fresh.adapter.retainLastLocalCommit(`${name}:undo`);
+    const redo = await fresh.adapter.revert(`${name}:undo`, true);
+    const retainedRedo = await fresh.adapter.retainLastLocalCommit(`${name}:redo`);
+    const cleanup = await fresh.adapter.revert(`${name}:redo`, true);
+    await fresh.adapter.awaitSynced();
+    const final = await fresh.adapter.checkpoint();
+    assert.deepEqual(final.wholeTree, publishedTree,
+      `${writer} ${stage}->${reader} continuation cleanup changed the tree`);
+    const settlements = (final.commits ?? [])
+      .filter(({ type }) => type === "settlement")
+      .map(({ outcome }) => ({ outcome }));
+    if (settlements.length === 0) settlements.push({ outcome: "Pending" });
+    return {
+      id: `local-branch-reload:${writer}:${stage}:${reader}`,
+      writer,
+      reader,
+      stage,
+      historicalBranches: 0,
+      continuation: {
+        editApplied: retained.kind === "Default",
+        undoApplied: undo.authoredKind === "Undo",
+        redoApplied: redo.authoredKind === "Redo",
+      },
+      remoteVisibleBeforeMerge: false,
+      survivingRevisions: raw.survivingRevisions,
+      mergeMessages: raw.mergeMessages,
+      passed: true,
+      raw: {
+        editOrder: ["branch", "summary", "continuation"],
+        sourceTrace: raw.sourceTrace,
+        targetTrace: final.commits ?? [],
+        allocationRanges: raw.allocationRanges,
+        mergeMessages: raw.mergeMessages,
+        factoryResults: [
+          { available: retained.factoryAvailable, outcome: retained.status },
+          { available: retainedUndo.factoryAvailable, outcome: retainedUndo.status },
+          { available: retainedRedo.factoryAvailable, outcome: retainedRedo.status },
+        ],
+        settlementObservations: settlements,
+        survivingRevisions: raw.survivingRevisions,
+        publication,
+        loaded,
+        historicalBranchError,
+        retained,
+        undo,
+        retainedUndo,
+        redo,
+        retainedRedo,
+        cleanup,
+        final,
+      },
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    try {
+      await fresh.close();
+    } catch (error) {
+      if (failure) failure.cleanupErrors = [...(failure.cleanupErrors ?? []), error];
+      else throw error;
+    }
+  }
+}
+
+async function runLocalBranchReloadWriter(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(config, containers);
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 9 ${writer} branch reload bootstrap`,
+    );
+    const upstream = upstreamAdapter(await openSession(
+      config,
+      containers,
+      documentId,
+    ));
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.viewSchema,
+      }, jwt));
+    }
+    const adapters = { upstream, javascript: natives[0], erlang: natives[1] };
+    const environment = { containers, creator, documentId, jwt };
+    await settle(adapters);
+    const baseline = await serverHistory(creator);
+    await adapters[writer].fork("main", "draft");
+    await adapters[writer].branchEdit("draft", {
+      kind: "object-set",
+      path: ["title"],
+      value: `local-branch-${writer}`,
+    });
+    await adapters[writer].retainLastLocalCommit("branch-edit", "draft");
+    const beforeCheckpoint = await adapters[writer].checkpoint();
+    const beforePublication = await publishUndoRedoSummary(
+      config,
+      containers,
+      documentId,
+      writer,
+      adapters[writer],
+      "before-merge",
+      jwt,
+    );
+    const beforeTree = (await adapters.upstream.checkpoint()).wholeTree;
+    const beforeAccepted = decodeTreeSubmissions(
+      (await serverHistory(creator)).filter(({ sequenceNumber }) =>
+        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const row = [];
+    const beforeRaw = {
+      sourceTrace: beforeCheckpoint.commits ?? [{ type: "branch", writer }],
+      allocationRanges: beforeAccepted.flatMap(({ allocations }) => allocations),
+      mergeMessages: [],
+      survivingRevisions: [],
+    };
+    for (const reader of implementations) {
+      row.push(await runLocalBranchReloadReader(
+        config,
+        context,
+        environment,
+        writer,
+        reader,
+        "before-merge",
+        beforePublication,
+        beforeTree,
+        beforeRaw,
+      ));
+    }
+    await adapters[writer].mergeBranch("main", "draft", true);
+    const merged = await settle(adapters);
+    const afterPublication = await publishUndoRedoSummary(
+      config,
+      containers,
+      documentId,
+      writer,
+      adapters[writer],
+      "after-merge",
+      jwt,
+    );
+    const afterTree = merged.observations[0].wholeTree;
+    const afterAccepted = decodeTreeSubmissions(
+      (await serverHistory(creator)).filter(({ sequenceNumber }) =>
+        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0)),
+    );
+    const mergeMessages = afterAccepted.flatMap(({ commits }) =>
+      commits.map(({ revision, originatorId, changeset }) => ({
+        revision: String(revision),
+        originatorId: String(originatorId),
+        changeset,
+      })));
+    const afterRaw = {
+      sourceTrace: merged.observations
+        .find(({ implementation }) => implementation === writer)?.commits ?? [],
+      allocationRanges: afterAccepted.flatMap(({ allocations }) => allocations),
+      mergeMessages,
+      survivingRevisions: mergeMessages.map(
+        ({ originatorId, revision }) => `${originatorId}:${revision}`,
+      ),
+    };
+    for (const reader of implementations) {
+      row.push(await runLocalBranchReloadReader(
+        config,
+        context,
+        environment,
+        writer,
+        reader,
+        "after-merge",
+        afterPublication,
+        afterTree,
+        afterRaw,
+      ));
+    }
+    return row;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        if (failure) failure.cleanupErrors = [...(failure.cleanupErrors ?? []), error];
+        else throw error;
+      }
+    }
+    for (const container of containers.toReversed()) {
+      if (!container.closed) container.dispose();
+    }
+  }
+}
+
+export async function runLocalBranchReloadMatrix(config, context, {
+  runWriter = runLocalBranchReloadWriter,
+} = {}) {
+  const cells = [];
+  for (const writer of implementations) {
+    cells.push(...await runWriter(config, context, writer));
+  }
+  return {
+    reference: identity,
+    service: {
+      implementation: "floodgate",
+      revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
+    },
+    cells,
+  };
+}
+
 export async function runIdentifierReloadMatrix(config, context, {
   runRow = runIdentifierWriterRow,
 } = {}) {

@@ -30,6 +30,7 @@ import {
   runDeterministicCases,
   runFailureCases,
   runIdentifierPairActions,
+  runLocalBranchScenarios,
   runSchemaCompatibility,
   runSchemaRaces,
   runSchemaReconnect,
@@ -1231,6 +1232,88 @@ test("array adapters use public range methods and preserve element order", async
     ["arrayInsert", ["left"], 0, [{ kind: "number", value: 1 }]],
     ["arrayRemove", ["left"], 0, 1],
     ["arrayMove", ["left"], 0, 1, ["right"], 0],
+  ]);
+  await native.close();
+});
+
+test("native adapter delegates branch lifecycle to the real client", async () => {
+  const calls = [];
+  const native = await nativeAdapter("javascript", {}, {}, "", {
+    createClient: async () => ({
+      instanceId: "native-branch",
+      gate: {
+        evidence() {
+          return {
+            connections: [],
+            inboundOccurrences: [],
+            outboundOccurrences: [],
+          };
+        },
+      },
+      async request({ command }) {
+        assert.equal(command, "subscribe");
+        return { ok: true };
+      },
+      async fork(source, name) {
+        calls.push(["fork", source, name]);
+        return { source, name, status: "BranchValid" };
+      },
+      async branchEdit(branch, edit) {
+        calls.push(["branchEdit", branch, edit]);
+        return { branch, authoredCount: 1, outboundCount: 0 };
+      },
+      async rebaseBranch(source, target) {
+        calls.push(["rebaseBranch", source, target]);
+        return { source, target };
+      },
+      async mergeBranch(target, source, dispose) {
+        calls.push(["mergeBranch", target, source, dispose]);
+        return { target, source, disposed: dispose };
+      },
+      async disposeBranch(name) {
+        calls.push(["disposeBranch", name]);
+        return { name, status: "BranchDisposed" };
+      },
+      async close() {},
+    }),
+  });
+  assert.deepEqual(await native.fork("main", "draft"), {
+    source: "main",
+    name: "draft",
+    status: "BranchValid",
+  });
+  assert.deepEqual(await native.branchEdit("draft", {
+    kind: "object-set",
+    path: ["title"],
+    value: "draft",
+  }), {
+    branch: "draft",
+    authoredCount: 1,
+    outboundCount: 0,
+  });
+  assert.deepEqual(await native.rebaseBranch("draft", "main"), {
+    source: "draft",
+    target: "main",
+  });
+  assert.deepEqual(await native.mergeBranch("main", "draft", true), {
+    target: "main",
+    source: "draft",
+    disposed: true,
+  });
+  assert.deepEqual(await native.disposeBranch("draft"), {
+    name: "draft",
+    status: "BranchDisposed",
+  });
+  assert.deepEqual(calls, [
+    ["fork", "main", "draft"],
+    ["branchEdit", "draft", {
+      kind: "object-set",
+      path: ["title"],
+      value: "draft",
+    }],
+    ["rebaseBranch", "draft", "main"],
+    ["mergeBranch", "main", "draft", true],
+    ["disposeBranch", "draft"],
   ]);
   await native.close();
 });
@@ -2649,6 +2732,73 @@ test("seed 42 covers a complete undo and redo lifecycle", () => {
     "redo-settled-0",
     "settled",
   ]);
+});
+
+test("seed 42 covers local branch lifecycle and summary actions", () => {
+  const schedules = generateSchedules({ seed: 42, iterations: 300 });
+  const actionTypes = new Set(schedules.flatMap(({ actions }) =>
+    actions.map(({ type }) => type)));
+  for (const type of [
+    "fork",
+    "branch-edit",
+    "branch-retain",
+    "branch-revert",
+    "branch-rebase",
+    "branch-merge",
+    "branch-dispose",
+    "summarize",
+  ]) {
+    assert(actionTypes.has(type), `Seed 42 lacks ${type}`);
+  }
+  const repeated = schedules.flatMap(({ actions }) => actions)
+    .find(({ type, repeated }) => type === "branch-merge" && repeated === true);
+  assert(repeated, "Seed 42 lacks a repeated preserved-source merge");
+});
+
+test("local branch scenarios cover every required service matrix cell", async () => {
+  const seen = {
+    isolation: [],
+    concurrent: [],
+    lifetime: [],
+    reconnect: [],
+  };
+  const report = await runLocalBranchScenarios({}, {}, {
+    runIsolation: async (_config, _context, implementation) => {
+      seen.isolation.push(implementation);
+      return { implementation };
+    },
+    runConcurrent: async (_config, _context, cell) => {
+      seen.concurrent.push(cell.id);
+      return cell;
+    },
+    runLifetime: async (_config, _context, implementation, kind) => {
+      seen.lifetime.push(`${implementation}:${kind}`);
+      return { implementation, kind };
+    },
+    runReconnect: async (_config, _context, writer, kind) => {
+      seen.reconnect.push(`${writer}:${kind}`);
+      return { writer, kind };
+    },
+  });
+  assert.deepEqual(seen.isolation, ["upstream", "javascript", "erlang"]);
+  assert.equal(new Set(seen.concurrent).size, 84);
+  assert.deepEqual(seen.lifetime, [
+    "upstream:preserved-source-repeated-merge",
+    "upstream:branch-undo-before-merge",
+    "javascript:preserved-source-repeated-merge",
+    "javascript:branch-undo-before-merge",
+    "erlang:preserved-source-repeated-merge",
+    "erlang:branch-undo-before-merge",
+  ]);
+  assert.deepEqual(seen.reconnect, [
+    "javascript:pending-main-origin",
+    "javascript:accepted-before-drop",
+    "erlang:pending-main-origin",
+    "erlang:accepted-before-drop",
+  ]);
+  assert.equal(report.concurrent.cells.length, 84);
+  assert.equal(report.lifetime.cells.length, 6);
+  assert.equal(report.reconnect.cells.length, 4);
 });
 
 test("seeded cross-parent array moves target an interior destination", () => {
