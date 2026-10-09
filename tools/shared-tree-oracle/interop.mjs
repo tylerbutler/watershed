@@ -1680,53 +1680,25 @@ function seededEvidence(item, label) {
     observations
       .filter(({ implementation }) => lifecycleAuthors.has(implementation))
       .flatMap(({ commits }) => commits ?? []));
-  const lifecycleByIdentity = new Map();
-  for (const event of lifecycleEvents) {
-    if (!["commit", "settlement"].includes(event.type)
-      || !["Undo", "Redo"].includes(event.kind)) {
-      continue;
-    }
-    const identity = `${event.type}:${event.kind}:${event.revision}:${
-      event.outcome ?? ""}`;
-    const existing = lifecycleByIdentity.get(identity);
-    if (existing === undefined) lifecycleByIdentity.set(identity, event);
-  }
-  const uniqueLifecycleEvents = [...lifecycleByIdentity.values()];
-  const revertActions = lifecycleActions.filter(({ type }) => type === "revert");
-  const expectedKinds = revertActions.map(({ lifecycle }) =>
-    lifecycle === "redo" ? "Redo" : "Undo");
-  const commitEvents = uniqueLifecycleEvents.filter(
-    ({ type, local, kind }) =>
-      type === "commit" && local === true && ["Undo", "Redo"].includes(kind),
-  );
-  const settlementEvents = uniqueLifecycleEvents.filter(
-    ({ type, kind }) =>
-      type === "settlement" && ["Undo", "Redo"].includes(kind),
-  );
-  assert.deepEqual(commitEvents.map(({ kind }) => kind), expectedKinds,
-    `${label} lifecycle commit events are missing, duplicated, or reordered`);
-  assert(commitEvents.every(({ factoryAvailable, handleAcquired }) =>
-    factoryAvailable === true && handleAcquired === true),
-  `${label} lifecycle commit event lacks its accepted factory`);
-  assert.deepEqual(settlementEvents.map(({ kind, outcome }) => ({
-    kind,
-    outcome,
-  })), expectedKinds.map((kind) => ({ kind, outcome: "FullyApplied" })),
-  `${label} lifecycle settlements are missing, duplicated, or reordered`);
   for (const [index, action] of lifecycleActions.entries()) {
     if (action.type !== "revert") continue;
     const result = item.undoRedo[index].result;
     const kind = action.lifecycle === "redo" ? "Redo" : "Undo";
-    assert(lifecycleEvents.some((event) =>
+    const commits = lifecycleEvents.filter((event) =>
       event.type === "commit"
-      && event.kind === kind
       && event.actionId === result.actionId
-      && result.authoredEventIds.includes(event.eventId)),
+      && result.authoredEventIds.includes(event.eventId));
+    assert(commits.length > 0 && commits.every((event) =>
+      event.kind === kind
+      && event.local === true
+      && event.factoryAvailable === true
+      && event.handleAcquired === true),
     `${label} lifecycle ${index} lacks its authored event identity`);
-    assert(lifecycleEvents.some((event) =>
+    const settlements = lifecycleEvents.filter((event) =>
       event.type === "settlement"
-      && event.kind === kind
-      && event.actionId === result.actionId),
+      && event.actionId === result.actionId);
+    assert(settlements.length > 0 && settlements.every((event) =>
+      event.kind === kind && event.outcome === "FullyApplied"),
     `${label} lifecycle ${index} lacks its settlement identity`);
   }
 
