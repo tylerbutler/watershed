@@ -4578,12 +4578,6 @@ async function runUndoRedoReloadReader(
   const handleNames = [];
   try {
     await fresh.adapter.awaitSynced();
-    const loadEvidence = fresh.loadEvidence(publication.version);
-    assert.equal(loadEvidence.loadedVersion, publication.version,
-      `${writer} ${stage}->${reader} loaded another publication version`);
-    assert.equal(loadEvidence.snapshotSequenceNumber,
-      publication.snapshotSequenceNumber,
-    `${writer} ${stage}->${reader} loaded another publication snapshot`);
     const loaded = await fresh.adapter.checkpoint();
     trace.push({ label: "loaded", observation: loaded });
     const load = fresh.loadEvidence(version);
@@ -4965,6 +4959,12 @@ async function runLocalBranchReloadReader(
   let failure;
   try {
     await fresh.adapter.awaitSynced();
+    const loadEvidence = fresh.loadEvidence(publication.version);
+    assert.equal(loadEvidence.loadedVersion, publication.version,
+      `${writer} ${stage}->${reader} loaded another publication version`);
+    assert.equal(loadEvidence.snapshotSequenceNumber,
+      publication.snapshotSequenceNumber,
+    `${writer} ${stage}->${reader} loaded another publication snapshot`);
     const loaded = await fresh.adapter.checkpoint();
     assert.deepEqual(loaded.wholeTree, publishedTree,
       `${writer} ${stage}->${reader} loaded another branch publication`);
