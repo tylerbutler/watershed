@@ -1822,7 +1822,7 @@ test("seeded map actions keep path and key separate", async () => {
   assert.equal(state.quiescent, false);
 });
 
-test("seeded held transactions reject a missing authored revision", async () => {
+test("seeded transactions defer revision binding until raw acceptance", async () => {
   const state = {
     adapters: {
       javascript: {
@@ -1843,7 +1843,7 @@ test("seeded held transactions reject a missing authored revision", async () => 
     summaries: [],
     transactions: [],
   };
-  await assert.rejects(() => executeScheduleAction(
+  await executeScheduleAction(
     {},
     {},
     { profile: "array" },
@@ -1851,7 +1851,12 @@ test("seeded held transactions reject a missing authored revision", async () => 
       type: "transaction",
       author: "javascript",
       constraints: [],
-      edits: [],
+      edits: [{
+        op: "array-insert",
+        path: ["right"],
+        index: 0,
+        values: [{ kind: "string", value: "tx-deferred" }],
+      }],
       result: "commit",
       preconditions: {
         connected: ["javascript"],
@@ -1860,7 +1865,8 @@ test("seeded held transactions reject a missing authored revision", async () => 
       },
     },
     state,
-  ), /authored revision/);
+  );
+  assert.equal(state.transactions[0].commitRevision, null);
 });
 
 test("seeded held transactions keep authored revision with coalesced transport", async () => {

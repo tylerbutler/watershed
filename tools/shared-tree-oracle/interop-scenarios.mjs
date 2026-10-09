@@ -5687,12 +5687,32 @@ export function decodedEvidence(history, adapters, authors) {
       ...(outer.batchId === undefined ? {} : { batchId: outer.batchId }),
       revision: commit.revision,
       originatorId: commit.originatorId,
+      changeset: commit.changeset,
       allocations: outer.allocations,
     }));
   });
   assert.deepEqual([...new Set(submissions.map(({ author }) => author))].sort(),
     [...authors].sort(), "Not every required author produced a tree submission");
   return { decoded, submissions };
+}
+
+function transactionMarkers(edits) {
+  const markers = [];
+  const visit = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+    } else if (value && typeof value === "object") {
+      if (value.kind === "string"
+        && typeof value.value === "string"
+        && (value.value.startsWith("tx-")
+          || value.value.startsWith("undo-transaction-"))) {
+        markers.push(value.value);
+      }
+      for (const child of Object.values(value)) visit(child);
+    }
+  };
+  visit(edits);
+  return [...new Set(markers)];
 }
 
 export async function waitForAuthorSubmission(
@@ -9960,11 +9980,6 @@ export async function executeScheduleAction(
       assert([0, 1].includes(result.outboundCount),
         "Seeded transaction reported an invalid outbound operation count");
     }
-    if (action.result === "commit") {
-      assert(typeof result.commitRevision === "string"
-        && result.commitRevision.length > 0,
-      "Seeded committed transaction lacks an authored revision");
-    }
     state.transactions.push({
       author: action.author,
       constraints: action.constraints,
@@ -10307,28 +10322,39 @@ export async function runSeededSchedule(config, context, schedule) {
       if (transaction.outcome === "aborted") {
         return { ...transaction, acceptedOperation: null };
       }
+      const markers = transactionMarkers(transaction.edits);
       const accepted = decoded.submissions.filter(({
         author,
         outerSequenceNumber,
         innerIndex,
         revision,
+        changeset,
       }) =>
         author === transaction.author
-        && (isStableId(transaction.commitRevision)
-          ? stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
-            === transaction.commitRevision
-          : String(revision) === transaction.commitRevision));
+        && (typeof transaction.commitRevision === "string"
+          ? isStableId(transaction.commitRevision)
+            ? stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
+              === transaction.commitRevision
+            : String(revision) === transaction.commitRevision
+          : markers.length > 0 && markers.every((marker) =>
+            JSON.stringify(changeset).includes(marker))));
       assert.equal(accepted.length, 1,
         "Seeded committed transaction lacks one attributable accepted operation");
+      const stableRevision =
+        stableRevisions.get(`${accepted[0].outerSequenceNumber}:${accepted[0].innerIndex}`);
+      const commitRevision = transaction.commitRevision
+        ?? stableRevision
+        ?? String(accepted[0].revision);
       return {
         ...transaction,
+        commitRevision,
         acceptedOperation: {
           outerSequenceNumber: accepted[0].outerSequenceNumber,
           innerIndex: accepted[0].innerIndex,
           revision: String(accepted[0].revision),
           originatorId: String(accepted[0].originatorId),
-          ...(isStableId(transaction.commitRevision)
-            ? { stableRevision: transaction.commitRevision }
+          ...(stableRevision === commitRevision
+            ? { stableRevision }
             : {}),
         },
       };
