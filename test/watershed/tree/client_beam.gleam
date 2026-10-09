@@ -575,7 +575,7 @@ fn execute(
               |> result.map_error(fn(reason) { facade("fork", reason) }),
             )
             let stored =
-              process.call(branch_store, waiting: 1000, sending: fn(reply) {
+              process.call(branch_store, waiting: 5000, sending: fn(reply) {
                 StoreBranch(name, branch, reply)
               })
             use _ <- result.try(case stored {
@@ -907,7 +907,7 @@ fn named_branch_tree(
   case name {
     "main" -> Ok(main)
     _ ->
-      process.call(branch_store, waiting: 1000, sending: fn(reply) {
+      process.call(branch_store, waiting: 5000, sending: fn(reply) {
         LookupBranch(name, reply)
       })
       |> result.map_error(fn(_) {

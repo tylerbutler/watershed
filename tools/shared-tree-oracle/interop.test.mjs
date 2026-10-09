@@ -288,14 +288,34 @@ function localBranchEvidence(
       },
       branchCommands: [
         { type: "fork", sourceBranch: "main", targetBranch: "draft" },
+        {
+          type: "retain",
+          branch: "draft",
+          name: "retained",
+          actionId: "branch-action",
+          eventId: 1,
+          status: "Valid",
+          factoryAvailable: true,
+        },
         { type: "merge", sourceBranch: "draft", targetBranch: "main" },
       ],
       acceptedBeforeDrop: {
         outerSequenceNumber: 1,
         clientId: "branch-client",
         revisions: [String(revision)],
-        peerDeliveredThrough: 1,
-        authorAcknowledgementHeld: true,
+        heldInbound: { heldSequenceNumbers: [1] },
+        beforeDisconnectCheckpoint: {
+          clientId: "branch-client",
+          sequenceNumber: 0,
+        },
+        peerReceiptCheckpoint: {
+          clientId: "peer-client",
+          sequenceNumber: 1,
+        },
+        afterReconnectCheckpoint: {
+          clientId: "branch-client-reconnected",
+          sequenceNumber: 1,
+        },
       },
       publication: {
         version: "summary-version",
@@ -329,6 +349,112 @@ function localBranchEvidence(
   return evidence;
 }
 
+function localBranchResultChecks(row) {
+  const branch = `${row.id}:branch`;
+  const main = `${row.id}:main`;
+  const value = (label) => ({ kind: "string", value: label });
+  if (row.fieldKind === "object") {
+    return [
+      { name: "title", actual: value(branch), expected: value(branch) },
+      ...(row.conflictClass === "unrelated"
+        ? [{
+            name: "rating",
+            actual: { kind: "number", value: main.length },
+            expected: { kind: "number", value: main.length },
+          }]
+        : []),
+    ];
+  }
+  if (row.fieldKind === "map") {
+    return [{
+      name: "map entries",
+      actual: row.conflictClass === "unrelated"
+        ? [["branch", value(branch)], ["main", value(main)]]
+        : [["branch", value(branch)]],
+      expected: row.conflictClass === "unrelated"
+        ? [["branch", value(branch)], ["main", value(main)]]
+        : [["branch", value(branch)]],
+    }];
+  }
+  if (["array", "transaction"].includes(row.fieldKind)) {
+    const left = row.conflictClass === "unrelated"
+      ? [value(branch)]
+      : [value(branch), value(main)];
+    const right = row.conflictClass === "unrelated" ? [value(main)] : [];
+    return [
+      { name: `${row.fieldKind} left`, actual: left, expected: left },
+      { name: `${row.fieldKind} right`, actual: right, expected: right },
+    ];
+  }
+  if (row.fieldKind === "same-array-move") {
+    const left = [
+      value(`${row.id}:left-1`),
+      value(`${row.id}:left-0`),
+      value(`${row.id}:left-2`),
+    ].map(JSON.stringify);
+    const right = row.conflictClass === "unrelated"
+      ? [value(main)].map(JSON.stringify)
+      : [];
+    return [
+      { name: "same-array move order", actual: left, expected: left },
+      {
+        name: "same-array unrelated insertion",
+        actual: right,
+        expected: right,
+      },
+    ];
+  }
+  if (row.fieldKind === "cross-array-move") {
+    const destination = (row.conflictClass === "unrelated"
+      ? [value(`${row.id}:left-0`), value(main)]
+      : [value(`${row.id}:left-0`)]).map(JSON.stringify);
+    return [
+      { name: "cross-array source", actual: [], expected: [] },
+      {
+        name: "cross-array destination",
+        actual: destination,
+        expected: destination,
+      },
+    ];
+  }
+  const leftLabels = row.conflictClass === "unrelated"
+    ? [branch]
+    : [branch, main];
+  const rightLabels = row.conflictClass === "unrelated" ? [main] : [];
+  const ids = [`${row.id}:id-1`, `${row.id}:id-2`];
+  const points = {
+    left: leftLabels.map((label, index) => ({ label, id: ids[index] })),
+    right: rightLabels.map((label, index) => ({
+      label,
+      id: ids[leftLabels.length + index],
+    })),
+  };
+  return [
+    {
+      name: "identifier left labels",
+      actual: leftLabels,
+      expected: leftLabels,
+    },
+    {
+      name: "identifier right labels",
+      actual: rightLabels,
+      expected: rightLabels,
+    },
+    { name: "identifier ids", actual: ids, expected: ids },
+    {
+      name: "identifier peer arrays",
+      actual: {
+        [row.authors[0]]: points,
+        [row.authors[1]]: structuredClone(points),
+      },
+      expected: {
+        [row.authors[0]]: structuredClone(points),
+        [row.authors[1]]: structuredClone(points),
+      },
+    },
+  ];
+}
+
 function localBranchReport() {
   const section = () => ({
     reference: { ...reference },
@@ -350,18 +476,22 @@ function localBranchReport() {
         localBranchFieldKinds.flatMap((fieldKind) =>
           ["unrelated", "overlapping"].flatMap((conflictClass) =>
             ["branch-first", "main-first"].flatMap((order) =>
-              ["rebase", "direct-merge"].map((strategy) => ({
-                id: `local-branch:${authors.join("<->")}:${fieldKind}:${conflictClass}:${order}:${strategy}`,
-                authors,
-                fieldKind,
-                conflictClass,
-                order,
-                strategy,
-                ...localBranchEvidence(
-                  {},
-                  order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
-                ),
-              })))))),
+              ["rebase", "direct-merge"].map((strategy) => {
+                const row = {
+                  id: `local-branch:${authors.join("<->")}:${fieldKind}:${conflictClass}:${order}:${strategy}`,
+                  authors,
+                  fieldKind,
+                  conflictClass,
+                  order,
+                  strategy,
+                  ...localBranchEvidence(
+                    {},
+                    order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
+                  ),
+                };
+                row.raw.resultChecks = localBranchResultChecks(row);
+                return row;
+              }))))),
     },
     localBranchLifetime: {
       ...section(),
@@ -429,6 +559,51 @@ test("local branch validation rejects fabricated traces", () => {
   );
 });
 
+test("local branch validation rejects missing fork lifecycle evidence", () => {
+  const report = localBranchReport();
+  for (const section of [
+    report.localBranchIsolation.implementations,
+    report.localBranchConcurrent.cells,
+    report.localBranchLifetime.cells,
+    report.localBranchReconnect.cells,
+  ]) {
+    for (const row of section) {
+      row.raw.branchCommands = row.raw.branchCommands.filter(
+        ({ type }) => type !== "fork",
+      );
+    }
+  }
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /fork command|another checkout/,
+  );
+});
+
+test("local branch validation rejects a retained factory from another branch", () => {
+  const report = localBranchReport();
+  const row = report.localBranchConcurrent.cells[0];
+  const retain = row.raw.branchCommands.find(({ type }) => type === "retain");
+  retain.branch = "main";
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /retained factory.*checkout/,
+  );
+});
+
+test("local branch validation rejects disposal before merge", () => {
+  const report = localBranchReport();
+  const row = report.localBranchLifetime.cells[0];
+  row.raw.branchCommands.splice(2, 0, {
+    type: "dispose",
+    branch: "draft",
+    status: "BranchDisposed",
+  });
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /disposed source branch/,
+  );
+});
+
 test("local branch validation rejects fabricated Pending settlements", () => {
   const report = localBranchReport();
   report.localBranchConcurrent.cells[0].raw.settlementObservations =
@@ -466,7 +641,17 @@ test("local branch validation accepts the recorded nested merge source", () => {
   row.raw.mergeAttribution.sourceBranch = "nested";
   row.raw.mergeAttribution.sourceCommitIds = ["nested:1"];
   row.raw.branchCommands = [
+    { type: "fork", sourceBranch: "main", targetBranch: "parent" },
     { type: "fork", sourceBranch: "parent", targetBranch: "nested" },
+    {
+      type: "retain",
+      branch: "nested",
+      name: "retained",
+      actionId: "branch-action",
+      eventId: 1,
+      status: "Valid",
+      factoryAvailable: true,
+    },
     { type: "merge", sourceBranch: "nested", targetBranch: "main" },
   ];
   assert.equal(validateLocalBranchSections(report), report);
@@ -477,7 +662,17 @@ test("local branch validation rejects a source event from another checkout", () 
   const row = report.localBranchIsolation.implementations[0];
   row.raw.mergeAttribution.sourceBranch = "nested";
   row.raw.branchCommands = [
+    { type: "fork", sourceBranch: "main", targetBranch: "parent" },
     { type: "fork", sourceBranch: "parent", targetBranch: "nested" },
+    {
+      type: "retain",
+      branch: "draft",
+      name: "retained",
+      actionId: "branch-action",
+      eventId: 1,
+      status: "Valid",
+      factoryAvailable: true,
+    },
     { type: "merge", sourceBranch: "nested", targetBranch: "main" },
   ];
   assert.throws(
@@ -526,6 +721,47 @@ test("local branch transaction result checks accept canonical values in both arr
   ]);
 });
 
+test("local branch validation rejects wrong overlapping array order", () => {
+  const report = localBranchReport();
+  const row = report.localBranchConcurrent.cells.find(({ fieldKind, conflictClass }) =>
+    fieldKind === "array" && conflictClass === "overlapping");
+  const left = row.raw.resultChecks.find(({ name }) => name === "array left");
+  left.actual = left.actual.toReversed();
+  left.expected = structuredClone(left.actual);
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /array left/,
+  );
+});
+
+test("local branch validation rejects a missing overlapping array result", () => {
+  const report = localBranchReport();
+  const row = report.localBranchConcurrent.cells.find(({ fieldKind, conflictClass }) =>
+    fieldKind === "array" && conflictClass === "overlapping");
+  row.raw.resultChecks = row.raw.resultChecks.filter(
+    ({ name }) => name !== "array right",
+  );
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /array right/,
+  );
+});
+
+test("local branch validation rejects unstable identifier identity on a peer", () => {
+  const report = localBranchReport();
+  const row = report.localBranchConcurrent.cells.find(({ fieldKind }) =>
+    fieldKind === "identifier");
+  const peers = row.raw.resultChecks.find(
+    ({ name }) => name === "identifier peer arrays",
+  );
+  peers.actual[row.authors[1]].left[0].id = "different-id";
+  peers.expected = structuredClone(peers.actual);
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /stable across peers/,
+  );
+});
+
 test("local branch validation rejects missing raw accepted operations", () => {
   const report = localBranchReport();
   delete report.localBranchConcurrent.cells[0].raw.acceptedOperations;
@@ -544,6 +780,19 @@ test("accepted-before-drop rejects a missing acceptance watermark", () => {
   assert.throws(
     () => validateLocalBranchSections(report),
     /acceptance watermark/,
+  );
+});
+
+test("accepted-before-drop rejects a missing pre-disconnect identity transition", () => {
+  const report = localBranchReport();
+  const row = report.localBranchReconnect.cells.find(
+    ({ kind }) => kind === "accepted-before-drop",
+  );
+  row.raw.acceptedBeforeDrop.afterReconnectCheckpoint.clientId =
+    row.raw.acceptedBeforeDrop.beforeDisconnectCheckpoint.clientId;
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /client identity did not change/,
   );
 });
 
@@ -585,7 +834,7 @@ test("local branch validation rejects incomplete service evidence", () => {
       report.localBranchConcurrent.cells[0].raw.sourceTrace = [];
     }],
     ["missing target trace", (report) => {
-      report.localBranchConcurrent.cells[0].raw.targetTrace = [];
+      delete report.localBranchConcurrent.cells[0].raw.targetTrace;
     }],
     ["missing allocation", (report) => {
       delete report.localBranchConcurrent.cells[0].raw.allocationRanges;
@@ -597,7 +846,7 @@ test("local branch validation rejects incomplete service evidence", () => {
       report.localBranchConcurrent.cells[0].raw.factoryResults = [];
     }],
     ["missing settlement", (report) => {
-      report.localBranchConcurrent.cells[0].raw.settlementObservations = [];
+      delete report.localBranchConcurrent.cells[0].raw.settlementObservations;
     }],
     ["wrong service identity", (report) => {
       report.localBranchLifetime.service.revision = "other";

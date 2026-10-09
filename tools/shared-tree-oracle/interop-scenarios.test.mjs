@@ -87,13 +87,16 @@ test("exact branch evidence records the actual merge source and target", () => {
       actionId: "action-1",
     },
     merge: { source: "nested", target: "main" },
+    branchCommands: [
+      { type: "fork", sourceBranch: "main", targetBranch: "nested" },
+      { type: "merge", sourceBranch: "nested", targetBranch: "main" },
+    ],
   });
 
-  assert.deepEqual(evidence.raw.branchCommands, [{
-    type: "merge",
-    sourceBranch: "nested",
-    targetBranch: "main",
-  }]);
+  assert.deepEqual(evidence.raw.branchCommands, [
+    { type: "fork", sourceBranch: "main", targetBranch: "nested" },
+    { type: "merge", sourceBranch: "nested", targetBranch: "main" },
+  ]);
 });
 
 test("exact branch evidence retains native commit events without revisions", () => {
@@ -118,6 +121,10 @@ test("exact branch evidence retains native commit events without revisions", () 
       actionId: "native-action",
     },
     merge: { source: "nested", target: "main" },
+    branchCommands: [
+      { type: "fork", sourceBranch: "main", targetBranch: "nested" },
+      { type: "merge", sourceBranch: "nested", targetBranch: "main" },
+    ],
   });
 
   assert.equal(evidence.raw.sourceTrace.length, 1);

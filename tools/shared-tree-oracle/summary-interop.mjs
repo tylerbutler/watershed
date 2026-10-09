@@ -5093,7 +5093,7 @@ async function runLocalBranchReloadWriter(config, context, writer) {
     const environment = { containers, creator, documentId, jwt };
     await settle(adapters);
     const baseline = await serverHistory(creator);
-    await adapters[writer].fork("main", "draft");
+    const branchFork = await adapters[writer].fork("main", "draft");
     const branchEdit = await adapters[writer].branchEdit("draft", {
       kind: "object-set",
       path: ["title"],
@@ -5121,6 +5121,23 @@ async function runLocalBranchReloadWriter(config, context, writer) {
       targetTrace: [],
       acceptedOperations: [],
       retained: branchRetained,
+      branchCommands: [
+        {
+          type: "fork",
+          sourceBranch: branchFork.source,
+          targetBranch: branchFork.name,
+          status: branchFork.status,
+        },
+        {
+          type: "retain",
+          branch: "draft",
+          name: branchRetained.name,
+          actionId: branchRetained.actionId,
+          eventId: branchRetained.eventId,
+          status: branchRetained.status,
+          factoryAvailable: branchRetained.factoryAvailable,
+        },
+      ],
     }).raw;
     for (const reader of implementations) {
       row.push(await runLocalBranchReloadReader(
@@ -5135,7 +5152,8 @@ async function runLocalBranchReloadWriter(config, context, writer) {
         beforeRaw,
       ));
     }
-    await adapters[writer].mergeBranch("main", "draft", true);
+    const branchMerge =
+      await adapters[writer].mergeBranch("main", "draft", true);
     const merged = await settle(adapters);
     const afterPublication = await publishUndoRedoSummary(
       config,
@@ -5159,7 +5177,33 @@ async function runLocalBranchReloadWriter(config, context, writer) {
         afterHistory,
         { includeAllocations: true },
       ),
+      acceptedOperationPayloads: afterHistory,
       retained: branchRetained,
+      merge: branchMerge,
+      branchCommands: [
+        {
+          type: "fork",
+          sourceBranch: branchFork.source,
+          targetBranch: branchFork.name,
+          status: branchFork.status,
+        },
+        {
+          type: "retain",
+          branch: "draft",
+          name: branchRetained.name,
+          actionId: branchRetained.actionId,
+          eventId: branchRetained.eventId,
+          status: branchRetained.status,
+          factoryAvailable: branchRetained.factoryAvailable,
+        },
+        {
+          type: "merge",
+          sourceBranch: branchMerge.source,
+          targetBranch: branchMerge.target,
+          disposed: branchMerge.disposed,
+          sourceStatus: branchMerge.sourceStatus,
+        },
+      ],
     }).raw;
     for (const reader of implementations) {
       row.push(await runLocalBranchReloadReader(

@@ -3726,6 +3726,96 @@ function validateLocalBranchService(section, name) {
     `${name} uses another service`);
 }
 
+function validateLocalBranchResultChecks(row) {
+  const checks = new Map(row.raw.resultChecks.map((check) =>
+    [check.name, check]));
+  assert.equal(checks.size, row.raw.resultChecks.length,
+    `${row.id} has duplicate result checks`);
+  const exact = (name, expected) => {
+    const check = checks.get(name);
+    object(check, `${row.id} lacks ${name}`);
+    assert.deepEqual(check.expected, expected,
+      `${row.id} ${name} expected value changed`);
+    assert.deepEqual(check.actual, expected,
+      `${row.id} ${name} differs from the semantic contract`);
+  };
+  const branch = `${row.id}:branch`;
+  const main = `${row.id}:main`;
+  const value = (label) => ({ kind: "string", value: label });
+  if (row.fieldKind === "object") {
+    exact("title", value(branch));
+    if (row.conflictClass === "unrelated") {
+      exact("rating", { kind: "number", value: main.length });
+    }
+  } else if (row.fieldKind === "map") {
+    exact("map entries", row.conflictClass === "unrelated"
+      ? [["branch", value(branch)], ["main", value(main)]]
+      : [["branch", value(branch)]]);
+  } else if (["array", "transaction"].includes(row.fieldKind)) {
+    exact(`${row.fieldKind} left`, row.conflictClass === "unrelated"
+      ? [value(branch)]
+      : [value(branch), value(main)]);
+    exact(`${row.fieldKind} right`, row.conflictClass === "unrelated"
+      ? [value(main)]
+      : []);
+  } else if (row.fieldKind === "same-array-move") {
+    exact("same-array move order", [
+      value(`${row.id}:left-1`),
+      value(`${row.id}:left-0`),
+      value(`${row.id}:left-2`),
+    ].map(JSON.stringify));
+    exact("same-array unrelated insertion",
+      row.conflictClass === "unrelated"
+        ? [value(main)].map(JSON.stringify)
+        : []);
+  } else if (row.fieldKind === "cross-array-move") {
+    exact("cross-array source", []);
+    exact("cross-array destination",
+      (row.conflictClass === "unrelated"
+        ? [value(`${row.id}:left-0`), value(main)]
+        : [value(`${row.id}:left-0`)]).map(JSON.stringify));
+  } else {
+    exact("identifier left labels", row.conflictClass === "unrelated"
+      ? [branch]
+      : [branch, main]);
+    exact("identifier right labels", row.conflictClass === "unrelated"
+      ? [main]
+      : []);
+    const ids = checks.get("identifier ids");
+    object(ids, `${row.id} lacks identifier ids`);
+    assert.deepEqual(ids.actual, ids.expected,
+      `${row.id} identifier identities changed`);
+    assert.equal(ids.actual.length, 2,
+      `${row.id} has another identifier cardinality`);
+    assert(ids.actual.every((id) =>
+      typeof id === "string" && id.length > 0),
+    `${row.id} has a missing identifier`);
+    assert.equal(new Set(ids.actual).size, ids.actual.length,
+      `${row.id} reused an identifier`);
+    const peers = checks.get("identifier peer arrays");
+    object(peers, `${row.id} lacks identifier peer arrays`);
+    assert.deepEqual(peers.actual, peers.expected,
+      `${row.id} peer identifier evidence changed`);
+    assert.deepEqual(Object.keys(peers.actual).sort(), [...row.authors].sort(),
+      `${row.id} lacks an author identifier result`);
+    const peerValues = Object.values(peers.actual);
+    assert(peerValues.length > 0 && peerValues.every((value) =>
+      isDeepStrictEqual(value, peerValues[0])),
+    `${row.id} identifier identities are not stable across peers`);
+    assert.deepEqual(
+      [...peerValues[0].left, ...peerValues[0].right].map(({ id }) => id),
+      ids.actual,
+      `${row.id} peer identifiers differ from the exact identities`,
+    );
+  }
+  assert.equal(checks.size, row.fieldKind === "object"
+    ? row.conflictClass === "unrelated" ? 2 : 1
+    : row.fieldKind === "map" ? 1
+      : row.fieldKind === "identifier" ? 4
+        : 2,
+  `${row.id} has unrelated result checks`);
+}
+
 function validateLocalBranchEvidence(
   row,
   label,
@@ -3830,13 +3920,75 @@ function validateLocalBranchEvidence(
   assert(Array.isArray(row.raw.branchCommands)
     && row.raw.branchCommands.length > 0,
   `${label} lacks branch command evidence`);
+  const checkouts = new Map([["main", "valid"]]);
+  for (const command of row.raw.branchCommands) {
+    if (command.type === "fork") {
+      assert.equal(checkouts.get(command.sourceBranch), "valid",
+        `${label} fork command names an invalid source checkout`);
+      assert(!checkouts.has(command.targetBranch),
+        `${label} fork command reuses a checkout`);
+      checkouts.set(command.targetBranch, "valid");
+      continue;
+    }
+    if (command.type === "retain") {
+      assert.equal(checkouts.get(command.branch), "valid",
+        `${label} retained factory belongs to another checkout`);
+      const commit = sourceByAction.get(command.actionId);
+      assert(commit
+        && commit.branch === command.branch
+        && commit.eventId === command.eventId
+        && command.factoryAvailable === true
+        && command.status === "Valid",
+      `${label} retained factory differs from its source checkout event`);
+      continue;
+    }
+    if (command.type === "revert") {
+      assert.equal(checkouts.get(command.branch), "valid",
+        `${label} revert belongs to another checkout`);
+      assert(sourceByAction.has(command.actionId),
+        `${label} revert names another source action`);
+      continue;
+    }
+    if (command.type === "rebase") {
+      assert.equal(checkouts.get(command.sourceBranch), "valid",
+        `${label} rebase names an invalid source checkout`);
+      assert.equal(checkouts.get(command.targetBranch), "valid",
+        `${label} rebase names an invalid target checkout`);
+      continue;
+    }
+    if (command.type === "merge") {
+      assert.equal(checkouts.get(command.sourceBranch), "valid",
+        `${label} merge used a disposed source branch`);
+      assert.equal(checkouts.get(command.targetBranch), "valid",
+        `${label} merge names an invalid target checkout`);
+      if (command.disposed === true) {
+        checkouts.set(command.sourceBranch, "disposed");
+      }
+      continue;
+    }
+    if (command.type === "dispose") {
+      assert.equal(checkouts.get(command.branch), "valid",
+        `${label} disposed an invalid checkout`);
+      checkouts.set(command.branch, "disposed");
+      continue;
+    }
+    assert.fail(`${label} has an unknown branch command`);
+  }
   const mergeCommand = row.raw.branchCommands.findLast(
     ({ type }) => type === "merge",
   );
-  object(mergeCommand, `${label} lacks a recorded merge command`);
-  assert.equal(attribution.sourceBranch, mergeCommand.sourceBranch,
+  if (!allowEmptyMerge) {
+    object(mergeCommand, `${label} lacks a recorded merge command`);
+  }
+  const sourceBranch = mergeCommand?.sourceBranch
+    ?? row.raw.branchCommands.findLast(({ type }) => type === "fork")?.targetBranch;
+  assert(typeof sourceBranch === "string"
+    && row.raw.branchCommands.some(({ type, targetBranch }) =>
+      type === "fork" && targetBranch === sourceBranch),
+  `${label} lacks the source fork command`);
+  assert.equal(attribution.sourceBranch, sourceBranch,
     `${label} merge names another source branch`);
-  assert.equal(attribution.targetBranch, mergeCommand.targetBranch,
+  assert.equal(attribution.targetBranch, mergeCommand?.targetBranch ?? "main",
     `${label} merge names another target branch`);
   assert(sourceCommits.every(({ branch }) =>
     branch === attribution.sourceBranch),
@@ -3920,15 +4072,9 @@ export function validateLocalBranchSections(report) {
     assert.equal(row.strategy, expected.strategy,
       `${row.id} merge strategy changed`);
     assert(Array.isArray(row.raw.resultChecks)
-      && row.raw.resultChecks.length > 0
-      && row.raw.resultChecks.every((check) =>
-        typeof check.name === "string"
-        && (Object.hasOwn(check, "expected")
-          ? isDeepStrictEqual(check.actual, check.expected)
-          : Array.isArray(check.expectedFragments)
-            && check.expectedFragments.every((value) =>
-              check.actual.some((actual) => actual.includes(value))))),
+      && row.raw.resultChecks.length > 0,
     `${row.id} lacks independently checked results`);
+    validateLocalBranchResultChecks(row);
     validateLocalBranchEvidence(row, row.id, { allowEmptySettlement: true });
   }
 
@@ -3982,10 +4128,33 @@ export function validateLocalBranchSections(report) {
       const proof = object(row.raw.acceptedBeforeDrop,
         `${row.id} lacks an acceptance watermark`);
       assert(Number.isInteger(proof.outerSequenceNumber)
-        && proof.outerSequenceNumber > 0
-        && proof.peerDeliveredThrough >= proof.outerSequenceNumber
-        && proof.authorAcknowledgementHeld === true,
+        && proof.outerSequenceNumber > 0,
       `${row.id} lacks an acceptance watermark`);
+      assert(Array.isArray(proof.heldInbound?.heldSequenceNumbers)
+        && proof.heldInbound.heldSequenceNumbers.includes(
+          proof.outerSequenceNumber,
+        ),
+      `${row.id} did not hold the specific author acknowledgement`);
+      const beforeDisconnect = object(proof.beforeDisconnectCheckpoint,
+        `${row.id} lacks the pre-disconnect author identity`);
+      const peerReceipt = object(proof.peerReceiptCheckpoint,
+        `${row.id} lacks the peer receipt checkpoint`);
+      const afterReconnect = object(proof.afterReconnectCheckpoint,
+        `${row.id} lacks the post-reconnect author identity`);
+      assert(typeof beforeDisconnect.clientId === "string"
+        && beforeDisconnect.clientId.length > 0
+        && beforeDisconnect.sequenceNumber < proof.outerSequenceNumber,
+      `${row.id} did not capture the held author before disconnect`);
+      assert(typeof peerReceipt.clientId === "string"
+        && peerReceipt.clientId.length > 0
+        && peerReceipt.sequenceNumber >= proof.outerSequenceNumber,
+      `${row.id} peer did not receive the accepted operation`);
+      assert(typeof afterReconnect.clientId === "string"
+        && afterReconnect.clientId.length > 0
+        && afterReconnect.sequenceNumber >= proof.outerSequenceNumber,
+      `${row.id} did not reconnect through the accepted operation`);
+      assert.notEqual(afterReconnect.clientId, beforeDisconnect.clientId,
+        `${row.id} client identity did not change after disconnect`);
       const accepted = row.raw.acceptedOperations.find(
         ({ clientId, outerSequenceNumber }) =>
           clientId === proof.clientId

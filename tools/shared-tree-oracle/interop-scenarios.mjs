@@ -7885,7 +7885,7 @@ async function localBranchMainEdit(adapter, fieldKind, conflictClass, label) {
   }
 }
 
-export async function assertLocalBranchResult(adapter, cell) {
+export async function assertLocalBranchResult(adapter, cell, adapters = {}) {
   const branchLabel = `${cell.id}:branch`;
   const mainLabel = `${cell.id}:main`;
   const checks = [];
@@ -7905,13 +7905,11 @@ export async function assertLocalBranchResult(adapter, cell) {
       });
     }
   } else if (cell.fieldKind === "map") {
-    const entries = await adapter.mapEntries(["items"]);
-    const branch = entries.find(([key]) => key === "branch");
-    check("branch map value", branch?.[1], treeValue(branchLabel));
-    if (cell.conflictClass === "unrelated") {
-      const main = entries.find(([key]) => key === "main");
-      check("main map value", main?.[1], treeValue(mainLabel));
-    }
+    const entries = (await adapter.mapEntries(["items"]))
+      .toSorted(([left], [right]) => left.localeCompare(right));
+    check("map entries", entries, cell.conflictClass === "unrelated"
+      ? [["branch", treeValue(branchLabel)], ["main", treeValue(mainLabel)]]
+      : [["branch", treeValue(branchLabel)]]);
   } else {
     const left = await adapter.arrayValues(["left"]);
     const right = await adapter.arrayValues(["right"]);
@@ -7924,6 +7922,8 @@ export async function assertLocalBranchResult(adapter, cell) {
       if (cell.conflictClass === "unrelated") {
         check("same-array unrelated insertion", right.map(JSON.stringify),
           [treeValue(mainLabel)].map(JSON.stringify));
+      } else {
+        check("same-array unrelated insertion", right, []);
       }
     } else if (cell.fieldKind === "cross-array-move") {
       check("cross-array source", left, []);
@@ -7938,33 +7938,47 @@ export async function assertLocalBranchResult(adapter, cell) {
         check(`${cell.fieldKind} right`, right, [treeValue(mainLabel)]);
         return checks;
       }
-      const values = left.map(JSON.stringify);
-      const branchValue = cell.fieldKind === "identifier"
-        ? `"${branchLabel}"`
-        : JSON.stringify(treeValue(branchLabel));
-      const mainValue = cell.fieldKind === "identifier"
-        ? `"${mainLabel}"`
-        : JSON.stringify(treeValue(mainLabel));
-      assert(values.some((value) => value.includes(branchValue)),
-        `${cell.id} lost the branch insertion`);
-      if (cell.conflictClass === "overlapping") {
-        assert(values.some((value) => value.includes(mainValue)),
-          `${cell.id} lost the overlapping main insertion`);
+      if (["array", "transaction"].includes(cell.fieldKind)) {
+        check(`${cell.fieldKind} left`, left,
+          [treeValue(branchLabel), treeValue(mainLabel)]);
+        check(`${cell.fieldKind} right`, right, []);
+      } else {
+        const point = (value) => Object.fromEntries(
+          value.fields.map(([name, field]) => [name, field.value]),
+        );
+        const leftPoints = left.map(point);
+        const rightPoints = right.map(point);
+        check("identifier left labels", leftPoints.map(({ label }) => label),
+          cell.conflictClass === "unrelated"
+            ? [branchLabel]
+            : [branchLabel, mainLabel]);
+        check("identifier right labels", rightPoints.map(({ label }) => label),
+          cell.conflictClass === "unrelated" ? [mainLabel] : []);
+        const ids = [...leftPoints, ...rightPoints].map(({ id }) => id);
+        assert(ids.every((id) => typeof id === "string" && id.length > 0),
+          `${cell.id} has a missing identifier`);
+        assert.equal(new Set(ids).size, ids.length,
+          `${cell.id} reused an identifier`);
+        checks.push({
+          name: "identifier ids",
+          actual: ids,
+          expected: ids,
+        });
+        const peerArrays = Object.fromEntries(await Promise.all(
+          Object.entries(adapters).map(async ([implementation, peer]) => [
+            implementation,
+            {
+              left: (await peer.arrayValues(["left"])).map(point),
+              right: (await peer.arrayValues(["right"])).map(point),
+            },
+          ]),
+        ));
+        checks.push({
+          name: "identifier peer arrays",
+          actual: peerArrays,
+          expected: structuredClone(peerArrays),
+        });
       }
-      checks.push({
-        name: "array identities",
-        actual: values,
-        expectedFragments: [
-          cell.fieldKind === "identifier"
-            ? branchValue
-            : branchValue,
-          ...(cell.conflictClass === "overlapping"
-            ? [cell.fieldKind === "identifier"
-                ? mainValue
-                : mainValue]
-            : []),
-        ],
-      });
     }
   }
   return checks;
@@ -8690,6 +8704,7 @@ export function exactLocalBranchEvidence({
   acceptedOperationPayloads = [],
   retained,
   merge = null,
+  branchCommands,
 }) {
   const sourceCommits = sourceTrace
     .filter(({ type, local, eventId, actionId }) =>
@@ -8748,11 +8763,7 @@ export function exactLocalBranchEvidence({
       ),
       acceptedOperations: exactOperations,
       acceptedOperationPayloads: structuredClone(acceptedOperationPayloads),
-      branchCommands: [{
-        type: "merge",
-        sourceBranch: merge?.source ?? "draft",
-        targetBranch: merge?.target ?? "main",
-      }],
+      branchCommands: structuredClone(branchCommands),
       mergeAttribution: {
         sourceBranch: merge?.source ?? "draft",
         targetBranch: merge?.target ?? "main",
@@ -8791,7 +8802,7 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
       assert.equal((await branch.arrayValues(["left"])).length, 3,
         `${cell.id} did not receive the seeded move source`);
     }
-    await branch.fork("main", "draft");
+    const fork = await branch.fork("main", "draft");
     let branchResult;
     let branchWireDelta = 0;
     const editBranch = async () => {
@@ -8827,12 +8838,16 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
       || branchWireDelta !== 0;
     const beforeMerge = await settle(activeAdapters);
     const mergeBaseline = await serverHistory(environment.creator);
-    if (cell.strategy === "rebase") {
-      await branch.rebaseBranch("draft", "main");
-    }
+    const rebase = cell.strategy === "rebase"
+      ? await branch.rebaseBranch("draft", "main")
+      : null;
     const merge = await branch.mergeBranch("main", "draft", true);
     const settled = await settle(activeAdapters);
-    const resultChecks = await assertLocalBranchResult(branch, cell);
+    const resultChecks = await assertLocalBranchResult(
+      branch,
+      cell,
+      activeAdapters,
+    );
     const history = await serverHistory(environment.creator);
     const acceptedHistory = history.filter(({ sequenceNumber }) =>
       sequenceNumber > (mergeBaseline.at(-1)?.sequenceNumber ?? 0));
@@ -8853,6 +8868,35 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
       acceptedOperationPayloads: acceptedHistory,
       retained,
       merge,
+      branchCommands: [
+        {
+          type: "fork",
+          sourceBranch: fork.source,
+          targetBranch: fork.name,
+          status: fork.status,
+        },
+        {
+          type: "retain",
+          branch: "draft",
+          name: retained.name,
+          actionId: retained.actionId,
+          eventId: retained.eventId,
+          status: retained.status,
+          factoryAvailable: retained.factoryAvailable,
+        },
+        ...(rebase === null ? [] : [{
+          type: "rebase",
+          sourceBranch: rebase.source,
+          targetBranch: rebase.target,
+        }]),
+        {
+          type: "merge",
+          sourceBranch: merge.source,
+          targetBranch: merge.target,
+          disposed: merge.disposed,
+          sourceStatus: merge.sourceStatus,
+        },
+      ],
     });
     const accepted = decodeTreeSubmissions(
       acceptedHistory,
@@ -8909,16 +8953,16 @@ async function runLocalBranchIsolationImplementation(
   try {
     const adapter = environment.adapters[implementation];
     const initialHistory = await serverHistory(environment.creator);
-    await adapter.fork("main", "parent");
-    await adapter.fork("parent", "nested");
+    const parentFork = await adapter.fork("main", "parent");
+    const nestedFork = await adapter.fork("parent", "nested");
     const edit = await adapter.branchEdit("nested", {
       kind: "object-set",
       path: ["title"],
       value: `${id}:nested`,
     });
     const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "nested");
-    await adapter.disposeBranch("parent");
-    await adapter.branchEdit("nested", {
+    const parentDispose = await adapter.disposeBranch("parent");
+    const continued = await adapter.branchEdit("nested", {
       kind: "object-set",
       path: ["note"],
       value: `${id}:child-live`,
@@ -8949,6 +8993,41 @@ async function runLocalBranchIsolationImplementation(
       acceptedOperationPayloads: acceptedHistory,
       retained,
       merge,
+      branchCommands: [
+        {
+          type: "fork",
+          sourceBranch: parentFork.source,
+          targetBranch: parentFork.name,
+          status: parentFork.status,
+        },
+        {
+          type: "fork",
+          sourceBranch: nestedFork.source,
+          targetBranch: nestedFork.name,
+          status: nestedFork.status,
+        },
+        {
+          type: "retain",
+          branch: "nested",
+          name: retained.name,
+          actionId: retained.actionId,
+          eventId: retained.eventId,
+          status: retained.status,
+          factoryAvailable: retained.factoryAvailable,
+        },
+        {
+          type: "dispose",
+          branch: parentDispose.name,
+          status: parentDispose.status,
+        },
+        {
+          type: "merge",
+          sourceBranch: merge.source,
+          targetBranch: merge.target,
+          disposed: merge.disposed,
+          sourceStatus: merge.sourceStatus,
+        },
+      ],
     });
     return {
       implementation,
@@ -8991,7 +9070,7 @@ export async function runLocalBranchLifetimeCell(
   try {
     const adapter = environment.adapters[implementation];
     const initialHistory = await serverHistory(environment.creator);
-    await adapter.fork("main", "draft");
+    const fork = await adapter.fork("main", "draft");
     const edit = await adapter.branchEdit("draft", {
       kind: "object-set",
       path: ["title"],
@@ -9003,14 +9082,42 @@ export async function runLocalBranchLifetimeCell(
     let beforeMerge;
     let repeatedMergeAuthoredCount = 0;
     let sourceStatusAfterFirstMerge;
+    const branchCommands = [{
+      type: "fork",
+      sourceBranch: fork.source,
+      targetBranch: fork.name,
+      status: fork.status,
+    }, {
+      type: "retain",
+      branch: "draft",
+      name: retained.name,
+      actionId: retained.actionId,
+      eventId: retained.eventId,
+      status: retained.status,
+      factoryAvailable: retained.factoryAvailable,
+    }];
     if (kind === "branch-undo-before-merge") {
       lifecycle = await adapter.revert(`${id}:edit`, true);
+      branchCommands.push({
+        type: "revert",
+        branch: "draft",
+        name: `${id}:edit`,
+        actionId: retained.actionId,
+        outcome: lifecycle.status,
+      });
       beforeMerge = await captureCheckpoint(
         `${id}:before-merge`,
         "intermediate",
         environment.adapters,
       );
       merge = await adapter.mergeBranch("main", "draft", true);
+      branchCommands.push({
+        type: "merge",
+        sourceBranch: merge.source,
+        targetBranch: merge.target,
+        disposed: merge.disposed,
+        sourceStatus: merge.sourceStatus,
+      });
       sourceStatusAfterFirstMerge = "BranchDisposed";
     } else {
       beforeMerge = await captureCheckpoint(
@@ -9019,12 +9126,31 @@ export async function runLocalBranchLifetimeCell(
         environment.adapters,
       );
       merge = await adapter.mergeBranch("main", "draft", false);
+      branchCommands.push({
+        type: "merge",
+        sourceBranch: merge.source,
+        targetBranch: merge.target,
+        disposed: merge.disposed,
+        sourceStatus: merge.sourceStatus,
+      });
       sourceStatusAfterFirstMerge = "BranchValid";
       const beforeRepeat = await serverHistory(environment.creator);
-      await adapter.mergeBranch("main", "draft", false);
+      const repeatedMerge = await adapter.mergeBranch("main", "draft", false);
+      branchCommands.push({
+        type: "merge",
+        sourceBranch: repeatedMerge.source,
+        targetBranch: repeatedMerge.target,
+        disposed: repeatedMerge.disposed,
+        sourceStatus: repeatedMerge.sourceStatus,
+      });
       const afterRepeat = await serverHistory(environment.creator);
       repeatedMergeAuthoredCount = afterRepeat.length - beforeRepeat.length;
-      await adapter.disposeBranch("draft");
+      const dispose = await adapter.disposeBranch("draft");
+      branchCommands.push({
+        type: "dispose",
+        branch: dispose.name,
+        status: dispose.status,
+      });
     }
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
@@ -9041,6 +9167,8 @@ export async function runLocalBranchLifetimeCell(
       ),
       acceptedOperationPayloads: acceptedHistory,
       retained,
+      merge,
+      branchCommands,
     });
     return {
       id,
@@ -9076,8 +9204,10 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
     context,
     "object",
     id,
+    [writer],
   );
   let error;
+  let stage = "setup";
   try {
     const adapter = environment.adapters[writer];
     const peer = environment.adapters.upstream;
@@ -9087,9 +9217,10 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
     let mergeBaseline;
     let acceptedBeforeDrop = null;
     if (kind === "pending-main-origin") {
+      stage = "prepare pending main origin";
       await adapter.holdOutbound();
       await adapter.set(["rating"], 23);
-      await adapter.fork("main", "draft");
+      const fork = await adapter.fork("main", "draft");
       await adapter.branchEdit("draft", {
         kind: "object-set",
         path: ["title"],
@@ -9101,19 +9232,75 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
       retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
       beforeMerge = await settle(environment.adapters);
       mergeBaseline = await serverHistory(environment.creator);
-      await adapter.mergeBranch("main", "draft", true);
+      const merge = await adapter.mergeBranch("main", "draft", true);
+      var branchCommands = [
+        {
+          type: "fork",
+          sourceBranch: fork.source,
+          targetBranch: fork.name,
+          status: fork.status,
+        },
+        {
+          type: "retain",
+          branch: "draft",
+          name: retained.name,
+          actionId: retained.actionId,
+          eventId: retained.eventId,
+          status: retained.status,
+          factoryAvailable: retained.factoryAvailable,
+        },
+        {
+          type: "merge",
+          sourceBranch: merge.source,
+          targetBranch: merge.target,
+          disposed: merge.disposed,
+          sourceStatus: merge.sourceStatus,
+        },
+      ];
     } else {
-      await adapter.fork("main", "draft");
+      stage = "fork reconnect branch";
+      const fork = await adapter.fork("main", "draft");
+      stage = "edit reconnect branch";
       await adapter.branchEdit("draft", {
         kind: "object-set",
         path: ["title"],
         value: id,
       });
+      stage = "retain reconnect branch commit";
       retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
+      stage = "capture reconnect branch checkpoint";
       beforeMerge = await captureCheckpoint(id, "intermediate", environment.adapters);
+      stage = "read reconnect merge baseline";
       mergeBaseline = await serverHistory(environment.creator);
+      stage = "capture identity before disconnect";
+      const beforeDisconnectCheckpoint = await adapter.checkpoint();
+      stage = "hold author acknowledgement";
       await adapter.holdInbound();
-      await adapter.mergeBranch("main", "draft", true);
+      const merge = await adapter.mergeBranch("main", "draft", true);
+      var branchCommands = [
+        {
+          type: "fork",
+          sourceBranch: fork.source,
+          targetBranch: fork.name,
+          status: fork.status,
+        },
+        {
+          type: "retain",
+          branch: "draft",
+          name: retained.name,
+          actionId: retained.actionId,
+          eventId: retained.eventId,
+          status: retained.status,
+          factoryAvailable: retained.factoryAvailable,
+        },
+        {
+          type: "merge",
+          sourceBranch: merge.source,
+          targetBranch: merge.target,
+          disposed: merge.disposed,
+          sourceStatus: merge.sourceStatus,
+        },
+      ];
       const accepted = await waitForAuthorSubmission(
         environment.creator,
         environment.adapters,
@@ -9121,16 +9308,36 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
         mergeBaseline.at(-1)?.sequenceNumber ?? 0,
       );
       await peer.awaitSynced(accepted.outerSequenceNumber);
+      stage = "observe held author acknowledgement";
+      const heldInbound =
+        await adapter.awaitInbound([accepted.outerSequenceNumber]);
+      stage = "capture peer receipt";
+      const peerReceiptCheckpoint = await peer.checkpoint();
       acceptedBeforeDrop = {
         outerSequenceNumber: accepted.outerSequenceNumber,
         clientId: accepted.clientId,
         revisions: accepted.commits.map(({ revision }) => String(revision)),
-        peerDeliveredThrough: accepted.outerSequenceNumber,
-        authorAcknowledgementHeld: true,
+        heldInbound,
+        beforeDisconnectCheckpoint: {
+          clientId: beforeDisconnectCheckpoint.clientId,
+          sequenceNumber: beforeDisconnectCheckpoint.sequenceNumber,
+        },
+        peerReceiptCheckpoint: {
+          clientId: peerReceiptCheckpoint.clientId,
+          sequenceNumber: peerReceiptCheckpoint.sequenceNumber,
+        },
       };
+      stage = "disconnect accepted author";
       await adapter.disconnect();
+      stage = "reconnect accepted author";
       await adapter.reconnect();
       await adapter.awaitSynced();
+      stage = "capture identity after reconnect";
+      const afterReconnectCheckpoint = await adapter.checkpoint();
+      acceptedBeforeDrop.afterReconnectCheckpoint = {
+        clientId: afterReconnectCheckpoint.clientId,
+        sequenceNumber: afterReconnectCheckpoint.sequenceNumber,
+      };
     }
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
@@ -9154,6 +9361,7 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
       acceptedOperationPayloads: acceptedHistory,
       retained,
       merge: { source: "draft", target: "main" },
+      branchCommands,
     });
     return {
       id,
@@ -9176,6 +9384,7 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
     };
   } catch (cause) {
     error = cause;
+    cause.message = `${id} failed while ${stage}: ${cause.message}`;
     throw cause;
   } finally {
     await closeTransactionEnvironment(environment, error);
