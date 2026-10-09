@@ -2860,7 +2860,11 @@ test("local branch scenarios cover every required service matrix cell", async ()
     },
   });
   assert.deepEqual(seen.isolation, ["upstream", "javascript", "erlang"]);
-  assert.equal(new Set(seen.concurrent).size, 84);
+  assert.equal(new Set(seen.concurrent).size, 168);
+  assert.deepEqual(
+    [...new Set(report.concurrent.cells.map(({ conflictClass }) => conflictClass))],
+    ["unrelated", "overlapping"],
+  );
   assert.deepEqual(seen.lifetime, [
     "upstream:preserved-source-repeated-merge",
     "upstream:branch-undo-before-merge",
@@ -2875,7 +2879,7 @@ test("local branch scenarios cover every required service matrix cell", async ()
     "erlang:pending-main-origin",
     "erlang:accepted-before-drop",
   ]);
-  assert.equal(report.concurrent.cells.length, 84);
+  assert.equal(report.concurrent.cells.length, 168);
   assert.equal(report.lifetime.cells.length, 6);
   assert.equal(report.reconnect.cells.length, 4);
 });

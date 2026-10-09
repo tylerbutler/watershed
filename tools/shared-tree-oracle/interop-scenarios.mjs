@@ -7664,14 +7664,16 @@ const localBranchPairs = [
 export function localBranchConcurrentCells() {
   return localBranchPairs.flatMap((authors) =>
     localBranchFieldKinds.flatMap((fieldKind) =>
-      ["branch-first", "main-first"].flatMap((order) =>
-        ["rebase", "direct-merge"].map((strategy) => ({
-          id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
-          authors,
-          fieldKind,
-          order,
-          strategy,
-        })))));
+      ["unrelated", "overlapping"].flatMap((conflictClass) =>
+        ["branch-first", "main-first"].flatMap((order) =>
+          ["rebase", "direct-merge"].map((strategy) => ({
+            id: `local-branch:${authors.join("<->")}:${fieldKind}:${conflictClass}:${order}:${strategy}`,
+            authors,
+            fieldKind,
+            conflictClass,
+            order,
+            strategy,
+          }))))));
 }
 
 export function undoRedoConcurrentCells() {
@@ -7842,8 +7844,31 @@ function localBranchEdit(fieldKind, label) {
   };
 }
 
-async function localBranchMainEdit(adapter, fieldKind, label) {
-  if (fieldKind === "object") {
+async function localBranchMainEdit(adapter, fieldKind, conflictClass, label) {
+  if (conflictClass === "overlapping" && fieldKind === "object") {
+    await adapter.set(["title"], label);
+  } else if (conflictClass === "overlapping" && fieldKind === "map") {
+    await adapter.mapSet(["items"], "branch", treeValue(label));
+  } else if (conflictClass === "overlapping" && fieldKind === "same-array-move") {
+    await adapter.arrayMove(["left"], 0, 1, ["left"], 2);
+  } else if (conflictClass === "overlapping" && fieldKind === "cross-array-move") {
+    await adapter.arrayMove(["left"], 0, 1, ["right"], 0);
+  } else if (conflictClass === "overlapping" && fieldKind === "transaction") {
+    await adapter.transaction({
+      constraints: [],
+      edits: [{
+        op: "array-insert",
+        path: ["left"],
+        index: 0,
+        values: [treeValue(label)],
+      }],
+      result: "commit",
+    });
+  } else if (conflictClass === "overlapping") {
+    await adapter.arrayInsert(["left"], 0, [
+      fieldKind === "identifier" ? identifierPoint(label) : treeValue(label),
+    ]);
+  } else if (fieldKind === "object") {
     await adapter.set(["rating"], label.length);
   } else if (fieldKind === "map") {
     await adapter.mapSet(["items"], "main", treeValue(label));
@@ -7852,6 +7877,81 @@ async function localBranchMainEdit(adapter, fieldKind, label) {
       fieldKind === "identifier" ? identifierPoint(label) : treeValue(label),
     ]);
   }
+}
+
+async function assertLocalBranchResult(adapter, cell) {
+  const branchLabel = `${cell.id}:branch`;
+  const mainLabel = `${cell.id}:main`;
+  const checks = [];
+  const check = (name, actual, expected) => {
+    assert.deepEqual(actual, expected, `${cell.id} produced another ${name}`);
+    checks.push({ name, actual, expected });
+  };
+  if (cell.fieldKind === "object") {
+    check("title", await adapter.read(["title"]), {
+      present: true,
+      value: { kind: "string", value: branchLabel },
+    });
+    if (cell.conflictClass === "unrelated") {
+      check("rating", await adapter.read(["rating"]), {
+        present: true,
+        value: { kind: "number", value: mainLabel.length },
+      });
+    }
+  } else if (cell.fieldKind === "map") {
+    const entries = await adapter.mapEntries(["items"]);
+    const branch = entries.find(([key]) => key === "branch");
+    check("branch map value", branch?.[1], treeValue(branchLabel));
+    if (cell.conflictClass === "unrelated") {
+      const main = entries.find(([key]) => key === "main");
+      check("main map value", main?.[1], treeValue(mainLabel));
+    }
+  } else {
+    const left = await adapter.arrayValues(["left"]);
+    const right = await adapter.arrayValues(["right"]);
+    if (cell.fieldKind === "same-array-move") {
+      check("same-array move order", left.map(JSON.stringify), [
+        treeValue(`${cell.id}:left-1`),
+        treeValue(`${cell.id}:left-0`),
+        treeValue(`${cell.id}:left-2`),
+      ].map(JSON.stringify));
+      if (cell.conflictClass === "unrelated") {
+        check("same-array unrelated insertion", right.map(JSON.stringify),
+          [treeValue(mainLabel)].map(JSON.stringify));
+      }
+    } else if (cell.fieldKind === "cross-array-move") {
+      check("cross-array source", left, []);
+      check("cross-array destination", right.map(JSON.stringify),
+        (cell.conflictClass === "unrelated"
+          ? [treeValue(`${cell.id}:left-0`), treeValue(mainLabel)]
+          : [treeValue(`${cell.id}:left-0`)]).map(JSON.stringify));
+    } else {
+      const values = left.map(JSON.stringify);
+      const branchValue = cell.fieldKind === "identifier"
+        ? identifierPoint(branchLabel)
+        : treeValue(branchLabel);
+      const mainValue = cell.fieldKind === "identifier"
+        ? identifierPoint(mainLabel)
+        : treeValue(mainLabel);
+      assert(values.includes(JSON.stringify(branchValue)),
+        `${cell.id} lost the branch insertion`);
+      if (cell.conflictClass === "overlapping") {
+        assert(values.includes(JSON.stringify(mainValue)),
+          `${cell.id} lost the overlapping main insertion`);
+      }
+      checks.push({
+        name: "array identities",
+        actual: values,
+        expectedContains: [
+          JSON.stringify(branchValue),
+          ...(cell.conflictClass === "overlapping"
+            ? [JSON.stringify(mainValue)]
+            : []),
+        ],
+      });
+    }
+  }
+  return checks;
 }
 
 async function openUndoRedoEnvironment(config, context, fieldKind, label) {
@@ -8111,7 +8211,7 @@ function checkpointSequencedRevisions(checkpoints) {
     .map((revision) => ({ revision }));
 }
 
-export function acceptedTreeOperations(history) {
+export function acceptedTreeOperations(history, { includeAllocations = false } = {}) {
   return decodeTreeSubmissions(history).map((submission) => ({
     operationId: submission.commits.length > 0
       ? `revision:${submission.commits.map(({ originatorId, revision }) =>
@@ -8120,6 +8220,10 @@ export function acceptedTreeOperations(history) {
     clientId: submission.clientId,
     clientSequenceNumber: submission.clientSequenceNumber,
     outerSequenceNumber: submission.outerSequenceNumber,
+    ...(includeAllocations ? {
+      allocations: submission.allocations.map((allocation) =>
+        structuredClone(allocation)),
+    } : {}),
     commits: submission.commits.map(
       ({ revision, originatorId, changeset }) => ({
         revision,
@@ -8554,6 +8658,73 @@ function localBranchCommitTrace(checkpoint, implementation) {
     ?.commits ?? [];
 }
 
+export function exactLocalBranchEvidence({
+  editOrder,
+  sourceTrace,
+  targetTrace,
+  acceptedOperations,
+  retained,
+  merge = null,
+}) {
+  const sourceCommits = sourceTrace.filter(({ type, local, revision }) =>
+    type === "commit" && local === true && typeof revision === "string");
+  const sourceActions = new Set(sourceCommits.map(({ actionId }) => actionId));
+  const exactOperations = acceptedOperations;
+  const mergeMessages = exactOperations.flatMap(({ commits }) =>
+    commits.map(({ revision, originatorId, changeset }) => ({
+      revision: String(revision),
+      originatorId: String(originatorId),
+      changeset,
+    })));
+  const allocationRanges = exactOperations.flatMap(({ allocations }) =>
+    allocations.map((allocation) => structuredClone(allocation)));
+  const settlementObservations = targetTrace
+    .filter(({ type, actionId }) =>
+      type === "settlement" && sourceActions.has(actionId))
+    .map(({ outcome, revision, actionId }) => ({
+      outcome,
+      revision,
+      actionId,
+    }));
+  return {
+    mergeMessages,
+    survivingRevisions: mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    ),
+    raw: {
+      editOrder,
+      sourceTrace: sourceCommits,
+      targetTrace: settlementObservations,
+      allocationRanges,
+      allocationContext: {
+        required: allocationRanges.length > 0,
+        operationCount: exactOperations.length,
+      },
+      mergeMessages,
+      factoryResults: [{
+        available: retained.factoryAvailable,
+        outcome: retained.status,
+        revision: retained.revision,
+        actionId: retained.actionId,
+      }],
+      settlementObservations,
+      survivingRevisions: mergeMessages.map(
+        ({ originatorId, revision }) => `${originatorId}:${revision}`,
+      ),
+      acceptedOperations: exactOperations,
+      mergeAttribution: {
+        sourceBranch: merge?.source ?? "draft",
+        targetBranch: merge?.target ?? "main",
+        sourceActionIds: sourceCommits.map(({ actionId }) => actionId),
+        sourceRevisions: sourceCommits.map(({ revision }) => revision),
+        acceptedRevisions: mergeMessages.map(
+          ({ originatorId, revision }) => `${originatorId}:${revision}`,
+        ),
+      },
+    },
+  };
+}
+
 export async function runLocalBranchConcurrentCell(config, context, cell) {
   const environment = await openLocalBranchEnvironment(
     config,
@@ -8589,6 +8760,7 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
     const editMain = () => localBranchMainEdit(
       main,
       cell.fieldKind,
+      cell.conflictClass,
       `${cell.id}:main`,
     );
     if (cell.order === "branch-first") {
@@ -8605,67 +8777,62 @@ export async function runLocalBranchConcurrentCell(config, context, cell) {
     const remoteVisibleBeforeMerge =
       branchResult.outboundCount !== 0
       || branchWireDelta !== 0;
-    const beforeMerge = await captureCheckpoint(
-      `${cell.id}:before-merge`,
-      "intermediate",
-      environment.adapters,
-    );
+    const beforeMerge = await settle(environment.adapters);
+    const mergeBaseline = await serverHistory(environment.creator);
     if (cell.strategy === "rebase") {
       await branch.rebaseBranch("draft", "main");
     }
     const merge = await branch.mergeBranch("main", "draft", true);
     const settled = await settle(environment.adapters);
+    const resultChecks = await assertLocalBranchResult(branch, cell);
     const history = await serverHistory(environment.creator);
-    const accepted = decodeTreeSubmissions(
-      history.filter(({ sequenceNumber }) =>
-        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
-    );
-    const mergeMessages = accepted.flatMap(({ commits }) =>
-      commits.map(({ revision, originatorId, changeset }) => ({
-        revision: String(revision),
-        originatorId: String(originatorId),
-        changeset,
-      })));
-    const allocationRanges = accepted.flatMap(({ allocations }) =>
-      allocations.map((allocation) => structuredClone(allocation)));
+    const acceptedHistory = history.filter(({ sequenceNumber }) =>
+      sequenceNumber > (mergeBaseline.at(-1)?.sequenceNumber ?? 0));
     const sourceTrace = localBranchCommitTrace(beforeMerge, branchAuthor);
     const targetTrace = localBranchCommitTrace(settled, branchAuthor);
-    const settlementObservations = targetTrace
-      .filter(({ type }) => type === "settlement")
-      .map(({ outcome }) => ({ outcome }));
-    if (settlementObservations.length === 0) {
-      settlementObservations.push({ outcome: "Pending" });
-    }
-    const survivingRevisions = mergeMessages.map(
-      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    const evidence = exactLocalBranchEvidence({
+      editOrder: cell.order === "branch-first"
+        ? ["branch", "main"]
+        : ["main", "branch"],
+      sourceTrace: sourceTrace.filter(
+        ({ actionId }) => actionId === retained.actionId,
+      ),
+      targetTrace,
+      acceptedOperations: acceptedTreeOperations(
+        acceptedHistory,
+        { includeAllocations: true },
+      ),
+      retained,
+      merge,
+    });
+    const accepted = decodeTreeSubmissions(
+      acceptedHistory,
     );
-    assert(mergeMessages.length > 0, `${cell.id} emitted no merge messages`);
+    assert(evidence.mergeMessages.length > 0,
+      `${cell.id} emitted no attributable merge messages: ${JSON.stringify({
+        sourceTrace: evidence.raw.sourceTrace,
+        acceptedOperations: acceptedTreeOperations(
+          acceptedHistory,
+          { includeAllocations: true },
+        ),
+        retained,
+        merge,
+      })}`);
     return {
       ...cell,
       remoteVisibleBeforeMerge,
-      survivingRevisions,
-      mergeMessages,
+      survivingRevisions: evidence.survivingRevisions,
+      mergeMessages: evidence.mergeMessages,
       passed: true,
       raw: {
-        editOrder: cell.order === "branch-first"
-          ? ["branch", "main"]
-          : ["main", "branch"],
-        sourceTrace,
-        targetTrace,
-        allocationRanges,
-        mergeMessages,
-        factoryResults: [{
-          available: retained.factoryAvailable,
-          outcome: retained.status,
-        }],
-        settlementObservations,
-        survivingRevisions,
+        ...evidence.raw,
         branchResult,
         retained,
         merge,
         beforeMerge,
         settled,
-        acceptedOperations: acceptedTreeOperations(history),
+        resultChecks,
+        decodedMergeOperations: accepted,
       },
     };
   } catch (cause) {
@@ -8701,60 +8868,53 @@ async function runLocalBranchIsolationImplementation(
     });
     const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "nested");
     await adapter.disposeBranch("parent");
-    await adapter.branchEdit("nested", {
+    const continued = await adapter.branchEdit("nested", {
       kind: "object-set",
       path: ["note"],
       value: `${id}:child-live`,
     });
     const before = await captureCheckpoint(id, "intermediate", environment.adapters);
+    const mergeBaseline = await serverHistory(environment.creator);
     const remoteVisibleBeforeMerge =
       edit.outboundCount !== 0
       || (await serverHistory(environment.creator)).length !== initialHistory.length;
     const merge = await adapter.mergeBranch("main", "nested", true);
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
-    const accepted = decodeTreeSubmissions(
-      history.filter(({ sequenceNumber }) =>
-        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
-    );
-    const mergeMessages = accepted.flatMap(({ commits }) =>
-      commits.map(({ revision, originatorId, changeset }) => ({
-        revision: String(revision),
-        originatorId: String(originatorId),
-        changeset,
-      })));
-    const survivingRevisions = mergeMessages.map(
-      ({ originatorId, revision }) => `${originatorId}:${revision}`,
-    );
+    const acceptedHistory = history.filter(({ sequenceNumber }) =>
+      sequenceNumber > (mergeBaseline.at(-1)?.sequenceNumber ?? 0));
     const trace = localBranchCommitTrace(settled, implementation);
+    const branchRevisions = new Set([
+      ...(edit.revisions ?? []),
+      ...(continued.revisions ?? []),
+    ].map(String));
+    const sourceTrace = localBranchCommitTrace(before, implementation)
+      .filter(({ revision }) => branchRevisions.has(String(revision)));
+    const evidence = exactLocalBranchEvidence({
+      editOrder: ["branch"],
+      sourceTrace,
+      targetTrace: trace,
+      acceptedOperations: acceptedTreeOperations(
+        acceptedHistory,
+        { includeAllocations: true },
+      ),
+      retained,
+      merge,
+    });
     return {
       implementation,
       nestedFork: true,
       parentDisposedChildLive: true,
       remoteVisibleBeforeMerge,
-      survivingRevisions,
-      mergeMessages,
+      survivingRevisions: evidence.survivingRevisions,
+      mergeMessages: evidence.mergeMessages,
       passed: true,
       raw: {
-        editOrder: ["branch"],
-        sourceTrace: localBranchCommitTrace(before, implementation),
-        targetTrace: trace,
-        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
-        mergeMessages,
-        factoryResults: [{
-          available: retained.factoryAvailable,
-          outcome: retained.status,
-        }],
-        settlementObservations: trace
-          .filter(({ type }) => type === "settlement")
-          .map(({ outcome }) => ({ outcome }))
-          .concat(trace.some(({ type }) => type === "settlement")
-            ? [] : [{ outcome: "Pending" }]),
-        survivingRevisions,
+        ...evidence.raw,
         edit,
+        continued,
         retained,
         merge,
-        acceptedOperations: acceptedTreeOperations(history),
       },
     };
   } catch (cause) {
@@ -8791,13 +8951,24 @@ export async function runLocalBranchLifetimeCell(
     const retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
     let lifecycle;
     let merge;
+    let beforeMerge;
     let repeatedMergeAuthoredCount = 0;
     let sourceStatusAfterFirstMerge;
     if (kind === "branch-undo-before-merge") {
       lifecycle = await adapter.revert(`${id}:edit`, true);
+      beforeMerge = await captureCheckpoint(
+        `${id}:before-merge`,
+        "intermediate",
+        environment.adapters,
+      );
       merge = await adapter.mergeBranch("main", "draft", true);
       sourceStatusAfterFirstMerge = "BranchDisposed";
     } else {
+      beforeMerge = await captureCheckpoint(
+        `${id}:before-merge`,
+        "intermediate",
+        environment.adapters,
+      );
       merge = await adapter.mergeBranch("main", "draft", false);
       sourceStatusAfterFirstMerge = "BranchValid";
       const beforeRepeat = await serverHistory(environment.creator);
@@ -8808,20 +8979,18 @@ export async function runLocalBranchLifetimeCell(
     }
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
-    const accepted = decodeTreeSubmissions(
-      history.filter(({ sequenceNumber }) =>
-        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
-    );
-    const mergeMessages = accepted.flatMap(({ commits }) =>
-      commits.map(({ revision, originatorId, changeset }) => ({
-        revision: String(revision),
-        originatorId: String(originatorId),
-        changeset,
-      })));
-    const survivingRevisions = mergeMessages.map(
-      ({ originatorId, revision }) => `${originatorId}:${revision}`,
-    );
     const targetTrace = localBranchCommitTrace(settled, implementation);
+    const evidence = exactLocalBranchEvidence({
+      editOrder: ["branch"],
+      sourceTrace: localBranchCommitTrace(beforeMerge, implementation),
+      targetTrace,
+      acceptedOperations: acceptedTreeOperations(
+        history.filter(({ sequenceNumber }) =>
+          sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
+        { includeAllocations: true },
+      ),
+      retained,
+    });
     return {
       id,
       implementation,
@@ -8829,30 +8998,16 @@ export async function runLocalBranchLifetimeCell(
       sourceStatusAfterFirstMerge,
       repeatedMergeAuthoredCount,
       remoteVisibleBeforeMerge: edit.outboundCount !== 0,
-      survivingRevisions,
-      mergeMessages,
+      survivingRevisions: evidence.survivingRevisions,
+      mergeMessages: evidence.mergeMessages,
       passed: true,
       raw: {
-        editOrder: ["branch"],
-        sourceTrace: [retained],
-        targetTrace,
-        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
-        mergeMessages,
-        factoryResults: [{
-          available: retained.factoryAvailable,
-          outcome: retained.status,
-        }],
-        settlementObservations: targetTrace
-          .filter(({ type }) => type === "settlement")
-          .map(({ outcome }) => ({ outcome }))
-          .concat(targetTrace.some(({ type }) => type === "settlement")
-            ? [] : [{ outcome: "Pending" }]),
-        survivingRevisions,
+        ...evidence.raw,
         edit,
         retained,
         lifecycle,
         merge,
-        acceptedOperations: acceptedTreeOperations(history),
+        beforeMerge,
       },
     };
   } catch (cause) {
@@ -8878,6 +9033,8 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
     const initialHistory = await serverHistory(environment.creator);
     let retained;
     let beforeMerge;
+    let mergeBaseline;
+    let acceptedBeforeDrop = null;
     if (kind === "pending-main-origin") {
       await adapter.holdOutbound();
       await adapter.set(["rating"], 23);
@@ -8891,7 +9048,8 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
       await adapter.disconnect();
       await adapter.reconnect();
       retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
-      beforeMerge = await captureCheckpoint(id, "intermediate", environment.adapters);
+      beforeMerge = await settle(environment.adapters);
+      mergeBaseline = await serverHistory(environment.creator);
       await adapter.mergeBranch("main", "draft", true);
     } else {
       await adapter.fork("main", "draft");
@@ -8902,62 +9060,66 @@ export async function runLocalBranchReconnectCell(config, context, writer, kind)
       });
       retained = await adapter.retainLastLocalCommit(`${id}:edit`, "draft");
       beforeMerge = await captureCheckpoint(id, "intermediate", environment.adapters);
+      mergeBaseline = await serverHistory(environment.creator);
       await adapter.holdInbound();
       await adapter.mergeBranch("main", "draft", true);
-      await peer.awaitSynced();
+      const accepted = await waitForAuthorSubmission(
+        environment.creator,
+        environment.adapters,
+        writer,
+        mergeBaseline.at(-1)?.sequenceNumber ?? 0,
+      );
+      await peer.awaitSynced(accepted.outerSequenceNumber);
+      acceptedBeforeDrop = {
+        outerSequenceNumber: accepted.outerSequenceNumber,
+        clientId: accepted.clientId,
+        revisions: accepted.commits.map(({ revision }) => String(revision)),
+        peerDeliveredThrough: accepted.outerSequenceNumber,
+        authorAcknowledgementHeld: true,
+      };
       await adapter.disconnect();
       await adapter.reconnect();
       await adapter.awaitSynced();
     }
     const settled = await settle(environment.adapters);
     const history = await serverHistory(environment.creator);
-    const accepted = decodeTreeSubmissions(
-      history.filter(({ sequenceNumber }) =>
-        sequenceNumber > (initialHistory.at(-1)?.sequenceNumber ?? 0)),
-    );
-    const mergeMessages = accepted.flatMap(({ commits }) =>
-      commits.map(({ revision, originatorId, changeset }) => ({
-        revision: String(revision),
-        originatorId: String(originatorId),
-        changeset,
-      })));
-    const survivingRevisions = mergeMessages.map(
-      ({ originatorId, revision }) => `${originatorId}:${revision}`,
-    );
+    const acceptedHistory = history.filter(({ sequenceNumber }) =>
+      sequenceNumber > (mergeBaseline.at(-1)?.sequenceNumber ?? 0));
+    const accepted = decodeTreeSubmissions(acceptedHistory);
     const writerIds = environment.adapters[writer].clientIds;
     const mergeSubmissionCount = accepted.filter(({ clientId, commits }) =>
       writerIds.has(clientId)
       && commits.some(({ changeset }) => JSON.stringify(changeset).includes(id))).length;
     const targetTrace = localBranchCommitTrace(settled, writer);
+    const evidence = exactLocalBranchEvidence({
+      editOrder: ["branch", "main"],
+      sourceTrace: localBranchCommitTrace(beforeMerge, writer)
+        .filter(({ actionId }) => actionId === retained.actionId),
+      targetTrace,
+      acceptedOperations: acceptedTreeOperations(
+        acceptedHistory,
+        { includeAllocations: true },
+      ),
+      retained,
+      merge: { source: "draft", target: "main" },
+    });
     return {
       id,
       writer,
       kind,
       mergeSubmissionCount,
       remoteVisibleBeforeMerge: false,
-      survivingRevisions,
-      mergeMessages,
+      survivingRevisions: evidence.survivingRevisions,
+      mergeMessages: evidence.mergeMessages,
       passed: true,
       raw: {
-        editOrder: ["branch", "main"],
-        sourceTrace: localBranchCommitTrace(beforeMerge, writer),
-        targetTrace,
-        allocationRanges: accepted.flatMap(({ allocations }) => allocations),
-        mergeMessages,
-        factoryResults: [{
-          available: retained.factoryAvailable,
-          outcome: retained.status,
-        }],
-        settlementObservations: targetTrace
-          .filter(({ type }) => type === "settlement")
-          .map(({ outcome }) => ({ outcome }))
-          .concat(targetTrace.some(({ type }) => type === "settlement")
-            ? [] : [{ outcome: "Pending" }]),
-        survivingRevisions,
+        ...evidence.raw,
         retained,
         beforeMerge,
         settled,
-        acceptedOperations: acceptedTreeOperations(history),
+        acceptedBeforeDrop,
+        decodedMergeOperations: accepted,
+        initialSequenceNumber: initialHistory.at(-1)?.sequenceNumber ?? 0,
       },
     };
   } catch (cause) {

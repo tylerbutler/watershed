@@ -61,20 +61,93 @@ const localBranchPairs = [
 ];
 
 function localBranchEvidence(overrides = {}, editOrder = ["branch", "main"]) {
+  const revision = "branch-a";
+  const originatorId = "branch-origin";
+  const changeset = { fieldChanges: [{ field: "title" }] };
+  const mergeMessage = { revision, originatorId, changeset };
   return {
     remoteVisibleBeforeMerge: false,
-    survivingRevisions: ["branch-a", "main-b"],
-    mergeMessages: [{ revision: "branch-a", kind: "Default" }],
+    survivingRevisions: [`${originatorId}:${revision}`],
+    mergeMessages: [mergeMessage],
     passed: true,
     raw: {
       editOrder,
-      sourceTrace: [{ revision: "branch-a", kind: "Default" }],
-      targetTrace: [{ revision: "main-b", kind: "Default" }],
+      sourceTrace: [{
+        type: "commit",
+        local: true,
+        revision,
+        actionId: "branch-action",
+        eventId: 1,
+        kind: "Default",
+        factoryAvailable: true,
+        handleAcquired: true,
+      }],
+      targetTrace: [{
+        type: "settlement",
+        revision,
+        actionId: "branch-action",
+        eventId: 1,
+        kind: "Default",
+        outcome: "FullyApplied",
+      }],
       allocationRanges: [{ firstGenCount: 4, count: 4 }],
-      mergeMessages: [{ revision: "branch-a", kind: "Default" }],
-      factoryResults: [{ available: true, outcome: "Valid" }],
-      settlementObservations: [{ outcome: "FullyApplied" }],
-      survivingRevisions: ["branch-a", "main-b"],
+      allocationContext: { required: true, operationCount: 1 },
+      mergeMessages: [mergeMessage],
+      factoryResults: [{
+        available: true,
+        outcome: "Valid",
+        revision,
+        actionId: "branch-action",
+      }],
+      settlementObservations: [{
+        outcome: "FullyApplied",
+        revision,
+        actionId: "branch-action",
+      }],
+      survivingRevisions: [`${originatorId}:${revision}`],
+      acceptedOperations: [{
+        operationId: `revision:${originatorId}:${revision}`,
+        clientId: "branch-client",
+        clientSequenceNumber: 1,
+        outerSequenceNumber: 1,
+        allocations: [{ firstGenCount: 4, count: 4 }],
+        commits: [mergeMessage],
+      }],
+      mergeAttribution: {
+        sourceBranch: "draft",
+        targetBranch: "main",
+        sourceActionIds: ["branch-action"],
+        sourceRevisions: [revision],
+        acceptedRevisions: [`${originatorId}:${revision}`],
+      },
+      acceptedBeforeDrop: {
+        outerSequenceNumber: 1,
+        clientId: "branch-client",
+        revisions: [revision],
+        peerDeliveredThrough: 1,
+        authorAcknowledgementHeld: true,
+      },
+      publication: {
+        version: "summary-version",
+        snapshotSequenceNumber: 1,
+      },
+      loadEvidence: {
+        loadedVersion: "summary-version",
+        snapshotSequenceNumber: 1,
+        selectedSummaryRequests: ["summary-version"],
+        selectedTreeRequests: ["root-tree"],
+        selectedBlobRequests: [{ id: "attributes" }],
+        rawLoadIdentity: {
+          loadedVersion: "summary-version",
+          snapshotSequenceNumber: 1,
+        },
+      },
+      boundaryStorageResponses: [{ operation: "getVersions" }],
+      resultChecks: [{
+        name: "title",
+        actual: "branch",
+        expected: "branch",
+      }],
     },
     ...overrides,
   };
@@ -99,18 +172,20 @@ function localBranchReport() {
       ...section(),
       cells: localBranchPairs.flatMap((authors) =>
         localBranchFieldKinds.flatMap((fieldKind) =>
-          ["branch-first", "main-first"].flatMap((order) =>
-            ["rebase", "direct-merge"].map((strategy) => ({
-              id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
-              authors,
-              fieldKind,
-              order,
-              strategy,
-              ...localBranchEvidence(
-                {},
-                order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
-              ),
-            }))))),
+          ["unrelated", "overlapping"].flatMap((conflictClass) =>
+            ["branch-first", "main-first"].flatMap((order) =>
+              ["rebase", "direct-merge"].map((strategy) => ({
+                id: `local-branch:${authors.join("<->")}:${fieldKind}:${conflictClass}:${order}:${strategy}`,
+                authors,
+                fieldKind,
+                conflictClass,
+                order,
+                strategy,
+                ...localBranchEvidence(
+                  {},
+                  order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
+                ),
+              })))))),
     },
     localBranchLifetime: {
       ...section(),
@@ -166,6 +241,74 @@ test("local branch validation derives edit order from raw client evidence", () =
   assert.throws(
     () => validateLocalBranchSections(report),
     /edit order/,
+  );
+});
+
+test("local branch validation rejects fabricated traces", () => {
+  const report = localBranchReport();
+  report.localBranchConcurrent.cells[0].raw.sourceTrace = [{}];
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /source trace/,
+  );
+});
+
+test("local branch validation rejects fabricated Pending settlements", () => {
+  const report = localBranchReport();
+  report.localBranchConcurrent.cells[0].raw.settlementObservations =
+    [{ outcome: "Pending" }];
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /settlement/,
+  );
+});
+
+test("local branch validation rejects a merge from the wrong branch revision", () => {
+  const report = localBranchReport();
+  const row = report.localBranchConcurrent.cells[0];
+  const wrong = {
+    revision: "main-b",
+    originatorId: "main-origin",
+    changeset: { fieldChanges: [{ field: "rating" }] },
+  };
+  row.mergeMessages = [wrong];
+  row.survivingRevisions = ["main-origin:main-b"];
+  row.raw.mergeMessages = [wrong];
+  row.raw.survivingRevisions = ["main-origin:main-b"];
+  row.raw.acceptedOperations[0].commits = [wrong];
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /accepted revision/,
+  );
+});
+
+test("local branch validation rejects missing raw accepted operations", () => {
+  const report = localBranchReport();
+  delete report.localBranchConcurrent.cells[0].raw.acceptedOperations;
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /accepted operations/,
+  );
+});
+
+test("accepted-before-drop rejects a missing acceptance watermark", () => {
+  const report = localBranchReport();
+  const row = report.localBranchReconnect.cells.find(
+    ({ kind }) => kind === "accepted-before-drop",
+  );
+  delete row.raw.acceptedBeforeDrop;
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /acceptance watermark/,
+  );
+});
+
+test("local branch reload rejects a missing writer publication load", () => {
+  const report = localBranchReport();
+  delete report.localBranchReloadMatrix.cells[0].raw.loadEvidence;
+  assert.throws(
+    () => validateLocalBranchSections(report),
+    /selected publication evidence/,
   );
 });
 

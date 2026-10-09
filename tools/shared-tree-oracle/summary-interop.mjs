@@ -23,6 +23,7 @@ import {
   captureFailureCheckpoint,
   decodeReconnectPayload,
   decodeTreeSubmissions,
+  exactLocalBranchEvidence,
   nativeAdapter,
   preserveFailureCheckpoints,
   publishUpstreamSummary,
@@ -4577,6 +4578,12 @@ async function runUndoRedoReloadReader(
   const handleNames = [];
   try {
     await fresh.adapter.awaitSynced();
+    const loadEvidence = fresh.loadEvidence(publication.version);
+    assert.equal(loadEvidence.loadedVersion, publication.version,
+      `${writer} ${stage}->${reader} loaded another publication version`);
+    assert.equal(loadEvidence.snapshotSequenceNumber,
+      publication.snapshotSequenceNumber,
+    `${writer} ${stage}->${reader} loaded another publication snapshot`);
     const loaded = await fresh.adapter.checkpoint();
     trace.push({ label: "loaded", observation: loaded });
     const load = fresh.loadEvidence(version);
@@ -4981,10 +4988,6 @@ async function runLocalBranchReloadReader(
     const final = await fresh.adapter.checkpoint();
     assert.deepEqual(final.wholeTree, publishedTree,
       `${writer} ${stage}->${reader} continuation cleanup changed the tree`);
-    const settlements = (final.commits ?? [])
-      .filter(({ type }) => type === "settlement")
-      .map(({ outcome }) => ({ outcome }));
-    if (settlements.length === 0) settlements.push({ outcome: "Pending" });
     return {
       id: `local-branch-reload:${writer}:${stage}:${reader}`,
       writer,
@@ -5003,17 +5006,17 @@ async function runLocalBranchReloadReader(
       raw: {
         editOrder: ["branch", "summary", "continuation"],
         sourceTrace: raw.sourceTrace,
-        targetTrace: final.commits ?? [],
+        targetTrace: raw.targetTrace,
         allocationRanges: raw.allocationRanges,
+        allocationContext: raw.allocationContext,
         mergeMessages: raw.mergeMessages,
-        factoryResults: [
-          { available: retained.factoryAvailable, outcome: retained.status },
-          { available: retainedUndo.factoryAvailable, outcome: retainedUndo.status },
-          { available: retainedRedo.factoryAvailable, outcome: retainedRedo.status },
-        ],
-        settlementObservations: settlements,
+        factoryResults: raw.factoryResults,
+        settlementObservations: raw.settlementObservations,
         survivingRevisions: raw.survivingRevisions,
+        acceptedOperations: raw.acceptedOperations,
         publication,
+        loadEvidence,
+        boundaryStorageResponses: fresh.boundaryStorageResponses(),
         loaded,
         historicalBranchError,
         retained,
@@ -5023,6 +5026,15 @@ async function runLocalBranchReloadReader(
         retainedRedo,
         cleanup,
         final,
+        continuationEvidence: {
+          retained,
+          undo,
+          retainedUndo,
+          redo,
+          retainedRedo,
+          cleanup,
+          finalCommits: final.commits ?? [],
+        },
       },
     };
   } catch (error) {
@@ -5071,12 +5083,13 @@ async function runLocalBranchReloadWriter(config, context, writer) {
     await settle(adapters);
     const baseline = await serverHistory(creator);
     await adapters[writer].fork("main", "draft");
-    await adapters[writer].branchEdit("draft", {
+    const branchEdit = await adapters[writer].branchEdit("draft", {
       kind: "object-set",
       path: ["title"],
       value: `local-branch-${writer}`,
     });
-    await adapters[writer].retainLastLocalCommit("branch-edit", "draft");
+    const branchRetained =
+      await adapters[writer].retainLastLocalCommit("branch-edit", "draft");
     const beforeCheckpoint = await adapters[writer].checkpoint();
     const beforePublication = await publishUndoRedoSummary(
       config,
@@ -5088,17 +5101,16 @@ async function runLocalBranchReloadWriter(config, context, writer) {
       jwt,
     );
     const beforeTree = (await adapters.upstream.checkpoint()).wholeTree;
-    const beforeAccepted = decodeTreeSubmissions(
-      (await serverHistory(creator)).filter(({ sequenceNumber }) =>
-        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0)),
-    );
+    const branchSourceTrace = (beforeCheckpoint.commits ?? [])
+      .filter(({ actionId }) => actionId === branchRetained.actionId);
     const row = [];
-    const beforeRaw = {
-      sourceTrace: beforeCheckpoint.commits ?? [{ type: "branch", writer }],
-      allocationRanges: beforeAccepted.flatMap(({ allocations }) => allocations),
-      mergeMessages: [],
-      survivingRevisions: [],
-    };
+    const beforeRaw = exactLocalBranchEvidence({
+      editOrder: ["branch", "summary", "continuation"],
+      sourceTrace: branchSourceTrace,
+      targetTrace: [],
+      acceptedOperations: [],
+      retained: branchRetained,
+    }).raw;
     for (const reader of implementations) {
       row.push(await runLocalBranchReloadReader(
         config,
@@ -5124,25 +5136,20 @@ async function runLocalBranchReloadWriter(config, context, writer) {
       jwt,
     );
     const afterTree = merged.observations[0].wholeTree;
-    const afterAccepted = decodeTreeSubmissions(
-      (await serverHistory(creator)).filter(({ sequenceNumber }) =>
-        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0)),
-    );
-    const mergeMessages = afterAccepted.flatMap(({ commits }) =>
-      commits.map(({ revision, originatorId, changeset }) => ({
-        revision: String(revision),
-        originatorId: String(originatorId),
-        changeset,
-      })));
-    const afterRaw = {
-      sourceTrace: merged.observations
+    const afterHistory = (await serverHistory(creator))
+      .filter(({ sequenceNumber }) =>
+        sequenceNumber > (baseline.at(-1)?.sequenceNumber ?? 0));
+    const afterRaw = exactLocalBranchEvidence({
+      editOrder: ["branch", "summary", "continuation"],
+      sourceTrace: branchSourceTrace,
+      targetTrace: merged.observations
         .find(({ implementation }) => implementation === writer)?.commits ?? [],
-      allocationRanges: afterAccepted.flatMap(({ allocations }) => allocations),
-      mergeMessages,
-      survivingRevisions: mergeMessages.map(
-        ({ originatorId, revision }) => `${originatorId}:${revision}`,
+      acceptedOperations: acceptedTreeOperations(
+        afterHistory,
+        { includeAllocations: true },
       ),
-    };
+      retained: branchRetained,
+    }).raw;
     for (const reader of implementations) {
       row.push(await runLocalBranchReloadReader(
         config,

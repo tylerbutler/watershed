@@ -357,9 +357,10 @@ test("local branch service cell moves within a seeded array", {
     runId: "same-array-move-service-cell",
     arrayViewSchema,
   }, {
-    id: "local-branch:upstream<->javascript:same-array-move:branch-first:rebase",
+    id: "local-branch:upstream<->javascript:same-array-move:unrelated:branch-first:rebase",
     authors: ["upstream", "javascript"],
     fieldKind: "same-array-move",
+    conflictClass: "unrelated",
     order: "branch-first",
     strategy: "rebase",
   }));
@@ -376,9 +377,10 @@ test("local branch service cell applies a transaction", {
     runId: "transaction-service-cell",
     arrayViewSchema: fixture.input.schemas.objectArrays,
   }, {
-    id: "local-branch:upstream<->javascript:transaction:branch-first:rebase",
+    id: "local-branch:upstream<->javascript:transaction:overlapping:branch-first:rebase",
     authors: ["upstream", "javascript"],
     fieldKind: "transaction",
+    conflictClass: "overlapping",
     order: "branch-first",
     strategy: "rebase",
   }));

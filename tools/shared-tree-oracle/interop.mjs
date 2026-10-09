@@ -3708,35 +3708,111 @@ function validateLocalBranchService(section, name) {
 function validateLocalBranchEvidence(
   row,
   label,
-  { allowEmptyMerge = false } = {},
+  { allowEmptyMerge = false, allowEmptySettlement = false } = {},
 ) {
   object(row.raw, `${label} lacks raw client evidence`);
   assert(Array.isArray(row.raw.editOrder) && row.raw.editOrder.length > 0,
     `${label} lacks edit order`);
   for (const trace of ["sourceTrace", "targetTrace"]) {
-    assert(Array.isArray(row.raw[trace]) && row.raw[trace].length > 0,
+    assert(Array.isArray(row.raw[trace])
+      && (trace === "targetTrace" && allowEmptySettlement
+        || row.raw[trace].length > 0),
       `${label} lacks ${trace}`);
   }
+  const sourceCommits = row.raw.sourceTrace.filter(({ type }) => type === "commit");
+  assert(sourceCommits.length > 0 && sourceCommits.every((commit) =>
+    commit.local === true
+    && typeof commit.revision === "string"
+    && commit.revision.length > 0
+    && typeof commit.actionId === "string"
+    && commit.actionId.length > 0
+    && Number.isInteger(commit.eventId)
+    && commit.eventId > 0
+    && commit.factoryAvailable === true
+    && commit.handleAcquired === true),
+  `${label} has fabricated source trace`);
+  const sourceByAction = new Map(sourceCommits.map((commit) =>
+    [commit.actionId, commit]));
   assert(Array.isArray(row.raw.allocationRanges),
     `${label} lacks allocation ranges`);
+  object(row.raw.allocationContext, `${label} lacks allocation context`);
+  assert(typeof row.raw.allocationContext.required === "boolean"
+    && Number.isInteger(row.raw.allocationContext.operationCount)
+    && row.raw.allocationContext.operationCount >= 0,
+  `${label} has invalid allocation context`);
+  assert(Array.isArray(row.raw.acceptedOperations)
+    && (allowEmptyMerge || row.raw.acceptedOperations.length > 0),
+  `${label} lacks raw accepted operations`);
+  assert(row.raw.acceptedOperations.every((operation) =>
+    typeof operation.operationId === "string"
+    && operation.operationId.length > 0
+    && typeof operation.clientId === "string"
+    && operation.clientId.length > 0
+    && Number.isInteger(operation.clientSequenceNumber)
+    && Number.isInteger(operation.outerSequenceNumber)
+    && operation.outerSequenceNumber > 0
+    && Array.isArray(operation.allocations)
+    && Array.isArray(operation.commits)),
+  `${label} has invalid raw accepted operations`);
+  assert.equal(row.raw.allocationContext.operationCount,
+    row.raw.acceptedOperations.length,
+  `${label} allocation context names another operation count`);
+  const acceptedAllocations = row.raw.acceptedOperations.flatMap(
+    ({ allocations }) => allocations,
+  );
+  assert.deepEqual(row.raw.allocationRanges, acceptedAllocations,
+    `${label} allocation ranges differ from accepted operations`);
+  assert.equal(row.raw.allocationContext.required,
+    acceptedAllocations.length > 0,
+  `${label} allocation context changed whether ranges are required`);
   assert(Array.isArray(row.raw.mergeMessages)
     && (allowEmptyMerge || row.raw.mergeMessages.length > 0),
   `${label} lacks exact merge messages`);
+  const acceptedCommits = row.raw.acceptedOperations.flatMap(
+    ({ commits }) => commits,
+  );
+  assert.deepEqual(row.raw.mergeMessages, acceptedCommits,
+    `${label} merge messages differ from accepted operations`);
   assert.deepEqual(row.raw.mergeMessages, row.mergeMessages,
     `${label} merge messages changed`);
   assert(Array.isArray(row.raw.factoryResults)
     && row.raw.factoryResults.length > 0
-    && row.raw.factoryResults.every(({ available, outcome }) =>
-      available === true && typeof outcome === "string" && outcome.length > 0),
+    && row.raw.factoryResults.every(({ available, outcome, revision, actionId }) =>
+      available === true
+      && outcome === "Valid"
+      && sourceByAction.get(actionId)?.revision === revision),
   `${label} lacks factory results`);
   assert(Array.isArray(row.raw.settlementObservations)
-    && row.raw.settlementObservations.length > 0
-    && row.raw.settlementObservations.every(({ outcome }) =>
-      ["FullyApplied", "FullyDropped", "NewContentOnly", "Pending"].includes(outcome)),
+    && (allowEmptySettlement || row.raw.settlementObservations.length > 0)
+    && row.raw.settlementObservations.every(({ outcome, revision, actionId }) =>
+      ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(outcome)
+      && sourceByAction.get(actionId)?.revision === revision),
   `${label} lacks captured settlement observations`);
   assert(Array.isArray(row.raw.survivingRevisions)
     && (allowEmptyMerge || row.raw.survivingRevisions.length > 0),
   `${label} lacks surviving revisions`);
+  const attribution = object(row.raw.mergeAttribution,
+    `${label} lacks exact merge attribution`);
+  assert.equal(attribution.sourceBranch, "draft",
+    `${label} merge names another source branch`);
+  assert.equal(attribution.targetBranch, "main",
+    `${label} merge names another target branch`);
+  assert.deepEqual(attribution.sourceActionIds,
+    sourceCommits.map(({ actionId }) => actionId),
+  `${label} merge names another branch action`);
+  assert.deepEqual(attribution.sourceRevisions,
+    sourceCommits.map(({ revision }) => revision),
+  `${label} merge names another branch revision`);
+  assert.deepEqual(attribution.acceptedRevisions,
+    row.raw.mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    ),
+  `${label} merge names another accepted revision`);
+  assert.deepEqual(row.raw.survivingRevisions,
+    row.raw.mergeMessages.map(
+      ({ originatorId, revision }) => `${originatorId}:${revision}`,
+    ),
+  `${label} surviving revisions differ from exact merge messages`);
   assert.equal(row.remoteVisibleBeforeMerge, false,
     `${label} exposed a local fork remotely`);
   assert.deepEqual(row.survivingRevisions, row.raw.survivingRevisions,
@@ -3762,14 +3838,16 @@ export function validateLocalBranchSections(report) {
 
   const expectedConcurrent = localBranchPairs.flatMap((authors) =>
     localBranchFieldKinds.flatMap((fieldKind) =>
-      ["branch-first", "main-first"].flatMap((order) =>
-        ["rebase", "direct-merge"].map((strategy) => ({
-          id: `local-branch:${authors.join("<->")}:${fieldKind}:${order}:${strategy}`,
-          authors,
-          fieldKind,
-          order,
-          strategy,
-        })))));
+      ["unrelated", "overlapping"].flatMap((conflictClass) =>
+        ["branch-first", "main-first"].flatMap((order) =>
+          ["rebase", "direct-merge"].map((strategy) => ({
+            id: `local-branch:${authors.join("<->")}:${fieldKind}:${conflictClass}:${order}:${strategy}`,
+            authors,
+            fieldKind,
+            conflictClass,
+            order,
+            strategy,
+          }))))));
   const concurrent = exactCells(
     report.localBranchConcurrent.cells,
     expectedConcurrent,
@@ -3781,12 +3859,24 @@ export function validateLocalBranchSections(report) {
       `${row.id} authors changed`);
     assert.equal(row.fieldKind, expected.fieldKind,
       `${row.id} field kind changed`);
+    assert.equal(row.conflictClass, expected.conflictClass,
+      `${row.id} conflict class changed`);
     assert.equal(row.order, expected.order, `${row.id} edit order changed`);
     assert.deepEqual(row.raw.editOrder,
       row.order === "branch-first" ? ["branch", "main"] : ["main", "branch"],
     `${row.id} raw edit order changed`);
     assert.equal(row.strategy, expected.strategy,
       `${row.id} merge strategy changed`);
+    assert(Array.isArray(row.raw.resultChecks)
+      && row.raw.resultChecks.length > 0
+      && row.raw.resultChecks.every((check) =>
+        typeof check.name === "string"
+        && (Object.hasOwn(check, "expected")
+          ? isDeepStrictEqual(check.actual, check.expected)
+          : Array.isArray(check.expectedContains)
+            && check.expectedContains.every((value) =>
+              check.actual.includes(value)))),
+    `${row.id} lacks independently checked results`);
     validateLocalBranchEvidence(row, row.id);
   }
 
@@ -3813,7 +3903,9 @@ export function validateLocalBranchSections(report) {
     `${row.id} has another source lifetime`);
     assert.equal(row.repeatedMergeAuthoredCount, 0,
       `${row.id} repeated merge authored another change`);
-    validateLocalBranchEvidence(row, row.id);
+    validateLocalBranchEvidence(row, row.id, {
+      allowEmptyMerge: row.kind === "branch-undo-before-merge",
+    });
   }
 
   const expectedReconnect = nativeTargets.flatMap((writer) =>
@@ -3834,6 +3926,24 @@ export function validateLocalBranchSections(report) {
     assert.equal(row.mergeSubmissionCount, 1,
       `${row.id} duplicated its merge submission`);
     validateLocalBranchEvidence(row, row.id);
+    if (row.kind === "accepted-before-drop") {
+      const proof = object(row.raw.acceptedBeforeDrop,
+        `${row.id} lacks an acceptance watermark`);
+      assert(Number.isInteger(proof.outerSequenceNumber)
+        && proof.outerSequenceNumber > 0
+        && proof.peerDeliveredThrough >= proof.outerSequenceNumber
+        && proof.authorAcknowledgementHeld === true,
+      `${row.id} lacks an acceptance watermark`);
+      const accepted = row.raw.acceptedOperations.find(
+        ({ clientId, outerSequenceNumber }) =>
+          clientId === proof.clientId
+          && outerSequenceNumber === proof.outerSequenceNumber,
+      );
+      assert(accepted, `${row.id} acceptance watermark names another operation`);
+      assert.deepEqual(proof.revisions,
+        accepted.commits.map(({ revision }) => String(revision)),
+      `${row.id} acceptance watermark names another revision`);
+    }
   }
 
   const expectedReload = implementations.flatMap((writer) =>
@@ -3866,7 +3976,40 @@ export function validateLocalBranchSections(report) {
       `${row.id} lacks merged redo continuation`);
     validateLocalBranchEvidence(row, row.id, {
       allowEmptyMerge: row.stage === "before-merge",
+      allowEmptySettlement: row.stage === "before-merge",
     });
+    const publication = object(row.raw.publication,
+      `${row.id} lacks its writer publication`);
+    assert(typeof publication.version === "string"
+      && publication.version.length > 0
+      && Number.isInteger(publication.snapshotSequenceNumber)
+      && publication.snapshotSequenceNumber >= 0,
+    `${row.id} has an invalid writer publication`);
+    const load = object(row.raw.loadEvidence,
+      `${row.id} lacks selected publication evidence`);
+    assert.equal(load.loadedVersion, publication.version,
+      `${row.id} loaded another publication version`);
+    assert.equal(load.snapshotSequenceNumber,
+      publication.snapshotSequenceNumber,
+    `${row.id} loaded another publication snapshot`);
+    assert(Array.isArray(load.selectedSummaryRequests)
+      && load.selectedSummaryRequests.includes(publication.version),
+    `${row.id} did not request the writer publication`);
+    assert(Array.isArray(load.selectedTreeRequests)
+      && load.selectedTreeRequests.length > 0
+      && Array.isArray(load.selectedBlobRequests)
+      && load.selectedBlobRequests.length > 0,
+    `${row.id} lacks selected summary storage responses`);
+    object(load.rawLoadIdentity,
+      `${row.id} lacks a raw selected summary identity`);
+    assert.equal(load.rawLoadIdentity.loadedVersion, publication.version,
+      `${row.id} raw load identity names another publication`);
+    assert.equal(load.rawLoadIdentity.snapshotSequenceNumber,
+      publication.snapshotSequenceNumber,
+    `${row.id} raw load identity names another snapshot`);
+    assert(Array.isArray(row.raw.boundaryStorageResponses)
+      && row.raw.boundaryStorageResponses.length > 0,
+    `${row.id} lacks boundary storage responses`);
   }
   return report;
 }
