@@ -1083,12 +1083,16 @@ async function validFixture() {
         values.push(...Object.values(value));
       }
       extra.raw.acceptedOperationPayloads = extra.raw.acceptedOperations.map(
-        (operation) => acceptedPayload(
-          operation,
-          revisions.get(
-            `${operation.clientId}:${operation.clientSequenceNumber}`,
-          ),
-        ),
+        (operation) => {
+          const fallback = createHash("sha256")
+            .update(String(operation.commits[0].revision)).digest("hex");
+          return acceptedPayload(
+            operation,
+            revisions.get(
+              `${operation.clientId}:${operation.clientSequenceNumber}`,
+            ) ?? `${fallback.slice(0, 8)}-${fallback.slice(8, 12)}-4${fallback.slice(13, 16)}-8${fallback.slice(17, 20)}-${fallback.slice(20, 32)}`,
+          );
+        },
       );
       extra.raw.initialCompressorState = createIdCompressor().serialize(false);
     }
@@ -1274,8 +1278,9 @@ async function validFixture() {
           } : {}),
         })),
       transactions: schedule.actions
-        .filter(({ type }) => type === "transaction")
-        .map((action) => ({
+        .map((action, actionIndex) => ({ action, actionIndex }))
+        .filter(({ action }) => action.type === "transaction")
+        .map(({ action, actionIndex }) => ({
           author: action.author,
           constraints: action.constraints,
           requestedResult: action.result,
@@ -1284,14 +1289,14 @@ async function validFixture() {
           nestedScopes: action.edits.filter(({ op }) => op === "transaction").length,
           commitRevision: action.result === "abort"
             ? null
-            : `${prefix}-${action.author}-transaction`,
+            : String((index + 1) * 1000 + actionIndex),
           outboundCount: action.result === "abort" ? 0 : 1,
           acceptedOperation: action.result === "abort"
             ? null
             : {
                 outerSequenceNumber: index + 1,
-                innerIndex: 0,
-                revision: `${prefix}-${action.author}-transaction`,
+                innerIndex: 1,
+                revision: String((index + 1) * 1000 + actionIndex),
                 originatorId: `${prefix}-${action.author}-origin`,
               },
           events: [],
@@ -1481,6 +1486,21 @@ async function validFixture() {
           acceptedOperation(`${prefix}-default`, 1, `${prefix}-${lifecycleAuthor}`),
           acceptedOperation(`${prefix}-undo`, 2, `${prefix}-${lifecycleAuthor}`),
           acceptedOperation(`${prefix}-redo`, 3, `${prefix}-${lifecycleAuthor}`),
+          ...schedule.actions.flatMap((action, actionIndex) =>
+            action.type === "transaction" && action.result !== "abort"
+              ? [{
+                  operationId:
+                    `revision:${prefix}-${action.author}-origin:${(index + 1) * 1000 + actionIndex}`,
+                  clientId: `${prefix}-${action.author}-client`,
+                  clientSequenceNumber: 10 + actionIndex,
+                  outerSequenceNumber: index + 1,
+                  commits: [{
+                    revision: (index + 1) * 1000 + actionIndex,
+                    originatorId: `${prefix}-${action.author}-origin`,
+                    changeset: [],
+                  }],
+                }]
+              : []),
         ],
       } },
     )];
