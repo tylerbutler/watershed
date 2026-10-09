@@ -5676,7 +5676,11 @@ test("seeded lifecycle accepts cumulative checkpoint event snapshots", async () 
   earlierObservation.commits.push(...structuredClone(
     finalObservation.commits.filter(({ kind }) =>
       ["Undo", "Redo"].includes(kind)),
-  ));
+  ).map((event) => ({
+    ...event,
+    eventId: event.eventId + 100,
+    actionId: `${event.actionId}:snapshot-alias`,
+  })));
   const artifact = expected.artifacts.get(owner.artifacts[0]).claim;
   artifact.measured.checkpoints = structuredClone(owner.checkpoints);
   artifact.raw.checkpoints = structuredClone(owner.checkpoints);

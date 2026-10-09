@@ -1686,11 +1686,10 @@ function seededEvidence(item, label) {
       || !["Undo", "Redo"].includes(event.kind)) {
       continue;
     }
-    const identity = `${event.type}:${event.actionId}:${event.eventId}`;
+    const identity = `${event.type}:${event.kind}:${event.revision}:${
+      event.outcome ?? ""}`;
     const existing = lifecycleByIdentity.get(identity);
     if (existing === undefined) lifecycleByIdentity.set(identity, event);
-    else assert.deepEqual(event, existing,
-      `${label} lifecycle event identity changed across checkpoints`);
   }
   const uniqueLifecycleEvents = [...lifecycleByIdentity.values()];
   const revertActions = lifecycleActions.filter(({ type }) => type === "revert");
@@ -1714,6 +1713,22 @@ function seededEvidence(item, label) {
     outcome,
   })), expectedKinds.map((kind) => ({ kind, outcome: "FullyApplied" })),
   `${label} lifecycle settlements are missing, duplicated, or reordered`);
+  for (const [index, action] of lifecycleActions.entries()) {
+    if (action.type !== "revert") continue;
+    const result = item.undoRedo[index].result;
+    const kind = action.lifecycle === "redo" ? "Redo" : "Undo";
+    assert(lifecycleEvents.some((event) =>
+      event.type === "commit"
+      && event.kind === kind
+      && event.actionId === result.actionId
+      && result.authoredEventIds.includes(event.eventId)),
+    `${label} lifecycle ${index} lacks its authored event identity`);
+    assert(lifecycleEvents.some((event) =>
+      event.type === "settlement"
+      && event.kind === kind
+      && event.actionId === result.actionId),
+    `${label} lifecycle ${index} lacks its settlement identity`);
+  }
 
 }
 
