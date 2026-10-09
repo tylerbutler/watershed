@@ -10,7 +10,10 @@ import {
 } from "fluid-framework/alpha";
 import { SharedMap } from "@fluidframework/map/internal";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
-import { createIdCompressor } from "@fluidframework/id-compressor/internal";
+import {
+  createIdCompressor,
+  isStableId,
+} from "@fluidframework/id-compressor/internal";
 import {
   defineDataStore,
   sharedObjectRegistryFromIterable,
@@ -10303,10 +10306,13 @@ export async function runSeededSchedule(config, context, schedule) {
         author,
         outerSequenceNumber,
         innerIndex,
+        revision,
       }) =>
         author === transaction.author
-        && stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
-          === transaction.commitRevision);
+        && (isStableId(transaction.commitRevision)
+          ? stableRevisions.get(`${outerSequenceNumber}:${innerIndex}`)
+            === transaction.commitRevision
+          : String(revision) === transaction.commitRevision));
       assert.equal(accepted.length, 1,
         "Seeded committed transaction lacks one attributable accepted operation");
       return {
@@ -10316,7 +10322,9 @@ export async function runSeededSchedule(config, context, schedule) {
           innerIndex: accepted[0].innerIndex,
           revision: String(accepted[0].revision),
           originatorId: String(accepted[0].originatorId),
-          stableRevision: transaction.commitRevision,
+          ...(isStableId(transaction.commitRevision)
+            ? { stableRevision: transaction.commitRevision }
+            : {}),
         },
       };
     });
