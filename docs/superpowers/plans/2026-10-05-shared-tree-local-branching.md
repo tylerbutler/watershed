@@ -1,5 +1,9 @@
 # SharedTree Local Branching Implementation Plan
 
+> **Implementation record:** Tasks 1-10 are complete. Their procedures and
+> unchecked historical substeps are not work to restart. Task 11 tracks the
+> remaining release acceptance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Stop at the Task 1 contract gate before implementing native branching.
 
 **Goal:** Complete the runtime-local M6 slice with isolated editable forks, explicit rebase and merge, checkout-scoped undo, and safe lifetime on JavaScript and BEAM.
@@ -1009,7 +1013,12 @@ the parent roadmap. Do not create an empty implementation closure commit.
 **Consumes:** Tasks 1-10 and their named acceptance evidence.
 **Produces:** Honest M6 status, pinned report IDs, and any remaining blockers.
 
-- [ ] **Step 1: Run formatting, oracle, native, and codec gates.**
+**Execution status (2026-10-09):** Formatting, oracle, native, codec,
+published-profile service, and creation gates passed at unchanged execution
+HEAD `53c193e0`. Full repository, build, lint, and standalone browser closure
+is still in progress. No new production change has been required.
+
+- [x] **Step 1: Run formatting, oracle, native, and codec gates.**
 
   ```bash
   rtk proxy gleam format --check src test
@@ -1046,6 +1055,91 @@ the parent roadmap. Do not create an empty implementation closure commit.
   Confirm no private branch state entered wire/summaries, no new production
   Fluid dependency, no unrelated changes, and no M7/M8 claim. Suggested
   authorized documentation commit: `docs(tree): record local branch acceptance`.
+
+#### Current Task 11 evidence
+
+Execution resumed on `main` from `53c193e02646b17218590fb150ac655d884d9283`,
+with a clean working tree and user authorization for incremental commits.
+This continuation preserves the earlier checklist lockfile repair
+`a77cb140` and ordinary-DDS subscriber snapshot repair `b2e10a17`.
+
+| Gate | Current result |
+| --- | --- |
+| `gleam format --check src test` | Passed. |
+| Oracle `run check` | Verified all 63 generated cases against the pinned source/package. |
+| `npm --prefix tools/shared-tree-oracle test` | 534 passed, zero failures or skips. |
+| `just shared-tree-test` | 1,084 Erlang and 1,057 JavaScript tests passed, plus storage/bootstrap/creation smokes. |
+| `just shared-tree-codec-interop` | Two targets passed, 38 items each. |
+| `just shared-tree-interop` | Full retry passed: 300 requested/generated/executed schedules, seed 42, zero skips or divergences. |
+| `just shared-tree-create-interop` | All 18 native-creator/profile/reader cells passed, zero skips or divergences. |
+
+The accepted service report is
+`tools/shared-tree-oracle/.output/interop/f464dfdf-a6e4-4e4d-b1bf-fa260460b500/report.json`.
+It contains three isolation rows, 168 unrelated/overlapping conflict cells,
+six lifetime rows, four native reconnect rows, and all 18
+writer/before-or-after-merge/reader reload cells. All five sections and their
+rows are bound to this run and the published profile. A separate current-profile
+audit reconstructed 1,010 verified artifact references and passed
+`validateInteropReport`; every branch row has its retained raw client/service
+artifact. The service coordinator's narrower native selection passed 1,067
+Erlang and 1,040 JavaScript tests with complete footers.
+
+The same report preserves the earlier supported slices: 279 deterministic
+cells, 12 reconnect cells, 42 expected-refusal cells, the object/map/array/
+Identifier reload matrices, strict-view schema races and summary-tail
+continuation, three transaction callback pairs, six constraint cases, two
+transaction reconnect cases and nine transaction reload cells. Undo/redo
+has three implementation rows, 30 concurrent cells, two native reconnect
+cells and all 18 stage/writer/reader reload cells.
+
+Creation report
+`tools/shared-tree-oracle/.output/creation/c4cbc88b-23a5-483e-a46d-31cf9a57b843/report.json`
+uses the same profile and pinned real service. It covers object, array and
+Identifier documents from both native creators, all three readers, continued
+editing and reload.
+
+| Identity | SHA-256 or pinned value |
+| --- | --- |
+| Published profile | `51a465c9e685197b578eaa1a53cea84aa2da955da1000855fa5214534fb84608` |
+| Branch oracle source, `upstream-branch.spec.ts` | `666714a915e98173ee717c8b6e41e313bed763e283e417f0645a20df8e8e157f` |
+| Generated manifest | `6b0a44c554f6a55c9064b26c3587954cbb7703dbd0cc9e249eee803a50efb45b` |
+| Ordered 63-case corpus | `b250c0b21c8473d4c01aa4591dd2512961e1f0d17d72c50fd73d64f26debc3aa` |
+| Package/source | `@fluidframework/tree` 3.1.0 / `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` |
+| Real service | Floodgate `0eb493fc46d1bb9baf1151a6ccdde93544e057e7` |
+
+The corpus digest hashes, in manifest order, each case's relative `file` path
+as UTF-8, a NUL byte, the exact file bytes and another NUL byte. The manifest
+registers all eight branch groups among 37 native semantic runners per target.
+Message V7, SharedTreeChange V5, ModularChange V5, Schema V2,
+`minVersionForCollab: 2.117.0` and the fixed bootstrap layout are unchanged.
+
+The first service attempt, `bc6a8ab1-0083-4021-81d5-0c70bfd13f23`, failed
+while waiting for an upstream summary broadcast. The full retry above passed
+on the same unchanged HEAD, without timeout changes, validator weakening,
+skipped work or a baseline waiver. The failed attempt remains recorded in its
+`failure.json`; it is not acceptance evidence. Existing unused-function
+warnings and diagnostics from deliberate refusal tests remain in the raw
+logs.
+
+#### Named native acceptance evidence
+
+Both target suites execute the pure/kernel/runtime tests below. Target-specific
+facade tests provide the additional JavaScript callback and BEAM actor proof.
+The tests compare revisions, identities, event kinds, retained handles,
+allocation, outbound lists and summary state, not only final visible values.
+
+| Contract group | Named tests |
+| --- | --- |
+| Pinned input-only corpus and schema exception | `local_branch_merge_matches_pinned_observations_test`, `local_branch_isolation_matches_pinned_observations_test`, `local_branch_rebase_matches_supported_rows_test`, `local_branch_schema_source_evidence_and_native_refusal_are_required_test` in `shared_tree_fixture_test.gleam` |
+| Fork identity and explicit source-only rebase | `local_branch_fork_isolates_kernel_state_test`, `local_branch_rebase_changes_source_and_preserves_target_test` in `shared_tree_branch_test.gleam` |
+| Field conflicts, common revisions and repeated merges | `local_branch_field_reconciliation_matrix_test`, `local_branch_merge_removes_common_revisions_test`, `local_branch_repeated_divergent_merge_excludes_target_revisions_test` in `shared_tree_branch_test.gleam`; all 168 raw-bound service cells extend this to transactions and Identifiers |
+| Shared allocator and publication boundaries | `local_branch_shared_allocator_matches_pinned_ranges_test`, `local_branch_shared_allocator_interleaves_three_checkouts_test`, `local_branch_nested_abort_preserves_identifier_allocation_test`; `local_branch_native_notifications_outbound_and_document_lifetime_test` observes source/target events and outbound lists |
+| Independent checkout transactions and undo | `local_branch_transaction_abort_preserves_main_callback_edit_test`, `local_branch_transaction_commit_preserves_main_callback_edit_test`, `local_branch_main_transaction_preserves_fork_callback_edit_test`, `local_branch_transaction_preserves_sibling_callback_edit_test`, `local_branch_undo_is_checkout_scoped_test`, `local_branch_source_revertible_survives_merged_ack_and_rebase_test` |
+| Atomic refusals and checkout-scoped disposal | `local_branch_reconciliation_guards_are_atomic_test`, `shared_tree_runtime_rejects_branch_schema_authoring_atomically_test`, `local_branch_schema_source_evidence_and_native_refusal_are_required_test`, `local_branch_disposal_invalidates_only_its_revertibles_test` |
+| Descendants, ancestry and repair retention | `local_branch_descendant_survives_parent_disposal_test`, `local_branch_dispose_preserves_revertible_pin_test`, `local_branch_rebase_advances_only_its_pin_test`, `local_branch_msn_preserves_fork_and_revertible_repair_test` |
+| Public facade, settlement and actor cleanup | `shared_tree_facade_fork_edit_isolation_rebase_merge_test`, `facade_branch_settlement_survives_unsubscribe_and_reconnect_test`; `beam_branch_actor_fork_edit_isolation_test`, `beam_branch_merge_disposal_cleans_only_source_scope_test`, `beam_branch_delivery_shutdown_cancels_later_callbacks_test`, `beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test` |
+| Reconnect, accepted-before-drop and persistence | `local_branch_reconnect_preserves_pending_origin_test`, `local_branch_merge_accepted_before_drop_is_not_duplicated_test`, `local_branch_unmerged_changes_do_not_enter_summary_test`, `local_branch_reloaded_summary_has_no_old_checkout_test` in `shared_tree_branch_recovery_test.gleam`; four reconnect and 18 reload service artifacts |
+| Permanent source/native/service gates | `committed profile and corpus publish the complete local branch contract`, missing-case/target/source-row mutations, current-run/profile artifact binding mutations, and raw client/service evidence mutations in the passing oracle suite |
 
 ## 5. Acceptance matrix
 
