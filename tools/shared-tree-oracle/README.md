@@ -84,8 +84,10 @@ capture records the injected source digest. Corpus regeneration includes these
 cases, but neither native semantic runner nor the supported profile claims
 handle-leaf or live-attachment support yet.
 
-The `handle-leaves` input now contains the stored Schema V2 document, executable
-root/object/map/array edits, the exact tagged `/B/child` handle value, and
+The `handle-leaves` input contains per-edit stored schemas, initial typed roots
+and root/object/map/array edits whose observed outputs use the same `/B/child`
+handle. Required and optional root edits use handle-root schemas, not the
+object-root codec schema. It also includes the exact tagged handle value and
 replayable nonincremental and schema-aware FieldBatch V2 payloads with decoded
 values. Its observations resolve distinct handle wrappers through `get()`,
 resolve the same relative channel name from two live datastore contexts, and

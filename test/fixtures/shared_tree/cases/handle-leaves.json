@@ -96,7 +96,22 @@
         "id": "required-root",
         "operation": "store a handle as the required root",
         "input": {
-          "schema": "storedSchema",
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "com.fluidframework.leaf.handle"
+              ]
+            }
+          },
           "sourceDatastoreContext": "/B",
           "taggedValue": {
             "kind": "handle",
@@ -105,10 +120,19 @@
               "url": "/B/child"
             }
           },
-          "edit": "required-root",
-          "expectedDecodedValue": {
-            "type": "__fluid_handle__",
-            "url": "/B/child"
+          "initialRoot": null,
+          "edit": {
+            "operation": "initialize-root",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            }
+          },
+          "expectedOutput": {
+            "path": "/B/child"
           }
         }
       },
@@ -116,7 +140,22 @@
         "id": "optional-root",
         "operation": "set and clear an optional root handle",
         "input": {
-          "schema": "storedSchema",
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              }
+            },
+            "root": {
+              "kind": "Optional",
+              "types": [
+                "com.fluidframework.leaf.handle"
+              ]
+            }
+          },
           "sourceDatastoreContext": "/B",
           "taggedValue": {
             "kind": "handle",
@@ -125,10 +164,20 @@
               "url": "/B/child"
             }
           },
-          "edit": "optional-root",
-          "expectedDecodedValue": {
-            "type": "__fluid_handle__",
-            "url": "/B/child"
+          "initialRoot": null,
+          "edit": {
+            "operation": "initialize-clear-root",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            }
+          },
+          "expectedOutput": {
+            "beforeClear": "/B/child",
+            "afterClear": null
           }
         }
       },
@@ -136,7 +185,79 @@
         "id": "object-field",
         "operation": "set a handle object field",
         "input": {
-          "schema": "storedSchema",
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
           "sourceDatastoreContext": "/B",
           "taggedValue": {
             "kind": "handle",
@@ -145,10 +266,51 @@
               "url": "/B/child"
             }
           },
-          "edit": "object-field",
-          "expectedDecodedValue": {
-            "type": "__fluid_handle__",
-            "url": "/B/child"
+          "initialRoot": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.handles.Root",
+            "fields": [
+              [
+                "label",
+                {
+                  "kind": "string",
+                  "value": "object-field"
+                }
+              ],
+              [
+                "links",
+                {
+                  "kind": "map",
+                  "schemaId": "org.watershed.shared-tree.handles.Links",
+                  "entries": []
+                }
+              ],
+              [
+                "sequence",
+                {
+                  "kind": "array",
+                  "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                  "elements": []
+                }
+              ]
+            ]
+          },
+          "edit": {
+            "operation": "set-object-field",
+            "field": "link",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            }
+          },
+          "expectedOutput": {
+            "label": "object-field",
+            "link": "/B/child",
+            "links": [],
+            "sequence": []
           }
         }
       },
@@ -156,7 +318,79 @@
         "id": "map-entry",
         "operation": "set a handle map entry",
         "input": {
-          "schema": "storedSchema",
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
           "sourceDatastoreContext": "/B",
           "taggedValue": {
             "kind": "handle",
@@ -165,10 +399,56 @@
               "url": "/B/child"
             }
           },
-          "edit": "map-entry",
-          "expectedDecodedValue": {
-            "type": "__fluid_handle__",
-            "url": "/B/child"
+          "initialRoot": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.handles.Root",
+            "fields": [
+              [
+                "label",
+                {
+                  "kind": "string",
+                  "value": "map-entry"
+                }
+              ],
+              [
+                "links",
+                {
+                  "kind": "map",
+                  "schemaId": "org.watershed.shared-tree.handles.Links",
+                  "entries": []
+                }
+              ],
+              [
+                "sequence",
+                {
+                  "kind": "array",
+                  "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                  "elements": []
+                }
+              ]
+            ]
+          },
+          "edit": {
+            "operation": "set-map-entry",
+            "field": "links",
+            "key": "target",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            }
+          },
+          "expectedOutput": {
+            "label": "map-entry",
+            "links": [
+              [
+                "target",
+                "/B/child"
+              ]
+            ],
+            "sequence": []
           }
         }
       },
@@ -176,7 +456,79 @@
         "id": "array-element",
         "operation": "insert a handle array element",
         "input": {
-          "schema": "storedSchema",
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
           "sourceDatastoreContext": "/B",
           "taggedValue": {
             "kind": "handle",
@@ -185,10 +537,53 @@
               "url": "/B/child"
             }
           },
-          "edit": "array-element",
-          "expectedDecodedValue": {
-            "type": "__fluid_handle__",
-            "url": "/B/child"
+          "initialRoot": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.handles.Root",
+            "fields": [
+              [
+                "label",
+                {
+                  "kind": "string",
+                  "value": "array-element"
+                }
+              ],
+              [
+                "links",
+                {
+                  "kind": "map",
+                  "schemaId": "org.watershed.shared-tree.handles.Links",
+                  "entries": []
+                }
+              ],
+              [
+                "sequence",
+                {
+                  "kind": "array",
+                  "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                  "elements": []
+                }
+              ]
+            ]
+          },
+          "edit": {
+            "operation": "insert-array-element",
+            "field": "sequence",
+            "index": 0,
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            }
+          },
+          "expectedOutput": {
+            "label": "array-element",
+            "links": [],
+            "sequence": [
+              "/B/child"
+            ]
           }
         }
       },
@@ -581,51 +976,51 @@
       {
         "id": "required-root",
         "value": {
-          "path": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+          "path": "/B/child"
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "required-root:serialization:0"
+            "id": "required-root:serialization:10"
           }
         ]
       },
       {
         "id": "optional-root",
         "value": {
-          "beforeClear": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+          "beforeClear": "/B/child",
+          "afterClear": null
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "optional-root:serialization:1"
+            "id": "optional-root:serialization:11"
           }
         ]
       },
       {
         "id": "object-field",
         "value": {
-          "label": "handle-leaves",
-          "link": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target",
+          "label": "object-field",
+          "link": "/B/child",
           "links": [],
           "sequence": []
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "object-field:serialization:2"
+            "id": "object-field:serialization:12"
           }
         ]
       },
       {
         "id": "map-entry",
         "value": {
-          "label": "handle-leaves",
-          "link": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target",
+          "label": "map-entry",
           "links": [
             [
               "target",
-              "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+              "/B/child"
             ]
           ],
           "sequence": []
@@ -633,29 +1028,23 @@
         "evidence": [
           {
             "section": "serialization",
-            "id": "map-entry:serialization:3"
+            "id": "map-entry:serialization:13"
           }
         ]
       },
       {
         "id": "array-element",
         "value": {
-          "label": "handle-leaves",
-          "link": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target",
-          "links": [
-            [
-              "target",
-              "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
-            ]
-          ],
+          "label": "array-element",
+          "links": [],
           "sequence": [
-            "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+            "/B/child"
           ]
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "array-element:serialization:4"
+            "id": "array-element:serialization:14"
           }
         ]
       },
@@ -963,7 +1352,7 @@
           },
           {
             "section": "serialization",
-            "id": "malformed-marker:serialization:10"
+            "id": "malformed-marker:serialization:15"
           }
         ]
       },
@@ -973,6 +1362,7 @@
           "outcomes": [
             {
               "id": "unknown-marker-kind",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle_v3__",
                 "url": "/unsupported"
@@ -999,6 +1389,7 @@
             },
             {
               "id": "external-url",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "https://example.test/object"
@@ -1022,6 +1413,7 @@
             },
             {
               "id": "traversal",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "../child"
@@ -1045,6 +1437,7 @@
             },
             {
               "id": "invalid-escape",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "/B/bad%ZZ"
@@ -1075,7 +1468,7 @@
           },
           {
             "section": "serialization",
-            "id": "unsupported-marker:serialization:11"
+            "id": "unsupported-marker:serialization:16"
           }
         ]
       }
@@ -1254,7 +1647,547 @@
         }
       },
       {
-        "id": "malformed-marker:serialization:10",
+        "id": "required-root:serialization:10",
+        "scenarioId": "required-root",
+        "kind": "executable-edit",
+        "value": {
+          "input": {
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.handle"
+                ]
+              }
+            },
+            "sourceDatastoreContext": "/B",
+            "taggedValue": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            },
+            "initialRoot": null,
+            "edit": {
+              "operation": "initialize-root",
+              "value": {
+                "kind": "handle",
+                "value": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              }
+            },
+            "expectedOutput": {
+              "path": "/B/child"
+            }
+          },
+          "output": {
+            "path": "/B/child"
+          }
+        }
+      },
+      {
+        "id": "optional-root:serialization:11",
+        "scenarioId": "optional-root",
+        "kind": "executable-edit",
+        "value": {
+          "input": {
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                }
+              },
+              "root": {
+                "kind": "Optional",
+                "types": [
+                  "com.fluidframework.leaf.handle"
+                ]
+              }
+            },
+            "sourceDatastoreContext": "/B",
+            "taggedValue": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            },
+            "initialRoot": null,
+            "edit": {
+              "operation": "initialize-clear-root",
+              "value": {
+                "kind": "handle",
+                "value": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              }
+            },
+            "expectedOutput": {
+              "beforeClear": "/B/child",
+              "afterClear": null
+            }
+          },
+          "output": {
+            "beforeClear": "/B/child",
+            "afterClear": null
+          }
+        }
+      },
+      {
+        "id": "object-field:serialization:12",
+        "scenarioId": "object-field",
+        "kind": "executable-edit",
+        "value": {
+          "input": {
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "sourceDatastoreContext": "/B",
+            "taggedValue": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            },
+            "initialRoot": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "object-field"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            },
+            "edit": {
+              "operation": "set-object-field",
+              "field": "link",
+              "value": {
+                "kind": "handle",
+                "value": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              }
+            },
+            "expectedOutput": {
+              "label": "object-field",
+              "link": "/B/child",
+              "links": [],
+              "sequence": []
+            }
+          },
+          "output": {
+            "label": "object-field",
+            "link": "/B/child",
+            "links": [],
+            "sequence": []
+          }
+        }
+      },
+      {
+        "id": "map-entry:serialization:13",
+        "scenarioId": "map-entry",
+        "kind": "executable-edit",
+        "value": {
+          "input": {
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "sourceDatastoreContext": "/B",
+            "taggedValue": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            },
+            "initialRoot": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "map-entry"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            },
+            "edit": {
+              "operation": "set-map-entry",
+              "field": "links",
+              "key": "target",
+              "value": {
+                "kind": "handle",
+                "value": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              }
+            },
+            "expectedOutput": {
+              "label": "map-entry",
+              "links": [
+                [
+                  "target",
+                  "/B/child"
+                ]
+              ],
+              "sequence": []
+            }
+          },
+          "output": {
+            "label": "map-entry",
+            "links": [
+              [
+                "target",
+                "/B/child"
+              ]
+            ],
+            "sequence": []
+          }
+        }
+      },
+      {
+        "id": "array-element:serialization:14",
+        "scenarioId": "array-element",
+        "kind": "executable-edit",
+        "value": {
+          "input": {
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "sourceDatastoreContext": "/B",
+            "taggedValue": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              }
+            },
+            "initialRoot": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "array-element"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            },
+            "edit": {
+              "operation": "insert-array-element",
+              "field": "sequence",
+              "index": 0,
+              "value": {
+                "kind": "handle",
+                "value": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              }
+            },
+            "expectedOutput": {
+              "label": "array-element",
+              "links": [],
+              "sequence": [
+                "/B/child"
+              ]
+            }
+          },
+          "output": {
+            "label": "array-element",
+            "links": [],
+            "sequence": [
+              "/B/child"
+            ]
+          }
+        }
+      },
+      {
+        "id": "malformed-marker:serialization:15",
         "scenarioId": "malformed-marker",
         "kind": "serializer-outcomes",
         "value": {
@@ -1365,13 +2298,14 @@
         }
       },
       {
-        "id": "unsupported-marker:serialization:11",
+        "id": "unsupported-marker:serialization:16",
         "scenarioId": "unsupported-marker",
         "kind": "serializer-outcomes",
         "value": {
           "outcomes": [
             {
               "id": "unknown-marker-kind",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle_v3__",
                 "url": "/unsupported"
@@ -1398,6 +2332,7 @@
             },
             {
               "id": "external-url",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "https://example.test/object"
@@ -1421,6 +2356,7 @@
             },
             {
               "id": "traversal",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "../child"
@@ -1444,6 +2380,7 @@
             },
             {
               "id": "invalid-escape",
+              "method": "decode",
               "input": {
                 "type": "__fluid_handle__",
                 "url": "/B/bad%ZZ"
@@ -1839,7 +2776,7 @@
       "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
       "version": "3.1.0",
       "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
-      "digest": "f61c693afe63865c24d094828da4beeb857709ea8d30f558fe927228b6ebfd1c"
+      "digest": "2c65a2165726893e2f887240998386e5441866faf49cf98e433d246da700cd9e"
     }
   }
 }

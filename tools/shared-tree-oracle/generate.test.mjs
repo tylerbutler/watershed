@@ -165,6 +165,158 @@ test("handle codec scenarios reject empty executable inputs", async () => {
   assert.throws(() => validateLifecycleCase(value), /codec.*input|FieldBatch/i);
 });
 
+test("handle executable edit inputs match their measured schemas and outputs", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const rootKinds = {
+    "required-root": "Value",
+    "optional-root": "Optional",
+    "object-field": "Value",
+    "map-entry": "Value",
+    "array-element": "Value",
+  };
+  for (const [id, rootKind] of Object.entries(rootKinds)) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    const observation = value.expected.observations.find((item) => item.id === id);
+    assert.ok(scenario.input.storedSchema, `${id}: stored schema`);
+    assert.equal(scenario.input.storedSchema.root.kind, rootKind, id);
+    assert.deepEqual(scenario.input.expectedOutput, observation.value, id);
+    assert.deepEqual(scenario.input.taggedValue, {
+      kind: "handle",
+      value: { type: "__fluid_handle__", url: "/B/child" },
+    }, id);
+  }
+  assert.deepEqual(
+    value.input.scenarios.find((item) => item.id === "required-root")
+      .input.storedSchema.root.types,
+    ["com.fluidframework.leaf.handle"],
+  );
+  assert.deepEqual(
+    value.input.scenarios.find((item) => item.id === "optional-root")
+      .input.storedSchema.root.types,
+    ["com.fluidframework.leaf.handle"],
+  );
+  for (const id of ["object-field", "map-entry", "array-element"]) {
+    assert.deepEqual(
+      value.input.scenarios.find((item) => item.id === id).input.storedSchema.root.types,
+      ["org.watershed.shared-tree.handles.Root"],
+      id,
+    );
+  }
+});
+
+test("handle object edits provide their initial typed root without expected-output inference", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  for (const id of ["object-field", "map-entry", "array-element"]) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    assert.deepEqual(scenario.input.initialRoot, {
+      kind: "object",
+      type: "org.watershed.shared-tree.handles.Root",
+      fields: [
+        ["label", { kind: "string", value: id }],
+        ["links", {
+          kind: "map",
+          schemaId: "org.watershed.shared-tree.handles.Links",
+          entries: [],
+        }],
+        ["sequence", {
+          kind: "array",
+          schemaId: "org.watershed.shared-tree.handles.Sequence",
+          elements: [],
+        }],
+      ],
+    }, id);
+  }
+});
+
+test("handle codecs reject a coherent invented schema root", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const invented = "does.not.exist";
+  const schema = structuredClone(value.input.storedSchema);
+  schema.nodes[invented] = structuredClone(
+    schema.nodes["org.watershed.shared-tree.handles.Root"],
+  );
+  schema.root.types = [invented];
+  value.input.storedSchema = schema;
+  for (const id of ["uncompressed-v2", "schema-aware-v2"]) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    scenario.codec.storedSchema = structuredClone(schema);
+    const observation = value.expected.observations.find((item) => item.id === id);
+    const evidenceIds = new Set(observation.evidence.map((item) => item.id));
+    const record = value.raw.summaries.find((item) => evidenceIds.has(item.id));
+    if (id === "schema-aware-v2") {
+      scenario.codec.payload.shapes.find((shape) =>
+        shape.c?.type === "org.watershed.shared-tree.handles.Root").c.type = invented;
+      scenario.codec.expectedDecoded[0].type = invented;
+      observation.value.decoded[0].type = invented;
+    }
+    record.value = structuredClone(scenario.codec);
+  }
+  assert.throws(() => validateLifecycleCase(value), /codec.*schema root|stored schema/i);
+});
+
+test("handle codecs reject synchronized non-handle payloads", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const stringNode = {
+    type: "com.fluidframework.leaf.string",
+    value: "not a handle",
+    fields: {},
+  };
+  for (const id of ["uncompressed-v2", "schema-aware-v2"]) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    scenario.codec.payload = {
+      version: 2,
+      identifiers: [],
+      shapes: [{ c: { type: "com.fluidframework.leaf.string", value: true } }],
+      data: [[0, "not a handle"]],
+    };
+    scenario.codec.expectedDecoded = [structuredClone(stringNode)];
+    const observation = value.expected.observations.find((item) => item.id === id);
+    observation.value.decoded = [structuredClone(stringNode)];
+    const evidenceIds = new Set(observation.evidence.map((item) => item.id));
+    value.raw.summaries.find((item) => evidenceIds.has(item.id)).value =
+      structuredClone(scenario.codec);
+  }
+  assert.throws(() => validateLifecycleCase(value), /codec.*tagged handle|handle node/i);
+});
+
+test("malformed outcomes reject synchronized wrong serializer operations", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const observation = value.expected.observations.find((item) => item.id === "malformed-marker");
+  const evidenceIds = new Set(observation.evidence.map((item) => item.id));
+  const record = value.raw.serialization.find((item) =>
+    evidenceIds.has(item.id) && item.kind === "serializer-outcomes");
+  const replacement = {
+    id: "missing-url",
+    method: "tree-assignment",
+    input: { ordinary: "object" },
+    serializer: { kind: "error", error: "ordinary assignment error" },
+    resolution: { attempted: false, reason: "ordinary object" },
+    treeImport: { kind: "refused", error: "ordinary assignment error" },
+    nativeProfile: { outcome: "refused", reason: "invalid handle marker" },
+  };
+  observation.value.outcomes[0] = structuredClone(replacement);
+  record.value.outcomes[0] = structuredClone(replacement);
+  assert.throws(() => validateLifecycleCase(value), /missing-url.*decode|serializer operation/i);
+});
+
+test("serializer outcomes require every measured stage", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  for (const scenarioId of ["malformed-marker", "unsupported-marker"]) {
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const evidenceIds = new Set(observation.evidence.map((item) => item.id));
+    const record = value.raw.serialization.find((item) =>
+      evidenceIds.has(item.id) && item.kind === "serializer-outcomes");
+    const ids = scenarioId === "malformed-marker"
+      ? ["pending-payload"]
+      : ["external-url", "traversal", "invalid-escape"];
+    for (const id of ids) {
+      delete observation.value.outcomes.find((item) => item.id === id).treeImport;
+      delete record.value.outcomes.find((item) => item.id === id).treeImport;
+    }
+  }
+  assert.throws(() => validateLifecycleCase(value), /tree import stage|treeImport/i);
+});
+
 test("lifecycle validator rejects cross-datastore order invented by observations", async () => {
   const value = await lifecycleCapture("cross-datastore-attachment");
   value.expected.observations.find((item) => item.id === "map-cross-datastore")

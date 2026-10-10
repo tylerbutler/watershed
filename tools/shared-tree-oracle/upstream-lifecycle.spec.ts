@@ -204,6 +204,23 @@ function summaryBlobText(value: unknown): string[] {
 	return blobs;
 }
 
+function storedSchemaFromSummary(value: unknown): unknown {
+	const schemas = summaryBlobText(value).flatMap((blob) => {
+		try {
+			const parsed = JSON.parse(blob);
+			return parsed?.version === 2
+				&& parsed?.nodes !== undefined
+				&& parsed?.root !== undefined
+				? [parsed]
+				: [];
+		} catch {
+			return [];
+		}
+	});
+	assert.equal(schemas.length, 1, "The summary must contain one stored schema");
+	return schemas[0];
+}
+
 function messageOrder(messages: unknown[]): string[] {
 	const order: string[] = [];
 	for (const message of messages) {
@@ -916,7 +933,149 @@ describe("Watershed handle and attachment lifecycle", () => {
 			codecCapture.view.root.link = codecTarget.handle;
 			codecCapture.view.root.links.set("target", codecTarget.handle);
 			codecCapture.view.root.sequence.insertAtEnd(codecTarget.handle);
+
+			const createEditTree = (id: string) => treeFactory().create(codecCapture.runtime, id);
+			const requiredEditTree = createEditTree("required-root-input");
+			const requiredEditView = requiredEditTree.viewWith(
+				new TreeViewConfiguration({ schema: sf.handle }),
+			);
+			requiredEditView.initialize(codecTarget.handle);
 			codecCapture.runtimeFactory.processAllMessages();
+
+			const optionalEditTree = createEditTree("optional-root-input");
+			const optionalEditView = optionalEditTree.viewWith(
+				new TreeViewConfiguration({ schema: sf.optional(sf.handle) }),
+			);
+			optionalEditView.initialize(codecTarget.handle);
+			codecCapture.runtimeFactory.processAllMessages();
+			const optionalBeforeClear = pathOf(optionalEditView.root as IFluidHandle);
+			optionalEditView.root = undefined;
+			codecCapture.runtimeFactory.processAllMessages();
+
+			const rootEdit = (id: string) => {
+				const editTree = createEditTree(`${id}-input`);
+				const editView = asAlpha(editTree.viewWith(
+					new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
+				));
+				editView.initialize(new Root({
+					label: id,
+					links: new Links(),
+					sequence: new Sequence(),
+				}));
+				codecCapture.runtimeFactory.processAllMessages();
+				return {
+					tree: editTree,
+					view: editView,
+					initialRoot: {
+						kind: "object",
+						type: "org.watershed.shared-tree.handles.Root",
+						fields: [
+							["label", { kind: "string", value: id }],
+							["links", {
+								kind: "map",
+								schemaId: "org.watershed.shared-tree.handles.Links",
+								entries: [],
+							}],
+							["sequence", {
+								kind: "array",
+								schemaId: "org.watershed.shared-tree.handles.Sequence",
+								elements: [],
+							}],
+						],
+					},
+				};
+			};
+			const objectEdit = rootEdit("object-field");
+			objectEdit.view.root.link = codecTarget.handle;
+			codecCapture.runtimeFactory.processAllMessages();
+			const mapEdit = rootEdit("map-entry");
+			mapEdit.view.root.links.set("target", codecTarget.handle);
+			codecCapture.runtimeFactory.processAllMessages();
+			const arrayEdit = rootEdit("array-element");
+			arrayEdit.view.root.sequence.insertAtEnd(codecTarget.handle);
+			codecCapture.runtimeFactory.processAllMessages();
+
+			const taggedValue = {
+				kind: "handle",
+				value: { type: "__fluid_handle__", url: "/B/child" },
+			};
+			const editCaptures = [
+				{
+					id: "required-root",
+					tree: requiredEditTree,
+					initialRoot: null,
+					edit: { operation: "initialize-root", value: taggedValue },
+					output: { path: pathOf(requiredEditView.root) },
+				},
+				{
+					id: "optional-root",
+					tree: optionalEditTree,
+					initialRoot: null,
+					edit: { operation: "initialize-clear-root", value: taggedValue },
+					output: { beforeClear: optionalBeforeClear, afterClear: null },
+				},
+				{
+					id: "object-field",
+					tree: objectEdit.tree,
+					initialRoot: objectEdit.initialRoot,
+					edit: {
+						operation: "set-object-field",
+						field: "link",
+						value: taggedValue,
+					},
+					output: copy(visible(objectEdit.view.root)),
+				},
+				{
+					id: "map-entry",
+					tree: mapEdit.tree,
+					initialRoot: mapEdit.initialRoot,
+					edit: {
+						operation: "set-map-entry",
+						field: "links",
+						key: "target",
+						value: taggedValue,
+					},
+					output: copy(visible(mapEdit.view.root)),
+				},
+				{
+					id: "array-element",
+					tree: arrayEdit.tree,
+					initialRoot: arrayEdit.initialRoot,
+					edit: {
+						operation: "insert-array-element",
+						field: "sequence",
+						index: 0,
+						value: taggedValue,
+					},
+					output: copy(visible(arrayEdit.view.root)),
+				},
+			];
+			for (const capture of editCaptures) {
+				const input = {
+					storedSchema: storedSchemaFromSummary((await summarize(capture.tree)).summary),
+					sourceDatastoreContext: "/B",
+					taggedValue,
+					initialRoot: capture.initialRoot,
+					edit: capture.edit,
+					expectedOutput: capture.output,
+				};
+				const scenario = scenarios.find((item) => item.id === capture.id);
+				const observationIndex = observations.findIndex((item) => item.id === capture.id);
+				assert(scenario !== undefined && observationIndex >= 0);
+				scenario.input = input;
+				observations[observationIndex] = {
+					id: capture.id,
+					value: capture.output,
+					evidence: [record(
+						"serialization",
+						raw,
+						capture.id,
+						"executable-edit",
+						{ input, output: capture.output },
+					)],
+				};
+			}
+
 			const replaySummary = await summarize(codecCapture.tree);
 			const replayBlobs = summaryBlobText(replaySummary.summary);
 			const storedSchemaText = replayBlobs.find((blob) =>
@@ -941,19 +1100,6 @@ describe("Watershed handle and attachment lifecycle", () => {
 				sourceDatastoreContext: "/B",
 				taggedValue: { kind: "handle", value: marker },
 			};
-			for (const id of [
-				"required-root", "optional-root", "object-field", "map-entry", "array-element",
-			]) {
-				const scenario = scenarios.find((item) => item.id === id);
-				assert(scenario !== undefined);
-				scenario.input = {
-					schema: "storedSchema",
-					sourceDatastoreContext: "/B",
-					taggedValue: codecInput.taggedValue,
-					edit: id,
-					expectedDecodedValue: marker,
-				};
-			}
 			const uncompressedScenario = scenarios.find((item) => item.id === "uncompressed-v2");
 			const schemaAwareScenario = scenarios.find((item) => item.id === "schema-aware-v2");
 			assert(uncompressedScenario !== undefined && schemaAwareScenario !== undefined);
@@ -1139,6 +1285,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 				replayView.root.link = firstChild.handle;
 				unsupportedOutcomes.push({
 					id: item.id,
+					method: "decode",
 					input: item.value,
 					serializer: isHandle
 						? { kind: "handle", decodedPath: pathOf(handle) }
