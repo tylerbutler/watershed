@@ -32,6 +32,9 @@ test counts remain historical acceptance records. The local branching
 continuation started at `18ec7c4a` and completed Task 9 through `5e8050a4`;
 its service evidence is recorded below. Task 11 completed local M6 release
 acceptance on 2026-10-09 with the published profile and full regression gates.
+The subsequent approved [M7 Lustre consumer slice](2026-10-09-shared-tree-lustre.md)
+is implemented and locally accepted. Its effects, application-owned history,
+lifecycle cleanup and browser proof do not close the remaining M7 areas.
 
 | Area | Current status | Plan or remaining scope |
 | --- | --- | --- |

@@ -1,5 +1,9 @@
 # SharedTree Lustre Consumer Implementation Plan
 
+> **Implementation record:** Both tasks are complete and locally accepted.
+> Their procedures describe completed work, not tasks to restart. This closes
+> the approved Lustre consumer slice, not the whole M7 milestone.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development`
 > or `executing-plans` task-by-task. Historical completion records are not tasks
 > to restart. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -57,6 +61,7 @@ Prefer existing fixtures and transport seams; no production test-only hooks.
 | `watershed_lustre/README.md` | Public effect signatures, ownership and queued-message lifetime |
 | `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre.gleam` | UI integration, model-owned stacks, cleanup and bulk transaction |
 | `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre/history.gleam` | Small application-specific history reducer, if extraction is needed |
+| `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre/lifecycle.gleam` | Application lifecycle decisions shared by update and failure-path tests |
 | Checklist Gleam tests and `smoke/browser.mjs` | Stack behavior and full browser acceptance |
 | Checklist README and root `README.md` | Example operation and accurate M7 scope |
 | Parent roadmap and this plan | Current scope and dated local evidence |
@@ -76,11 +81,11 @@ only if required to reuse the native runtime seam.
 `unsubscribe` handles returned commit tokens. Task 2 must not invent another
 factory-lifetime wrapper.
 
-- [ ] Add a failing transaction laziness test with a cell counting callback
+- [x] Add a failing transaction laziness test with a cell counting callback
   executions. Construct the effect and assert zero executions. Perform it
   and assert one execution but no synchronous message; after a microtask assert
   the typed result. Run `cd watershed_lustre && gleam test`.
-- [ ] Implement the transaction wrapper at the effect boundary:
+- [x] Implement the transaction wrapper at the effect boundary:
 
   ```gleam
   use dispatch <- effect.from
@@ -90,17 +95,17 @@ factory-lifetime wrapper.
 
   Rerun, then add/verify abort rollback, generic success value and callback error,
   invalid constraint, and one composed outer commit for two real edits.
-- [ ] Add a failing real-runtime subscription test: construct but do not run
+- [x] Add a failing real-runtime subscription test: construct but do not run
   `subscribe_commits`, edit, and assert no messages. Run the effect, edit again,
   assert no synchronous constructors or dispatch, flush and assert
   `Ok(CommitEvent(DefaultCommit, True, Some(handle)))` with a valid handle.
   This detects a factory incorrectly deferred beyond its native callback.
-- [ ] Implement immediate factory acquisition and deferred safe records.
+- [x] Implement immediate factory acquisition and deferred safe records.
   Queue the captured commit before registering settlement. Deliver acquisition
   errors through `committed` and registration errors through `settled`.
   Test actual default/undo/redo, remote commits without local handles,
   settlement, no factory for schema events, and unsubscribe.
-- [ ] Add failing revert/disposal laziness tests using a real retained handle.
+- [x] Add failing revert/disposal laziness tests using a real retained handle.
   Construct each effect, assert unchanged tree/handle status; perform it and
   assert the mutation/status change with no synchronous messages; flush and
   assert `Ok(Nil)`. Implement these thunks and test disposed-handle errors:
@@ -110,11 +115,11 @@ factory-lifetime wrapper.
   perform(fn() { watershed.tree_dispose_revertible(revertible) }, completed)
   ```
 
-- [ ] Cover previously missing `open`, `read_root`, `subscribe`, `unsubscribe`
+- [x] Cover previously missing `open`, `read_root`, `subscribe`, `unsubscribe`
   scheduling/lifecycle with the same native fixture. Document that already
   queued messages can arrive after unsubscribe, close disposes handles, and
   the app owns disposal/stack state.
-- [ ] Run `cd watershed_lustre && gleam test` and
+- [x] Run `cd watershed_lustre && gleam test` and
   `gleam format --check watershed_lustre/src watershed_lustre/test`.
   Commit the focused deliverable as `feat(lustre): bind tree undo and transactions`.
 
@@ -209,9 +214,13 @@ current local acceptance evidence. M7 remains explicitly partial.
 
 ## Acceptance record
 
-Implementation evidence will be recorded here after the two tasks and their
-reviews. Initial adapter baseline: `cd watershed_lustre && gleam test`,
-89 passed with no failures on `69d1fa0f`.
+Execution started from clean `main` at `69d1fa0f`. The approved spec and plan
+were committed as `8ecd22d8`. The initial adapter baseline was
+`cd watershed_lustre && gleam test`: 89 passed with no failures.
+
+Task 1 commits `57e6f932` and `2b8bbb23` add the five public adapter surfaces
+and real-runtime scheduling/lifecycle coverage. Its scoped review found no
+significant issues; the controller's fresh package run passed all 104 tests.
 
 Task 2 implementation and fix-round evidence, 2026-10-09:
 
@@ -235,4 +244,27 @@ Task 2 implementation and fix-round evidence, 2026-10-09:
   order, empty local history, zero pending work, and no errors after reload.
 - M7 remains partial. Broader layouts, live attachment, handle-valued leaves,
   richer typed consumers, production authentication, and crash-recoverable
-  pending state remain open. Task 2 awaits its scoped re-review.
+  pending state remain open.
+
+Task 2's initial review identified missing application failure/late-message
+coverage and incomplete disabled-control assertions. The fix wave added the
+production lifecycle reducer, real-handle error/cleanup tests, and complete
+browser control snapshots. It also exposed and fixed a rendered-gating bug:
+the synchronous bulk effect could finish before Lustre painted pending state.
+Bulk work now starts through Lustre's `after_paint` effect. Scoped re-review
+of `f6284168..23771231` confirmed both findings addressed without new breakage.
+
+Final whole-slice review of `69d1fa0f..23771231` found no Critical, Important,
+or Minor issues and no unresolved approved requirement. The final controller
+run passed 104 Lustre tests, 14 checklist tests, both Node tests, the checklist
+bundle build, and the focused format/diff checks. The build retains its
+existing 3.3 MB esbuild size warning; this slice does not change bundling.
+The non-skipped Chromium proof above covers the same production source.
+Owned service processes and their data were cleaned up after the browser run.
+
+The public `complete_all` callback remains the shared application/test boundary:
+the runtime test calls the exact callback used by the UI. Final review judged
+an extra module solely to hide that export unnecessary.
+
+Acceptance is local. No hosted workflow or push was performed, and no native
+wire profile, format, version pin, dependency manifest, or lockfile changed.
