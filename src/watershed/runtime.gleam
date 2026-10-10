@@ -5138,8 +5138,9 @@ fn http_base_from_socket_url(url: String) -> String {
 /// that the runtime applied. That rule holds for a local edit, a remote
 /// operation, and a reconnect.
 ///
-/// The `subscribers` argument is one snapshot. Before each callback, the
-/// runtime checks that its subscription is still registered.
+/// The `subscribers` argument is one snapshot. Unsubscribing an ordinary DDS
+/// callback affects the next fan-out. Tree callbacks can cancel later callbacks
+/// in the current snapshot.
 fn fan_out(
   cell: Cell(State),
   subscribers: List(Subscriber),
@@ -5190,11 +5191,15 @@ fn fan_out_scoped(
         )
       _ ->
         list.each(subscribers, fn(subscriber) {
+          let subscription_is_live = case event {
+            channel.TreeEvent(_) -> subscriber_registered(cell, subscriber.id)
+            _ -> True
+          }
           case
             subscriber.address == address
             && subscriber.selector == selector
             && tree_scope_live(cell, address, selector)
-            && subscriber_registered(cell, subscriber.id)
+            && subscription_is_live
           {
             True ->
               observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
