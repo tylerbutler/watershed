@@ -311,6 +311,54 @@ test("fresh-load validator requires the live root field key", async () => {
   assert.throws(() => validateLifecycleCase(value), /fresh-load.*rootFieldKey|live root/i);
 });
 
+test("fresh-load validator rejects a non-advancing nested array", () => {
+  const program = `
+    import { readFile } from "node:fs/promises";
+    import { validateLifecycleCase } from ${JSON.stringify(
+      new URL("./generate.mjs", import.meta.url).href,
+    )};
+    const value = JSON.parse(await readFile(new URL(${JSON.stringify(
+      new URL("../../test/fixtures/shared_tree/cases/handle-retention.json", import.meta.url),
+    )}), "utf8"));
+    const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+    const publication = value.raw.summaries.find((item) =>
+      item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+    const [, datastoreId, channelId] = observation.value.loadedTree.path.split("/");
+    const forest = publication.snapshot.tree.trees[".channels"].trees[datastoreId]
+      .trees[".channels"].trees[channelId].trees.indexes.trees.Forest;
+    const contents = JSON.parse(
+      Buffer.from(publication.snapshot.blobs[forest.blobs.contents], "base64"),
+    );
+    contents.fields.shapes.find((shape) =>
+      shape.c?.type === "com.fluidframework.leaf.handle").c.value = false;
+    publication.snapshot.blobs[forest.blobs.contents] =
+      Buffer.from(JSON.stringify(contents)).toString("base64");
+    validateLifecycleCase(value);
+  `;
+  assert.throws(() => execFileSync(process.execPath, [
+    "--input-type=module", "-e", program,
+  ], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 2_000,
+  }), /non-advancing nested array/i);
+});
+
+test("fresh-load validator accepts the captured numeric zero-width array", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  const publication = value.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+  const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+  const [, datastoreId, channelId] = observation.value.loadedTree.path.split("/");
+  const forest = publication.snapshot.tree.trees[".channels"].trees[datastoreId]
+    .trees[".channels"].trees[channelId].trees.indexes.trees.Forest;
+  const contents = JSON.parse(
+    Buffer.from(publication.snapshot.blobs[forest.blobs.contents], "base64"),
+  );
+  assert.equal(contents.fields.data[0].at(-1), 0);
+  assert.doesNotThrow(() => validateLifecycleCase(value));
+});
+
 test("fresh-load validator rejects false continuation and wrong continuation target", async () => {
   const falseContinuation = await lifecycleCapture("handle-retention");
   const falseObservation = falseContinuation.expected.observations.find((item) =>

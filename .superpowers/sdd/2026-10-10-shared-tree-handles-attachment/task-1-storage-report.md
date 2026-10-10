@@ -408,6 +408,57 @@ Results:
   changed.
 - Task 1 and M7 remain open.
 
+## Round 4: nested-array progress guard
+
+The round-three decoder could loop forever when an array-backed `a` shape used
+a child `c` shape that consumed no input. The exact fresh-publication mutation
+changed the captured handle leaf from `c.value: true` to `false` while retaining
+the encoded handle. The child returned a node without advancing the inner
+stream, so the enclosing loop kept appending nodes.
+
+The regression runs the mutated fixture in a subprocess with a two-second
+timeout. This keeps the test runner responsive and distinguishes the intended
+validation failure from a hung decoder. The first test-harness attempt passed a
+file URL as a path and failed with `ENOENT`; after correcting the harness, the
+valid RED was:
+
+```sh
+node --test \
+  --test-name-pattern='non-advancing nested array|numeric zero-width array' \
+  tools/shared-tree-oracle/generate.test.mjs
+```
+
+Result before the guard: 2 tests, 1 passed, 1 failed. The mutation subprocess
+timed out with `ETIMEDOUT`, so it did not match the required
+`non-advancing nested array` rejection.
+
+The fix records the inner offset before each array-backed child decode and
+requires the offset to increase. The separate numeric-count representation is
+unchanged. The captured fresh publication contains a numeric zero-width array,
+and the positive regression verifies that it remains accepted.
+
+GREEN for the same focused command: 2 tests passed, 0 failed.
+
+Final command:
+
+```sh
+node --test tools/shared-tree-oracle/source.test.mjs \
+  tools/shared-tree-oracle/generate.test.mjs \
+  tools/shared-tree-oracle/codec-interop.test.mjs
+```
+
+Result: 190 tests passed, 0 failed, 0 skipped.
+
+### Round-four self-review
+
+- The guard is inside the only array-backed decode loop that can repeat without
+  consuming a field key.
+- Numeric-count zero-width arrays still use their existing bounded item count
+  and empty-stream assertion.
+- No source capture, fixture, producer, pin, dependency, lock, profile, or
+  native behavior changed.
+- Task 1 and M7 remain open.
+
 ## Review fixes, round 3
 
 The round-two use of `fieldBatchFieldPayloads` was not structural decoding. It

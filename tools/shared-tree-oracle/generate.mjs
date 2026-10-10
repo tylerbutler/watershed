@@ -5292,7 +5292,9 @@ function lifecycleDecodeFieldBatch(value, keys, detail) {
       const inner = { data: encoded, offset: 0 };
       const nodes = [];
       while (inner.offset < inner.data.length) {
+        const offset = inner.offset;
         nodes.push(...decode(childIndex, inner, depth + 1));
+        assert(inner.offset > offset, `${detail}: non-advancing nested array`);
       }
       return nodes;
     }
