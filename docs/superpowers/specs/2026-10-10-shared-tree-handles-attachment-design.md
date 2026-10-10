@@ -72,7 +72,7 @@ whether upstream retains that dependency and reproduce the observed behavior.
 Do not extend staging-mode guarantees to transactions or local branches without
 an executable observation.
 
-### Preliminary execution observations, 2026-10-10
+### Execution observations, 2026-10-10
 
 These observations come from the registered
 `packages/dds/tree/src/test/watershedLifecycle.spec.ts` injection. The generated
@@ -88,16 +88,23 @@ checkpoints listed here, not the complete lifecycle contract.
 | `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | A successful or nested committed handle edit attaches its target. The rolled-back edit leaves its target unattached and restores the prior reference at the captured checkpoint. | Matching `raw.messages` slices, including an explicit empty rollback checkpoint |
 | `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | A branch-only reference does not attach the target. Merging it attaches the target; disposing an unmerged branch leaves its target unattached. | Matching `raw.messages` slices and checkpoints |
 | `handle-transaction-branch` / `handle-undo-peer-edit` | A separately loaded upstream client edits the target map. Undo restores the parent's previous reference without removing the peer's target edit. | `raw.messages`, containing DDS operations from two distinct client IDs |
-| `live-channel-attachment` / `active-transaction` | The mock tree connection attempt throws the upstream active-transaction attachment error. The mock object's `isAttached()` flag is already true after the failed connection. This does not establish real document graph failure atomicity. | The scenario's measured error and post-failure flag |
-| `handle-retention` / removal, branch disposal, revertible disposal | The channel-level GC route remains present at these checkpoints, including when the main view no longer has the reference. | Channel summaries and `getGCData()` records under `raw.summaries` |
-| `handle-retention` / `fresh-load` | A fresh upstream service client loads the document and makes a target edit seen by the original client. This uses the attach snapshot and sequenced operations, not a newly published summary. | Loaded channel summary and continuation observation |
+| `live-channel-attachment` / `active-transaction`; `handle-transaction-branch` / `active-target` | A real document graph publication attempt throws the exact active-transaction error after submitting allocation and channel-attach transport. The target becomes attached, while both target and parent tree views enter the measured invalid state. The refusal is not atomic. | `raw.messages` records of kind `document-attachment`, including the target attach snapshot and sequenced transport |
+| `handle-retention` / removal, undo, retained repair, branch disposal, revertible disposal | Each checkpoint publishes a full document summary. Stored GC bytes continue to route to the referenced target through the captured retention states. | `raw.summaries` records of kind `published-document`, with fetched tree/blob bytes, parsed GC, component metadata, and sequence boundaries |
+| `handle-retention` / `unreferenced-datastore` | The removed secondary datastore remains non-root metadata with retained GC nodes and the frozen `1700000000000` unreferenced timestamp on both datastore and root-channel routes. | The published snapshot's `/gc/__gc_root` and `/.channels/P/.component` bytes |
+| `handle-retention` / `fresh-load` | A fresh upstream client loads the named published version, resolves the target path from those stored bytes, and writes `continued: true`; the original writer observes the edit. | Published handle and stored snapshot/blob bytes plus the continuation observation |
+
+Native active-target attachment will enforce a stronger refusal boundary than
+the measured upstream failure. Whole-candidate validation must reject the
+candidate before it changes state or submits allocation or attach transport.
+Keep the upstream allocation, attach snapshot, and invalid-view evidence as the
+raw compatibility observation, but do not require native failure-side-effect
+parity. Accepted graph operations must still preserve the measured upstream
+wire ordering.
 
 The discovery gate still needs complete executable native replay inputs;
-document-level retained GC and unreferenced-store metadata; explicit summary
-publication, fetched tree/blob bytes, and fresh reload from those bytes; real
-document attachment during a target transaction; and the remaining identity,
-resolution, serialization-context, and event-lifetime observations required by
-Task 1. Do not derive native invariants from the preliminary table alone.
+leaf decoding/resolution; complete replay inputs; and the remaining identity,
+serialization-context, and event-lifetime observations required by Task 1.
+Do not derive native invariants from this table alone.
 
 ## 3. Global constraints
 

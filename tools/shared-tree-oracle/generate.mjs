@@ -85,7 +85,7 @@ export const requiredLifecycleCases = [
   "handle-transaction-branch",
   "handle-retention",
 ];
-
+const graphStoreType = "org.watershed.shared-tree.m7.graph";
 const lifecycleScenarioIds = {
   "handle-leaves": [
     "required-root", "optional-root", "object-field", "map-entry", "array-element",
@@ -5191,6 +5191,68 @@ function lifecycleEvidenceContains(value, expected) {
     && Object.values(value).some((item) => lifecycleEvidenceContains(item, expected));
 }
 
+function lifecycleSummaryBlob(snapshot, tree, name, detail) {
+  const id = tree?.blobs?.[name];
+  assert(typeof id === "string" && typeof snapshot.blobs?.[id] === "string",
+    `${detail}: missing ${name} blob`);
+  return Buffer.from(snapshot.blobs[id], "base64");
+}
+
+function lifecycleJsonBlob(snapshot, tree, name, detail) {
+  let value;
+  assert.doesNotThrow(() => {
+    value = JSON.parse(lifecycleSummaryBlob(snapshot, tree, name, detail));
+  }, `${detail}: invalid ${name} blob`);
+  return value;
+}
+
+function lifecycleTreeAt(tree, names, detail) {
+  let current = tree;
+  for (const name of names) {
+    current = current?.trees?.[name];
+    assert(object(current), `${detail}: missing stored tree ${names.join("/")}`);
+  }
+  return current;
+}
+
+function lifecycleSharedMapSummary(snapshot, path, detail) {
+  const [, datastoreId, channelId] = path.split("/");
+  assert(datastoreId && channelId, `${detail}: invalid target route`);
+  const tree = lifecycleTreeAt(
+    snapshot.tree, [".channels", datastoreId, ".channels", channelId], detail,
+  );
+  const attributes = lifecycleJsonBlob(snapshot, tree, ".attributes", detail);
+  assert(attributes?.type === "https://graph.microsoft.com/types/map"
+    && attributes.snapshotFormatVersion === "0.2"
+    && attributes.packageVersion === reference.version,
+  `${detail}: invalid target map attributes`);
+  const header = lifecycleJsonBlob(snapshot, tree, "header", `${detail} target summary`);
+  assert(Array.isArray(header?.blobs) && object(header?.content),
+    `${detail}: invalid target map summary`);
+  return { tree, header };
+}
+
+function lifecycleTreeAttachSnapshot(snapshot, detail) {
+  assert(object(snapshot) && Array.isArray(snapshot.entries) && snapshot.entries.length > 0,
+  `${detail}: invalid attach snapshot`);
+  const entry = (entries, path) => entries.find((item) => item?.path === path);
+  const attributes = entry(snapshot.entries, ".attributes");
+  const indexes = entry(snapshot.entries, "indexes");
+  assert(attributes?.type === "Blob"
+    && attributes.value?.contents === JSON.stringify({
+      type: "https://graph.microsoft.com/types/tree",
+      snapshotFormatVersion: "0.0.0",
+      packageVersion: reference.version,
+    }) && indexes?.type === "Tree" && Array.isArray(indexes.value?.entries),
+  `${detail}: invalid attach snapshot`);
+  const forest = entry(indexes.value.entries, "Forest");
+  const contents = forest?.type === "Tree"
+    ? entry(forest.value?.entries, "contents") : undefined;
+  assert(contents?.type === "Blob" && typeof contents.value?.contents === "string"
+    && contents.value.contents.includes("active-target"),
+  `${detail}: attach snapshot target state`);
+}
+
 function lifecycleMessageOrder(messages) {
   return lifecycleRuntimeMessages(messages).map((message) => {
     if (message.type === "idAllocation") return "id-allocation";
@@ -5205,6 +5267,164 @@ function lifecycleMessageOrder(messages) {
     }
     return String(message.type);
   });
+}
+
+function lifecycleMapSetObservation(messages, key, detail) {
+  for (const message of messages) {
+    for (const entry of lifecycleRuntimeMessages([message], detail)) {
+      const operation = entry.type === "component"
+        ? entry.contents?.contents?.content : undefined;
+      if (entry.contents?.contents?.type === "op"
+        && operation?.contents?.type === "set"
+        && operation.contents.key === key) {
+        return {
+          route: `/${entry.contents.address}/${operation.address}`,
+          key,
+          value: operation.contents.value?.value,
+          clientId: message.clientId,
+          sequenceNumber: message.sequenceNumber,
+          referenceSequenceNumber: message.referenceSequenceNumber,
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+function lifecycleStoredSnapshot(snapshot, detail) {
+  const check = (condition, label) => assert(condition, `${detail}: ${label}`);
+  check(object(snapshot) && object(snapshot.version)
+    && typeof snapshot.version.id === "string" && snapshot.version.id.length > 0,
+  "stored snapshot version");
+  check(snapshot.blobEncoding === "base64" && object(snapshot.tree)
+    && object(snapshot.blobs) && Object.keys(snapshot.blobs).length > 0,
+  "stored snapshot blob bytes");
+  check(Number.isInteger(snapshot.sequenceNumber) && snapshot.sequenceNumber >= 0,
+    "stored snapshot sequence");
+  const parsed = [];
+  function visit(tree, prefix = "") {
+    check(object(tree.blobs) && object(tree.trees), "stored snapshot tree");
+    for (const [name, id] of Object.entries(tree.blobs)) {
+      check(typeof id === "string" && typeof snapshot.blobs[id] === "string"
+        && snapshot.blobs[id].length > 0, `stored blob ${prefix}/${name}`);
+      const bytes = Buffer.from(snapshot.blobs[id], "base64");
+      check(bytes.length > 0, `stored blob bytes ${prefix}/${name}`);
+      const text = bytes.toString("utf8");
+      let value = text;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        // Non-JSON bytes remain text.
+      }
+      parsed.push({ path: `${prefix}/${name}`, value });
+    }
+    for (const [name, child] of Object.entries(tree.trees)) {
+      visit(child, `${prefix}/${name}`);
+    }
+  }
+  visit(snapshot.tree);
+  const protocol = lifecycleTreeAt(snapshot.tree, [".protocol"], detail);
+  const attributes = lifecycleJsonBlob(snapshot, protocol, "attributes", `${detail} protocol`);
+  check(Number.isSafeInteger(attributes?.sequenceNumber)
+    && Number.isSafeInteger(attributes?.minimumSequenceNumber)
+    && attributes.minimumSequenceNumber >= 0
+    && attributes.minimumSequenceNumber <= attributes.sequenceNumber,
+  "canonical protocol attributes");
+  check(snapshot.sequenceNumber === attributes.sequenceNumber,
+    "protocol snapshot sequence");
+  return { parsed, sequenceNumber: attributes.sequenceNumber };
+}
+
+function lifecyclePublication(records, observation, check) {
+  const evidence = observation.evidence
+    .map((item) => records.get(item.id))
+    .find((item) => item?.section === "summaries"
+      && item.item.kind === "published-document");
+  check(evidence !== undefined, `${observation.id} published document evidence`);
+  const value = evidence.item.value;
+  check(object(value?.publication)
+    && typeof value.publication.handle === "string"
+    && value.publication.handle === value.snapshot?.version?.id,
+  `${observation.id} published snapshot handle`);
+  const stored = lifecycleStoredSnapshot(value.snapshot, observation.id);
+  const parsed = stored.parsed;
+  check(value.publication.referenceSequenceNumber === stored.sequenceNumber
+    && value.publication.summarySequenceNumber
+      === value.publication.referenceSequenceNumber + 1
+    && value.publication.acknowledgementSequenceNumber
+      === value.publication.summarySequenceNumber + 1,
+  `${observation.id} snapshot sequence boundaries`);
+  const gcNodes = parsed.filter((item) =>
+    object(item.value) && object(item.value.gcNodes));
+  const components = parsed.filter((item) => item.path.endsWith("/.component"));
+  const document = parsed.filter((item) => item.path.endsWith("/.metadata"));
+  check(isDeepStrictEqual(value.metadata, { document, gcNodes, components }),
+    `${observation.id} stored metadata`);
+  check(isDeepStrictEqual(observation.value?.documentGc, gcNodes)
+    && observation.value?.snapshotSequenceNumber === stored.sequenceNumber,
+  `${observation.id} document GC checkpoint`);
+  return { value, parsed, gcNodes, components, sequenceNumber: stored.sequenceNumber };
+}
+
+function validateActiveDocumentAttachment(observed, records, id, check) {
+  const observation = observed.find((item) => item.id === id);
+  const attempt = observation.evidence
+    .map((item) => records.get(item.id))
+    .find((item) => item?.section === "messages"
+      && item.item.kind === "document-attachment");
+  check(attempt !== undefined, `${id} real document attachment evidence`);
+  const value = observation.value;
+  check(value?.transactionEntered === true
+    && typeof value.documentId === "string"
+    && typeof value.targetPath === "string"
+    && value.targetPath === value.target?.path,
+  `${id} target route`);
+  check(isDeepStrictEqual(attempt.item.value, value),
+    `${id} real document attachment evidence`);
+  check(typeof value.error === "string"
+    && value.error.startsWith("Error: Cannot attach while a transaction is in progress"),
+  `${id} exact active transaction error`);
+  check(value.target.attached?.before === false
+    && value.target.attached?.after === true
+    && value.target.attached?.error === "",
+  `${id} measured target attachment side effect`);
+  check(value.target.local?.before?.label === "active-target"
+    && typeof value.target.local?.error === "string"
+    && value.target.local.error.includes("Invalid use of SharedTree"),
+  `${id} target local visibility`);
+  check(object(value.parent?.before)
+    && isDeepStrictEqual(value.parent.before, value.parentBefore)
+    && value.parent.after === value.parentAfter
+    && typeof value.parent.error === "string"
+    && value.parent.error.includes("Invalid use of SharedTree"),
+  `${id} parent data outcome`);
+  const operationTransport = Array.isArray(value.transport)
+    ? value.transport.filter((message) => message?.type === "op")
+    : [];
+  check(operationTransport.length > 0
+    && lifecycleChannelAttaches(operationTransport, id)
+      .some((item) => {
+        if (item.path !== value.targetPath) return false;
+        lifecycleTreeAttachSnapshot(item.snapshot, id);
+        return true;
+      }),
+  `${id} transport evidence`);
+  const allocations = lifecycleRuntimeMessages(operationTransport, id)
+    .filter((message) => message.type === "idAllocation")
+    .map((message) => message.contents);
+  check(allocations.length > 0 && allocations.every((allocation) =>
+    typeof allocation?.sessionId === "string"
+    && Number.isSafeInteger(allocation.ids?.firstGenCount)
+    && Number.isSafeInteger(allocation.ids?.count)
+    && allocation.ids.count > 0
+    && Number.isSafeInteger(allocation.ids?.requestedClusterSize)
+    && allocation.ids.requestedClusterSize >= allocation.ids.count
+    && Array.isArray(allocation.ids.localIdRanges)),
+  `${id} allocation payload`);
+  check(isDeepStrictEqual(
+    value.allocation,
+    lifecycleMessageOrder(operationTransport).filter((item) => item === "id-allocation"),
+  ) && value.allocation.length > 0, `${id} allocation evidence`);
 }
 
 export function validateLifecycleCase(value) {
@@ -5339,6 +5559,8 @@ export function validateLifecycleCase(value) {
     check(completed.observation.value?.attached === true
       && snapshotContains(completedAttach, completed.observation.value?.label),
     "completed-transaction attached snapshot");
+
+    validateActiveDocumentAttachment(observed, records, "active-transaction", check);
   }
   if (value.id === "handle-leaves") {
     const required = observed.find((item) => item.id === "required-root");
@@ -5457,9 +5679,12 @@ export function validateLifecycleCase(value) {
       && peerOperation.contents.key === "peer"
       && peerOperation.contents.value?.value === undo.value?.targetValue,
     "peer edit target and value evidence");
+
+    validateActiveDocumentAttachment(observed, records, "active-target", check);
   }
   if (value.id === "handle-retention") {
     for (const observation of observed) {
+      const publication = lifecyclePublication(records, observation, check);
       const summaries = observation.evidence
         .map((item) => records.get(item.id))
         .filter((item) => item?.section === "summaries");
@@ -5467,7 +5692,7 @@ export function validateLifecycleCase(value) {
         if (evidence.item.kind === "gc") {
           check(isDeepStrictEqual(evidence.item.value?.gcNodes, observation.value?.routes),
             `retention summary GC contents for ${observation.id}`);
-        } else {
+        } else if (evidence.item.kind !== "published-document") {
           check(summary(evidence.item.value),
             `retention summary structure for ${observation.id}`);
           for (const path of [
@@ -5479,7 +5704,87 @@ export function validateLifecycleCase(value) {
           }
         }
       }
+      for (const path of [
+        observation.value?.path,
+        ...Object.values(observation.value?.routes ?? {}).flat(),
+      ].filter((item) => typeof item === "string")) {
+        check(JSON.stringify(publication.parsed).includes(path),
+          `${observation.id} stored target route`);
+      }
+      check(publication.components.some((item) =>
+        item.value?.pkg === JSON.stringify([graphStoreType])
+        && typeof item.value?.isRootDataStore === "boolean"),
+      `${observation.id} component package metadata`);
     }
+    const unreferenced = observed.find((item) => item.id === "unreferenced-datastore");
+    const publication = lifecyclePublication(records, unreferenced, check);
+    const datastoreId = unreferenced.value?.path?.split("/")[1];
+    const gcState = publication.gcNodes[0]?.value?.gcNodes;
+    check(typeof datastoreId === "string"
+      && Number.isFinite(gcState?.[`/${datastoreId}`]?.unreferencedTimestampMs)
+      && Number.isFinite(gcState?.[`/${datastoreId}/root`]?.unreferencedTimestampMs),
+    "unreferenced datastore timestamps");
+    check(publication.components.some((item) =>
+      item.path.includes(`/.channels/${datastoreId}/`)
+      && item.value?.pkg === JSON.stringify([graphStoreType])
+      && item.value?.isRootDataStore === false),
+    "unreferenced datastore component metadata");
+
+    const fresh = observed.find((item) => item.id === "fresh-load");
+    const freshPublication = lifecyclePublication(records, fresh, check);
+    const continuationMessages = fresh.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "messages"
+        && item.item.kind === "continuation")?.item.value;
+    const operationTransport = Array.isArray(continuationMessages)
+      ? continuationMessages.filter((message) => message?.type === "op")
+      : [];
+    const continuation = lifecycleMapSetObservation(
+      operationTransport, "continued", "fresh-load",
+    );
+    const targetSummary = lifecycleSharedMapSummary(
+      freshPublication.value.snapshot, fresh.value?.path, "fresh-load target summary",
+    );
+    check(fresh.value?.loadedVersion === freshPublication.value.publication.handle
+      && isDeepStrictEqual(fresh.value?.publication, {
+        handle: freshPublication.value.publication.handle,
+        snapshotSequenceNumber: freshPublication.sequenceNumber,
+        acknowledgementSequenceNumber:
+          freshPublication.value.publication.acknowledgementSequenceNumber,
+      })
+      && fresh.value?.continued === true
+      && typeof fresh.value?.path === "string"
+      && fresh.value.loadedTarget?.path === fresh.value.path
+      && fresh.value.writerTarget?.path === fresh.value.path
+      && typeof fresh.value.loadedTree?.path === "string"
+      && fresh.value.loadedTree.path !== fresh.value.path
+      && JSON.stringify(freshPublication.parsed).includes(fresh.value.loadedTree.path)
+      && targetSummary.header.content?.value?.value === fresh.value.loadedTarget.before?.value
+      && fresh.value.loadedTarget.before?.value === "before"
+      && fresh.value.loadedTarget.after?.continued === true
+      && fresh.value.writerTarget.before?.value === "before"
+      && fresh.value.writerTarget.after?.continued === true
+      && continuation?.route === fresh.value.path
+      && continuation.value === true
+      && continuation.referenceSequenceNumber
+        >= freshPublication.value.publication.acknowledgementSequenceNumber
+      && continuation.sequenceNumber === continuation.referenceSequenceNumber + 1
+      && isDeepStrictEqual(fresh.value.continuation, {
+        ...continuation,
+        clientId: continuation.clientId,
+        publicationHandle: freshPublication.value.publication.handle,
+      }),
+    "fresh-load publication-specific continuation");
+    const storedBlobs = fresh.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "stored-summary-blobs")?.item.value;
+    check(Array.isArray(storedBlobs)
+      && isDeepStrictEqual(
+        new Set(storedBlobs),
+        new Set(Object.keys(freshPublication.value.snapshot.blobs)),
+      ),
+    "fresh-load stored summary bytes");
   }
 }
 

@@ -138,8 +138,263 @@ test("cross-datastore cycle probes attach two previously unpublished stores", as
 test("retention observations require their captured summary and GC contents", async () => {
   const value = await lifecycleCapture("handle-retention");
   for (const summary of value.raw.summaries) summary.value = {};
-  assert.throws(() => validateLifecycleCase(value), /retention.*summary/i);
+  assert.throws(() => validateLifecycleCase(value), /retention.*summary|published snapshot/i);
 });
+
+test("retention checkpoints publish full document snapshots with stored blob bytes", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  validateLifecycleCase(value);
+  for (const id of [
+    "before-removal",
+    "after-removal",
+    "after-undo",
+    "retained-repair",
+    "branch-disposal",
+    "revertible-disposal",
+    "unreferenced-datastore",
+    "fresh-load",
+  ]) {
+    const publication = value.raw.summaries.find((item) =>
+      item.scenarioId === id && item.kind === "published-document");
+    assert(publication, id);
+    assert.equal(publication.value.publication.handle, publication.value.snapshot.version.id, id);
+    assert(Object.keys(publication.value.snapshot.blobs).length > 0, id);
+    assert.equal(typeof publication.value.snapshot.sequenceNumber, "number", id);
+    assert(Array.isArray(publication.value.metadata.gcNodes), id);
+    assert(Array.isArray(publication.value.metadata.components), id);
+  }
+});
+
+test("fresh load names the published snapshot and target bytes it loaded", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  validateLifecycleCase(value);
+  const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+  const publication = value.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document");
+  assert.equal(observation.value.loadedVersion, publication.value.publication.handle);
+  assert.equal(observation.value.snapshotSequenceNumber, publication.value.snapshot.sequenceNumber);
+  const storedBytes = Object.values(publication.value.snapshot.blobs)
+    .map((bytes) => Buffer.from(bytes, "base64").toString("utf8"))
+    .join("\n");
+  assert.match(storedBytes,
+    new RegExp(observation.value.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(observation.value.continued, true);
+});
+
+test("fresh load captures its published target and sequenced continuation", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+  const continuation = value.raw.messages.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "continuation");
+  assert(observation.value.publication, "missing publication association");
+  assert(observation.value.loadedTarget, "missing loaded target state");
+  assert(observation.value.writerTarget, "missing writer target state");
+  assert(observation.value.continuation, "missing continuation descriptor");
+  assert(continuation, "missing raw continuation transport");
+  assert.equal(observation.value.publication.handle, observation.value.loadedVersion);
+  assert.equal(observation.value.loadedTarget.path, observation.value.path);
+  assert.equal(observation.value.loadedTarget.before.value, "before");
+  assert.equal(observation.value.loadedTarget.after.continued, true);
+  assert.equal(observation.value.writerTarget.path, observation.value.path);
+  assert.equal(observation.value.writerTarget.after.continued, true);
+  assert.equal(observation.value.continuation.publicationHandle,
+    observation.value.loadedVersion);
+  assert.equal(observation.value.continuation.route, observation.value.path);
+  assert.equal(observation.value.continuation.key, "continued");
+  assert.equal(observation.value.continuation.value, true);
+  assert.equal(typeof observation.value.continuation.clientId, "string");
+  assert.equal(typeof observation.value.continuation.sequenceNumber, "number");
+  assert(Array.isArray(continuation.value));
+});
+
+test("retention validator rejects empty storage and unrelated target routes", async () => {
+  const emptyStorage = await lifecycleCapture("handle-retention");
+  const publication = emptyStorage.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document");
+  publication.value.snapshot.blobs = {};
+  assert.throws(() => validateLifecycleCase(emptyStorage), /stored.*blob|snapshot.*blob/i);
+
+  const wrongTarget = await lifecycleCapture("handle-retention");
+  wrongTarget.expected.observations.find((item) => item.id === "fresh-load")
+    .value.path = "/unrelated/target";
+  assert.throws(() => validateLifecycleCase(wrongTarget),
+    /fresh-load|target.*route/i);
+});
+
+test("retention validator rejects substituted publications, GC, and summary bytes", async () => {
+  const wrongPublication = await lifecycleCapture("handle-retention");
+  wrongPublication.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document")
+    .value.snapshot.version.id = "unrelated-summary";
+  assert.throws(() => validateLifecycleCase(wrongPublication), /published snapshot handle/i);
+
+  const wrongGc = await lifecycleCapture("handle-retention");
+  wrongGc.expected.observations.find((item) => item.id === "unreferenced-datastore")
+    .value.documentGc = [];
+  assert.throws(() => validateLifecycleCase(wrongGc), /document GC checkpoint/i);
+
+  const arbitraryBytes = await lifecycleCapture("handle-retention");
+  const publication = arbitraryBytes.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+  const gcId = publication.snapshot.tree.trees.gc.blobs.__gc_root;
+  publication.snapshot.blobs[gcId] = Buffer.from('{"arbitrary":true}').toString("base64");
+  assert.throws(() => validateLifecycleCase(arbitraryBytes), /stored metadata/i);
+});
+
+test("retention validator rejects a corrupt target header", async () => {
+  const corruptHeader = await lifecycleCapture("handle-retention");
+  const observation = corruptHeader.expected.observations.find((item) =>
+    item.id === "fresh-load");
+  const publication = corruptHeader.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+  const [, datastoreId, channelId] = observation.value.path.split("/");
+  const headerId = publication.snapshot.tree.trees[".channels"].trees[datastoreId]
+    .trees[".channels"].trees[channelId].blobs.header;
+  publication.snapshot.blobs[headerId] =
+    Buffer.from("not a Fluid map summary").toString("base64");
+  assert.throws(() => validateLifecycleCase(corruptHeader), /fresh-load.*target.*summary/i);
+});
+
+test("retention validator rejects a contradictory protocol watermark", async () => {
+  const wrongWatermark = await lifecycleCapture("handle-retention");
+  const wrongPublication = wrongWatermark.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+  const attributesId = wrongPublication.snapshot.tree.trees[".protocol"].blobs.attributes;
+  const attributes = JSON.parse(
+    Buffer.from(wrongPublication.snapshot.blobs[attributesId], "base64"),
+  );
+  attributes.sequenceNumber = 0;
+  wrongPublication.snapshot.blobs[attributesId] =
+    Buffer.from(JSON.stringify(attributes)).toString("base64");
+  assert.throws(() => validateLifecycleCase(wrongWatermark),
+    /fresh-load.*protocol|snapshot sequence boundaries/i);
+});
+
+test("fresh-load validator rejects a different genuine publication", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  const replacement = structuredClone(value.raw.summaries.find((item) =>
+    item.scenarioId === "after-removal" && item.kind === "published-document").value);
+  const freshRecord = value.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document");
+  freshRecord.value = replacement;
+  const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+  observation.value.loadedVersion = replacement.publication.handle;
+  observation.value.snapshotSequenceNumber = replacement.snapshot.sequenceNumber;
+  observation.value.documentGc = replacement.metadata.gcNodes;
+  value.raw.serialization.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "stored-summary-blobs").value =
+      Object.keys(replacement.snapshot.blobs);
+  assert.throws(() => validateLifecycleCase(value),
+    /fresh-load.*publication|continuation/i);
+});
+
+test("fresh-load validator rejects false continuation and wrong continuation target", async () => {
+  const falseContinuation = await lifecycleCapture("handle-retention");
+  const falseObservation = falseContinuation.expected.observations.find((item) =>
+    item.id === "fresh-load");
+  falseObservation.value.continued = false;
+  falseObservation.value.loadedTarget.after.continued = false;
+  falseObservation.value.writerTarget.after.continued = false;
+  falseObservation.value.continuation.value = false;
+  const falseRecord = falseContinuation.raw.messages.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "continuation");
+  const falseMessage = falseRecord.value.find((message) => message.type === "op");
+  const falseEnvelope = JSON.parse(falseMessage.contents);
+  falseEnvelope.contents.contents.content.contents.value.value = false;
+  falseMessage.contents = JSON.stringify(falseEnvelope);
+  assert.throws(() => validateLifecycleCase(falseContinuation),
+    /fresh-load.*continuation/i);
+
+  const wrongTarget = await lifecycleCapture("handle-retention");
+  const wrongObservation = wrongTarget.expected.observations.find((item) =>
+    item.id === "fresh-load");
+  wrongObservation.value.continuation.route = "/A/unrelated-target";
+  const wrongRecord = wrongTarget.raw.messages.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "continuation");
+  const wrongMessage = wrongRecord.value.find((message) => message.type === "op");
+  const wrongEnvelope = JSON.parse(wrongMessage.contents);
+  wrongEnvelope.contents.contents.content.address = "unrelated-target";
+  wrongMessage.contents = JSON.stringify(wrongEnvelope);
+  assert.throws(() => validateLifecycleCase(wrongTarget),
+    /fresh-load.*continuation/i);
+});
+
+test("active target records a real document graph publication attempt", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  validateLifecycleCase(value);
+  const observation = value.expected.observations.find((item) => item.id === "active-target");
+  const attempt = value.raw.messages.find((item) =>
+    item.scenarioId === "active-target" && item.kind === "document-attachment");
+  assert(attempt);
+  assert.equal(observation.value.targetPath, attempt.value.target.path);
+  assert.deepEqual(observation.value.parentAfter, attempt.value.parent.after);
+  assert.deepEqual(observation.value.transport, attempt.value.transport);
+  assert.deepEqual(observation.value.allocation, attempt.value.allocation);
+  assert.match(observation.value.error, /Cannot attach while a transaction is in progress/);
+});
+
+test("active target validator rejects mock descriptors and substituted routes", async () => {
+  const descriptor = await lifecycleCapture("handle-transaction-branch");
+  const record = descriptor.raw.messages.find((item) => item.scenarioId === "active-target");
+  record.kind = "document-attachment";
+  record.value = {
+    target: { path: "/mock/target" },
+    parent: { after: { link: "/mock/target" } },
+    transport: [],
+    allocation: [],
+  };
+  assert.throws(() => validateLifecycleCase(descriptor), /active-target.*document|transport.*evidence/i);
+
+  const wrongRoute = await lifecycleCapture("handle-transaction-branch");
+  wrongRoute.expected.observations.find((item) => item.id === "active-target")
+    .value.targetPath = "/unrelated/target";
+  assert.throws(() => validateLifecycleCase(wrongRoute), /active-target.*target/i);
+
+  const missingTransport = await lifecycleCapture("handle-transaction-branch");
+  const observation = missingTransport.expected.observations.find((item) =>
+    item.id === "active-target");
+  const attempt = missingTransport.raw.messages.find((item) =>
+    item.scenarioId === "active-target");
+  observation.value.transport = [];
+  attempt.value.transport = [];
+  assert.throws(() => validateLifecycleCase(missingTransport), /transport evidence/i);
+});
+
+for (const [id, scenarioId] of [
+  ["live-channel-attachment", "active-transaction"],
+  ["handle-transaction-branch", "active-target"],
+]) {
+  test(`${scenarioId} validator rejects an empty attach snapshot`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      grouped.contents.find((entry) =>
+        entry.contents?.type === "component")
+        .contents.contents.contents.content.snapshot = {};
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*attach snapshot`, "i"));
+  });
+
+  test(`${scenarioId} validator rejects an empty allocation payload`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      grouped.contents.find((entry) =>
+        entry.contents?.type === "idAllocation").contents.contents = {};
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*allocation`, "i"));
+  });
+}
 
 test("successful transaction evidence contains the claimed attached target", async () => {
   const value = await lifecycleCapture("handle-transaction-branch");

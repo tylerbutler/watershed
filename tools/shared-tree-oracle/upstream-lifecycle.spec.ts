@@ -78,6 +78,17 @@ interface Observation {
 	value: unknown;
 	evidence: { section: EvidenceSection; id: string }[];
 }
+interface DeferredCase {
+	scenarios: { id: string; operation: string }[];
+	observations: Observation[];
+	raw: {
+		messages: RawRecord[];
+		serialization: RawRecord[];
+		summaries: RawRecord[];
+	};
+}
+let deferredLiveAttachment: DeferredCase | undefined;
+let deferredTransactionBranch: DeferredCase | undefined;
 
 function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
@@ -161,20 +172,102 @@ function messageOrder(messages: unknown[]): string[] {
 					};
 				};
 			};
-			if (item.type === "idAllocation") {
+			if (item?.type === "idAllocation") {
 				order.push("id-allocation");
-			} else if (item.type === "attach") {
+			} else if (item?.type === "attach") {
 				order.push(`datastore-attach:${item.contents?.id}`);
-			} else if (item.type === "component" && item.contents?.contents?.type === "attach") {
+			} else if (item?.type === "component" && item.contents?.contents?.type === "attach") {
 				order.push(`channel-attach:${item.contents.address}/${item.contents.contents.content?.id}`);
-			} else if (item.type === "component") {
+			} else if (item?.type === "component") {
 				order.push(`component:${item.contents?.address}/${item.contents?.contents?.content?.address}`);
 			} else {
-				order.push(String(item.type));
+				order.push(String(item?.type));
 			}
 		}
 	}
 	return order;
+}
+
+function mapSetObservation(messages: unknown[], key: string) {
+	for (const message of messages) {
+		const sequenced = message as {
+			type?: string;
+			clientId?: string;
+			sequenceNumber?: number;
+			referenceSequenceNumber?: number;
+			contents?: unknown;
+		};
+		if (sequenced.type !== "op") continue;
+		const contents = typeof sequenced.contents === "string"
+			? JSON.parse(sequenced.contents) as unknown
+			: sequenced.contents;
+		const entries = (contents as { type?: string; contents?: unknown })?.type === "groupedBatch"
+			? (contents as { contents: { contents: unknown }[] }).contents.map((entry) => entry.contents)
+			: [contents];
+		for (const entry of entries) {
+			const envelope = entry as {
+				type?: string;
+				contents?: {
+					address?: string;
+					contents?: {
+						type?: string;
+						content?: {
+							address?: string;
+							contents?: { key?: string; type?: string; value?: { value?: unknown } };
+						};
+					};
+				};
+			};
+			const operation = envelope.contents?.contents?.content;
+			if (envelope.type === "component"
+				&& envelope.contents?.contents?.type === "op"
+				&& operation?.contents?.type === "set"
+				&& operation.contents.key === key) {
+				return {
+					route: `/${envelope.contents.address}/${operation.address}`,
+					key,
+					value: operation.contents.value?.value,
+					clientId: sequenced.clientId,
+					sequenceNumber: sequenced.sequenceNumber,
+					referenceSequenceNumber: sequenced.referenceSequenceNumber,
+				};
+			}
+		}
+	}
+	return undefined;
+}
+
+function parseJson(value: Uint8Array): unknown {
+	const text = Buffer.from(value).toString("utf8");
+	try {
+		return JSON.parse(text);
+	} catch {
+		return text;
+	}
+}
+
+function snapshotMetadata(tree: any, blobs: Record<string, string>) {
+	const parsed: { path: string; value: unknown }[] = [];
+	function visit(node: any, prefix = ""): void {
+		for (const [name, id] of Object.entries(node.blobs as Record<string, string>)) {
+			parsed.push({
+				path: `${prefix}/${name}`,
+				value: parseJson(Uint8Array.from(Buffer.from(blobs[id], "base64"))),
+			});
+		}
+		for (const [name, child] of Object.entries(node.trees as Record<string, unknown>)) {
+			visit(child, `${prefix}/${name}`);
+		}
+	}
+	visit(tree);
+	return {
+		document: parsed.filter((item) => item.path.endsWith("/.metadata")),
+		gcNodes: parsed.filter((item) =>
+			item.value !== null
+			&& typeof item.value === "object"
+			&& "gcNodes" in item.value),
+		components: parsed.filter((item) => item.path.endsWith("/.component")),
+	};
 }
 
 function sourceIdentity() {
@@ -252,28 +345,6 @@ function mockTree(id: string) {
 	return { runtime, runtimeFactory, tree, view };
 }
 
-function activeTransactionAttachment() {
-	const runtime = new MockFluidDataStoreRuntime({ idCompressor: createIdCompressor() });
-	const tree = treeFactory().create(runtime, "active-target");
-	const runtimeFactory = new MockContainerRuntimeFactory();
-	runtimeFactory.createContainerRuntime(runtime);
-	const view = asAlpha(tree.viewWith(
-		new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
-	));
-	view.initialize(new Root({
-		label: "active",
-		links: new Links(),
-		sequence: new Sequence(),
-	}));
-	const error = errorOf(() => Tree.runTransaction(view, () => {
-		tree.connect({
-			deltaConnection: runtime.createDeltaConnection(),
-			objectStorage: new MockStorage(),
-		});
-	}));
-	return { error, attached: isAttached(tree) };
-}
-
 interface GraphData extends IFluidLoadable {
 	root: ISharedMap;
 	createMap(): Promise<ISharedMap>;
@@ -297,16 +368,190 @@ const GraphStore = defineDataStore<GraphData, ISharedMap>({
 	}),
 });
 
+const oldestSupportedClient = "2.117.0";
+const summarizerRuntimeOptions = {
+	enableRuntimeIdCompressor: "on" as const,
+	summaryOptions: {
+		summaryConfigOverrides: {
+			state: "disableHeuristics" as const,
+			maxAckWaitTime: 15_000,
+			maxOpsSinceLastSummary: 7000,
+			initialSummarizerDelayMs: 0,
+		},
+	},
+};
+
+function serviceInternals(service: unknown) {
+	return service as {
+		getDocumentServiceFactory(): any;
+	};
+}
+
+async function graphCodeLoader(summarizing: boolean) {
+	const [
+		{ ContainerRuntime },
+		{ makeCodeLoader },
+	] = await Promise.all([
+		import("@fluidframework/container-runtime/internal"),
+		import("@fluidframework/runtime-utils/internal"),
+	]);
+	return makeCodeLoader(
+		async (type) => {
+			assert.equal(type, GraphStore.type, "Unexpected graph datastore type");
+			return GraphStore;
+		},
+		oldestSupportedClient,
+		async (parameters) => {
+			const loaded = await ContainerRuntime.loadRuntime2({
+				context: parameters.context,
+				registry: parameters.registry,
+				provideEntryPoint: parameters.provideEntryPoint,
+				existing: parameters.existing,
+				oldestSupportedClient: parameters.minVersionForCollab,
+				runtimeOptions: summarizing
+					? summarizerRuntimeOptions
+					: { enableRuntimeIdCompressor: "on" },
+			});
+			return loaded.runtime;
+		},
+	);
+}
+
+async function openGraphContainer(
+	service: unknown,
+	documentId: string,
+	options: { summarizing?: boolean; version?: string } = {},
+) {
+	const summarizing = options.summarizing === true;
+	const [
+		{ LoaderHeader },
+		{ loadExistingContainer },
+		{ DriverHeader },
+		{ LocalResolver },
+	] = await Promise.all([
+		import("@fluidframework/container-definitions/internal"),
+		import("@fluidframework/container-loader/internal"),
+		import("@fluidframework/driver-definitions/internal"),
+		import("@fluidframework/local-driver/internal"),
+	]);
+	const container = await loadExistingContainer({
+		request: {
+			url: `http://localhost:3000/${documentId}`,
+			headers: {
+				...(options.version === undefined ? {} : { [LoaderHeader.version]: options.version }),
+				...(summarizing ? {
+					[LoaderHeader.cache]: false,
+					[LoaderHeader.clientDetails]: {
+						capabilities: { interactive: false },
+						type: "summarizer",
+					},
+					[DriverHeader.summarizingClient]: true,
+				} : {}),
+			},
+		},
+		urlResolver: new LocalResolver(),
+		documentServiceFactory: serviceInternals(service).getDocumentServiceFactory(),
+		codeLoader: await graphCodeLoader(summarizing),
+	});
+	return { container, data: await container.getEntryPoint() as GraphData };
+}
+
+async function storedSnapshot(service: unknown, resolvedUrl: unknown, handle: string) {
+	const documentService = await serviceInternals(service)
+		.getDocumentServiceFactory()
+		.createDocumentService(resolvedUrl as any);
+	try {
+		const storage = await documentService.connectToStorage();
+		const versions = await storage.getVersions(null, 1);
+		assert.equal(versions[0]?.id, handle, "Published summary is not the stored head");
+		const tree = await storage.getSnapshotTree(versions[0]);
+		assert(tree !== null, "Published snapshot is missing");
+		const blobs: Record<string, string> = {};
+		async function visit(node: any): Promise<void> {
+			for (const id of Object.values(node.blobs as Record<string, string>)) {
+				if (!(id in blobs)) {
+					blobs[id] = Buffer.from(await storage.readBlob(id)).toString("base64");
+				}
+			}
+			for (const child of Object.values(node.trees as Record<string, unknown>)) {
+				await visit(child);
+			}
+		}
+		await visit(tree);
+		const attributesId = tree.trees[".protocol"]?.blobs.attributes;
+		assert.equal(typeof attributesId, "string", "Published snapshot has no protocol attributes");
+		const attributes = parseJson(Uint8Array.from(Buffer.from(blobs[attributesId], "base64"))) as {
+			sequenceNumber?: unknown;
+		};
+		assert.equal(typeof attributes.sequenceNumber, "number", "Published snapshot sequence");
+		const snapshot = {
+			version: versions[0],
+			tree,
+			blobs,
+			blobEncoding: "base64",
+			sequenceNumber: attributes.sequenceNumber,
+		};
+		return { snapshot, metadata: snapshotMetadata(tree, blobs) };
+	} finally {
+		documentService.dispose();
+	}
+}
+
+async function publishDocument(
+	service: unknown,
+	documentId: string,
+	resolvedUrl: unknown,
+	reason: string,
+) {
+	const summarizer = await openGraphContainer(service, documentId, { summarizing: true });
+	try {
+		const entryPoint = await summarizer.container.getEntryPoint() as {
+			ISummarizer?: {
+				summarizeOnDemand(options: { reason: string; fullTree: boolean }): {
+					summarySubmitted: Promise<any>;
+					summaryOpBroadcasted: Promise<any>;
+					receivedSummaryAckOrNack: Promise<any>;
+				};
+			};
+		};
+		assert(entryPoint.ISummarizer !== undefined, "Missing upstream summarizer");
+		const result = entryPoint.ISummarizer.summarizeOnDemand({ reason, fullTree: true });
+		const submitted = await result.summarySubmitted;
+		assert(submitted.success, `Summary submission failed: ${submitted.error}`);
+		const broadcast = await result.summaryOpBroadcasted;
+		assert(broadcast.success, `Summary broadcast failed: ${broadcast.error}`);
+		const acknowledged = await result.receivedSummaryAckOrNack;
+		assert(acknowledged.success, `Summary acknowledgement failed: ${acknowledged.error}`);
+		const handle = acknowledged.data.summaryAckOp.contents.handle;
+		assert.equal(typeof handle, "string", "Summary acknowledgement has no handle");
+		const stored = await storedSnapshot(service, resolvedUrl, handle);
+		return {
+			publication: {
+				handle,
+				referenceSequenceNumber: submitted.data.referenceSequenceNumber,
+				summarySequenceNumber: broadcast.data.summarizeOp.sequenceNumber,
+				acknowledgementSequenceNumber: acknowledged.data.summaryAckOp.sequenceNumber,
+			},
+			...stored,
+		};
+	} finally {
+		summarizer.container.dispose();
+	}
+}
+
 async function attachedGraph() {
 	const service = startEphemeralService(false);
-	const client = service.newClient({ oldestSupportedClient: "2.117.0" });
+	const client = service.newClient({ oldestSupportedClient });
 	const container = await client.createAttachedContainer(GraphStore);
 	const messages: unknown[] = [];
 	const inner = container as unknown as {
-		container: { deltaManager: { on(event: "op", listener: (message: ISequencedDocumentMessage) => void): void } };
+		container: {
+			resolvedUrl: unknown;
+			deltaManager: { on(event: "op", listener: (message: ISequencedDocumentMessage) => void): void };
+		};
 	};
 	inner.container.deltaManager.on("op", (message) => messages.push(copy(message)));
-	return { service, client, container, messages };
+	return { service, client, container, messages, resolvedUrl: inner.container.resolvedUrl };
 }
 
 function newRoot(tree: Awaited<ReturnType<GraphData["createTree"]>>) {
@@ -319,6 +564,65 @@ function newRoot(tree: Awaited<ReturnType<GraphData["createTree"]>>) {
 		sequence: new Sequence(),
 	}));
 	return view;
+}
+
+async function activeDocumentAttachment(
+	container: { id: string; data: GraphData },
+	service: { synchronize(): Promise<void> },
+	parentView: RootView,
+	messages: unknown[],
+) {
+	const activeTree = await container.data.createTree();
+	const activeView = newRoot(activeTree);
+	activeView.root.label = "active-target";
+	const targetHandle = activeTree.handle;
+	const targetPath = pathOf(targetHandle);
+	const targetAttachedBefore = isAttached(activeTree);
+	const targetLocalBefore = visible(activeView.root);
+	const parentBefore = visible(parentView.root);
+	let transactionEntered = false;
+	const error = errorOf(() => Tree.runTransaction(activeView, () => {
+		transactionEntered = true;
+		parentView.root.link = targetHandle;
+	}));
+	await service.synchronize();
+	const transport = messages.splice(0);
+	let parentAfter: unknown;
+	const parentAfterError = errorOf(() => {
+		parentAfter = visible(parentView.root);
+	});
+	let targetLocalAfter: unknown;
+	const targetLocalError = errorOf(() => {
+		targetLocalAfter = visible(activeView.root);
+	});
+	let targetAttachedAfter: unknown;
+	const targetAttachedError = errorOf(() => {
+		targetAttachedAfter = isAttached(activeTree);
+	});
+	return {
+		documentId: container.id,
+		error,
+		transactionEntered,
+		targetPath,
+		target: {
+			path: targetPath,
+			attached: {
+				before: targetAttachedBefore,
+				after: targetAttachedAfter,
+				error: targetAttachedError,
+			},
+			local: {
+				before: targetLocalBefore,
+				after: targetLocalAfter,
+				error: targetLocalError,
+			},
+		},
+		parentBefore,
+		parentAfter,
+		parent: { before: parentBefore, after: parentAfter, error: parentAfterError },
+		transport,
+		allocation: messageOrder(transport).filter((item) => item === "id-allocation"),
+	};
 }
 
 describe("Watershed handle and attachment lifecycle", () => {
@@ -571,15 +875,9 @@ describe("Watershed handle and attachment lifecycle", () => {
 				evidence: [record("messages", raw, "completed-transaction", "attach", messages.splice(0))],
 			});
 
-			const active = activeTransactionAttachment();
-			observations.push({
-				id: "active-transaction",
-				value: active,
-				evidence: [record("messages", raw, "active-transaction", "checkpoint", messages.splice(0), "after-refusal")],
-			});
 			record("serialization", raw, "two-channel-cycle", "map-summary", summaryBlobText((await summarize(left)).summary));
 			record("summaries", raw, "detached-tree", "tree-summary", (await summarize(targetTree)).summary);
-			await writeCase("live-channel-attachment", scenarios, observations, raw);
+			deferredLiveAttachment = { scenarios, observations, raw };
 		} finally {
 			await service.close();
 		}
@@ -752,13 +1050,6 @@ describe("Watershed handle and attachment lifecycle", () => {
 				],
 			});
 
-			const active = activeTransactionAttachment();
-			observations.push({
-				id: "active-target",
-				value: active,
-				evidence: [record("messages", raw, "active-target", "checkpoint", messages.splice(0), "after-refusal")],
-			});
-
 			const branchTarget = await container.data.createMap();
 			const branch = view.fork() as RootView;
 			branch.root.link = branchTarget.handle;
@@ -836,7 +1127,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 				],
 			});
 			peer.close();
-			await writeCase("handle-transaction-branch", scenarios, observations, raw);
+			deferredTransactionBranch = { scenarios, observations, raw };
 		} finally {
 			await service.close();
 		}
@@ -855,8 +1146,20 @@ describe("Watershed handle and attachment lifecycle", () => {
 			{ id: "fresh-load", operation: "load the document from its attach snapshot and sequenced operations, then continue editing" },
 		];
 		const observations: Observation[] = [];
-		const { service, client, container, messages } = await attachedGraph();
+		const { service, container, messages, resolvedUrl } = await attachedGraph();
 		try {
+			const publishCheckpoint = async (scenarioId: string) => {
+				await service.synchronize();
+				const published = await publishDocument(
+					service, container.id, resolvedUrl, `watershed ${scenarioId}`,
+				);
+				const evidence = record(
+					"summaries", raw, scenarioId, "published-document", published, scenarioId,
+				);
+				await service.synchronize();
+				messages.length = 0;
+				return { published, evidence };
+			};
 			const tree = await container.data.createTree();
 			const view = newRoot(tree);
 			container.data.root.set("tree", tree.handle);
@@ -867,13 +1170,19 @@ describe("Watershed handle and attachment lifecycle", () => {
 			messages.length = 0;
 
 			const beforeSummary = await summarize(tree);
+			const beforePublication = await publishCheckpoint("before-removal");
 			observations.push({
 				id: "before-removal",
 				value: {
 					routes: gcNodes(tree),
 					path: view.root.link === undefined ? undefined : pathOf(view.root.link),
+					documentGc: beforePublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: beforePublication.published.snapshot.sequenceNumber,
 				},
-				evidence: [record("summaries", raw, "before-removal", "tree-summary", beforeSummary.summary)],
+				evidence: [
+					record("summaries", raw, "before-removal", "tree-summary", beforeSummary.summary),
+					beforePublication.evidence,
+				],
 			});
 
 			const retainedHandles: RevertibleAlpha[] = [];
@@ -885,51 +1194,89 @@ describe("Watershed handle and attachment lifecycle", () => {
 			view.root.link = undefined;
 			await service.synchronize();
 			const afterSummary = await summarize(tree);
+			const afterPublication = await publishCheckpoint("after-removal");
 			observations.push({
 				id: "after-removal",
-				value: { routes: gcNodes(tree), attached: isAttached(target) },
-				evidence: [record("summaries", raw, "after-removal", "tree-summary", afterSummary.summary)],
+				value: {
+					routes: gcNodes(tree),
+					attached: isAttached(target),
+					documentGc: afterPublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: afterPublication.published.snapshot.sequenceNumber,
+				},
+				evidence: [
+					record("summaries", raw, "after-removal", "tree-summary", afterSummary.summary),
+					afterPublication.evidence,
+				],
 			});
 
 			const removal = retainedHandles[0];
 			assert(removal !== undefined, "Handle removal must produce a revertible");
 			removal.revert();
 			await service.synchronize();
+			const undoMessages = messages.splice(0);
+			const undoPublication = await publishCheckpoint("after-undo");
 			observations.push({
 				id: "after-undo",
 				value: {
 					path: view.root.link === undefined ? undefined : pathOf(view.root.link),
 					targetValue: target.get("value"),
+					documentGc: undoPublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: undoPublication.published.snapshot.sequenceNumber,
 				},
-				evidence: [record("messages", raw, "after-undo", "undo", messages.splice(0))],
+				evidence: [
+					record("messages", raw, "after-undo", "undo", undoMessages),
+					undoPublication.evidence,
+				],
 			});
 
 			const retaining = view.fork() as RootView;
 			view.root.link = undefined;
 			await service.synchronize();
+			const repairPublication = await publishCheckpoint("retained-repair");
 			observations.push({
 				id: "retained-repair",
 				value: {
 					routes: gcNodes(tree),
 					mainHasReference: view.root.link !== undefined,
 					branchPath: retaining.root.link === undefined ? undefined : pathOf(retaining.root.link),
+					documentGc: repairPublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: repairPublication.published.snapshot.sequenceNumber,
 				},
-				evidence: [record("summaries", raw, "retained-repair", "gc", gcData(tree))],
+				evidence: [
+					record("summaries", raw, "retained-repair", "gc", gcData(tree)),
+					repairPublication.evidence,
+				],
 			});
 			retaining.dispose();
+			const branchPublication = await publishCheckpoint("branch-disposal");
 			observations.push({
 				id: "branch-disposal",
-				value: { routes: gcNodes(tree) },
-				evidence: [record("summaries", raw, "branch-disposal", "gc", gcData(tree))],
+				value: {
+					routes: gcNodes(tree),
+					documentGc: branchPublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: branchPublication.published.snapshot.sequenceNumber,
+				},
+				evidence: [
+					record("summaries", raw, "branch-disposal", "gc", gcData(tree)),
+					branchPublication.evidence,
+				],
 			});
 			off();
 			for (const handle of retainedHandles) {
 				if (handle.status === RevertibleStatus.Valid) handle.dispose();
 			}
+			const revertiblePublication = await publishCheckpoint("revertible-disposal");
 			observations.push({
 				id: "revertible-disposal",
-				value: { routes: gcNodes(tree) },
-				evidence: [record("summaries", raw, "revertible-disposal", "gc", gcData(tree))],
+				value: {
+					routes: gcNodes(tree),
+					documentGc: revertiblePublication.published.metadata.gcNodes,
+					snapshotSequenceNumber: revertiblePublication.published.snapshot.sequenceNumber,
+				},
+				evidence: [
+					record("summaries", raw, "revertible-disposal", "gc", gcData(tree)),
+					revertiblePublication.evidence,
+				],
 			});
 
 			const secondary = await container.createDataStore(GraphStore);
@@ -937,19 +1284,34 @@ describe("Watershed handle and attachment lifecycle", () => {
 			await service.synchronize();
 			container.data.root.delete("secondary");
 			await service.synchronize();
+			const secondaryMessages = messages.splice(0);
+			const secondaryPublication = await publishCheckpoint("unreferenced-datastore");
 			observations.push({
 				id: "unreferenced-datastore",
 				value: {
 					path: pathOf(secondary.root.handle),
 					attached: isAttached(secondary.root),
 					rootGc: gcNodes(container.data.root),
+					documentGc: secondaryPublication.published.metadata.gcNodes,
+					components: secondaryPublication.published.metadata.components,
+					snapshotSequenceNumber: secondaryPublication.published.snapshot.sequenceNumber,
 				},
-				evidence: [record("messages", raw, "unreferenced-datastore", "remove", messages.splice(0))],
+				evidence: [
+					record("messages", raw, "unreferenced-datastore", "remove", secondaryMessages),
+					secondaryPublication.evidence,
+				],
 			});
 
 			view.root.link = target.handle;
 			await service.synchronize();
-			const loaded = await client.loadContainer(container.id, GraphStore);
+			const freshPublication = await publishCheckpoint("fresh-load");
+			const storedBlobEvidence = record(
+				"serialization", raw, "fresh-load", "stored-summary-blobs",
+				Object.keys(freshPublication.published.snapshot.blobs),
+			);
+			const loaded = await openGraphContainer(service, container.id, {
+				version: freshPublication.published.publication.handle,
+			});
 			try {
 				const loadedTreeHandle = loaded.data.root.get("tree") as IFluidHandle;
 				const loadedTree = await loadedTreeHandle.get() as typeof tree;
@@ -957,23 +1319,93 @@ describe("Watershed handle and attachment lifecycle", () => {
 					new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
 				));
 				const loadedTarget = await loadedView.root.link?.get() as ISharedMap;
+				const loadedTargetPath = pathOf(loadedView.root.link as IFluidHandle);
+				const loadedTargetBefore = Object.fromEntries(loadedTarget.entries());
+				const writerTargetBefore = Object.fromEntries(target.entries());
 				loadedTarget.set("continued", true);
 				await service.synchronize();
+				assert.equal(target.get("continued"), true, "Writer did not observe fresh-client edit");
+				const continuationMessages = messages.splice(0);
+				const continuation = mapSetObservation(continuationMessages, "continued");
+				assert(continuation !== undefined, "Fresh-client continuation transport was not observed");
+				assert.equal(continuation.route, loadedTargetPath);
+				const continuationEvidence = record(
+					"messages", raw, "fresh-load", "continuation", continuationMessages, "after-edit",
+				);
 				observations.push({
 					id: "fresh-load",
 					value: {
-						path: loadedView.root.link === undefined ? undefined : pathOf(loadedView.root.link),
+						path: loadedTargetPath,
 						continued: target.get("continued"),
+						loadedVersion: freshPublication.published.publication.handle,
+						snapshotSequenceNumber: freshPublication.published.snapshot.sequenceNumber,
+						documentGc: freshPublication.published.metadata.gcNodes,
+						publication: {
+							handle: freshPublication.published.publication.handle,
+							snapshotSequenceNumber: freshPublication.published.snapshot.sequenceNumber,
+							acknowledgementSequenceNumber:
+								freshPublication.published.publication.acknowledgementSequenceNumber,
+						},
+						loadedTree: { path: pathOf(loadedTreeHandle) },
+						loadedTarget: {
+							path: loadedTargetPath,
+							before: loadedTargetBefore,
+							after: Object.fromEntries(loadedTarget.entries()),
+						},
+						writerTarget: {
+							path: pathOf(target.handle),
+							before: writerTargetBefore,
+							after: Object.fromEntries(target.entries()),
+						},
+						continuation: {
+							...continuation,
+							publicationHandle: freshPublication.published.publication.handle,
+						},
 					},
-					evidence: [record("summaries", raw, "fresh-load", "loaded-tree", (await summarize(loadedTree)).summary)],
+					evidence: [
+						record("summaries", raw, "fresh-load", "loaded-tree", (await summarize(loadedTree)).summary),
+						freshPublication.evidence,
+						storedBlobEvidence,
+						continuationEvidence,
+					],
 				});
 			} finally {
-				loaded.close();
+				loaded.container.dispose();
 			}
-			record("serialization", raw, "fresh-load", "summary-blobs", summaryBlobText((await summarize(tree)).summary));
 			await writeCase("handle-retention", scenarios, observations, raw);
 		} finally {
 			await service.close();
+		}
+	});
+
+	it("captures real active target publication attempts after stable case streams", async () => {
+		for (const [id, scenarioId, deferred] of [
+			["live-channel-attachment", "active-transaction", deferredLiveAttachment],
+			["handle-transaction-branch", "active-target", deferredTransactionBranch],
+		] as const) {
+			assert(deferred !== undefined, `${id}: deferred case`);
+			const { service, container, messages } = await attachedGraph();
+			try {
+				const tree = await container.data.createTree();
+				const view = newRoot(tree);
+				container.data.root.set("tree", tree.handle);
+				await service.synchronize();
+				messages.length = 0;
+				const active = await activeDocumentAttachment(container, service, view, messages);
+				const index = deferred.scenarios.findIndex((scenario) => scenario.id === scenarioId);
+				assert(index >= 0, `${id}: active scenario`);
+				deferred.observations.splice(index, 0, {
+					id: scenarioId,
+					value: active,
+					evidence: [record(
+						"messages", deferred.raw, scenarioId,
+						"document-attachment", active, "after-attempt",
+					)],
+				});
+				await writeCase(id, deferred.scenarios, deferred.observations, deferred.raw);
+			} finally {
+				await service.close();
+			}
 		}
 	});
 });
