@@ -66,6 +66,227 @@ test("live attachment requires the raw attach that its observation names", async
   assert.throws(() => validateLifecycleCase(changed), /raw.*attach/i);
 });
 
+test("graph lifecycle cases require initial replay state and a complete delivery prefix", async () => {
+  for (const id of ["live-channel-attachment", "cross-datastore-attachment"]) {
+    const missingReplay = await lifecycleCapture(id);
+    delete missingReplay.input.decoderInput;
+    assert.throws(() => validateLifecycleCase(missingReplay),
+      /initial snapshot|compressor|delivery prefix/i, id);
+
+    const missingCompressor = await lifecycleCapture(id);
+    if (missingCompressor.input.decoderInput) {
+      delete missingCompressor.input.decoderInput.compressor;
+    }
+    assert.throws(() => validateLifecycleCase(missingCompressor), /compressor/i, id);
+
+    const gappedPrefix = await lifecycleCapture(id);
+    const prefix = gappedPrefix.input.decoderInput?.deliveryPrefix;
+    if (Array.isArray(prefix) && prefix.length > 1) prefix.splice(1, 1);
+    assert.throws(() => validateLifecycleCase(gappedPrefix), /delivery prefix/i, id);
+  }
+});
+
+test("graph lifecycle scenarios require typed production commands", async () => {
+  for (const id of ["live-channel-attachment", "cross-datastore-attachment"]) {
+    const value = await lifecycleCapture(id);
+    const scenario = value.input.scenarios.find((item) =>
+      item.id === (id === "live-channel-attachment" ? "detached-map" : "map-cross-datastore"));
+    delete scenario.commands;
+    assert.throws(() => validateLifecycleCase(value), /command/i, id);
+  }
+});
+
+test("graph lifecycle receiver proof rejects missing and swapped targets", async () => {
+  for (const [id, scenarioId] of [
+    ["live-channel-attachment", "two-channel-cycle"],
+    ["cross-datastore-attachment", "tree-cycle"],
+  ]) {
+    const missing = await lifecycleCapture(id);
+    const missingObservation = missing.expected.observations.find((item) =>
+      item.id === scenarioId);
+    delete missingObservation.value.receiver;
+    assert.throws(() => validateLifecycleCase(missing), /receiver/i, id);
+
+    const swapped = await lifecycleCapture(id);
+    const receiver = swapped.expected.observations.find((item) =>
+      item.id === scenarioId).value.receiver;
+    const rawReceiver = swapped.raw.serialization.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "receiver-graph").value;
+    for (const captured of [receiver, rawReceiver]) {
+      [captured.targets[0].path, captured.targets[1].path] =
+        [captured.targets[1].path, captured.targets[0].path];
+    }
+    assert.throws(() => validateLifecycleCase(swapped), /receiver.*target|target.*route/i, id);
+  }
+});
+
+test("graph lifecycle replay rejects false publication and corrupted final graph state", async () => {
+  for (const [id, scenarioId] of [
+    ["live-channel-attachment", "self-reference"],
+    ["cross-datastore-attachment", "map-cycle"],
+  ]) {
+    const published = await lifecycleCapture(id);
+    const publishedScenario = published.input.scenarios.find((item) => item.id === scenarioId);
+    if (publishedScenario.replay) publishedScenario.replay.published = true;
+    assert.throws(() => validateLifecycleCase(published), /publication/i, id);
+
+    const corrupt = await lifecycleCapture(id);
+    const receiver = corrupt.expected.observations.find((item) =>
+      item.id === scenarioId).value.receiver;
+    if (receiver) receiver.graph = { corrupted: true };
+    assert.throws(() => validateLifecycleCase(corrupt), /receiver.*graph|graph.*state/i, id);
+  }
+});
+
+test("graph lifecycle validates initial package, entry point and writer compressor", async () => {
+  for (const id of ["live-channel-attachment", "cross-datastore-attachment"]) {
+    const value = await lifecycleCapture(id);
+    validateLifecycleCase(value);
+    const wrongPackage = structuredClone(value);
+    const snapshot = wrongPackage.input.decoderInput.initialSnapshot;
+    const componentId = snapshot.tree.trees[".channels"].trees.A.blobs[".component"];
+    snapshot.blobs[componentId] = Buffer.from(JSON.stringify({
+      pkg: '["invented"]', summaryFormatVersion: 2, isRootDataStore: true,
+    })).toString("base64");
+    assert.throws(() => validateLifecycleCase(wrongPackage), /package|component/i);
+
+    const wrongSession = structuredClone(value);
+    wrongSession.input.decoderInput.sessions.writer.sessionId =
+      wrongSession.input.decoderInput.sessions.receiverClientId;
+    assert.throws(() => validateLifecycleCase(wrongSession), /compressor|session/i);
+
+    const wrongEntryPoint = structuredClone(value);
+    wrongEntryPoint.input.decoderInput.runtime.entryPoint.channelId = "invented";
+    assert.throws(() => validateLifecycleCase(wrongEntryPoint), /entry.point/i);
+  }
+});
+
+test("graph lifecycle rejects omitted serialization and incomplete tree initialization", async () => {
+  const omitted = await lifecycleCapture("live-channel-attachment");
+  for (const scenario of omitted.input.scenarios) {
+    scenario.commands = scenario.commands.filter((command) =>
+      command.type !== "serialize-channel-summary");
+  }
+  assert.throws(() => validateLifecycleCase(omitted), /command|serializ/i);
+
+  const missingRoot = await lifecycleCapture("cross-datastore-attachment");
+  for (const scenario of missingRoot.input.scenarios) {
+    for (const initialize of scenario.commands.filter((command) => command.type === "initialize-tree")) {
+      initialize.initialValue.fields = initialize.initialValue.fields.filter(([key]) =>
+        key !== "links");
+    }
+  }
+  assert.throws(() => validateLifecycleCase(missingRoot), /initial|command/i);
+});
+
+function mutateGraphWire(value, sequenceNumber, mutate) {
+  const messages = [
+    value.input.decoderInput.deliveryPrefix.find((message) =>
+      message.sequenceNumber === sequenceNumber),
+    ...value.raw.messages.flatMap((record) => Array.isArray(record.value)
+      ? record.value.filter((message) => message.sequenceNumber === sequenceNumber) : []),
+  ];
+  for (const message of messages) {
+    const contents = JSON.parse(message.contents);
+    mutate(contents);
+    message.contents = JSON.stringify(contents);
+  }
+}
+
+test("graph lifecycle decodes target data rather than trusting synchronized receiver claims", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const observation = value.expected.observations.find((item) => item.id === "detached-map");
+  const rawReceiver = value.raw.serialization.find((item) =>
+    item.scenarioId === "detached-map" && item.kind === "receiver-graph").value;
+  for (const receiver of [observation.value.receiver, rawReceiver]) {
+    receiver.targets[1].data.local = "invented";
+    receiver.graph.targetData.local = "invented";
+  }
+  assert.throws(() => validateLifecycleCase(value), /receiver.*target|graph.*state/i);
+});
+
+test("graph lifecycle binds tree edits to their actual optional field", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  const sequence = value.input.scenarios.find((item) => item.id === "tree-cross-datastore")
+    .replay.prefixEndSequenceNumber;
+  mutateGraphWire(value, sequence, (batch) => {
+    const treeOp = batch.contents.map((item) => item.contents).find((item) =>
+      item.type === "component" && item.contents.contents.type === "op"
+      && item.contents.contents.content.contents.version === 7);
+    treeOp.contents.contents.content.contents.changeset[0].data.changes[0]
+      .change[0][1].fieldChanges[0].fieldKey = "label";
+  });
+  assert.throws(() => validateLifecycleCase(value), /tree.*edit|field|command/i);
+});
+
+test("graph lifecycle binds datastore membership to actual channel snapshots", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  const sequence = value.input.scenarios.find((item) => item.id === "tree-cycle")
+    .replay.prefixEndSequenceNumber;
+  mutateGraphWire(value, sequence, (batch) => {
+    const datastore = batch.contents.map((item) => item.contents)
+      .find((item) => item.type === "attach");
+    const channels = datastore.contents.snapshot.entries.find((item) => item.path === ".channels");
+    channels.value.entries.find((item) => item.path !== "root").path = "invented";
+  });
+  assert.throws(() => validateLifecycleCase(value), /channel|membership|target|command/i);
+});
+
+test("graph lifecycle rejects allocation after attachment even when the order claim agrees", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const scenario = value.input.scenarios.find((item) => item.id === "nested-dependency");
+  const observation = value.expected.observations.find((item) => item.id === scenario.id);
+  mutateGraphWire(value, scenario.replay.prefixEndSequenceNumber, (batch) => {
+    [batch.contents[0], batch.contents[1]] = [batch.contents[1], batch.contents[0]];
+  });
+  [observation.value.transportOrder[0], observation.value.transportOrder[1]] =
+    [observation.value.transportOrder[1], observation.value.transportOrder[0]];
+  assert.throws(() => validateLifecycleCase(value), /allocation.*order|attachment.*order/i);
+});
+
+test("graph lifecycle rejects reversed cycle attachments even when the order claim agrees", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  const scenario = value.input.scenarios.find((item) => item.id === "map-cycle");
+  const observation = value.expected.observations.find((item) => item.id === scenario.id);
+  mutateGraphWire(value, scenario.replay.prefixEndSequenceNumber, (batch) => {
+    [batch.contents[1], batch.contents[2]] = [batch.contents[2], batch.contents[1]];
+  });
+  [observation.value.attachOrder[1], observation.value.attachOrder[2]] =
+    [observation.value.attachOrder[2], observation.value.attachOrder[1]];
+  assert.throws(() => validateLifecycleCase(value), /attachment.*order|dependency.*order/i);
+});
+
+test("active graph replay carries its own document input and native refusal boundary", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const active = value.input.scenarios.find((item) => item.id === "active-transaction");
+  assert.notEqual(active.input.decoderInput.documentId, value.input.decoderInput.documentId);
+  delete active.input.decoderInput;
+  assert.throws(() => validateLifecycleCase(value), /active.*initial|active.*replay/i);
+});
+
+test("tree cycle replay creates both channels before initializing either", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  const commands = value.input.scenarios.find((scenario) => scenario.id === "tree-cycle").commands;
+  const { left, right } = value.expected.observations.find((item) => item.id === "tree-cycle").value;
+  const rightCreation = commands.findIndex((command) => command.type === "create-channel"
+    && `/${command.datastoreId}/${command.channelId}` === right);
+  const leftInitialization = commands.findIndex((command) =>
+    command.type === "initialize-tree" && command.target === left);
+  assert(rightCreation >= 0 && rightCreation < leftInitialization,
+    "The real source creates left and right trees, then initializes both views");
+});
+
+test("map-only datastore replay does not require native tree creation", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  for (const id of ["map-cross-datastore", "map-cycle"]) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    assert(scenario.commands.every((command) =>
+      command.type !== "initialize-tree" && !command.type.startsWith("tree-")
+      && command.channelType !== "https://graph.microsoft.com/types/tree"),
+    `${id} must run through Task 3 before Task 4 adds native trees`);
+  }
+});
+
 test("lifecycle validator rejects a missing scenario and its observation", async () => {
   const value = await lifecycleCapture("cross-datastore-attachment");
   value.input.scenarios = value.input.scenarios.filter((item) => item.id !== "map-cycle");

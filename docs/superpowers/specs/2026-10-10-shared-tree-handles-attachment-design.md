@@ -87,6 +87,9 @@ checkpoints listed here, not the complete lifecycle contract.
 | `handle-leaves` / `uncompressed-v2`, `schema-aware-v2` | Both scenarios contain executable FieldBatch V2 payloads, the captured stored Schema V2 document, source datastore context, tagged handle value and literal decoded nodes. Validation structurally decodes each payload and compares schema, payload and decoded value; it does not scan strings for marker text. | `input.scenarios[].codec` and the matching `raw.summaries` records |
 | `handle-leaves` / `malformed-marker`, `unsupported-marker` | Genuine serializer calls throw for missing/non-string URLs and a late nested malformed marker. A pending marker decodes to a handle and is accepted by the tree, while the native profile refuses it. An unknown marker kind remains ordinary JSON and only tree assignment refuses it. External, traversal and invalid-escape URLs decode to handles upstream, fail target resolution in this document, and remain explicit stronger native-profile refusals. | `raw.serialization` kinds `serializer-outcomes` and `tree-assignment-outcome` |
 | `live-channel-attachment` / `serialize-remove` | A detached map's attach-summary serialization binds its target. Removing that value before attaching the owner does not remove the binding: the target attaches while the owner's displayed value is absent. Merely setting and deleting the value without serialization did not attach the target in the earlier probe. | `raw.summaries` (`owner-before-removal`) and the matching `raw.messages` slice |
+| `live-channel-attachment` / all seven positive scenarios | A distinct receiving client resolves the attached targets and reads their actual map/tree data. Nested references resolve their dependencies; self and two-channel cycles resolve back to the original DDS instance. The completed detached transaction loads with label `committed`. The serialized-then-removed target still resolves although the owner has no displayed reference. | `raw.serialization` kind `receiver-graph`; `expected.observations[].value.receiver`; decoded channel attach snapshots and reference operations |
+| `live-channel-attachment`, `cross-datastore-attachment` / replay input | Each case includes the actual initial document snapshot, base64 blob bytes, protocol sequence, stored compressor, writer's ongoing compressor/session, runtime registry, entry point, and gap-free sequenced prefix. Each positive scenario has cumulative typed commands and an inclusive prefix checkpoint. These are attachment-snapshot inputs, not published-summary evidence. | `input.decoderInput`; `input.scenarios[].commands` and `.replay`; matching `raw.messages` slices |
+| `cross-datastore-attachment` / all four scenarios | The receiving client reads the secondary map, resolves both sides of unpublished map/tree cycles, and resolves a secondary tree through both the primary tree and secondary entry-point map to the same DDS instance. Datastore snapshots carry the declared package and root channel; the later secondary tree arrives as a channel attach after that datastore is visible. | `raw.serialization` kind `receiver-graph`; datastore/channel snapshot metadata and live FieldBatch roots in `input.decoderInput.deliveryPrefix` |
 | `cross-datastore-attachment` / `map-cycle`, `tree-cycle` | Two unpublished declared stores can reference each other. The captured batch contains allocation, the dependency store attach, the referring store attach, then the visible DDS operation. Each cycle has two genuine datastore attaches. | `raw.messages`; `expected.observations[].value.attachOrder` is checked against the actual nested message envelopes |
 | `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | A successful or nested committed handle edit attaches its target. The rolled-back edit leaves its target unattached and restores the prior reference at the captured checkpoint. | Matching `raw.messages` slices, including an explicit empty rollback checkpoint |
 | `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | A branch-only reference does not attach the target. Merging it attaches the target; disposing an unmerged branch leaves its target unattached. | Matching `raw.messages` slices and checkpoints |
@@ -104,10 +107,28 @@ raw compatibility observation, but do not require native failure-side-effect
 parity. Accepted graph operations must still preserve the measured upstream
 wire ordering.
 
-The discovery gate still needs graph/runtime replay inputs, receiving-client
-graph outcomes, multi-tree document-compressor identity, and the remaining
-commit/factory/revertible/event-lifetime observations required by Task 1. Do
-not derive native invariants from this table alone.
+The live attachment case's active-transaction scenario uses a separate
+document. Its own `input.decoderInput` and typed commands preserve the measured
+failed submission; `replay.nativeBoundary` is `preflight-refusal`. The native
+runner must not submit that captured failure tail as an accepted candidate.
+
+Graph validation decodes map headers, keyed FieldBatch roots, and the captured
+optional-handle reference edits. It compares the resulting checkpoint graph
+with the finite commands and measured receiver data. It does not implement a
+second CRDT or general application runtime. Delta storage uses an empty
+`traces` array; live joins include service traces, while live operations omit
+the array. Validation checks those trace shapes and compares the remaining
+envelope without changing the captured identities, contents, or bytes.
+
+The two map-only cross-datastore scenarios run before any tree is created.
+Their commands do not require Task 4's tree APIs. The primary tree setup starts
+in `tree-cross-datastore`; `tree-cycle` creates both detached trees before
+initializing either, preserving the source's allocation order.
+
+The discovery gate still needs transaction/branch/retention replay inputs and
+their remaining receiver checkpoints, multi-tree document-compressor identity,
+and the remaining commit/factory/revertible/event-lifetime observations required
+by Task 1. Do not derive native invariants from this table alone.
 
 ## 3. Global constraints
 

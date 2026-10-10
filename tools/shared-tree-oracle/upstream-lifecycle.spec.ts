@@ -83,6 +83,13 @@ interface LifecycleScenario {
 	operation: string;
 	input?: unknown;
 	codec?: unknown;
+	commands?: unknown[];
+	replay?: unknown;
+}
+interface GraphReplayCheckpoint {
+	published: false;
+	prefixEndSequenceNumber: number;
+	deliveryPrefixLength?: number;
 }
 interface DeferredCase {
 	scenarios: LifecycleScenario[];
@@ -92,6 +99,7 @@ interface DeferredCase {
 		serialization: RawRecord[];
 		summaries: RawRecord[];
 	};
+	input?: Record<string, unknown>;
 }
 let deferredLiveAttachment: DeferredCase | undefined;
 let deferredTransactionBranch: DeferredCase | undefined;
@@ -140,7 +148,9 @@ function serializerFor(handle: IFluidHandle): FluidSerializer {
 }
 
 function mapValue(map: ISharedMap) {
-	return Object.fromEntries(map.entries());
+	return serializerFor(map.handle).encode(
+		Object.fromEntries(map.entries()), internalHandle(map.handle),
+	);
 }
 
 function mapType(map: ISharedMap): string {
@@ -224,6 +234,7 @@ function storedSchemaFromSummary(value: unknown): unknown {
 function messageOrder(messages: unknown[]): string[] {
 	const order: string[] = [];
 	for (const message of messages) {
+		if ((message as { type?: string }).type === "join") continue;
 		const raw = (message as { contents?: unknown }).contents;
 		const contents = typeof raw === "string" ? JSON.parse(raw) as unknown : raw;
 		const entries = (contents as { type?: string; contents?: unknown })?.type === "groupedBatch"
@@ -575,6 +586,197 @@ async function storedSnapshot(service: unknown, resolvedUrl: unknown, handle: st
 	}
 }
 
+async function initialGraphSnapshot(service: unknown, resolvedUrl: unknown) {
+	const documentService = await serviceInternals(service)
+		.getDocumentServiceFactory()
+		.createDocumentService(resolvedUrl as any);
+	try {
+		const storage = await documentService.connectToStorage();
+		const versions = await storage.getVersions(null, 1);
+		assert(versions[0] !== undefined, "Initial graph snapshot version is missing");
+		const tree = await storage.getSnapshotTree(versions[0]);
+		assert(tree !== null, "Initial graph snapshot is missing");
+		const blobs: Record<string, string> = {};
+		async function visit(node: any): Promise<void> {
+			for (const id of Object.values(node.blobs as Record<string, string>)) {
+				if (!(id in blobs)) {
+					blobs[id] = Buffer.from(await storage.readBlob(id)).toString("base64");
+				}
+			}
+			for (const child of Object.values(node.trees as Record<string, unknown>)) {
+				await visit(child);
+			}
+		}
+		await visit(tree);
+		const attributesId = tree.trees[".protocol"]?.blobs.attributes;
+		assert.equal(typeof attributesId, "string", "Initial graph snapshot has no protocol attributes");
+		const attributes = parseJson(Uint8Array.from(Buffer.from(blobs[attributesId], "base64"))) as {
+			sequenceNumber?: unknown;
+		};
+		assert.equal(typeof attributes.sequenceNumber, "number", "Initial graph snapshot sequence");
+		const sequenceNumber = attributes.sequenceNumber as number;
+		const compressorId = tree.blobs[".idCompressor"];
+		assert.equal(typeof compressorId, "string", "Initial graph snapshot has no compressor");
+		assert.equal(typeof blobs[compressorId], "string", "Initial compressor bytes are missing");
+		return {
+			snapshot: {
+				version: versions[0],
+				tree,
+				blobs,
+				blobEncoding: "base64",
+				sequenceNumber,
+			},
+			compressor: {
+				blobId: compressorId,
+				encoding: "base64",
+				bytes: blobs[compressorId],
+			},
+		};
+	} finally {
+		documentService.dispose();
+	}
+}
+
+async function graphMessages(service: unknown, resolvedUrl: unknown) {
+	const documentService = await serviceInternals(service)
+		.getDocumentServiceFactory()
+		.createDocumentService(resolvedUrl as any);
+	try {
+		const storage = await documentService.connectToDeltaStorage();
+		const stream = storage.fetchMessages(1, undefined);
+		const messages: unknown[] = [];
+		for (;;) {
+			const chunk = await stream.read();
+			if (chunk.done) return messages as ISequencedDocumentMessage[];
+			messages.push(...chunk.value);
+		}
+	} finally {
+		documentService.dispose();
+	}
+}
+
+function graphPrefix(
+	snapshot: { sequenceNumber: number },
+	messages: ISequencedDocumentMessage[],
+	lastSequenceNumber: number,
+) {
+	const prefix = messages.filter((message) =>
+		message.sequenceNumber > snapshot.sequenceNumber
+		&& message.sequenceNumber <= lastSequenceNumber);
+	assert.deepEqual(
+		prefix.map((message) => message.sequenceNumber),
+		Array.from(
+			{ length: lastSequenceNumber - snapshot.sequenceNumber },
+			(_, index) => snapshot.sequenceNumber + index + 1,
+		),
+		"Incomplete graph delivery prefix",
+	);
+	return copy(prefix);
+}
+
+function graphStoredSchema() {
+	return {
+		version: 2,
+		nodes: {
+			"com.fluidframework.leaf.handle": { kind: { leaf: 3 } },
+			"com.fluidframework.leaf.string": { kind: { leaf: 1 } },
+			"org.watershed.shared-tree.handles.Links": {
+				kind: { map: { kind: "Optional", types: ["com.fluidframework.leaf.handle"] } },
+			},
+			"org.watershed.shared-tree.handles.Root": {
+				kind: {
+					object: {
+						label: { kind: "Value", types: ["com.fluidframework.leaf.string"] },
+						link: { kind: "Optional", types: ["com.fluidframework.leaf.handle"] },
+						links: {
+							kind: "Value",
+							types: ["org.watershed.shared-tree.handles.Links"],
+						},
+						sequence: {
+							kind: "Value",
+							types: ["org.watershed.shared-tree.handles.Sequence"],
+						},
+					},
+				},
+			},
+			"org.watershed.shared-tree.handles.Sequence": {
+				kind: {
+					object: {
+						"": { kind: "Sequence", types: ["com.fluidframework.leaf.handle"] },
+					},
+				},
+			},
+		},
+		root: { kind: "Value", types: ["org.watershed.shared-tree.handles.Root"] },
+	};
+}
+
+function graphInitialRoot(label: string) {
+	return {
+		kind: "object",
+		type: "org.watershed.shared-tree.handles.Root",
+		fields: [
+			["label", { kind: "string", value: label }],
+			["links", {
+				kind: "map",
+				schemaId: "org.watershed.shared-tree.handles.Links",
+				entries: [],
+			}],
+			["sequence", {
+				kind: "array",
+				schemaId: "org.watershed.shared-tree.handles.Sequence",
+				elements: [],
+			}],
+		],
+	};
+}
+
+function graphHandle(path: string) {
+	return { kind: "handle", value: { type: "__fluid_handle__", url: path } };
+}
+
+function graphClientId(container: unknown) {
+	const value = container as { clientId?: unknown; container?: { clientId?: unknown } };
+	const clientId = value.clientId ?? value.container?.clientId;
+	assert.equal(typeof clientId, "string", "Graph client ID is missing");
+	return clientId;
+}
+
+function graphWriter(root: ISharedMap) {
+	const runtime = (root as unknown as {
+		runtime: { idCompressor: { localSessionId: string; serialize(local: boolean): string } };
+	}).runtime;
+	assert(runtime.idCompressor !== undefined, "Graph writer compressor is missing");
+	return {
+		sessionId: runtime.idCompressor.localSessionId,
+		compressor: runtime.idCompressor.serialize(true),
+	};
+}
+
+async function resolveGraphTarget(root: ISharedMap, path: string) {
+	const handle = serializerFor(root.handle).decode({
+		type: "__fluid_handle__",
+		url: path,
+	}) as IFluidHandle;
+	return handle.get();
+}
+
+function mapReceiverTarget(map: ISharedMap) {
+	return {
+		path: pathOf(map.handle),
+		channelType: mapType(map),
+		data: mapValue(map),
+	};
+}
+
+function treeReceiverTarget(tree: ITree, view: RootView) {
+	return {
+		path: pathOf(tree.handle),
+		channelType: "https://graph.microsoft.com/types/tree",
+		data: visible(view.root),
+	};
+}
+
 async function publishDocument(
 	service: unknown,
 	documentId: string,
@@ -621,7 +823,7 @@ async function attachedGraph() {
 	const service = startEphemeralService(false);
 	const client = service.newClient({ oldestSupportedClient });
 	const container = await client.createAttachedContainer(GraphStore);
-	const messages: unknown[] = [];
+	const messages: ISequencedDocumentMessage[] = [];
 	const inner = container as unknown as {
 		container: {
 			resolvedUrl: unknown;
@@ -629,19 +831,33 @@ async function attachedGraph() {
 		};
 	};
 	inner.container.deltaManager.on("op", (message) => messages.push(copy(message)));
-	return { service, client, container, messages, resolvedUrl: inner.container.resolvedUrl };
+	const initial = await initialGraphSnapshot(service, inner.container.resolvedUrl);
+	const writer = graphWriter(container.data.root);
+	return {
+		service,
+		client,
+		container,
+		messages,
+		resolvedUrl: inner.container.resolvedUrl,
+		initial,
+		writer,
+	};
 }
 
 function newRoot(tree: Awaited<ReturnType<GraphData["createTree"]>>) {
-	const view = asAlpha(tree.viewWith(
-		new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
-	));
+	const view = existingRoot(tree);
 	view.initialize(new Root({
 		label: "root",
 		links: new Links(),
 		sequence: new Sequence(),
 	}));
 	return view;
+}
+
+function existingRoot(tree: ITree) {
+	return asAlpha(tree.viewWith(
+		new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
+	));
 }
 
 async function activeDocumentAttachment(
@@ -1334,7 +1550,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 
 	it("captures live channel attachment", async () => {
 		const raw = { messages: [] as RawRecord[], serialization: [] as RawRecord[], summaries: [] as RawRecord[] };
-		const scenarios = [
+		const scenarios: LifecycleScenario[] = [
 			{ id: "detached-map", operation: "attach a locally edited map through a tree handle" },
 			{ id: "detached-tree", operation: "attach a locally edited tree through a tree handle" },
 			{ id: "serialize-remove", operation: "serialize and remove a handle before the checkpoint" },
@@ -1345,22 +1561,95 @@ describe("Watershed handle and attachment lifecycle", () => {
 			{ id: "active-transaction", operation: "attempt target tree attachment during its transaction" },
 		];
 		const observations: Observation[] = [];
-		const { service, container, messages } = await attachedGraph();
+		const { service, container, messages, resolvedUrl, initial, writer } = await attachedGraph();
+		let receiver: Awaited<ReturnType<typeof openGraphContainer>> | undefined;
 		try {
 			const tree = await container.data.createTree();
 			const view = newRoot(tree);
 			container.data.root.set("tree", tree.handle);
 			await service.synchronize();
+			const commands: unknown[] = [
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(tree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(tree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "map-set",
+					target: "/A/root",
+					key: "tree",
+					value: graphHandle(pathOf(tree.handle)),
+				},
+				{ type: "settle", checkpoint: "initial-tree" },
+			];
+			receiver = await openGraphContainer(service, container.id);
+			const receiverTree = await (receiver.data.root.get("tree") as IFluidHandle).get() as ITree;
+			const receiverView = existingRoot(receiverTree);
 			messages.length = 0;
 
 			const map = await container.data.createMap();
 			map.set("local", "map-edit");
 			view.root.link = map.handle;
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(map.handle).split("/")[2],
+					channelType: mapType(map),
+				},
+				{
+					type: "map-set",
+					target: pathOf(map.handle),
+					key: "local",
+					value: { kind: "string", value: "map-edit" },
+				},
+				{
+					type: "tree-set-handle",
+					target: pathOf(tree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(map.handle)),
+				},
+				{ type: "settle", checkpoint: "detached-map" },
+			);
+			const detachedMapMessages = messages.splice(0);
+			const receiverMap = await (receiverView.root.link as IFluidHandle).get() as ISharedMap;
+			const detachedMapReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [treeReceiverTarget(receiverTree, receiverView), mapReceiverTarget(receiverMap)],
+				graph: {
+					source: pathOf(receiverTree.handle),
+					edge: "link",
+					target: pathOf(receiverMap.handle),
+					targetData: mapValue(receiverMap),
+				},
+			};
+			const detachedMapScenario = scenarios.find((item) => item.id === "detached-map")!;
+			const detachedMapLast = detachedMapMessages.at(-1)!.sequenceNumber;
+			detachedMapScenario.commands = copy(commands);
+			detachedMapScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: detachedMapLast,
+			};
 			observations.push({
 				id: "detached-map",
-				value: { path: pathOf(map.handle), local: map.get("local") },
-				evidence: [record("messages", raw, "detached-map", "attach", messages.splice(0))],
+				value: {
+					path: pathOf(map.handle),
+					local: map.get("local"),
+					transportOrder: messageOrder(detachedMapMessages),
+					receiver: detachedMapReceiver,
+				},
+				evidence: [
+					record("messages", raw, "detached-map", "attach", detachedMapMessages),
+					record("serialization", raw, "detached-map", "receiver-graph", detachedMapReceiver),
+				],
 			});
 
 			const targetTree = await container.data.createTree();
@@ -1368,10 +1657,70 @@ describe("Watershed handle and attachment lifecycle", () => {
 			targetView.root.label = "detached-tree-edit";
 			view.root.links.set("tree", targetTree.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(targetTree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(targetTree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "tree-set-string",
+					target: pathOf(targetTree.handle),
+					field: "label",
+					value: "detached-tree-edit",
+				},
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "tree",
+					value: graphHandle(pathOf(targetTree.handle)),
+				},
+				{ type: "settle", checkpoint: "detached-tree" },
+			);
+			const detachedTreeMessages = messages.splice(0);
+			const receivedTargetTree = await (receiverView.root.links.get("tree") as IFluidHandle)
+				.get() as ITree;
+			const receivedTargetView = existingRoot(receivedTargetTree);
+			const detachedTreeReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [
+					treeReceiverTarget(receiverTree, receiverView),
+					treeReceiverTarget(receivedTargetTree, receivedTargetView),
+				],
+				graph: {
+					source: pathOf(receiverTree.handle),
+					edge: "links/tree",
+					target: pathOf(receivedTargetTree.handle),
+					targetData: visible(receivedTargetView.root),
+				},
+			};
+			const detachedTreeScenario = scenarios.find((item) => item.id === "detached-tree")!;
+			detachedTreeScenario.commands = copy(commands);
+			detachedTreeScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: detachedTreeMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "detached-tree",
-				value: { path: pathOf(targetTree.handle), label: targetView.root.label },
-				evidence: [record("messages", raw, "detached-tree", "attach", messages.splice(0))],
+				value: {
+					path: pathOf(targetTree.handle),
+					label: targetView.root.label,
+					transportOrder: messageOrder(detachedTreeMessages),
+					receiver: detachedTreeReceiver,
+				},
+				evidence: [
+					record("messages", raw, "detached-tree", "attach", detachedTreeMessages),
+					record("serialization", raw, "detached-tree", "receiver-graph",
+						detachedTreeReceiver),
+				],
 			});
 
 			const removed = await container.data.createMap();
@@ -1384,6 +1733,58 @@ describe("Watershed handle and attachment lifecycle", () => {
 			removedOwner.delete("removed");
 			view.root.links.set("removed-owner", removedOwner.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(removed.handle).split("/")[2],
+					channelType: mapType(removed),
+				},
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(removedOwner.handle).split("/")[2],
+					channelType: mapType(removedOwner),
+				},
+				{
+					type: "map-set",
+					target: pathOf(removedOwner.handle),
+					key: "removed",
+					value: graphHandle(pathOf(removed.handle)),
+				},
+				{ type: "serialize-channel-summary", target: pathOf(removedOwner.handle) },
+				{ type: "map-delete", target: pathOf(removedOwner.handle), key: "removed" },
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "removed-owner",
+					value: graphHandle(pathOf(removedOwner.handle)),
+				},
+				{ type: "settle", checkpoint: "serialize-remove" },
+			);
+			const removedMessages = messages.splice(0);
+			const receivedOwner = await (receiverView.root.links.get("removed-owner") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedRemoved = await resolveGraphTarget(
+				receiver.data.root, pathOf(removed.handle),
+			) as ISharedMap;
+			const removedReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [mapReceiverTarget(receivedOwner), mapReceiverTarget(receivedRemoved)],
+				graph: {
+					source: pathOf(receivedOwner.handle),
+					edge: "removed",
+					visible: receivedOwner.has("removed"),
+					boundTarget: pathOf(receivedRemoved.handle),
+				},
+			};
+			const removedScenario = scenarios.find((item) => item.id === "serialize-remove")!;
+			removedScenario.commands = copy(commands);
+			removedScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: removedMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "serialize-remove",
 				value: {
@@ -1391,10 +1792,14 @@ describe("Watershed handle and attachment lifecycle", () => {
 					targetPath: pathOf(removed.handle),
 					attached: isAttached(removed),
 					visibleValue: removedOwner.has("removed"),
+					transportOrder: messageOrder(removedMessages),
+					receiver: removedReceiver,
 				},
 				evidence: [
 					bindingEvidence,
-					record("messages", raw, "serialize-remove", "attach-then-remove", messages.splice(0)),
+					record("messages", raw, "serialize-remove", "attach-then-remove", removedMessages),
+					record("serialization", raw, "serialize-remove", "receiver-graph",
+						removedReceiver),
 				],
 			});
 
@@ -1404,20 +1809,135 @@ describe("Watershed handle and attachment lifecycle", () => {
 			outer.set("inner", inner.handle);
 			view.root.links.set("nested", outer.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(outer.handle).split("/")[2],
+					channelType: mapType(outer),
+				},
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(inner.handle).split("/")[2],
+					channelType: mapType(inner),
+				},
+				{
+					type: "map-set",
+					target: pathOf(inner.handle),
+					key: "value",
+					value: { kind: "string", value: "nested" },
+				},
+				{
+					type: "map-set",
+					target: pathOf(outer.handle),
+					key: "inner",
+					value: graphHandle(pathOf(inner.handle)),
+				},
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "nested",
+					value: graphHandle(pathOf(outer.handle)),
+				},
+				{ type: "settle", checkpoint: "nested-dependency" },
+			);
+			const nestedMessages = messages.splice(0);
+			const receivedOuter = await (receiverView.root.links.get("nested") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedInner = await (receivedOuter.get("inner") as IFluidHandle)
+				.get() as ISharedMap;
+			const nestedReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [mapReceiverTarget(receivedOuter), mapReceiverTarget(receivedInner)],
+				graph: {
+					source: pathOf(receivedOuter.handle),
+					edge: "inner",
+					target: pathOf(receivedInner.handle),
+					targetData: mapValue(receivedInner),
+				},
+			};
+			const nestedScenario = scenarios.find((item) => item.id === "nested-dependency")!;
+			nestedScenario.commands = copy(commands);
+			nestedScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: nestedMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "nested-dependency",
-				value: { outer: pathOf(outer.handle), inner: pathOf(inner.handle) },
-				evidence: [record("messages", raw, "nested-dependency", "attach", messages.splice(0))],
+				value: {
+					outer: pathOf(outer.handle),
+					inner: pathOf(inner.handle),
+					transportOrder: messageOrder(nestedMessages),
+					receiver: nestedReceiver,
+				},
+				evidence: [
+					record("messages", raw, "nested-dependency", "attach", nestedMessages),
+					record("serialization", raw, "nested-dependency", "receiver-graph",
+						nestedReceiver),
+				],
 			});
 
 			const self = await container.data.createMap();
 			self.set("self", self.handle);
 			view.root.links.set("self", self.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(self.handle).split("/")[2],
+					channelType: mapType(self),
+				},
+				{
+					type: "map-set",
+					target: pathOf(self.handle),
+					key: "self",
+					value: graphHandle(pathOf(self.handle)),
+				},
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "self",
+					value: graphHandle(pathOf(self.handle)),
+				},
+				{ type: "settle", checkpoint: "self-reference" },
+			);
+			const selfMessages = messages.splice(0);
+			const receivedSelf = await (receiverView.root.links.get("self") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedSelfAgain = await (receivedSelf.get("self") as IFluidHandle)
+				.get() as ISharedMap;
+			const selfReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [mapReceiverTarget(receivedSelf)],
+				graph: {
+					source: pathOf(receivedSelf.handle),
+					edge: "self",
+					target: pathOf(receivedSelfAgain.handle),
+					resolvesToSource: receivedSelfAgain === receivedSelf,
+				},
+			};
+			const selfScenario = scenarios.find((item) => item.id === "self-reference")!;
+			selfScenario.commands = copy(commands);
+			selfScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: selfMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "self-reference",
-				value: { path: pathOf(self.handle), resolved: pathOf(self.get("self") as IFluidHandle) },
-				evidence: [record("messages", raw, "self-reference", "attach", messages.splice(0))],
+				value: {
+					path: pathOf(self.handle),
+					resolved: pathOf(self.get("self") as IFluidHandle),
+					transportOrder: messageOrder(selfMessages),
+					receiver: selfReceiver,
+				},
+				evidence: [
+					record("messages", raw, "self-reference", "attach", selfMessages),
+					record("serialization", raw, "self-reference", "receiver-graph", selfReceiver),
+				],
 			});
 
 			const left = await container.data.createMap();
@@ -1426,10 +1946,78 @@ describe("Watershed handle and attachment lifecycle", () => {
 			right.set("left", left.handle);
 			view.root.links.set("cycle", left.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(left.handle).split("/")[2],
+					channelType: mapType(left),
+				},
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(right.handle).split("/")[2],
+					channelType: mapType(right),
+				},
+				{
+					type: "map-set",
+					target: pathOf(left.handle),
+					key: "right",
+					value: graphHandle(pathOf(right.handle)),
+				},
+				{
+					type: "map-set",
+					target: pathOf(right.handle),
+					key: "left",
+					value: graphHandle(pathOf(left.handle)),
+				},
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "cycle",
+					value: graphHandle(pathOf(left.handle)),
+				},
+				{ type: "settle", checkpoint: "two-channel-cycle" },
+			);
+			const cycleMessages = messages.splice(0);
+			const receivedLeft = await (receiverView.root.links.get("cycle") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedRight = await (receivedLeft.get("right") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedLeftAgain = await (receivedRight.get("left") as IFluidHandle)
+				.get() as ISharedMap;
+			const cycleReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [mapReceiverTarget(receivedLeft), mapReceiverTarget(receivedRight)],
+				graph: {
+					source: pathOf(receivedLeft.handle),
+					edge: "right",
+					target: pathOf(receivedRight.handle),
+					returnEdge: "left",
+					returnTarget: pathOf(receivedLeftAgain.handle),
+					resolvesToSource: receivedLeftAgain === receivedLeft,
+				},
+			};
+			const cycleScenario = scenarios.find((item) => item.id === "two-channel-cycle")!;
+			cycleScenario.commands = copy(commands);
+			cycleScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: cycleMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "two-channel-cycle",
-				value: { left: pathOf(left.handle), right: pathOf(right.handle) },
-				evidence: [record("messages", raw, "two-channel-cycle", "attach", messages.splice(0))],
+				value: {
+					left: pathOf(left.handle),
+					right: pathOf(right.handle),
+					transportOrder: messageOrder(cycleMessages),
+					receiver: cycleReceiver,
+				},
+				evidence: [
+					record("messages", raw, "two-channel-cycle", "attach", cycleMessages),
+					record("serialization", raw, "two-channel-cycle", "receiver-graph",
+						cycleReceiver),
+				],
 			});
 
 			const completed = await container.data.createTree();
@@ -1439,38 +2027,138 @@ describe("Watershed handle and attachment lifecycle", () => {
 			});
 			view.root.links.set("completed", completed.handle);
 			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(completed.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(completed.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{ type: "begin-transaction", target: pathOf(completed.handle) },
+				{
+					type: "tree-set-string",
+					target: pathOf(completed.handle),
+					field: "label",
+					value: "committed",
+				},
+				{ type: "commit-transaction", target: pathOf(completed.handle) },
+				{
+					type: "tree-map-set-handle",
+					target: pathOf(tree.handle),
+					field: "links",
+					key: "completed",
+					value: graphHandle(pathOf(completed.handle)),
+				},
+				{ type: "settle", checkpoint: "completed-transaction" },
+			);
+			const completedMessages = messages.splice(0);
+			const receivedCompleted = await (receiverView.root.links.get("completed") as IFluidHandle)
+				.get() as ITree;
+			const receivedCompletedView = existingRoot(receivedCompleted);
+			const completedReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [treeReceiverTarget(receivedCompleted, receivedCompletedView)],
+				graph: {
+					source: pathOf(receiverTree.handle),
+					edge: "links/completed",
+					target: pathOf(receivedCompleted.handle),
+					targetData: visible(receivedCompletedView.root),
+				},
+			};
+			const completedScenario = scenarios.find((item) =>
+				item.id === "completed-transaction")!;
+			completedScenario.commands = copy(commands);
+			completedScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: completedMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "completed-transaction",
 				value: {
 					path: pathOf(completed.handle),
 					label: completedView.root.label,
 					attached: isAttached(completed),
+					transportOrder: messageOrder(completedMessages),
+					receiver: completedReceiver,
 				},
-				evidence: [record("messages", raw, "completed-transaction", "attach", messages.splice(0))],
+				evidence: [
+					record("messages", raw, "completed-transaction", "attach", completedMessages),
+					record("serialization", raw, "completed-transaction", "receiver-graph",
+						completedReceiver),
+				],
 			});
 
 			record("serialization", raw, "two-channel-cycle", "map-summary", summaryBlobText((await summarize(left)).summary));
 			record("summaries", raw, "detached-tree", "tree-summary", (await summarize(targetTree)).summary);
-			deferredLiveAttachment = { scenarios, observations, raw };
+			const allMessages = await graphMessages(service, resolvedUrl);
+			const finalSequenceNumber = completedMessages.at(-1)!.sequenceNumber;
+			const deliveryPrefix = graphPrefix(initial.snapshot, allMessages, finalSequenceNumber);
+			for (const scenario of scenarios.filter((item) => item.id !== "active-transaction")) {
+				const replay = scenario.replay as GraphReplayCheckpoint;
+				replay.deliveryPrefixLength = replay.prefixEndSequenceNumber
+					- initial.snapshot.sequenceNumber;
+			}
+			deferredLiveAttachment = {
+				scenarios,
+				observations,
+				raw,
+				input: {
+					decoderInput: {
+						documentId: container.id,
+						initialSnapshot: initial.snapshot,
+						compressor: initial.compressor,
+						deliveryPrefix,
+						runtime: {
+							oldestSupportedClient,
+							enableRuntimeIdCompressor: "on",
+							graphStoreType: GraphStore.type,
+							registry: [
+								{ channelType: mapType(container.data.root), role: "entry-point" },
+								{
+									channelType: "https://graph.microsoft.com/types/tree",
+									role: "declared",
+								},
+							],
+							entryPoint: {
+								datastoreId: "A",
+								channelId: "root",
+								packagePath: [GraphStore.type],
+							},
+						},
+						sessions: {
+							writerClientId: graphClientId(container),
+							receiverClientId: graphClientId(receiver.container),
+							writer,
+						},
+					},
+				},
+			};
 		} finally {
+			receiver?.container.dispose();
 			await service.close();
 		}
 	});
 
 	it("captures cross-datastore attachment", async () => {
 		const raw = { messages: [] as RawRecord[], serialization: [] as RawRecord[], summaries: [] as RawRecord[] };
-		const scenarios = [
+		const scenarios: LifecycleScenario[] = [
 			{ id: "map-cross-datastore", operation: "reference a map in a secondary datastore" },
 			{ id: "map-cycle", operation: "create mutual map references across datastores" },
 			{ id: "tree-cross-datastore", operation: "reference a tree in a secondary datastore" },
 			{ id: "tree-cycle", operation: "create mutual tree references across datastores" },
 		];
 		const observations: Observation[] = [];
-		const { service, container, messages } = await attachedGraph();
+		const { service, container, messages, resolvedUrl, initial, writer } = await attachedGraph();
+		let receiver: Awaited<ReturnType<typeof openGraphContainer>> | undefined;
 		try {
-			const primaryTree = await container.data.createTree();
-			const primaryView = newRoot(primaryTree);
-			container.data.root.set("primaryTree", primaryTree.handle);
+			const commands: unknown[] = [];
+			receiver = await openGraphContainer(service, container.id);
 			await service.synchronize();
 			messages.length = 0;
 
@@ -1478,6 +2166,46 @@ describe("Watershed handle and attachment lifecycle", () => {
 			container.data.root.set("secondary", secondary.root.handle);
 			await service.synchronize();
 			const crossMessages = messages.splice(0);
+			const secondaryId = pathOf(secondary.root.handle).split("/")[1];
+			commands.push(
+				{
+					type: "create-datastore",
+					datastoreId: secondaryId,
+					storeType: GraphStore.type,
+					packagePath: [GraphStore.type],
+					entryPointChannelId: "root",
+					channels: [{ id: "root", type: mapType(secondary.root) }],
+				},
+				{
+					type: "map-set",
+					target: "/A/root",
+					key: "secondary",
+					value: graphHandle(pathOf(secondary.root.handle)),
+				},
+				{ type: "settle", checkpoint: "map-cross-datastore" },
+			);
+			const receivedSecondary = await (receiver.data.root.get("secondary") as IFluidHandle)
+				.get() as ISharedMap;
+			const mapCrossReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [
+					mapReceiverTarget(receiver.data.root),
+					mapReceiverTarget(receivedSecondary),
+				],
+				graph: {
+					source: pathOf(receiver.data.root.handle),
+					edge: "secondary",
+					target: pathOf(receivedSecondary.handle),
+					targetData: mapValue(receivedSecondary),
+				},
+			};
+			const mapCrossScenario = scenarios.find((item) =>
+				item.id === "map-cross-datastore")!;
+			mapCrossScenario.commands = copy(commands);
+			mapCrossScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: crossMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "map-cross-datastore",
 				value: {
@@ -1485,8 +2213,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 					secondary: pathOf(secondary.root.handle),
 					entryPoint: "root",
 					attachOrder: messageOrder(crossMessages),
+					receiver: mapCrossReceiver,
 				},
-				evidence: [record("messages", raw, "map-cross-datastore", "attach", crossMessages)],
+				evidence: [
+					record("messages", raw, "map-cross-datastore", "attach", crossMessages),
+					record("serialization", raw, "map-cross-datastore", "receiver-graph",
+						mapCrossReceiver),
+				],
 			});
 
 			const leftStore = await container.createDataStore(GraphStore);
@@ -1496,15 +2229,113 @@ describe("Watershed handle and attachment lifecycle", () => {
 			container.data.root.set("cycle", leftStore.root.handle);
 			await service.synchronize();
 			const mapCycleMessages = messages.splice(0);
+			const leftStoreId = pathOf(leftStore.root.handle).split("/")[1];
+			const rightStoreId = pathOf(rightStore.root.handle).split("/")[1];
+			for (const [datastoreId, root] of [
+				[leftStoreId, leftStore.root],
+				[rightStoreId, rightStore.root],
+			] as const) {
+				commands.push({
+					type: "create-datastore",
+					datastoreId,
+					storeType: GraphStore.type,
+					packagePath: [GraphStore.type],
+					entryPointChannelId: "root",
+					channels: [{ id: "root", type: mapType(root) }],
+				});
+			}
+			commands.push(
+				{
+					type: "map-set",
+					target: pathOf(leftStore.root.handle),
+					key: "right",
+					value: graphHandle(pathOf(rightStore.root.handle)),
+				},
+				{
+					type: "map-set",
+					target: pathOf(rightStore.root.handle),
+					key: "left",
+					value: graphHandle(pathOf(leftStore.root.handle)),
+				},
+				{
+					type: "map-set",
+					target: "/A/root",
+					key: "cycle",
+					value: graphHandle(pathOf(leftStore.root.handle)),
+				},
+				{ type: "settle", checkpoint: "map-cycle" },
+			);
+			const receivedLeftStore = await (receiver.data.root.get("cycle") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedRightStore = await (receivedLeftStore.get("right") as IFluidHandle)
+				.get() as ISharedMap;
+			const receivedLeftStoreAgain = await (
+				receivedRightStore.get("left") as IFluidHandle
+			).get() as ISharedMap;
+			const mapCycleReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [
+					mapReceiverTarget(receivedLeftStore),
+					mapReceiverTarget(receivedRightStore),
+				],
+				graph: {
+					source: pathOf(receivedLeftStore.handle),
+					edge: "right",
+					target: pathOf(receivedRightStore.handle),
+					returnEdge: "left",
+					returnTarget: pathOf(receivedLeftStoreAgain.handle),
+					resolvesToSource: receivedLeftStoreAgain === receivedLeftStore,
+				},
+			};
+			const mapCycleScenario = scenarios.find((item) => item.id === "map-cycle")!;
+			mapCycleScenario.commands = copy(commands);
+			mapCycleScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: mapCycleMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "map-cycle",
 				value: {
 					left: pathOf(leftStore.root.handle),
 					right: pathOf(rightStore.root.handle),
 					attachOrder: messageOrder(mapCycleMessages),
+					receiver: mapCycleReceiver,
 				},
-				evidence: [record("messages", raw, "map-cycle", "attach", mapCycleMessages)],
+				evidence: [
+					record("messages", raw, "map-cycle", "attach", mapCycleMessages),
+					record("serialization", raw, "map-cycle", "receiver-graph",
+						mapCycleReceiver),
+				],
 			});
+
+			const primaryTree = await container.data.createTree();
+			const primaryView = newRoot(primaryTree);
+			container.data.root.set("primaryTree", primaryTree.handle);
+			await service.synchronize();
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: "A",
+					channelId: pathOf(primaryTree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(primaryTree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "map-set",
+					target: "/A/root",
+					key: "primaryTree",
+					value: graphHandle(pathOf(primaryTree.handle)),
+				},
+				{ type: "settle", checkpoint: "initial-tree" },
+			);
+			const receiverPrimaryTree = await (receiver.data.root.get("primaryTree") as IFluidHandle)
+				.get() as ITree;
+			const receiverPrimaryView = existingRoot(receiverPrimaryTree);
 
 			const secondaryTree = await secondary.createTree();
 			const secondaryView = newRoot(secondaryTree);
@@ -1512,10 +2343,83 @@ describe("Watershed handle and attachment lifecycle", () => {
 			secondary.root.set("tree", secondaryTree.handle);
 			primaryView.root.link = secondaryTree.handle;
 			await service.synchronize();
+			const treeCrossMessages = messages.splice(0);
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: secondaryId,
+					channelId: pathOf(secondaryTree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(secondaryTree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "tree-set-string",
+					target: pathOf(secondaryTree.handle),
+					field: "label",
+					value: "secondary",
+				},
+				{
+					type: "map-set",
+					target: pathOf(secondary.root.handle),
+					key: "tree",
+					value: graphHandle(pathOf(secondaryTree.handle)),
+				},
+				{
+					type: "tree-set-handle",
+					target: pathOf(primaryTree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(secondaryTree.handle)),
+				},
+				{ type: "settle", checkpoint: "tree-cross-datastore" },
+			);
+			const receivedSecondaryTree = await (receiverPrimaryView.root.link as IFluidHandle)
+				.get() as ITree;
+			const receivedSecondaryView = existingRoot(receivedSecondaryTree);
+			const receivedSecondaryFromMap = await (
+				receivedSecondary.get("tree") as IFluidHandle
+			).get() as ITree;
+			const treeCrossReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [
+					treeReceiverTarget(receiverPrimaryTree, receiverPrimaryView),
+					treeReceiverTarget(receivedSecondaryTree, receivedSecondaryView),
+				],
+				graph: {
+					source: pathOf(receiverPrimaryTree.handle),
+					edge: "link",
+					target: pathOf(receivedSecondaryTree.handle),
+					secondaryEntryPoint: pathOf(receivedSecondary.handle),
+					entryPointEdge: "tree",
+					entryPointTarget: pathOf(receivedSecondaryFromMap.handle),
+					sameResolvedInstance: receivedSecondaryFromMap === receivedSecondaryTree,
+				},
+			};
+			const treeCrossScenario = scenarios.find((item) =>
+				item.id === "tree-cross-datastore")!;
+			treeCrossScenario.commands = copy(commands);
+			treeCrossScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: treeCrossMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "tree-cross-datastore",
-				value: { path: pathOf(secondaryTree.handle), label: secondaryView.root.label },
-				evidence: [record("messages", raw, "tree-cross-datastore", "attach", messages.splice(0))],
+				value: {
+					path: pathOf(secondaryTree.handle),
+					label: secondaryView.root.label,
+					attachOrder: messageOrder(treeCrossMessages),
+					receiver: treeCrossReceiver,
+				},
+				evidence: [
+					record("messages", raw, "tree-cross-datastore", "attach",
+						treeCrossMessages),
+					record("serialization", raw, "tree-cross-datastore", "receiver-graph",
+						treeCrossReceiver),
+				],
 			});
 
 			const leftTreeStore = await container.createDataStore(GraphStore);
@@ -1529,28 +2433,161 @@ describe("Watershed handle and attachment lifecycle", () => {
 			primaryView.root.link = leftTree.handle;
 			await service.synchronize();
 			const treeCycleMessages = messages.splice(0);
+			const leftTreeStoreId = pathOf(leftTreeStore.root.handle).split("/")[1];
+			const rightTreeStoreId = pathOf(rightTreeStore.root.handle).split("/")[1];
+			for (const [datastoreId, root] of [
+				[leftTreeStoreId, leftTreeStore.root],
+				[rightTreeStoreId, rightTreeStore.root],
+			] as const) {
+				commands.push({
+					type: "create-datastore",
+					datastoreId,
+					storeType: GraphStore.type,
+					packagePath: [GraphStore.type],
+					entryPointChannelId: "root",
+					channels: [
+						{ id: "root", type: mapType(root) },
+					],
+				});
+			}
+			commands.push(
+				{
+					type: "create-channel",
+					datastoreId: leftTreeStoreId,
+					channelId: pathOf(leftTree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "create-channel",
+					datastoreId: rightTreeStoreId,
+					channelId: pathOf(rightTree.handle).split("/")[2],
+					channelType: "https://graph.microsoft.com/types/tree",
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(leftTree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "initialize-tree",
+					target: pathOf(rightTree.handle),
+					storedSchema: graphStoredSchema(),
+					initialValue: graphInitialRoot("root"),
+				},
+				{
+					type: "tree-set-handle",
+					target: pathOf(leftTree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(rightTree.handle)),
+				},
+				{
+					type: "tree-set-handle",
+					target: pathOf(rightTree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(leftTree.handle)),
+				},
+				{
+					type: "tree-set-handle",
+					target: pathOf(primaryTree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(leftTree.handle)),
+				},
+				{ type: "settle", checkpoint: "tree-cycle" },
+			);
+			const receivedLeftTree = await (receiverPrimaryView.root.link as IFluidHandle)
+				.get() as ITree;
+			const receivedLeftTreeView = existingRoot(receivedLeftTree);
+			const receivedRightTree = await (receivedLeftTreeView.root.link as IFluidHandle)
+				.get() as ITree;
+			const receivedRightTreeView = existingRoot(receivedRightTree);
+			const receivedLeftTreeAgain = await (
+				receivedRightTreeView.root.link as IFluidHandle
+			).get() as ITree;
+			const treeCycleReceiver = {
+				clientId: graphClientId(receiver.container),
+				targets: [
+					treeReceiverTarget(receivedLeftTree, receivedLeftTreeView),
+					treeReceiverTarget(receivedRightTree, receivedRightTreeView),
+				],
+				graph: {
+					source: pathOf(receivedLeftTree.handle),
+					edge: "link",
+					target: pathOf(receivedRightTree.handle),
+					returnEdge: "link",
+					returnTarget: pathOf(receivedLeftTreeAgain.handle),
+					resolvesToSource: receivedLeftTreeAgain === receivedLeftTree,
+				},
+			};
 			const treeCycleSummary = record("summaries", raw, "tree-cycle", "cycle-trees", {
 				left: { path: pathOf(leftTree.handle), summary: (await summarize(leftTree)).summary },
 				right: { path: pathOf(rightTree.handle), summary: (await summarize(rightTree)).summary },
 			});
+			const treeCycleScenario = scenarios.find((item) => item.id === "tree-cycle")!;
+			treeCycleScenario.commands = copy(commands);
+			treeCycleScenario.replay = {
+				published: false,
+				prefixEndSequenceNumber: treeCycleMessages.at(-1)!.sequenceNumber,
+			};
 			observations.push({
 				id: "tree-cycle",
 				value: {
 					left: pathOf(leftTree.handle),
 					right: pathOf(rightTree.handle),
 					attachOrder: messageOrder(treeCycleMessages),
+					receiver: treeCycleReceiver,
 				},
 				evidence: [
 					record("messages", raw, "tree-cycle", "attach", treeCycleMessages),
 					treeCycleSummary,
+					record("serialization", raw, "tree-cycle", "receiver-graph",
+						treeCycleReceiver),
 				],
 			});
 			record("serialization", raw, "map-cross-datastore", "paths", {
 				primary: pathOf(container.data.root.handle),
 				secondary: pathOf(secondary.root.handle),
 			});
-			await writeCase("cross-datastore-attachment", scenarios, observations, raw);
+			const allMessages = await graphMessages(service, resolvedUrl);
+			const finalSequenceNumber = treeCycleMessages.at(-1)!.sequenceNumber;
+			const deliveryPrefix = graphPrefix(initial.snapshot, allMessages, finalSequenceNumber);
+			for (const scenario of scenarios) {
+				const replay = scenario.replay as GraphReplayCheckpoint;
+				replay.deliveryPrefixLength = replay.prefixEndSequenceNumber
+					- initial.snapshot.sequenceNumber;
+			}
+			await writeCase("cross-datastore-attachment", scenarios, observations, raw, {
+				decoderInput: {
+					documentId: container.id,
+					initialSnapshot: initial.snapshot,
+					compressor: initial.compressor,
+					deliveryPrefix,
+					runtime: {
+						oldestSupportedClient,
+						enableRuntimeIdCompressor: "on",
+						graphStoreType: GraphStore.type,
+						registry: [
+							{ channelType: mapType(container.data.root), role: "entry-point" },
+							{
+								channelType: "https://graph.microsoft.com/types/tree",
+								role: "declared",
+							},
+						],
+						entryPoint: {
+							datastoreId: "A",
+							channelId: "root",
+							packagePath: [GraphStore.type],
+						},
+					},
+					sessions: {
+						writerClientId: graphClientId(container),
+						receiverClientId: graphClientId(receiver.container),
+						writer,
+					},
+				},
+			});
 		} finally {
+			receiver?.container.dispose();
 			await service.close();
 		}
 	});
@@ -1958,7 +2995,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 			["handle-transaction-branch", "active-target", deferredTransactionBranch],
 		] as const) {
 			assert(deferred !== undefined, `${id}: deferred case`);
-			const { service, container, messages } = await attachedGraph();
+			const { service, container, messages, resolvedUrl, initial, writer } = await attachedGraph();
 			try {
 				const tree = await container.data.createTree();
 				const view = newRoot(tree);
@@ -1968,6 +3005,64 @@ describe("Watershed handle and attachment lifecycle", () => {
 				const active = await activeDocumentAttachment(container, service, view, messages);
 				const index = deferred.scenarios.findIndex((scenario) => scenario.id === scenarioId);
 				assert(index >= 0, `${id}: active scenario`);
+				if (id === "live-channel-attachment") {
+					const prefixEndSequenceNumber = Math.max(...active.transport.map(
+						(message) => (message as ISequencedDocumentMessage).sequenceNumber,
+					));
+					deferred.scenarios[index].input = {
+						decoderInput: {
+							documentId: container.id,
+							initialSnapshot: initial.snapshot,
+							compressor: initial.compressor,
+							deliveryPrefix: graphPrefix(
+								initial.snapshot, await graphMessages(service, resolvedUrl),
+								prefixEndSequenceNumber,
+							),
+							sessions: { writerClientId: graphClientId(container), writer },
+						},
+					};
+					deferred.scenarios[index].commands = [
+						{
+							type: "create-channel", datastoreId: "A",
+							channelId: pathOf(tree.handle).split("/")[2],
+							channelType: "https://graph.microsoft.com/types/tree",
+						},
+						{
+							type: "initialize-tree", target: pathOf(tree.handle),
+							storedSchema: graphStoredSchema(), initialValue: graphInitialRoot("root"),
+						},
+						{
+							type: "map-set", target: "/A/root", key: "tree",
+							value: graphHandle(pathOf(tree.handle)),
+						},
+						{ type: "settle", checkpoint: "initial-tree" },
+						{
+							type: "create-channel", datastoreId: "A",
+							channelId: active.targetPath.split("/")[2],
+							channelType: "https://graph.microsoft.com/types/tree",
+						},
+						{
+							type: "initialize-tree", target: active.targetPath,
+							storedSchema: graphStoredSchema(), initialValue: graphInitialRoot("root"),
+						},
+						{
+							type: "tree-set-string", target: active.targetPath,
+							field: "label", value: "active-target",
+						},
+						{ type: "begin-transaction", target: active.targetPath },
+						{
+							type: "tree-set-handle", target: pathOf(tree.handle),
+							field: { kind: "optional", name: "link" },
+							value: graphHandle(active.targetPath),
+						},
+					];
+					deferred.scenarios[index].replay = {
+						published: false,
+						nativeBoundary: "preflight-refusal",
+						prefixEndSequenceNumber,
+						deliveryPrefixLength: prefixEndSequenceNumber - initial.snapshot.sequenceNumber,
+					};
+				}
 				deferred.observations.splice(index, 0, {
 					id: scenarioId,
 					value: active,
@@ -1976,7 +3071,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 						"document-attachment", active, "after-attempt",
 					)],
 				});
-				await writeCase(id, deferred.scenarios, deferred.observations, deferred.raw);
+				await writeCase(
+					id,
+					deferred.scenarios,
+					deferred.observations,
+					deferred.raw,
+					deferred.input,
+				);
 			} finally {
 				await service.close();
 			}

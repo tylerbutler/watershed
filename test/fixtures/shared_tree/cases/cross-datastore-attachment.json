@@ -8,22 +8,1444 @@
   "id": "cross-datastore-attachment",
   "domain": "lifecycle",
   "input": {
+    "decoderInput": {
+      "documentId": "1",
+      "initialSnapshot": {
+        "version": {
+          "id": "92c0bd37-80ef-4e15-be2a-7b0eaef1cd15",
+          "treeId": "92c0bd37-80ef-4e15-be2a-7b0eaef1cd15"
+        },
+        "tree": {
+          "id": "92c0bd37-80ef-4e15-be2a-7b0eaef1cd15",
+          "blobs": {
+            ".metadata": "278ed5affa207d2bfba5e3f6d13f210f2804bca2",
+            ".idCompressor": "ff7f6176d80bc7a89838365974dbfa1142f6bfa4",
+            ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740",
+            ".electedSummarizer": "281a05982b6d4d03bc3df509ecdbc22a196cc69a"
+          },
+          "trees": {
+            ".channels": {
+              "id": "7b788f65-faa3-4619-9828-c36271efbbbf",
+              "blobs": {},
+              "commits": {},
+              "trees": {
+                "A": {
+                  "id": "aa6ab4d9-f3b4-4e33-af9a-1e9b95055b87",
+                  "blobs": {
+                    ".component": "9ea535ce2d45a02295d62f4c78dcceef4d9b9d42"
+                  },
+                  "commits": {},
+                  "trees": {
+                    ".channels": {
+                      "id": "a8f48fdd-9945-4568-9959-9cb9ba35b335",
+                      "blobs": {},
+                      "commits": {},
+                      "trees": {
+                        "root": {
+                          "id": "8df02968-2621-4ee3-be44-8154e3d20070",
+                          "blobs": {
+                            "header": "f39311cc21cd0c2ebf40677800a8033b1fd02404",
+                            ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                          },
+                          "commits": {},
+                          "trees": {}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            ".protocol": {
+              "id": "3541dd9e-2e95-4c65-abe0-217ef1d2e3aa",
+              "blobs": {
+                "quorumMembers": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+                "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+                "quorumValues": "62d4cd901b2d16efdb3cf318a5142de16a91d281",
+                "attributes": "0050eb3b8e41f9ecdf14c2aa21706018474c3b78"
+              },
+              "commits": {},
+              "trees": {}
+            }
+          }
+        },
+        "blobs": {
+          "278ed5affa207d2bfba5e3f6d13f210f2804bca2": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiI2OWM5MDIwOC02ZjQxLTQ2NmYtYTg4MS01MDU2ZjAyZTVkMzMiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiY29tcHJlc3Npb25MejQiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+          "ff7f6176d80bc7a89838365974dbfa1142f6bfa4": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9Ig==",
+          "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+          "281a05982b6d4d03bc3df509ecdbc22a196cc69a": "eyJlbGVjdGlvblNlcXVlbmNlTnVtYmVyIjowfQ==",
+          "9ea535ce2d45a02295d62f4c78dcceef4d9b9d42": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm03LmdyYXBoXCJdIiwic3VtbWFyeUZvcm1hdFZlcnNpb24iOjIsImlzUm9vdERhdGFTdG9yZSI6dHJ1ZX0=",
+          "f39311cc21cd0c2ebf40677800a8033b1fd02404": "eyJibG9icyI6W10sImNvbnRlbnQiOnt9fQ==",
+          "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+          "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+          "62d4cd901b2d16efdb3cf318a5142de16a91d281": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IjEuMCJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+          "0050eb3b8e41f9ecdf14c2aa21706018474c3b78": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjowfQ=="
+        },
+        "blobEncoding": "base64",
+        "sequenceNumber": 0
+      },
+      "compressor": {
+        "blobId": "ff7f6176d80bc7a89838365974dbfa1142f6bfa4",
+        "encoding": "base64",
+        "bytes": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9Ig=="
+      },
+      "deliveryPrefix": [
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 1,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"1fef578e-3f2a-4f6e-9cf4-818b1033f1f5\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:5996594c-9c93-4d8f-b52f-bf7092a0ed92\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"7be8dcad-e58d-4c2f-b615-c48814343d15\",\"name\":\"7be8dcad-e58d\"}}}",
+          "expHash1": "33143b75"
+        },
+        {
+          "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+          "clientSequenceNumber": 1,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[[1,1]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"e998e144-c68f-4719-acd1-e2a38db74f0e_[1]\"}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\\\"],\\\"/\\\":[\\\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"secondary\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "batchId": "e998e144-c68f-4719-acd1-e2a38db74f0e_[1]",
+            "groupedOpCount": 3
+          },
+          "minimumSequenceNumber": 1,
+          "referenceSequenceNumber": 1,
+          "sequenceNumber": 2,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "56b36c94",
+          "traces": []
+        },
+        {
+          "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+          "clientSequenceNumber": 2,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":2,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"F\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/D/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/D/root\\\",\\\"/F\\\"],\\\"/\\\":[\\\"/F/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"D\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/F/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/F/root\\\",\\\"/D\\\"],\\\"/\\\":[\\\"/D/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"cycle\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/D/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 4
+          },
+          "minimumSequenceNumber": 2,
+          "referenceSequenceNumber": 2,
+          "sequenceNumber": 3,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "-5509b083",
+          "traces": []
+        },
+        {
+          "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+          "clientSequenceNumber": 3,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":4,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_H\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"primaryTree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_H\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 3
+          },
+          "minimumSequenceNumber": 3,
+          "referenceSequenceNumber": 3,
+          "sequenceNumber": 4,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "3a441cc7",
+          "traces": []
+        },
+        {
+          "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+          "clientSequenceNumber": 4,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":6,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"contents\":{\"content\":{\"id\":\"_L\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"secondary\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L\"}}}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_H\",\"contents\":{\"revision\":8,\"originatorId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 4
+          },
+          "minimumSequenceNumber": 4,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 5,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "6c710732",
+          "traces": []
+        },
+        {
+          "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+          "clientSequenceNumber": 5,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":10,\"count\":7,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"V\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/T/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/V\\\"],\\\"/_C\\\":[\\\"/T/_C\\\",\\\"/V\\\"],\\\"/\\\":[\\\"/V/root\\\",\\\"/V/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"T\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/V/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/T\\\"],\\\"/_C\\\":[\\\"/V/_C\\\",\\\"/T\\\"],\\\"/\\\":[\\\"/T/root\\\",\\\"/T/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_H\",\"contents\":{\"revision\":15,\"originatorId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3,\"s\":4}}}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/T/_C\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 4
+          },
+          "minimumSequenceNumber": 5,
+          "referenceSequenceNumber": 5,
+          "sequenceNumber": 6,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "2ff40dda",
+          "traces": []
+        }
+      ],
+      "runtime": {
+        "oldestSupportedClient": "2.117.0",
+        "enableRuntimeIdCompressor": "on",
+        "graphStoreType": "org.watershed.shared-tree.m7.graph",
+        "registry": [
+          {
+            "channelType": "https://graph.microsoft.com/types/map",
+            "role": "entry-point"
+          },
+          {
+            "channelType": "https://graph.microsoft.com/types/tree",
+            "role": "declared"
+          }
+        ],
+        "entryPoint": {
+          "datastoreId": "A",
+          "channelId": "root",
+          "packagePath": [
+            "org.watershed.shared-tree.m7.graph"
+          ]
+        }
+      },
+      "sessions": {
+        "writerClientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+        "receiverClientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+        "writer": {
+          "sessionId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+          "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAABbXRf7gbQ9vr/oGhQLt+kDAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+        }
+      }
+    },
     "scenarios": [
       {
         "id": "map-cross-datastore",
-        "operation": "reference a map in a secondary datastore"
+        "operation": "reference a map in a secondary datastore",
+        "commands": [
+          {
+            "type": "create-datastore",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "secondary",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cross-datastore"
+          }
+        ],
+        "replay": {
+          "published": false,
+          "prefixEndSequenceNumber": 2,
+          "deliveryPrefixLength": 2
+        }
       },
       {
         "id": "map-cycle",
-        "operation": "create mutual map references across datastores"
+        "operation": "create mutual map references across datastores",
+        "commands": [
+          {
+            "type": "create-datastore",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "secondary",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cross-datastore"
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "D",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "F",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/D/root",
+            "key": "right",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/F/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/F/root",
+            "key": "left",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "cycle",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cycle"
+          }
+        ],
+        "replay": {
+          "published": false,
+          "prefixEndSequenceNumber": 3,
+          "deliveryPrefixLength": 3
+        }
       },
       {
         "id": "tree-cross-datastore",
-        "operation": "reference a tree in a secondary datastore"
+        "operation": "reference a tree in a secondary datastore",
+        "commands": [
+          {
+            "type": "create-datastore",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "secondary",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cross-datastore"
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "D",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "F",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/D/root",
+            "key": "right",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/F/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/F/root",
+            "key": "left",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "cycle",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cycle"
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "A",
+            "channelId": "_H",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/A/_H",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "primaryTree",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/A/_H"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "initial-tree"
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "channelId": "_L",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "tree-set-string",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "field": "label",
+            "value": "secondary"
+          },
+          {
+            "type": "map-set",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+            "key": "tree",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L"
+              }
+            }
+          },
+          {
+            "type": "tree-set-handle",
+            "target": "/A/_H",
+            "field": {
+              "kind": "optional",
+              "name": "link"
+            },
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "tree-cross-datastore"
+          }
+        ],
+        "replay": {
+          "published": false,
+          "prefixEndSequenceNumber": 5,
+          "deliveryPrefixLength": 5
+        }
       },
       {
         "id": "tree-cycle",
-        "operation": "create mutual tree references across datastores"
+        "operation": "create mutual tree references across datastores",
+        "commands": [
+          {
+            "type": "create-datastore",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "secondary",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cross-datastore"
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "D",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "F",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "map-set",
+            "target": "/D/root",
+            "key": "right",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/F/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/F/root",
+            "key": "left",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "cycle",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/D/root"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "map-cycle"
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "A",
+            "channelId": "_H",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/A/_H",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "map-set",
+            "target": "/A/root",
+            "key": "primaryTree",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/A/_H"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "initial-tree"
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
+            "channelId": "_L",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "tree-set-string",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "field": "label",
+            "value": "secondary"
+          },
+          {
+            "type": "map-set",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+            "key": "tree",
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L"
+              }
+            }
+          },
+          {
+            "type": "tree-set-handle",
+            "target": "/A/_H",
+            "field": {
+              "kind": "optional",
+              "name": "link"
+            },
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "tree-cross-datastore"
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "T",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "create-datastore",
+            "datastoreId": "V",
+            "storeType": "org.watershed.shared-tree.m7.graph",
+            "packagePath": [
+              "org.watershed.shared-tree.m7.graph"
+            ],
+            "entryPointChannelId": "root",
+            "channels": [
+              {
+                "id": "root",
+                "type": "https://graph.microsoft.com/types/map"
+              }
+            ]
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "T",
+            "channelId": "_C",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "create-channel",
+            "datastoreId": "V",
+            "channelId": "_C",
+            "channelType": "https://graph.microsoft.com/types/tree"
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/T/_C",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "initialize-tree",
+            "target": "/V/_C",
+            "storedSchema": {
+              "version": 2,
+              "nodes": {
+                "com.fluidframework.leaf.handle": {
+                  "kind": {
+                    "leaf": 3
+                  }
+                },
+                "com.fluidframework.leaf.string": {
+                  "kind": {
+                    "leaf": 1
+                  }
+                },
+                "org.watershed.shared-tree.handles.Links": {
+                  "kind": {
+                    "map": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Root": {
+                  "kind": {
+                    "object": {
+                      "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "link": {
+                        "kind": "Optional",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      },
+                      "links": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Links"
+                        ]
+                      },
+                      "sequence": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.handles.Sequence"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "org.watershed.shared-tree.handles.Sequence": {
+                  "kind": {
+                    "object": {
+                      "": {
+                        "kind": "Sequence",
+                        "types": [
+                          "com.fluidframework.leaf.handle"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "root": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Root"
+                ]
+              }
+            },
+            "initialValue": {
+              "kind": "object",
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": [
+                [
+                  "label",
+                  {
+                    "kind": "string",
+                    "value": "root"
+                  }
+                ],
+                [
+                  "links",
+                  {
+                    "kind": "map",
+                    "schemaId": "org.watershed.shared-tree.handles.Links",
+                    "entries": []
+                  }
+                ],
+                [
+                  "sequence",
+                  {
+                    "kind": "array",
+                    "schemaId": "org.watershed.shared-tree.handles.Sequence",
+                    "elements": []
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "type": "tree-set-handle",
+            "target": "/T/_C",
+            "field": {
+              "kind": "optional",
+              "name": "link"
+            },
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/V/_C"
+              }
+            }
+          },
+          {
+            "type": "tree-set-handle",
+            "target": "/V/_C",
+            "field": {
+              "kind": "optional",
+              "name": "link"
+            },
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/T/_C"
+              }
+            }
+          },
+          {
+            "type": "tree-set-handle",
+            "target": "/A/_H",
+            "field": {
+              "kind": "optional",
+              "name": "link"
+            },
+            "value": {
+              "kind": "handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/T/_C"
+              }
+            }
+          },
+          {
+            "type": "settle",
+            "checkpoint": "tree-cycle"
+          }
+        ],
+        "replay": {
+          "published": false,
+          "prefixEndSequenceNumber": 6,
+          "deliveryPrefixLength": 6
+        }
       }
     ]
   },
@@ -33,50 +1455,163 @@
         "id": "map-cross-datastore",
         "value": {
           "primary": "/A/root",
-          "secondary": "/F/root",
+          "secondary": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
           "entryPoint": "root",
           "attachOrder": [
             "id-allocation",
-            "datastore-attach:F",
+            "datastore-attach:fa6dc2c5-06ba-42fe-be3d-b481fb175d5b",
             "component:A/root"
-          ]
+          ],
+          "receiver": {
+            "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+            "targets": [
+              {
+                "path": "/A/root",
+                "channelType": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "secondary": {
+                    "type": "__fluid_handle__",
+                    "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+                  }
+                }
+              },
+              {
+                "path": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+                "channelType": "https://graph.microsoft.com/types/map",
+                "data": {}
+              }
+            ],
+            "graph": {
+              "source": "/A/root",
+              "edge": "secondary",
+              "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+              "targetData": {}
+            }
+          }
         },
         "evidence": [
           {
             "section": "messages",
             "id": "map-cross-datastore:messages:0"
+          },
+          {
+            "section": "serialization",
+            "id": "map-cross-datastore:serialization:0"
           }
         ]
       },
       {
         "id": "map-cycle",
         "value": {
-          "left": "/H/root",
-          "right": "/J/root",
+          "left": "/D/root",
+          "right": "/F/root",
           "attachOrder": [
             "id-allocation",
-            "datastore-attach:J",
-            "datastore-attach:H",
+            "datastore-attach:F",
+            "datastore-attach:D",
             "component:A/root"
-          ]
+          ],
+          "receiver": {
+            "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+            "targets": [
+              {
+                "path": "/D/root",
+                "channelType": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "right": {
+                    "type": "__fluid_handle__",
+                    "url": "/F/root"
+                  }
+                }
+              },
+              {
+                "path": "/F/root",
+                "channelType": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "left": {
+                    "type": "__fluid_handle__",
+                    "url": "/D/root"
+                  }
+                }
+              }
+            ],
+            "graph": {
+              "source": "/D/root",
+              "edge": "right",
+              "target": "/F/root",
+              "returnEdge": "left",
+              "returnTarget": "/D/root",
+              "resolvesToSource": true
+            }
+          }
         },
         "evidence": [
           {
             "section": "messages",
             "id": "map-cycle:messages:1"
+          },
+          {
+            "section": "serialization",
+            "id": "map-cycle:serialization:1"
           }
         ]
       },
       {
         "id": "tree-cross-datastore",
         "value": {
-          "path": "/F/_L",
-          "label": "secondary"
+          "path": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+          "label": "secondary",
+          "attachOrder": [
+            "id-allocation",
+            "channel-attach:A/_H",
+            "component:A/root",
+            "id-allocation",
+            "channel-attach:fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "component:fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+            "component:A/_H"
+          ],
+          "receiver": {
+            "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+            "targets": [
+              {
+                "path": "/A/_H",
+                "channelType": "https://graph.microsoft.com/types/tree",
+                "data": {
+                  "label": "root",
+                  "link": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+                  "links": [],
+                  "sequence": []
+                }
+              },
+              {
+                "path": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+                "channelType": "https://graph.microsoft.com/types/tree",
+                "data": {
+                  "label": "secondary",
+                  "links": [],
+                  "sequence": []
+                }
+              }
+            ],
+            "graph": {
+              "source": "/A/_H",
+              "edge": "link",
+              "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+              "secondaryEntryPoint": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+              "entryPointEdge": "tree",
+              "entryPointTarget": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+              "sameResolvedInstance": true
+            }
+          }
         },
         "evidence": [
           {
             "section": "messages",
             "id": "tree-cross-datastore:messages:2"
+          },
+          {
+            "section": "serialization",
+            "id": "tree-cross-datastore:serialization:2"
           }
         ]
       },
@@ -89,8 +1624,41 @@
             "id-allocation",
             "datastore-attach:V",
             "datastore-attach:T",
-            "component:A/43eaec41-be34-4f03-a727-8b8a04b1b56c"
-          ]
+            "component:A/_H"
+          ],
+          "receiver": {
+            "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+            "targets": [
+              {
+                "path": "/T/_C",
+                "channelType": "https://graph.microsoft.com/types/tree",
+                "data": {
+                  "label": "root",
+                  "link": "/V/_C",
+                  "links": [],
+                  "sequence": []
+                }
+              },
+              {
+                "path": "/V/_C",
+                "channelType": "https://graph.microsoft.com/types/tree",
+                "data": {
+                  "label": "root",
+                  "link": "/T/_C",
+                  "links": [],
+                  "sequence": []
+                }
+              }
+            ],
+            "graph": {
+              "source": "/T/_C",
+              "edge": "link",
+              "target": "/V/_C",
+              "returnEdge": "link",
+              "returnTarget": "/T/_C",
+              "resolvesToSource": true
+            }
+          }
         },
         "evidence": [
           {
@@ -100,6 +1668,10 @@
           {
             "section": "summaries",
             "id": "tree-cycle:summaries:0"
+          },
+          {
+            "section": "serialization",
+            "id": "tree-cycle:serialization:3"
           }
         ]
       }
@@ -113,18 +1685,43 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "dbd399f6-15a8-4b48-bcdd-5bfd663c71b1",
-            "clientSequenceNumber": 2,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"ids\":{\"firstGenCount\":3,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"F\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/F\\\"],\\\"/\\\":[\\\"/F/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"secondary\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/F/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "clientId": null,
+            "clientSequenceNumber": -1,
+            "contents": null,
+            "minimumSequenceNumber": 0,
+            "referenceSequenceNumber": -1,
+            "sequenceNumber": 1,
+            "timestamp": 1700000000000,
+            "traces": [
+              {
+                "action": "start",
+                "service": "nexus",
+                "timestamp": 0
+              },
+              {
+                "action": "start",
+                "service": "broadcaster",
+                "timestamp": 1700000000000
+              }
+            ],
+            "type": "join",
+            "data": "{\"clientId\":\"1fef578e-3f2a-4f6e-9cf4-818b1033f1f5\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:5996594c-9c93-4d8f-b52f-bf7092a0ed92\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"7be8dcad-e58d-4c2f-b615-c48814343d15\",\"name\":\"7be8dcad-e58d\"}}}",
+            "expHash1": "33143b75"
+          },
+          {
+            "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+            "clientSequenceNumber": 1,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[[1,1]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"e998e144-c68f-4719-acd1-e2a38db74f0e_[1]\"}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\\\"],\\\"/\\\":[\\\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"secondary\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
+              "batchId": "e998e144-c68f-4719-acd1-e2a38db74f0e_[1]",
               "groupedOpCount": 3
             },
-            "minimumSequenceNumber": 2,
-            "referenceSequenceNumber": 2,
-            "sequenceNumber": 3,
+            "minimumSequenceNumber": 1,
+            "referenceSequenceNumber": 1,
+            "sequenceNumber": 2,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "142ceef"
+            "expHash1": "56b36c94"
           }
         ]
       },
@@ -134,18 +1731,18 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "dbd399f6-15a8-4b48-bcdd-5bfd663c71b1",
-            "clientSequenceNumber": 3,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"ids\":{\"firstGenCount\":4,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"J\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/H/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/H/root\\\",\\\"/J\\\"],\\\"/\\\":[\\\"/J/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"H\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/J/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/J/root\\\",\\\"/H\\\"],\\\"/\\\":[\\\"/H/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"cycle\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/H/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+            "clientSequenceNumber": 2,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":2,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"F\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/D/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/D/root\\\",\\\"/F\\\"],\\\"/\\\":[\\\"/F/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"D\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/F/root\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/F/root\\\",\\\"/D\\\"],\\\"/\\\":[\\\"/D/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"cycle\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/D/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
-            "minimumSequenceNumber": 3,
-            "referenceSequenceNumber": 3,
-            "sequenceNumber": 4,
+            "minimumSequenceNumber": 2,
+            "referenceSequenceNumber": 2,
+            "sequenceNumber": 3,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-4b596f6e"
+            "expHash1": "-5509b083"
           }
         ]
       },
@@ -155,9 +1752,23 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "dbd399f6-15a8-4b48-bcdd-5bfd663c71b1",
+            "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
+            "clientSequenceNumber": 3,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":4,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_H\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"primaryTree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_H\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 3,
+            "referenceSequenceNumber": 3,
+            "sequenceNumber": 4,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "3a441cc7"
+          },
+          {
+            "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
             "clientSequenceNumber": 4,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"ids\":{\"firstGenCount\":6,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"F\",\"contents\":{\"content\":{\"id\":\"_L\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"secondary\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"F\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/F/_L\"}}}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"contents\":{\"revision\":8,\"originatorId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/F/_L\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":6,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"contents\":{\"content\":{\"id\":\"_L\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"secondary\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L\"}}}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_H\",\"contents\":{\"revision\":8,\"originatorId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
@@ -166,7 +1777,7 @@
             "sequenceNumber": 5,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-19442d87"
+            "expHash1": "6c710732"
           }
         ]
       },
@@ -176,9 +1787,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "dbd399f6-15a8-4b48-bcdd-5bfd663c71b1",
+            "clientId": "1fef578e-3f2a-4f6e-9cf4-818b1033f1f5",
             "clientSequenceNumber": 5,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"ids\":{\"firstGenCount\":10,\"count\":7,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"V\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/T/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/V\\\"],\\\"/_C\\\":[\\\"/T/_C\\\",\\\"/V\\\"],\\\"/\\\":[\\\"/V/root\\\",\\\"/V/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"T\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/V/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/T\\\"],\\\"/_C\\\":[\\\"/V/_C\\\",\\\"/T\\\"],\\\"/\\\":[\\\"/T/root\\\",\\\"/T/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"contents\":{\"revision\":15,\"originatorId\":\"43eaec41-be34-4f03-a727-8b8a04b1b56c\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3,\"s\":4}}}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/T/_C\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"ids\":{\"firstGenCount\":10,\"count\":7,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"V\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/T/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/V\\\"],\\\"/_C\\\":[\\\"/T/_C\\\",\\\"/V\\\"],\\\"/\\\":[\\\"/V/root\\\",\\\"/V/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"T\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"_C\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",[{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/V/_C\\\"}],[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":1}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/T\\\"],\\\"/_C\\\":[\\\"/V/_C\\\",\\\"/T\\\"],\\\"/\\\":[\\\"/T/root\\\",\\\"/T/_C\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_H\",\"contents\":{\"revision\":15,\"originatorId\":\"fa6dc2c5-06ba-42fe-be3d-b481fb175d5b\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3,\"s\":4}}}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/T/_C\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
@@ -187,7 +1798,7 @@
             "sequenceNumber": 6,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-67bd2c0b"
+            "expHash1": "2ff40dda"
           }
         ]
       }
@@ -196,10 +1807,155 @@
       {
         "id": "map-cross-datastore:serialization:0",
         "scenarioId": "map-cross-datastore",
+        "kind": "receiver-graph",
+        "value": {
+          "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+          "targets": [
+            {
+              "path": "/A/root",
+              "channelType": "https://graph.microsoft.com/types/map",
+              "data": {
+                "secondary": {
+                  "type": "__fluid_handle__",
+                  "url": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
+                }
+              }
+            },
+            {
+              "path": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+              "channelType": "https://graph.microsoft.com/types/map",
+              "data": {}
+            }
+          ],
+          "graph": {
+            "source": "/A/root",
+            "edge": "secondary",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+            "targetData": {}
+          }
+        }
+      },
+      {
+        "id": "map-cycle:serialization:1",
+        "scenarioId": "map-cycle",
+        "kind": "receiver-graph",
+        "value": {
+          "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+          "targets": [
+            {
+              "path": "/D/root",
+              "channelType": "https://graph.microsoft.com/types/map",
+              "data": {
+                "right": {
+                  "type": "__fluid_handle__",
+                  "url": "/F/root"
+                }
+              }
+            },
+            {
+              "path": "/F/root",
+              "channelType": "https://graph.microsoft.com/types/map",
+              "data": {
+                "left": {
+                  "type": "__fluid_handle__",
+                  "url": "/D/root"
+                }
+              }
+            }
+          ],
+          "graph": {
+            "source": "/D/root",
+            "edge": "right",
+            "target": "/F/root",
+            "returnEdge": "left",
+            "returnTarget": "/D/root",
+            "resolvesToSource": true
+          }
+        }
+      },
+      {
+        "id": "tree-cross-datastore:serialization:2",
+        "scenarioId": "tree-cross-datastore",
+        "kind": "receiver-graph",
+        "value": {
+          "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+          "targets": [
+            {
+              "path": "/A/_H",
+              "channelType": "https://graph.microsoft.com/types/tree",
+              "data": {
+                "label": "root",
+                "link": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+                "links": [],
+                "sequence": []
+              }
+            },
+            {
+              "path": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+              "channelType": "https://graph.microsoft.com/types/tree",
+              "data": {
+                "label": "secondary",
+                "links": [],
+                "sequence": []
+              }
+            }
+          ],
+          "graph": {
+            "source": "/A/_H",
+            "edge": "link",
+            "target": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "secondaryEntryPoint": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root",
+            "entryPointEdge": "tree",
+            "entryPointTarget": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/_L",
+            "sameResolvedInstance": true
+          }
+        }
+      },
+      {
+        "id": "tree-cycle:serialization:3",
+        "scenarioId": "tree-cycle",
+        "kind": "receiver-graph",
+        "value": {
+          "clientId": "da2b8aa0-364d-4fe8-b32a-862c135c1f2c",
+          "targets": [
+            {
+              "path": "/T/_C",
+              "channelType": "https://graph.microsoft.com/types/tree",
+              "data": {
+                "label": "root",
+                "link": "/V/_C",
+                "links": [],
+                "sequence": []
+              }
+            },
+            {
+              "path": "/V/_C",
+              "channelType": "https://graph.microsoft.com/types/tree",
+              "data": {
+                "label": "root",
+                "link": "/T/_C",
+                "links": [],
+                "sequence": []
+              }
+            }
+          ],
+          "graph": {
+            "source": "/T/_C",
+            "edge": "link",
+            "target": "/V/_C",
+            "returnEdge": "link",
+            "returnTarget": "/T/_C",
+            "resolvesToSource": true
+          }
+        }
+      },
+      {
+        "id": "map-cross-datastore:serialization:4",
+        "scenarioId": "map-cross-datastore",
         "kind": "paths",
         "value": {
           "primary": "/A/root",
-          "secondary": "/F/root"
+          "secondary": "/fa6dc2c5-06ba-42fe-be3d-b481fb175d5b/root"
         }
       }
     ],
@@ -354,7 +2110,7 @@
       "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
       "version": "3.1.0",
       "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
-      "digest": "2c65a2165726893e2f887240998386e5441866faf49cf98e433d246da700cd9e"
+      "digest": "1f63b815293557887b7b2d5aa9018c5c0b01193a91b0c4c42307180738deeb8c"
     }
   }
 }

@@ -934,7 +934,38 @@ JavaScript unsafe-integer fixture warnings. These are not skipped gates.
 The generated supported profile and its 37 native semantic runners per target
 are unchanged.
 
-**Task 1 remains open.** The full discovery gate requires the missing
-publication/storage, document-level GC, replay-input and lifecycle evidence
-listed in the spec. Tasks 2-9 have not started. The generated profile and native
+### Subsequent discovery slices
+
+Storage proof completed through `ad521e18`, with actual published document
+versions, fetched hierarchical snapshot/blob bytes, protocol sequences,
+document GC and fresh-client continuation. Leaf proof completed through
+`a46c77e0`, with executable per-edit schemas/initial roots, real handle
+resolution and structurally decoded FieldBatch input.
+
+The two attachment cases now contain executable initial document state,
+writer compressor/session context, complete sequenced prefixes, cumulative
+typed commands and distinct receiving-client graph observations. Validators
+decode actual map headers, keyed tree forests and reference operations,
+compare command/checkpoint graphs, and enforce allocation/dependency/reference
+order. Map-only datastore scenarios run before any tree creation. Active-target
+failure replay has its own document input and the documented native atomic
+preflight-refusal boundary.
+
+| Command | Latest graph-slice result |
+| --- | --- |
+| Bounded `source.mjs lifecycle-capture` | Six executed source tests passed, no skips. |
+| `just shared-tree-oracle` | Generated all 68 cases. |
+| Source/generate/codec Node suites | 214 passed, no failures or skips. |
+| Focused graph self-review regressions | 15 passed, no failures or skips. |
+| `just shared-tree-oracle-check` | All 68 cases reproduced byte-for-byte. |
+| Original corpus/profile comparison against `a46c77e0` | All 63 non-lifecycle cases, manifest and native profile unchanged. |
+
+Lifecycle IDs changed as measured after adding real peers and moving primary
+tree creation after the map-only checkpoints. Regeneration includes those
+changes; no fixture bytes or IDs were normalized by hand.
+
+**Task 1 remains open.** Transaction/branch/retention executable replay and
+remaining receiver checkpoints, multi-tree document-compressor identity, and
+commit/factory/revertible/event lifetime evidence still precede the final
+contract review. Tasks 2-9 have not started. The generated profile and native
 semantic runners still exclude this lifecycle support; M7 remains partial.

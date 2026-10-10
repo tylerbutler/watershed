@@ -95,10 +95,31 @@ resolve a percent-escaped marker to a real channel. Serializer outcomes for
 malformed, unknown, pending, external, traversal, and invalid-escape markers
 remain separate from tree assignment and native-profile refusals.
 
-This is still discovery, not Task 1 acceptance. Published storage and leaf
-codec/resolution proof are complete, but graph/runtime replay inputs,
-receiving-client graph outcomes, multi-tree document-compressor identity, and
-commit/factory/revertible/event lifetime evidence remain required by the
+The live-channel and cross-datastore cases include actual initial
+snapshot/blob/protocol/compressor bytes under `input.decoderInput`. Its
+`sessions.writer` preserves the initial ongoing compressor and session, and
+`runtime` declares the map/tree registry and root entry point. Each positive
+scenario's cumulative typed `commands` start from that initial document;
+`replay.prefixEndSequenceNumber` selects an inclusive checkpoint from the
+gap-free `deliveryPrefix`. Creation, initialization, local edits, serialization,
+completed transactions and settlement use explicit arguments, not prose.
+
+A distinct upstream receiver resolves each positive graph, including nested,
+self, channel-cycle and cross-datastore-cycle targets. The `receiver-graph`
+records contain actual target types/data and cycle instance comparisons.
+Validation decodes the attach headers/forests and reference operations, then
+compares those checkpoint graphs with commands and receiver records. It checks
+the declared datastore package and actual channel membership. It is a bounded
+evidence decoder, not another runtime. The active-transaction scenario has its
+own document input and a `preflight-refusal` native boundary; upstream's poisoned
+views and submitted failure transport remain measured evidence, not a native
+submission recipe.
+
+This is still discovery, not Task 1 acceptance. Published storage, leaf
+codec/resolution proof and the two attachment-case replay inputs are complete.
+Transaction/branch/retention replay and remaining receiver checkpoints,
+multi-tree document-compressor identity, and commit/factory/revertible/event
+lifetime evidence remain required by the
 [handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
 before native implementation proceeds.
 

@@ -5139,6 +5139,15 @@ function lifecycleRuntimeMessages(messages, label = "Lifecycle") {
   assert(Array.isArray(messages), `${label}: raw messages must be an array`);
   return messages.flatMap((message) => {
     assert(object(message), `${label}: raw message must be an object`);
+    if (message.type === "join") {
+      assert(message.clientId === null && message.contents === null
+        && typeof message.data === "string", `${label}: invalid join message`);
+      let membership;
+      assert.doesNotThrow(() => { membership = JSON.parse(message.data); },
+        `${label}: invalid join membership`);
+      assert(typeof membership?.clientId === "string", `${label}: invalid join client`);
+      return [];
+    }
     const contents = typeof message.contents === "string"
       ? JSON.parse(message.contents) : message.contents;
     assert(object(contents), `${label}: raw message contents must be an object`);
@@ -5684,6 +5693,664 @@ function validateActiveDocumentAttachment(observed, records, id, check) {
     value.allocation,
     lifecycleMessageOrder(operationTransport).filter((item) => item === "id-allocation"),
   ) && value.allocation.length > 0, `${id} allocation evidence`);
+}
+
+const lifecycleMapChannelType = "https://graph.microsoft.com/types/map";
+const lifecycleTreeChannelType = "https://graph.microsoft.com/types/tree";
+const lifecycleGraphStoreType = "org.watershed.shared-tree.m7.graph";
+
+function lifecycleGraphHandle(value, detail) {
+  assert(object(value) && value.type === "__fluid_handle__"
+    && typeof value.url === "string" && /^\/[^/]+\/[^/]+$/.test(value.url)
+    && Object.keys(value).length === 2, `${detail}: invalid graph handle`);
+  return value.url;
+}
+
+function lifecycleGraphTreeData(root, detail) {
+  assert(root.type === lifecycleRootType && root.value === undefined
+    && [...root.fields.keys()].every((key) =>
+      ["label", "link", "links", "sequence"].includes(key)),
+  `${detail}: invalid graph root`);
+  const node = (fields, key, type) => {
+    const field = fields.get(key);
+    assert(field?.length === 1 && field[0].type === type,
+      `${detail}: invalid graph ${key} field`);
+    return field[0];
+  };
+  const label = node(root.fields, "label", lifecycleStringType);
+  assert(typeof label.value === "string" && label.fields.size === 0,
+    `${detail}: invalid graph label`);
+  const links = node(root.fields, "links", lifecycleLinksType);
+  const sequence = node(root.fields, "sequence", lifecycleSequenceType);
+  assert(links.value === undefined && sequence.value === undefined
+    && [...sequence.fields.keys()].every((key) => key === ""),
+  `${detail}: invalid graph collection`);
+  const handle = (leaf) => {
+    assert(leaf.type === lifecycleHandleType && leaf.fields.size === 0,
+      `${detail}: invalid graph handle leaf`);
+    return lifecycleGraphHandle(leaf.value, detail);
+  };
+  const link = root.fields.get("link") ?? [];
+  assert(link.length <= 1, `${detail}: invalid optional graph link`);
+  return {
+    label: label.value,
+    ...(link.length === 0 ? {} : { link: handle(link[0]) }),
+    links: [...links.fields].map(([key, field]) => {
+      assert(field.length === 1, `${detail}: invalid graph map entry`);
+      return [key, handle(field[0])];
+    }),
+    sequence: (sequence.fields.get("") ?? []).map(handle),
+  };
+}
+
+function lifecycleGraphChannel(snapshot, type, detail) {
+  const entries = snapshot?.entries;
+  assert(Array.isArray(entries)
+    && new Set(entries.map((entry) => entry.path)).size === entries.length,
+  `${detail}: invalid channel snapshot entries`);
+  const attributes = lifecycleSummaryJsonBlob(entries, ".attributes", detail);
+  assert.deepEqual(attributes, {
+    type,
+    snapshotFormatVersion: type === lifecycleMapChannelType ? "0.2" : "0.0.0",
+    packageVersion: reference.version,
+  }, `${detail}: channel attributes`);
+  if (type === lifecycleMapChannelType) {
+    const header = lifecycleSummaryJsonBlob(entries, "header", detail);
+    assert(object(header.content) && isDeepStrictEqual(header.blobs, []),
+      `${detail}: invalid map header`);
+    const data = {};
+    for (const [key, entry] of Object.entries(header.content)) {
+      assert(entry?.type === "Plain" && Object.hasOwn(entry, "value"),
+        `${detail}: invalid map value`);
+      if (object(entry.value)) lifecycleGraphHandle(entry.value, detail);
+      else assert(typeof entry.value === "string", `${detail}: unsupported map value`);
+      Object.defineProperty(data, key, { value: entry.value, enumerable: true });
+    }
+    return { channelType: type, data };
+  }
+  assert(type === lifecycleTreeChannelType, `${detail}: undeclared channel type`);
+  const indexes = lifecycleSummaryEntry(entries, "indexes", "Tree", detail).value.entries;
+  const schema = lifecycleSummaryEntry(indexes, "Schema", "Tree", detail).value.entries;
+  validateLifecycleStoredSchema(
+    lifecycleSummaryJsonBlob(schema, "SchemaString", detail),
+    "Value", [lifecycleRootType], detail,
+  );
+  const forest = lifecycleSummaryEntry(indexes, "Forest", "Tree", detail).value.entries;
+  assert.deepEqual(lifecycleSummaryJsonBlob(forest, ".metadata", detail), { version: 3 },
+    `${detail}: forest metadata`);
+  const history = lifecycleSummaryEntry(indexes, "EditManager", "Tree", detail).value.entries;
+  const edit = lifecycleSummaryJsonBlob(history, "String", detail);
+  assert(edit?.version === 7 && Array.isArray(edit.trunk) && Array.isArray(edit.branches),
+    `${detail}: tree attachment history`);
+  return {
+    channelType: type,
+    data: lifecycleGraphTreeData(lifecycleRootNode(
+      lifecycleSummaryJsonBlob(forest, "contents", detail), detail,
+    ), detail),
+  };
+}
+
+function lifecycleGraphInput(input, detail, receiverRequired = true) {
+  assert(object(input?.initialSnapshot), `${detail}: missing initial snapshot replay input`);
+  const snapshot = input.initialSnapshot;
+  lifecycleStoredSnapshot(snapshot, `${detail} initial snapshot`);
+  assert(snapshot.sequenceNumber === 0, `${detail}: initial snapshot sequence`);
+  const component = lifecycleJsonBlob(snapshot,
+    lifecycleTreeAt(snapshot.tree, [".channels", "A"], detail), ".component", detail);
+  assert.deepEqual(component, {
+    pkg: JSON.stringify([lifecycleGraphStoreType]),
+    summaryFormatVersion: 2,
+    isRootDataStore: true,
+  }, `${detail}: initial component package`);
+  assert.deepEqual(lifecycleJsonBlob(snapshot, snapshot.tree, ".aliases", detail),
+    [["root", "A"]], `${detail}: initial entry point alias`);
+  assert.deepEqual(Object.keys(snapshot.tree.trees[".channels"].trees), ["A"],
+    `${detail}: initial datastore membership`);
+  const channels = lifecycleTreeAt(snapshot.tree, [".channels", "A", ".channels"], detail);
+  assert.deepEqual(Object.keys(channels.trees), ["root"],
+    `${detail}: initial channel membership`);
+  const root = lifecycleSharedMapSummary(snapshot, "/A/root", detail);
+  assert.deepEqual(root.header, { blobs: [], content: {} }, `${detail}: initial map state`);
+  const metadata = lifecycleJsonBlob(snapshot, snapshot.tree, ".metadata", detail);
+  assert(metadata.createContainerRuntimeVersion === reference.version
+    && metadata.documentSchema?.runtime?.idCompressorMode === "on",
+  `${detail}: initial runtime compressor mode`);
+  assert(typeof input.documentId === "string" && input.documentId.length > 0,
+    `${detail}: replay document identity`);
+  const compressor = input.compressor;
+  assert(object(compressor) && compressor.blobId === snapshot.tree.blobs[".idCompressor"]
+    && compressor.encoding === "base64"
+    && compressor.bytes === snapshot.blobs[compressor.blobId],
+  `${detail}: missing initial compressor bytes`);
+  const sessions = input.sessions;
+  assert(typeof sessions?.writerClientId === "string"
+    && typeof sessions.writer?.sessionId === "string"
+    && typeof sessions.writer.compressor === "string",
+  `${detail}: writer compressor session`);
+  let reader;
+  assert.doesNotThrow(() => {
+    const writer = deserializeIdCompressor(sessions.writer.compressor);
+    assert.equal(writer.localSessionId, sessions.writer.sessionId);
+    reader = deserializeIdCompressor(
+      lifecycleJsonBlob(snapshot, snapshot.tree, ".idCompressor", detail),
+      sessions.receiverClientId ?? sessions.writerClientId,
+    );
+    assert.equal(writer.serialize(false), reader.serialize(false));
+  }, `${detail}: unrestorable initial writer compressor`);
+  if (receiverRequired) {
+    assert(typeof sessions.receiverClientId === "string"
+      && sessions.receiverClientId.length > 0
+      && sessions.receiverClientId !== sessions.writerClientId,
+    `${detail}: distinct receiver client`);
+    assert.deepEqual(input.runtime?.entryPoint, {
+      datastoreId: "A", channelId: "root", packagePath: [lifecycleGraphStoreType],
+    }, `${detail}: runtime entry point`);
+    assert(input.runtime.oldestSupportedClient === "2.117.0"
+      && input.runtime.enableRuntimeIdCompressor === "on"
+      && input.runtime.graphStoreType === lifecycleGraphStoreType,
+    `${detail}: declared graph runtime`);
+    assert.deepEqual(input.runtime.registry, [
+      { channelType: lifecycleMapChannelType, role: "entry-point" },
+      { channelType: lifecycleTreeChannelType, role: "declared" },
+    ], `${detail}: declared channel registry`);
+  }
+  assert(nonemptyArray(input.deliveryPrefix), `${detail}: missing delivery prefix`);
+  assert.deepEqual(input.deliveryPrefix.map((message) => message.sequenceNumber),
+    Array.from({ length: input.deliveryPrefix.length }, (_, index) => index + 1),
+    `${detail}: noncontiguous delivery prefix`);
+  return reader;
+}
+
+function lifecycleGraphStoredEnvelope(live, stored) {
+  const { traces: liveTraces = [], ...liveWire } = live;
+  const { traces: storedTraces, ...storedWire } = stored ?? {};
+  assert(Array.isArray(storedTraces) && storedTraces.length === 0
+    && Array.isArray(liveTraces) && liveTraces.every((trace) =>
+      trace.action === "start" && typeof trace.service === "string"
+      && Number.isSafeInteger(trace.timestamp) && trace.timestamp >= 0),
+  "graph delivery prefix: invalid envelope traces");
+  return isDeepStrictEqual(liveWire, storedWire);
+}
+
+// Decode only the finite attachment and optional-handle edits captured here.
+// This is an evidence validator, not a CRDT replay implementation.
+function lifecycleGraphTransport(input, detail, reader) {
+  const graph = new Map([["/A/root", { channelType: lifecycleMapChannelType, data: {} }]]);
+  const stores = new Set(["A"]);
+  const checkpoints = new Map();
+  const attachments = new Map();
+  let nextGeneration = 1;
+  for (const message of input.deliveryPrefix) {
+    if (message.type !== "op") {
+      assert(message.type === "join" && message.referenceSequenceNumber === -1
+        && JSON.parse(message.data).clientId === input.sessions.writerClientId,
+      `${detail}: unexpected delivery prefix message`);
+      checkpoints.set(message.sequenceNumber, structuredClone(graph));
+      continue;
+    }
+    assert(Number.isSafeInteger(message.referenceSequenceNumber)
+      && message.referenceSequenceNumber >= 0
+      && message.referenceSequenceNumber < message.sequenceNumber
+      && Number.isSafeInteger(message.minimumSequenceNumber)
+      && message.minimumSequenceNumber >= 0
+      && message.minimumSequenceNumber <= message.referenceSequenceNumber,
+    `${detail}: delivery prefix sequence context`);
+    assert(message.clientId === input.sessions.writerClientId,
+      `${detail}: delivery prefix writer identity`);
+    const runtimes = lifecycleRuntimeMessages([message], detail);
+    assert(runtimes[0]?.type === "idAllocation"
+      && runtimes.filter((runtime) => runtime.type === "idAllocation").length === 1,
+    `${detail}: allocation precedes attachment order`);
+    for (const runtime of runtimes) {
+      if (runtime.type === "idAllocation") {
+        assertCreationRange(runtime.contents, detail);
+        assert(runtime.contents.sessionId === input.sessions.writer.sessionId
+          && runtime.contents.ids.firstGenCount === nextGeneration,
+        `${detail}: document compressor allocation order`);
+        nextGeneration += runtime.contents.ids.count;
+        assert.doesNotThrow(() => reader.finalizeCreationRange(runtime.contents),
+          `${detail}: invalid document compressor allocation`);
+        continue;
+      }
+      const add = (path, snapshot, type) => {
+        assert(!graph.has(path), `${detail}: duplicate channel identity ${path}`);
+        const channel = lifecycleGraphChannel(snapshot, type, `${detail} ${path}`);
+        graph.set(path, structuredClone(channel));
+        attachments.set(path, { ...channel, sequenceNumber: message.sequenceNumber });
+      };
+      if (runtime.type === "attach") {
+        const store = runtime.contents;
+        assert(typeof store?.id === "string" && !stores.has(store.id)
+          && store.type === lifecycleGraphStoreType,
+        `${detail}: datastore attachment identity`);
+        stores.add(store.id);
+        assert.deepEqual(
+          lifecycleSummaryJsonBlob(store.snapshot?.entries, ".component", detail),
+          { pkg: JSON.stringify([lifecycleGraphStoreType]),
+            summaryFormatVersion: 2, isRootDataStore: false },
+          `${detail}: datastore component package`,
+        );
+        const channels = lifecycleSummaryEntry(
+          store.snapshot.entries, ".channels", "Tree", detail,
+        ).value.entries;
+        assert(channels.some((entry) => entry.path === "root")
+          && new Set(channels.map((entry) => entry.path)).size === channels.length,
+        `${detail}: datastore entry point membership`);
+        for (const channel of channels) {
+          assert(channel.type === "Tree", `${detail}: datastore channel snapshot`);
+          const attributes = lifecycleSummaryJsonBlob(channel.value.entries, ".attributes", detail);
+          add(`/${store.id}/${channel.path}`, channel.value, attributes.type);
+        }
+        continue;
+      }
+      assert(runtime.type === "component", `${detail}: unexpected graph runtime message`);
+      const envelope = runtime.contents;
+      assert(stores.has(envelope?.address), `${detail}: unknown target datastore`);
+      const operation = envelope.contents?.content;
+      if (envelope.contents.type === "attach") {
+        add(`/${envelope.address}/${operation.id}`, operation.snapshot, operation.type);
+        continue;
+      }
+      assert(envelope.contents.type === "op", `${detail}: unexpected channel message`);
+      const path = `/${envelope.address}/${operation.address}`;
+      const channel = graph.get(path);
+      assert(channel !== undefined, `${detail}: unknown channel target ${path}`);
+      const edit = operation.contents;
+      if (channel.channelType === lifecycleMapChannelType) {
+        assert(edit.type === "set" && typeof edit.key === "string"
+          && edit.value?.type === "Plain", `${detail}: unsupported map edit`);
+        lifecycleGraphHandle(edit.value.value, detail);
+        channel.data[edit.key] = edit.value.value;
+        continue;
+      }
+      assert(edit.version === 7 && edit.originatorId === input.sessions.writer.sessionId
+        && Number.isSafeInteger(edit.revision) && edit.changeset?.length === 1,
+      `${detail}: tree edit identity`);
+      assert.doesNotThrow(() => reader.decompress(
+        reader.normalizeToSessionSpace(edit.revision, edit.originatorId),
+      ), `${detail}: tree edit revision allocation`);
+      const change = edit.changeset[0].data;
+      assert(object(change) && change.changes?.length === 1, `${detail}: tree edit fields`);
+      const keys = [];
+      let field = change.changes[0];
+      while (field.fieldKind === "ModularEditBuilder.Generic") {
+        assert(typeof field.fieldKey === "string" && field.change?.length === 1
+          && field.change[0]?.[0] === 0 && field.change[0][1]?.fieldChanges?.length === 1,
+        `${detail}: tree edit generic field`);
+        keys.push(field.fieldKey);
+        assert(keys.length <= 2, `${detail}: tree edit field depth`);
+        field = field.change[0][1].fieldChanges[0];
+      }
+      assert(keys[0] === "rootFieldKey" && field.fieldKind === "Optional"
+        && ((keys.length === 1 && field.fieldKey === "link")
+          || (keys.length === 2 && keys[1] === "links" && typeof field.fieldKey === "string")),
+      `${detail}: unsupported tree edit field`);
+      const replacement = field.change?.r;
+      assert(Number.isSafeInteger(replacement?.s) && Number.isSafeInteger(replacement.d),
+        `${detail}: invalid optional tree edit`);
+      assert.deepEqual(change.builds?.builds, [[[[replacement.s, 0]]]],
+        `${detail}: tree edit build identity`);
+      const built = lifecycleDecodeFieldBatch(change.builds.trees, ["value"], detail).get("value");
+      assert(built.length === 1 && built[0].type === lifecycleHandleType
+        && built[0].fields.size === 0, `${detail}: tree edit handle content`);
+      const target = lifecycleGraphHandle(built[0].value, detail);
+      assert(graph.has(target), `${detail}: reference precedes target attachment`);
+      const old = keys.length === 1 ? channel.data.link
+        : channel.data.links.find(([key]) => key === field.fieldKey)?.[1];
+      assert(replacement.e === (old === undefined), `${detail}: tree edit optional presence`);
+      if (keys.length === 1) channel.data.link = target;
+      else {
+        assert(old === undefined, `${detail}: unsupported graph map replacement`);
+        channel.data.links.push([field.fieldKey, target]);
+      }
+    }
+    checkpoints.set(message.sequenceNumber, structuredClone(graph));
+  }
+  return { checkpoints, attachments };
+}
+
+function validateLifecycleGraphReplay(value, records, check) {
+  const input = value.input.decoderInput;
+  const reader = lifecycleGraphInput(input, value.id);
+  const { checkpoints, attachments } = lifecycleGraphTransport(input, value.id, reader);
+  const firstTree = [...attachments].find(([, channel]) =>
+    channel.channelType === lifecycleTreeChannelType)?.[0];
+  check(typeof firstTree === "string", "initial tree attachment");
+  const create = (path, channelType = lifecycleMapChannelType) => ({
+    type: "create-channel", datastoreId: path.split("/")[1],
+    channelId: path.split("/")[2], channelType,
+  });
+  const tagged = (path) => ({
+    kind: "handle", value: { type: "__fluid_handle__", url: path },
+  });
+  const initialize = (path, commands) => {
+    const schema = commands?.find((command) =>
+      command.type === "initialize-tree" && command.target === path)?.storedSchema;
+    validateLifecycleStoredSchema(schema, "Value", [lifecycleRootType], `${value.id} initialization`);
+    return {
+      type: "initialize-tree", target: path, storedSchema: schema,
+      initialValue: {
+        kind: "object", type: lifecycleRootType,
+        fields: [
+          ["label", { kind: "string", value: "root" }],
+          ["links", { kind: "map", schemaId: lifecycleLinksType, entries: [] }],
+          ["sequence", { kind: "array", schemaId: lifecycleSequenceType, elements: [] }],
+        ],
+      },
+    };
+  };
+  const mapSet = (target, key, path) => ({
+    type: "map-set", target, key, value: tagged(path),
+  });
+  const treeSet = (target, path) => ({
+    type: "tree-set-handle", target, field: { kind: "optional", name: "link" },
+    value: tagged(path),
+  });
+  const treeMap = (key, path) => ({
+    type: "tree-map-set-handle", target: firstTree, field: "links", key, value: tagged(path),
+  });
+  const label = (target, text) => ({
+    type: "tree-set-string", target, field: "label", value: text,
+  });
+  const datastore = (path) => ({
+    type: "create-datastore", datastoreId: path.split("/")[1],
+    storeType: lifecycleGraphStoreType, packagePath: [lifecycleGraphStoreType],
+    entryPointChannelId: "root", channels: [{ id: "root", type: lifecycleMapChannelType }],
+  });
+  const commanded = new Map([["/A/root", { channelType: lifecycleMapChannelType, data: {} }]]);
+  const project = (commands) => {
+    for (const command of commands) {
+      if (command.type === "create-datastore" || command.type === "create-channel") {
+        const path = command.type === "create-datastore"
+          ? `/${command.datastoreId}/root` : `/${command.datastoreId}/${command.channelId}`;
+        check(!commanded.has(path), "duplicate command channel identity");
+        commanded.set(path, {
+          channelType: command.channelType ?? lifecycleMapChannelType, data: {},
+        });
+        continue;
+      }
+      if (command.target === undefined) continue;
+      const channel = commanded.get(command.target);
+      check(channel !== undefined, "command target membership");
+      switch (command.type) {
+        case "initialize-tree":
+          channel.data = { label: "root", links: [], sequence: [] };
+          break;
+        case "map-set":
+          channel.data[command.key] = command.value.value;
+          break;
+        case "map-delete":
+          delete channel.data[command.key];
+          break;
+        case "tree-set-string":
+          channel.data.label = command.value;
+          break;
+        case "tree-set-handle":
+          channel.data.link = command.value.value.url;
+          break;
+        case "tree-map-set-handle":
+          channel.data.links.push([command.key, command.value.value.url]);
+          break;
+      }
+    }
+  };
+  let previous = [];
+  for (const scenario of value.input.scenarios) {
+    if (scenario.id === "active-transaction") continue;
+    const observation = value.expected.observations.find((item) => item.id === scenario.id);
+    const local = observation.value;
+    check(nonemptyArray(scenario.commands), `${scenario.id} typed commands`);
+    const replay = scenario.replay;
+    check(replay?.published === false, `${scenario.id} publication boundary`);
+    check(replay.deliveryPrefixLength === replay.prefixEndSequenceNumber
+      && checkpoints.has(replay.prefixEndSequenceNumber),
+    `${scenario.id} delivery prefix checkpoint`);
+    const messages = observation.evidence.map((item) => records.get(item.id))
+      .find((item) => item.section === "messages")?.item.value;
+    check(nonemptyArray(messages)
+      && messages.at(-1).sequenceNumber === replay.prefixEndSequenceNumber,
+    `${scenario.id} delivery prefix observation`);
+    for (const message of messages) {
+      check(lifecycleGraphStoredEnvelope(message,
+        input.deliveryPrefix[message.sequenceNumber - 1]),
+        `${scenario.id} delivery prefix raw transport`);
+    }
+    check(isDeepStrictEqual(local.transportOrder ?? local.attachOrder,
+      lifecycleMessageOrder(messages)), `${scenario.id} raw transport order`);
+    if (previous.length === 0 && value.id === "live-channel-attachment") {
+      previous = [
+        create(firstTree, lifecycleTreeChannelType), initialize(firstTree, scenario.commands),
+        mapSet("/A/root", "tree", firstTree),
+        { type: "settle", checkpoint: "initial-tree" },
+      ];
+      project(previous);
+    }
+    let commands;
+    switch (scenario.id) {
+      case "detached-map":
+        commands = [
+          create(local.path), { type: "map-set", target: local.path, key: "local",
+            value: { kind: "string", value: "map-edit" } },
+          treeSet(firstTree, local.path),
+        ];
+        break;
+      case "detached-tree":
+      case "completed-transaction":
+        commands = [create(local.path, lifecycleTreeChannelType),
+          initialize(local.path, scenario.commands)];
+        if (scenario.id === "completed-transaction") {
+          commands.push({ type: "begin-transaction", target: local.path },
+            label(local.path, "committed"), { type: "commit-transaction", target: local.path });
+        } else commands.push(label(local.path, "detached-tree-edit"));
+        commands.push(treeMap(scenario.id === "detached-tree" ? "tree" : "completed", local.path));
+        break;
+      case "serialize-remove":
+        commands = [create(local.targetPath), create(local.ownerPath),
+          mapSet(local.ownerPath, "removed", local.targetPath),
+          { type: "serialize-channel-summary", target: local.ownerPath },
+          { type: "map-delete", target: local.ownerPath, key: "removed" },
+          treeMap("removed-owner", local.ownerPath)];
+        break;
+      case "nested-dependency":
+        commands = [create(local.outer), create(local.inner),
+          { type: "map-set", target: local.inner, key: "value",
+            value: { kind: "string", value: "nested" } },
+          mapSet(local.outer, "inner", local.inner), treeMap("nested", local.outer)];
+        break;
+      case "self-reference":
+        commands = [create(local.path), mapSet(local.path, "self", local.path),
+          treeMap("self", local.path)];
+        break;
+      case "two-channel-cycle":
+        commands = [create(local.left), create(local.right),
+          mapSet(local.left, "right", local.right), mapSet(local.right, "left", local.left),
+          treeMap("cycle", local.left)];
+        break;
+      case "map-cross-datastore":
+        commands = [datastore(local.secondary), mapSet("/A/root", "secondary", local.secondary)];
+        break;
+      case "map-cycle":
+        commands = [datastore(local.left), datastore(local.right),
+          mapSet(local.left, "right", local.right), mapSet(local.right, "left", local.left),
+          mapSet("/A/root", "cycle", local.left)];
+        break;
+      case "tree-cross-datastore":
+        commands = [create(firstTree, lifecycleTreeChannelType),
+          initialize(firstTree, scenario.commands), mapSet("/A/root", "primaryTree", firstTree),
+          { type: "settle", checkpoint: "initial-tree" },
+          create(local.path, lifecycleTreeChannelType),
+          initialize(local.path, scenario.commands), label(local.path, "secondary"),
+          mapSet(`/${local.path.split("/")[1]}/root`, "tree", local.path),
+          treeSet(firstTree, local.path)];
+        break;
+      case "tree-cycle":
+        commands = [datastore(local.left), datastore(local.right),
+          create(local.left, lifecycleTreeChannelType), create(local.right, lifecycleTreeChannelType),
+          initialize(local.left, scenario.commands), initialize(local.right, scenario.commands),
+          treeSet(local.left, local.right), treeSet(local.right, local.left),
+          treeSet(firstTree, local.left)];
+        break;
+      default:
+        assert.fail(`${value.id}: unknown graph scenario ${scenario.id}`);
+    }
+    const dependencyPaths = {
+      "detached-map": [local.path],
+      "detached-tree": [local.path],
+      "completed-transaction": [local.path],
+      "serialize-remove": [local.targetPath, local.ownerPath],
+      "nested-dependency": [local.inner, local.outer],
+      "self-reference": [local.path],
+      "two-channel-cycle": [local.right, local.left],
+      "map-cross-datastore": [local.secondary],
+      "map-cycle": [local.right, local.left],
+      "tree-cross-datastore": [local.path],
+      "tree-cycle": [local.right, local.left],
+    }[scenario.id];
+    const datastoreAttach = ["map-cross-datastore", "map-cycle", "tree-cycle"].includes(scenario.id);
+    const referringPaths = scenario.id === "tree-cross-datastore"
+      ? [`/${local.path.split("/")[1]}/root`, firstTree]
+      : [scenario.id === "map-cross-datastore" || scenario.id === "map-cycle" ? "/A/root" : firstTree];
+    check(isDeepStrictEqual(lifecycleMessageOrder(messages), [
+      ...(scenario.id === "tree-cross-datastore"
+        ? ["id-allocation", `channel-attach:${firstTree.slice(1)}`, "component:A/root"] : []),
+      "id-allocation",
+      ...dependencyPaths.map((path) => datastoreAttach
+        ? `datastore-attach:${path.split("/")[1]}` : `channel-attach:${path.slice(1)}`),
+      ...referringPaths.map((path) => `component:${path.slice(1)}`),
+    ]), `${scenario.id} upstream dependency attachment order`);
+    previous = [...previous, ...commands, { type: "settle", checkpoint: scenario.id }];
+    check(isDeepStrictEqual(scenario.commands, previous), `${scenario.id} exact typed commands`);
+    project(commands);
+    const graph = checkpoints.get(replay.prefixEndSequenceNumber);
+    check(isDeepStrictEqual(graph, commanded), `${scenario.id} commanded graph state`);
+    const receiver = local.receiver;
+    check(object(receiver) && receiver.clientId === input.sessions.receiverClientId,
+      `${scenario.id} receiver identity`);
+    const evidence = observation.evidence.map((item) => records.get(item.id))
+      .find((item) => item.section === "serialization" && item.item.kind === "receiver-graph");
+    check(evidence !== undefined && isDeepStrictEqual(evidence.item.value, receiver),
+      `${scenario.id} receiver raw graph`);
+    let paths;
+    let expectedGraph;
+    const edge = (source, key, target) => {
+      const channel = graph.get(source);
+      check(channel !== undefined && graph.has(target), `${scenario.id} receiver target route`);
+      const actual = channel.channelType === lifecycleMapChannelType ? channel.data[key]?.url
+        : key === "link" ? channel.data.link
+          : channel.data.links.find(([name]) => `links/${name}` === key)?.[1];
+      check(actual === target, `${scenario.id} receiver graph state`);
+      return { source, edge: key, target };
+    };
+    switch (scenario.id) {
+      case "detached-map":
+      case "detached-tree":
+      case "completed-transaction": {
+        paths = scenario.id === "completed-transaction" ? [local.path] : [firstTree, local.path];
+        const key = scenario.id === "detached-map" ? "link"
+          : scenario.id === "detached-tree" ? "links/tree" : "links/completed";
+        expectedGraph = { ...edge(firstTree, key, local.path), targetData: graph.get(local.path).data };
+        const target = attachments.get(local.path);
+        check(target !== undefined
+          && (scenario.id === "detached-map" ? target.data.local === "map-edit"
+            : target.data.label === (scenario.id === "detached-tree" ? "detached-tree-edit" : "committed")),
+        `${scenario.id} attached local target state`);
+        break;
+      }
+      case "serialize-remove":
+        paths = [local.ownerPath, local.targetPath];
+        check(graph.get(local.ownerPath)?.data.removed === undefined
+          && graph.has(local.targetPath), `${scenario.id} receiver graph state`);
+        expectedGraph = { source: local.ownerPath, edge: "removed",
+          visible: false, boundTarget: local.targetPath };
+        const serialized = observation.evidence.map((item) => records.get(item.id))
+          .find((item) => item.section === "summaries" && item.item.kind === "owner-before-removal");
+        check(serialized?.item.value?.tree?.header?.type === 2,
+          `${scenario.id} serialized owner header`);
+        assert.deepEqual(JSON.parse(serialized.item.value.tree.header.content), {
+          blobs: [], content: { removed: { type: "Plain", value: tagged(local.targetPath).value } },
+        }, `${scenario.id} serialized binding state`);
+        break;
+      case "nested-dependency":
+        paths = [local.outer, local.inner];
+        check(graph.get(local.inner)?.data.value === "nested", `${scenario.id} attached local target state`);
+        expectedGraph = { ...edge(local.outer, "inner", local.inner), targetData: graph.get(local.inner).data };
+        break;
+      case "self-reference":
+        paths = [local.path];
+        expectedGraph = { ...edge(local.path, "self", local.path), resolvesToSource: true };
+        break;
+      case "two-channel-cycle":
+      case "map-cycle":
+      case "tree-cycle": {
+        paths = [local.left, local.right];
+        const tree = scenario.id === "tree-cycle";
+        expectedGraph = { ...edge(local.left, tree ? "link" : "right", local.right),
+          returnEdge: tree ? "link" : "left",
+          returnTarget: edge(local.right, tree ? "link" : "left", local.left).target,
+          resolvesToSource: true };
+        break;
+      }
+      case "map-cross-datastore":
+        paths = ["/A/root", local.secondary];
+        expectedGraph = { ...edge("/A/root", "secondary", local.secondary),
+          targetData: graph.get(local.secondary).data };
+        break;
+      case "tree-cross-datastore": {
+        paths = [firstTree, local.path];
+        const entryPoint = `/${local.path.split("/")[1]}/root`;
+        expectedGraph = { ...edge(firstTree, "link", local.path),
+          secondaryEntryPoint: entryPoint, entryPointEdge: "tree",
+          entryPointTarget: edge(entryPoint, "tree", local.path).target,
+          sameResolvedInstance: true };
+        check(graph.get(local.path)?.data.label === "secondary",
+          `${scenario.id} attached local target state`);
+        break;
+      }
+    }
+    check(isDeepStrictEqual(receiver.targets, paths.map((path) => ({
+      path, ...graph.get(path),
+    }))), `${scenario.id} receiver target data and route`);
+    check(isDeepStrictEqual(receiver.graph, expectedGraph), `${scenario.id} receiver graph state`);
+    for (const command of commands.filter((command) => command.type === "create-channel")) {
+      const path = `/${command.datastoreId}/${command.channelId}`;
+      check(attachments.get(path)?.channelType === command.channelType,
+        `${scenario.id} created channel membership`);
+    }
+  }
+  check(previous.at(-1).checkpoint === value.input.scenarios
+    .filter((scenario) => scenario.id !== "active-transaction").at(-1).id
+    && value.input.scenarios.filter((scenario) => scenario.id !== "active-transaction")
+      .at(-1).replay.prefixEndSequenceNumber === input.deliveryPrefix.length,
+  "complete final delivery prefix");
+  const active = value.input.scenarios.find((scenario) => scenario.id === "active-transaction");
+  if (active !== undefined) {
+    const ownInput = active.input?.decoderInput;
+    const ownReader = lifecycleGraphInput(ownInput, "active-transaction replay", false);
+    check(ownInput.documentId !== input.documentId, "active-transaction replay document");
+    const transport = lifecycleGraphTransport(ownInput, "active-transaction", ownReader);
+    const observation = value.expected.observations.find((item) => item.id === active.id).value;
+    check(ownInput.documentId === observation.documentId
+      && active.replay?.nativeBoundary === "preflight-refusal"
+      && active.replay.published === false
+      && active.replay.prefixEndSequenceNumber === ownInput.deliveryPrefix.length
+      && active.replay.deliveryPrefixLength === ownInput.deliveryPrefix.length,
+    "active-transaction replay publication refusal boundary");
+    const parent = [...transport.attachments.keys()].find((path) => path !== observation.targetPath);
+    check(isDeepStrictEqual(active.commands, [
+      create(parent, lifecycleTreeChannelType), initialize(parent, active.commands),
+      mapSet("/A/root", "tree", parent), { type: "settle", checkpoint: "initial-tree" },
+      create(observation.targetPath, lifecycleTreeChannelType),
+      initialize(observation.targetPath, active.commands),
+      label(observation.targetPath, "active-target"),
+      { type: "begin-transaction", target: observation.targetPath },
+      treeSet(parent, observation.targetPath),
+    ]), "active-transaction replay commands");
+    for (const message of observation.transport) {
+      check(lifecycleGraphStoredEnvelope(message,
+        ownInput.deliveryPrefix[message.sequenceNumber - 1]),
+        "active-transaction replay raw transport");
+    }
+  }
 }
 
 export function validateLifecycleCase(value) {
@@ -6426,6 +7093,9 @@ export function validateLifecycleCase(value) {
         new Set(Object.keys(freshPublication.value.snapshot.blobs)),
       ),
     "fresh-load stored summary bytes");
+  }
+  if (value.id === "live-channel-attachment" || value.id === "cross-datastore-attachment") {
+    validateLifecycleGraphReplay(value, records, check);
   }
 }
 
