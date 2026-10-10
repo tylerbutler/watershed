@@ -576,83 +576,85 @@ async function clickGlobalAction(send, action) {
       if (button.disabled) {
         return { ok: false, detail: actionName + " is disabled" };
       }
-
-      async function clickGlobalActionAndSnapshot(send, action) {
-        const result = await call(
-          send,
-          function (actionName) {
-            const button = document.querySelector(
-              '[data-action="' + actionName + '"]',
-            );
-            if (!button) return { ok: false, detail: actionName + " is missing" };
-            if (button.disabled) {
-              return { ok: false, detail: actionName + " is disabled" };
-            }
-            button.click();
-            const items = Array.from(
-              document.querySelectorAll("[data-item-id]"),
-            ).map((row) => ({
-              id: row.dataset.itemId,
-              edit: row.querySelector('[data-action="edit"]')?.disabled ?? null,
-              toggle: row.querySelector('[data-action="toggle"]')?.disabled ?? null,
-              delete: row.querySelector('[data-action="delete"]')?.disabled ?? null,
-              moveUp:
-                row.querySelector('[data-action="move-up"]')?.disabled ?? null,
-              moveDown:
-                row.querySelector('[data-action="move-down"]')?.disabled ?? null,
-            }));
-            return {
-              ok: true,
-              pending: Number(
-                document.querySelector("[data-pending]")?.dataset.pending ?? -1,
-              ),
-              controls: {
-                addInput:
-                  document.querySelector("[data-new-item]")?.disabled ?? null,
-                add:
-                  document.querySelector('[data-action="add"]')?.disabled ?? null,
-                global: Object.fromEntries(
-                  [
-                    "undo",
-                    "redo",
-                    "complete-all",
-                    "clear-history",
-                    "close",
-                  ].map((name) => [
-                    name,
-                    document.querySelector(
-                      '[data-action="' + name + '"]',
-                    )?.disabled ?? null,
-                  ]),
-                ),
-                items,
-              },
-            };
-          },
-          [action],
-        );
-        if (!result.ok) throw new Error(result.detail);
-        return result;
-      }
-
-      function allControlsDisabled(controls) {
-        return (
-          controls.addInput === true &&
-          controls.add === true &&
-          Object.values(controls.global).every((disabled) => disabled === true) &&
-          controls.items.length > 0 &&
-          controls.items.every(({ id, ...item }) => {
-            void id;
-            return Object.values(item).every((disabled) => disabled === true);
-          })
-        );
-      }
       button.click();
       return { ok: true };
     },
     [action],
   );
   if (!result.ok) throw new Error(result.detail);
+}
+
+async function clickGlobalActionAndSnapshot(send, action) {
+  const result = await call(
+    send,
+    function (actionName) {
+      const button = document.querySelector(
+        '[data-action="' + actionName + '"]',
+      );
+      if (!button) return { ok: false, detail: actionName + " is missing" };
+      if (button.disabled) {
+        return { ok: false, detail: actionName + " is disabled" };
+      }
+      button.click();
+      return new Promise((resolveSnapshot) => {
+        requestAnimationFrame(() => {
+          const items = Array.from(
+            document.querySelectorAll("[data-item-id]"),
+          ).map((row) => ({
+            id: row.dataset.itemId,
+            edit: row.querySelector('[data-action="edit"]')?.disabled ?? null,
+            toggle:
+              row.querySelector('[data-action="toggle"]')?.disabled ?? null,
+            delete:
+              row.querySelector('[data-action="delete"]')?.disabled ?? null,
+            moveUp:
+              row.querySelector('[data-action="move-up"]')?.disabled ?? null,
+            moveDown:
+              row.querySelector('[data-action="move-down"]')?.disabled ?? null,
+          }));
+          resolveSnapshot({
+            ok: true,
+            pending: Number(
+              document.querySelector("[data-pending]")?.dataset.pending ?? -1,
+            ),
+            controls: {
+              addInput:
+                document.querySelector("[data-new-item]")?.disabled ?? null,
+              add:
+                document.querySelector('[data-action="add"]')?.disabled ?? null,
+              global: Object.fromEntries(
+                ["undo", "redo", "complete-all", "clear-history", "close"].map(
+                  (name) => [
+                    name,
+                    document.querySelector(
+                      '[data-action="' + name + '"]',
+                    )?.disabled ?? null,
+                  ],
+                ),
+              ),
+              items,
+            },
+          });
+        });
+      });
+    },
+    [action],
+  );
+  if (!result.ok) throw new Error(result.detail);
+  return result;
+}
+
+function allControlsDisabled(controls) {
+  return (
+    controls.addInput === true &&
+    controls.add === true &&
+    Object.values(controls.global).every((disabled) => disabled === true) &&
+    controls.items.length > 0 &&
+    controls.items.every(({ id, ...item }) => {
+      void id;
+      return Object.values(item).every((disabled) => disabled === true);
+    })
+  );
 }
 
 function sameMembers(actual, expected) {
@@ -683,6 +685,7 @@ async function evaluate(send, expression) {
   const result = await send("Runtime.evaluate", {
     expression,
     returnByValue: true,
+    awaitPromise: true,
   });
   if (result.exceptionDetails) {
     throw new Error("evaluation failed: " + JSON.stringify(result.exceptionDetails));

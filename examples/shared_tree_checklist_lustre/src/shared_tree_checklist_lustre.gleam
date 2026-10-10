@@ -88,6 +88,7 @@ type Msg {
   UndoClicked
   RedoClicked
   CompleteAllClicked
+  RunCompleteAll(watershed.SharedTree)
   ClearHistoryClicked
   CloseClicked
   MutationFinished(Result(Nil, String))
@@ -299,6 +300,10 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     UndoClicked -> request_history(model, lifecycle.Undoing)
     RedoClicked -> request_history(model, lifecycle.Redoing)
     CompleteAllClicked -> request_complete_all(model)
+    RunCompleteAll(shared_tree) -> #(
+      model,
+      tree.transaction(shared_tree, [], complete_all, BulkFinished),
+    )
     ClearHistoryClicked ->
       case can_interact(model) {
         False -> #(model, effect.none())
@@ -449,7 +454,7 @@ fn request_complete_all(model: Model) -> #(Model, Effect(Msg)) {
   case can_interact(model), model.tree {
     True, Some(shared_tree) -> #(
       Model(..model, pending: model.pending + 1),
-      tree.transaction(shared_tree, [], complete_all, BulkFinished),
+      after_paint(RunCompleteAll(shared_tree)),
     )
     True, None -> #(
       append_error(model, "SharedTree is not ready"),
@@ -457,6 +462,11 @@ fn request_complete_all(model: Model) -> #(Model, Effect(Msg)) {
     )
     False, _ -> #(model, effect.none())
   }
+}
+
+fn after_paint(message: Msg) -> Effect(Msg) {
+  use dispatch, _root <- effect.after_paint
+  dispatch(message)
 }
 
 fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
