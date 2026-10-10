@@ -470,8 +470,8 @@ pub fn publish_draft(
       ["title"],
       types.StringValue("reviewed draft"),
     )
-    |> result.then(fn(_) { watershed.tree_rebase_onto(draft, main) })
-    |> result.then(fn(_) { watershed.tree_merge(main, draft, True) })
+    |> result.try(fn(_) { watershed.tree_rebase_onto(draft, main) })
+    |> result.try(fn(_) { watershed.tree_merge(main, draft, True) })
   {
     Ok(Nil) -> Ok(Nil)
     Error(error) -> {
@@ -492,21 +492,31 @@ pub fn publish_in_stages(
   main: watershed.SharedTree,
 ) -> Result(Nil, String) {
   use draft <- result.try(watershed.tree_fork(main))
-  use _ <- result.try(watershed.tree_map_set(
-    draft,
-    ["settings"],
-    "theme",
-    types.StringValue("night"),
-  ))
-  use _ <- result.try(watershed.tree_merge(main, draft, False))
-  use _ <- result.try(watershed.tree_map_set(
-    draft,
-    ["settings"],
-    "density",
-    types.StringValue("compact"),
-  ))
-  use _ <- result.try(watershed.tree_rebase_onto(draft, main))
-  watershed.tree_merge(main, draft, True)
+  case
+    watershed.tree_map_set(
+      draft,
+      ["settings"],
+      "theme",
+      types.StringValue("night"),
+    )
+    |> result.try(fn(_) { watershed.tree_merge(main, draft, False) })
+    |> result.try(fn(_) {
+      watershed.tree_map_set(
+        draft,
+        ["settings"],
+        "density",
+        types.StringValue("compact"),
+      )
+    })
+    |> result.try(fn(_) { watershed.tree_rebase_onto(draft, main) })
+    |> result.try(fn(_) { watershed.tree_merge(main, draft, True) })
+  {
+    Ok(Nil) -> Ok(Nil)
+    Error(error) -> {
+      let _ = watershed.tree_dispose_branch(draft)
+      Error(error)
+    }
+  }
 }
 ```
 

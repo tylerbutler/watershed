@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -211,4 +216,28 @@ test("BEAM reconnect command restarts the native transport", () => {
     client,
     /protocol\.Reconnect -> \{\s+watershed\.force_reconnect\(document\)/,
   );
+});
+
+test("README local branch examples compile against the public Gleam API", () => {
+  const readme = readFileSync(resolve(repository, "README.md"), "utf8");
+  const section = readme.split("### SharedTree local branches\n")[1]
+    ?.split("\n### ", 1)[0];
+  assert(section, "README lacks the SharedTree local branch section");
+  const blocks = [...section.matchAll(/```gleam\n([\s\S]*?)```/g)]
+    .map((match) => match[1]);
+  assert.equal(blocks.length, 2, "README local branch examples changed");
+
+  const packageDirectory = resolve(repository, "tools/website-samples");
+  const source = resolve(
+    repository,
+    "tools/website-samples/src/readme_local_branch_examples.gleam",
+  );
+  writeFileSync(source, blocks.join("\n"));
+  const result = spawnSync("gleam", ["check", "--target", "javascript"], {
+    cwd: packageDirectory,
+    encoding: "utf8",
+  });
+  unlinkSync(source);
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
