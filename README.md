@@ -634,7 +634,11 @@ The [browser checklist example](examples/shared_tree_checklist_lustre) creates
 the same fixed-layout container from a Lustre application, then edits an
 object-and-array schema in two browser contexts. It mints development tokens
 in the browser for the local Floodgate stack; production applications must
-obtain tenant-write and document tokens from a backend.
+obtain tenant-write and document tokens from a backend. The application owns
+native revertible handles for local undo and redo, groups **Complete all** in
+one transaction and undo step, clears invalidated history, and releases its
+subscriptions and handles on close. Reload restores committed data but not the
+page-local history stacks.
 
 ### SharedTree checks
 

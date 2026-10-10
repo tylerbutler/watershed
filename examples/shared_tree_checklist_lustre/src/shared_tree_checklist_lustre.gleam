@@ -10,6 +10,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import shared_tree_checklist_lustre/checklist
+import shared_tree_checklist_lustre/history
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed
 import watershed/id
@@ -34,7 +35,13 @@ type Phase {
   Creating
   Connecting
   Ready
+  Closed
   Failed(String)
+}
+
+type HistoryAction {
+  Undoing
+  Redoing
 }
 
 type Model {
@@ -44,8 +51,11 @@ type Model {
     document_id: String,
     document: Option(watershed.Document(Nil)),
     tree: Option(watershed.SharedTree),
-    subscription: Option(watershed.SubscriptionToken),
+    change_subscription: Option(watershed.SubscriptionToken),
+    commit_subscription: Option(watershed.SubscriptionToken),
     checklist: checklist.Checklist,
+    history: history.History(watershed.TreeRevertible),
+    history_action: Option(HistoryAction),
     draft: String,
     pending: Int,
     errors: List(String),
@@ -66,8 +76,11 @@ type Msg {
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
   Opened(Result(watershed.SharedTree, String))
-  Subscribed(watershed.SubscriptionToken)
+  ChangeSubscribed(watershed.SubscriptionToken)
+  CommitSubscribed(watershed.SubscriptionToken)
   TreeChanged(tree_kernel.TreeEvent)
+  CommitCaptured(Result(tree.CommitEvent, String))
+  CommitSettled(Result(types.TreeCommitOutcome, String))
   Read(Result(Option(types.TreeValue), String))
   DraftChanged(String)
   AddClicked
@@ -76,7 +89,16 @@ type Msg {
   DeleteClicked(id: String)
   MoveUpClicked(id: String)
   MoveDownClicked(id: String)
+  UndoClicked
+  RedoClicked
+  CompleteAllClicked
+  ClearHistoryClicked
+  CloseClicked
   MutationFinished(Result(Nil, String))
+  HistoryFinished(Result(Nil, String))
+  BulkFinished(Result(Bool, watershed.TreeTransactionError(String)))
+  Disposed(Result(Nil, String))
+  CloseFinished(Result(Nil, String))
 }
 
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "queryParameter")
@@ -131,8 +153,11 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
       document_id: document_id,
       document: None,
       tree: None,
-      subscription: None,
+      change_subscription: None,
+      commit_subscription: None,
       checklist: checklist.empty(),
+      history: history.new(),
+      history_action: None,
       draft: "",
       pending: 0,
       errors: [],
@@ -191,28 +216,81 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Opened(Ok(shared_tree)) -> #(
       Model(..model, tree: Some(shared_tree)),
       effect.batch([
-        tree.subscribe(shared_tree, Subscribed, TreeChanged),
+        tree.subscribe(shared_tree, ChangeSubscribed, TreeChanged),
+        tree.subscribe_commits(
+          shared_tree,
+          CommitSubscribed,
+          CommitCaptured,
+          CommitSettled,
+        ),
         tree.read_root(shared_tree, Read),
       ]),
     )
-    Subscribed(subscription) -> #(
-      Model(..model, subscription: Some(subscription)),
+    ChangeSubscribed(subscription) ->
+      case model.phase {
+        Closed -> #(model, tree.unsubscribe(subscription))
+        _ -> #(
+          Model(..model, change_subscription: Some(subscription)),
+          effect.none(),
+        )
+      }
+    CommitSubscribed(subscription) ->
+      case model.phase {
+        Closed -> #(model, tree.unsubscribe(subscription))
+        _ -> #(
+          Model(..model, commit_subscription: Some(subscription)),
+          effect.none(),
+        )
+      }
+    TreeChanged(_) ->
+      case model.phase, model.tree {
+        Closed, _ | _, None -> #(model, effect.none())
+        _, Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+      }
+    CommitCaptured(Error(detail)) -> #(
+      append_error(model, "Commit capture failed: " <> detail),
       effect.none(),
     )
-    TreeChanged(_) ->
-      case model.tree {
-        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
-        None -> #(model, effect.none())
+    CommitCaptured(Ok(tree.CommitEvent(kind, local, revertible))) ->
+      case model.phase {
+        Ready -> {
+          let history.Routed(next_history, dispose) =
+            history.route(valid_history(model.history), kind, local, revertible)
+          dispose_handles(Model(..model, history: next_history), dispose)
+        }
+        _ ->
+          case revertible {
+            None -> #(model, effect.none())
+            Some(handle) -> dispose_handles(model, [handle])
+          }
       }
+    CommitSettled(Ok(types.FullyApplied)) -> #(model, effect.none())
+    CommitSettled(Ok(types.FullyDropped)) -> #(
+      append_error(model, "Commit settlement dropped the full change"),
+      effect.none(),
+    )
+    CommitSettled(Ok(types.NewContentOnly)) -> #(
+      append_error(model, "Commit settlement applied only new content"),
+      effect.none(),
+    )
+    CommitSettled(Error(detail)) -> #(
+      append_error(model, "Commit settlement failed: " <> detail),
+      effect.none(),
+    )
     Read(Error(detail)) -> #(append_error(model, detail), effect.none())
     Read(Ok(None)) -> fail(model, "The SharedTree root is absent")
     Read(Ok(Some(value))) ->
-      case checklist.decode(value) {
-        Ok(decoded) -> #(
-          Model(..model, phase: Ready, checklist: decoded),
-          effect.none(),
-        )
-        Error(detail) -> fail(model, "Invalid checklist snapshot: " <> detail)
+      case model.phase {
+        Closed -> #(model, effect.none())
+        _ ->
+          case checklist.decode(value) {
+            Ok(decoded) -> #(
+              Model(..model, phase: Ready, checklist: decoded),
+              effect.none(),
+            )
+            Error(detail) ->
+              fail(model, "Invalid checklist snapshot: " <> detail)
+          }
       }
     DraftChanged(draft) -> #(Model(..model, draft: draft), effect.none())
     AddClicked ->
@@ -222,12 +300,21 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     DeleteClicked(item_id) -> mutate(model, Delete(item_id))
     MoveUpClicked(item_id) -> mutate(model, MoveUp(item_id))
     MoveDownClicked(item_id) -> mutate(model, MoveDown(item_id))
-    MutationFinished(outcome) -> {
-      let pending = case model.pending > 0 {
-        True -> model.pending - 1
-        False -> 0
+    UndoClicked -> request_history(model, Undoing)
+    RedoClicked -> request_history(model, Redoing)
+    CompleteAllClicked -> request_complete_all(model)
+    ClearHistoryClicked ->
+      case can_interact(model) {
+        False -> #(model, effect.none())
+        True -> {
+          let history.Routed(empty, dispose) =
+            history.clear(valid_history(model.history))
+          dispose_handles(Model(..model, history: empty), dispose)
+        }
       }
-      let model = Model(..model, pending: pending)
+    CloseClicked -> close_document(model)
+    MutationFinished(outcome) -> {
+      let model = finish_pending(model)
       let model = case outcome {
         Ok(Nil) -> model
         Error(detail) -> append_error(model, detail)
@@ -235,6 +322,66 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       case model.tree {
         Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
         None -> #(model, effect.none())
+      }
+    }
+    HistoryFinished(outcome) -> {
+      let model = finish_pending(model)
+      let model = case outcome, model.history_action {
+        Ok(Nil), Some(Undoing) ->
+          Model(
+            ..model,
+            history: history.consume_undo(model.history),
+            history_action: None,
+          )
+        Ok(Nil), Some(Redoing) ->
+          Model(
+            ..model,
+            history: history.consume_redo(model.history),
+            history_action: None,
+          )
+        Error(detail), _ ->
+          append_error(
+            Model(..model, history_action: None),
+            "History action failed: " <> detail,
+          )
+        _, None -> Model(..model, history_action: None)
+      }
+      case model.tree {
+        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        None -> #(model, effect.none())
+      }
+    }
+    BulkFinished(outcome) -> {
+      let model = finish_pending(model)
+      let model = case outcome {
+        Ok(_) -> model
+        Error(watershed.Aborted(detail)) ->
+          append_error(model, "Complete all aborted: " <> detail)
+        Error(watershed.TransactionFailed(detail)) ->
+          append_error(model, "Complete all failed: " <> detail)
+      }
+      case model.tree {
+        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        None -> #(model, effect.none())
+      }
+    }
+    Disposed(outcome) -> {
+      let model = finish_pending(model)
+      let model = case outcome {
+        Ok(Nil) -> model
+        Error(detail) ->
+          append_error(model, "History disposal failed: " <> detail)
+      }
+      continue_close(model)
+    }
+    CloseFinished(outcome) -> {
+      let model = finish_pending(model)
+      case outcome {
+        Ok(Nil) -> #(model, effect.none())
+        Error(detail) -> #(
+          append_error(model, "Close failed: " <> detail),
+          effect.none(),
+        )
       }
     }
   }
@@ -256,10 +403,95 @@ pub fn prepare(
   }
 }
 
+pub fn complete_all(shared_tree: watershed.SharedTree) -> Result(Bool, String) {
+  use root <- result.try(watershed.tree_get(shared_tree, []))
+  use value <- result.try(
+    root
+    |> option.to_result("The SharedTree root is absent"),
+  )
+  use decoded <- result.try(checklist.decode(value))
+  let checklist.Checklist(items: items, ..) = decoded
+  complete_incomplete(shared_tree, items, 0, False)
+}
+
+fn complete_incomplete(
+  shared_tree: watershed.SharedTree,
+  items: List(checklist.Item),
+  index: Int,
+  changed: Bool,
+) -> Result(Bool, String) {
+  case items {
+    [] -> Ok(changed)
+    [item, ..rest] -> {
+      use _ <- result.try(case item.completed {
+        True -> Ok(Nil)
+        False ->
+          watershed.tree_set(
+            shared_tree,
+            ["items", int.to_string(index), "completed"],
+            types.BooleanValue(True),
+          )
+      })
+      complete_incomplete(
+        shared_tree,
+        rest,
+        index + 1,
+        changed || !item.completed,
+      )
+    }
+  }
+}
+
+fn request_history(
+  model: Model,
+  action: HistoryAction,
+) -> #(Model, Effect(Msg)) {
+  case can_interact(model) {
+    False -> #(model, effect.none())
+    True -> {
+      let current = valid_history(model.history)
+      let next = case action {
+        Undoing -> history.next_undo(current)
+        Redoing -> history.next_redo(current)
+      }
+      case next {
+        None -> #(Model(..model, history: current), effect.none())
+        Some(handle) -> #(
+          Model(
+            ..model,
+            history: current,
+            history_action: Some(action),
+            pending: model.pending + 1,
+          ),
+          tree.revert(handle, True, HistoryFinished),
+        )
+      }
+    }
+  }
+}
+
+fn request_complete_all(model: Model) -> #(Model, Effect(Msg)) {
+  case can_interact(model), model.tree {
+    True, Some(shared_tree) -> #(
+      Model(..model, pending: model.pending + 1),
+      tree.transaction(shared_tree, [], complete_all, BulkFinished),
+    )
+    True, None -> #(
+      append_error(model, "SharedTree is not ready"),
+      effect.none(),
+    )
+    False, _ -> #(model, effect.none())
+  }
+}
+
 fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
-  case model.tree {
-    None -> #(append_error(model, "SharedTree is not ready"), effect.none())
-    Some(shared_tree) ->
+  case can_interact(model), model.tree {
+    False, _ -> #(model, effect.none())
+    True, None -> #(
+      append_error(model, "SharedTree is not ready"),
+      effect.none(),
+    )
+    True, Some(shared_tree) ->
       case prepare(model.checklist, action) {
         Error(detail) -> #(append_error(model, detail), effect.none())
         Ok(None) -> #(model, effect.none())
@@ -269,6 +501,110 @@ fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
         )
       }
   }
+}
+
+fn close_document(model: Model) -> #(Model, Effect(Msg)) {
+  case can_interact(model), model.document {
+    False, _ -> #(model, effect.none())
+    True, None -> #(append_error(model, "Document is not ready"), effect.none())
+    True, Some(document) -> {
+      let history.Routed(empty, dispose) =
+        history.clear(valid_history(model.history))
+      let unsubscribe =
+        list.flat_map(
+          [model.change_subscription, model.commit_subscription],
+          fn(subscription) {
+            case subscription {
+              Some(subscription) -> [tree.unsubscribe(subscription)]
+              None -> []
+            }
+          },
+        )
+      let cleanup =
+        list.map(dispose, fn(handle) {
+          tree.dispose_revertible(handle, Disposed)
+        })
+      let model =
+        Model(
+          ..model,
+          phase: Closed,
+          tree: None,
+          change_subscription: None,
+          commit_subscription: None,
+          history: empty,
+          history_action: None,
+          pending: list.length(dispose),
+        )
+      case dispose {
+        [] -> {
+          let #(model, close) = start_close(model, document)
+          #(model, effect.batch(list.append(unsubscribe, [close])))
+        }
+        _ -> #(model, effect.batch(list.append(unsubscribe, cleanup)))
+      }
+    }
+  }
+}
+
+fn dispose_handles(
+  model: Model,
+  handles: List(watershed.TreeRevertible),
+) -> #(Model, Effect(Msg)) {
+  let handles =
+    list.filter(handles, fn(handle) {
+      watershed.tree_revertible_status(handle) == watershed.RevertibleValid
+    })
+  case handles {
+    [] -> #(model, effect.none())
+    _ -> #(
+      Model(..model, pending: model.pending + list.length(handles)),
+      handles
+        |> list.map(fn(handle) { tree.dispose_revertible(handle, Disposed) })
+        |> effect.batch,
+    )
+  }
+}
+
+fn continue_close(model: Model) -> #(Model, Effect(Msg)) {
+  case model.phase, model.pending, model.document {
+    Closed, 0, Some(document) -> start_close(model, document)
+    _, _, _ -> #(model, effect.none())
+  }
+}
+
+fn start_close(
+  model: Model,
+  document: watershed.Document(Nil),
+) -> #(Model, Effect(Msg)) {
+  #(
+    Model(..model, document: None, pending: model.pending + 1),
+    tree.perform(
+      fn() {
+        watershed.close(document)
+        Ok(Nil)
+      },
+      CloseFinished,
+    ),
+  )
+}
+
+fn valid_history(
+  value: history.History(watershed.TreeRevertible),
+) -> history.History(watershed.TreeRevertible) {
+  history.prune(value, fn(handle) {
+    watershed.tree_revertible_status(handle) == watershed.RevertibleValid
+  })
+}
+
+fn can_interact(model: Model) -> Bool {
+  model.phase == Ready && model.pending == 0 && model.history_action == None
+}
+
+fn finish_pending(model: Model) -> Model {
+  Model(..model, pending: case model.pending > 0 {
+    True -> model.pending - 1
+    False -> 0
+  })
 }
 
 fn operation(
@@ -309,10 +645,11 @@ fn append_error(model: Model, detail: String) -> Model {
 
 fn view(model: Model) -> Element(Msg) {
   let checklist.Checklist(title: title, items: items) = model.checklist
-  let ready = case model.phase {
-    Ready -> True
-    _ -> False
-  }
+  let ready = can_interact(model)
+  let history.History(undo: undo, redo: redo) = valid_history(model.history)
+  let undo_count = list.length(undo)
+  let redo_count = list.length(redo)
+  let has_incomplete = list.any(items, fn(item) { !item.completed })
   html.main([], [
     html.h1([], [html.text(title)]),
     html.p(
@@ -343,6 +680,62 @@ fn view(model: Model) -> Element(Msg) {
         [html.text("Add")],
       ),
     ]),
+    html.div([attribute.attribute("data-history-controls", "true")], [
+      html.button(
+        [
+          attribute.disabled(!ready || undo_count == 0),
+          attribute.attribute("data-action", "undo"),
+          event.on_click(UndoClicked),
+        ],
+        [html.text("Undo")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready || redo_count == 0),
+          attribute.attribute("data-action", "redo"),
+          event.on_click(RedoClicked),
+        ],
+        [html.text("Redo")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready || !has_incomplete),
+          attribute.attribute("data-action", "complete-all"),
+          event.on_click(CompleteAllClicked),
+        ],
+        [html.text("Complete all")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready || undo_count + redo_count == 0),
+          attribute.attribute("data-action", "clear-history"),
+          event.on_click(ClearHistoryClicked),
+        ],
+        [html.text("Clear history")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready),
+          attribute.attribute("data-action", "close"),
+          event.on_click(CloseClicked),
+        ],
+        [html.text("Close")],
+      ),
+    ]),
+    html.p(
+      [
+        attribute.attribute("data-undo-count", int.to_string(undo_count)),
+        attribute.attribute("data-redo-count", int.to_string(redo_count)),
+      ],
+      [
+        html.text(
+          int.to_string(undo_count)
+          <> " undo · "
+          <> int.to_string(redo_count)
+          <> " redo",
+        ),
+      ],
+    ),
     html.ul(
       [],
       list.index_map(items, fn(item, index) {
@@ -430,6 +823,7 @@ fn phase_name(phase: Phase) -> String {
     Creating -> "creating"
     Connecting -> "connecting"
     Ready -> "ready"
+    Closed -> "closed"
     Failed(_) -> "failed"
   }
 }
@@ -439,6 +833,7 @@ fn phase_label(phase: Phase) -> String {
     Creating -> "creating document"
     Connecting -> "connecting"
     Ready -> "ready"
+    Closed -> "closed"
     Failed(detail) -> "failed: " <> detail
   }
 }

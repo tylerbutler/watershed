@@ -2,6 +2,7 @@ import gleam/option.{None, Some}
 import gleeunit
 import shared_tree_checklist_lustre
 import shared_tree_checklist_lustre/checklist
+import shared_tree_checklist_lustre/history
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed/tree/schema
 import watershed/tree/types
@@ -13,6 +14,45 @@ pub fn main() -> Nil {
 pub fn initial_tree_matches_the_stored_schema_test() {
   let assert Ok(Nil) =
     schema.validate_root(document_schema.stored(), document_schema.initial())
+}
+
+pub fn local_commit_kinds_route_handles_and_default_clears_redo_test() {
+  let initial = history.new()
+  let assert history.Routed(after_default, []) =
+    history.route(initial, types.DefaultCommit, True, Some("A"))
+  let assert history.History(["A"], []) = after_default
+
+  let assert history.Routed(after_undo, []) =
+    history.route(after_default, types.UndoCommit, True, Some("B"))
+  let assert history.History(["A"], ["B"]) = after_undo
+
+  let assert history.Routed(after_redo, []) =
+    history.route(after_undo, types.RedoCommit, True, Some("C"))
+  let assert history.History(["C", "A"], ["B"]) = after_redo
+
+  let history.Routed(after_new_default, dispose) =
+    history.route(after_redo, types.DefaultCommit, True, Some("D"))
+  let assert history.History(["D", "C", "A"], []) = after_new_default
+  let assert ["B"] = dispose
+
+  let assert history.Routed(after_remote, []) =
+    history.route(after_new_default, types.DefaultCommit, False, Some("remote"))
+  let assert history.History(["D", "C", "A"], []) = after_remote
+}
+
+pub fn history_consumption_clear_and_disposed_pruning_keep_stack_order_test() {
+  let value = history.History(["undo-new", "undo-old"], ["redo"])
+  let assert Some("undo-new") = history.next_undo(value)
+  let assert Some("redo") = history.next_redo(value)
+  let assert history.History(["undo-old"], ["redo"]) =
+    history.consume_undo(value)
+  let assert history.History(["undo-new", "undo-old"], []) =
+    history.consume_redo(value)
+  let assert history.History(["undo-new"], ["redo"]) =
+    history.prune(value, fn(entry) { entry != "undo-old" })
+  let assert history.Routed(history.History([], []), dispose) =
+    history.clear(value)
+  let assert ["undo-new", "undo-old", "redo"] = dispose
 }
 
 pub fn decode_and_prepare_every_required_operation_test() {

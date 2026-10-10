@@ -2,7 +2,7 @@
 
 This Lustre app creates a native SharedTree document, opens it in the browser,
 and keeps a checklist in sync across tabs. The checklist supports add, edit,
-toggle, delete, move up, and move down.
+toggle, delete, move up, move down, bulk completion, local undo, and local redo.
 
 ## Run it
 
@@ -39,6 +39,17 @@ UI actions carry the stable item ID. The app resolves that ID against the
 latest SharedTree snapshot before it prepares an array or field edit. A stale
 rendered index cannot target a different item after a concurrent reorder.
 
+The app owns its undo and redo stacks. It subscribes to local SharedTree
+commits, retains the native revertible handles, and disposes handles when a new
+edit invalidates redo or the user clears history. **Complete all** reads the
+latest snapshot inside one native transaction, so every incomplete item changes
+in one commit and one undo step. An all-complete checklist creates no commit.
+
+Undo and redo are local to the current page lifetime. Remote commits update the
+checklist but do not enter that page's stacks. **Close** unsubscribes, disposes
+retained handles, closes the document, and disables editing. Reloading the same
+URL recovers committed checklist data with empty local history.
+
 The app uses the fixed native container layout: alias `root`, datastore `A`,
 bootstrap map `/A/root`, and SharedTree `/A/_C`.
 
@@ -57,10 +68,14 @@ just shared-tree-checklist
 ```
 
 The gate opens two isolated Chromium contexts and checks creation,
-subscriptions, every checklist operation, and an edit/reorder race. It skips
-only when it cannot find a Chromium-based browser.
+subscriptions, every checklist operation, move-up, an edit/reorder race, bulk
+completion as one undo step, redo, preservation of a peer text edit during
+undo, redo invalidation, history clearing, close, and reload with empty stacks.
+It skips only when it cannot find a Chromium-based browser; a skipped run is
+not release acceptance.
 
 ## Limits
 
 This example does not provide production authentication, offline authoring,
-schema upgrades, arbitrary container layouts, or drag-and-drop reordering.
+persisted undo stacks, crash recovery for pending local actions, schema
+upgrades, arbitrary container layouts, or drag-and-drop reordering.

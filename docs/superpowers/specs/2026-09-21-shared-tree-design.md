@@ -324,6 +324,12 @@ the commands and required outputs for each gate.
 | M7: application and container lifecycle | Native document creation, broader declared container layouts, Fluid handles, richer typed APIs, Lustre bindings/examples, and crash-recoverable pending state. Split these into individual plans when scheduled. |
 | M8: scale and supported versions | Measured forest/history performance, safe reclamation, incremental summary writing, additional upstream versions, and automated compatibility regression runs. |
 
+M7 is still partial. The fixed-layout native creator and the SharedTree Lustre
+checklist now cover application-owned local undo/redo, grouped bulk
+transactions, explicit history cleanup, close, and reload. Broader declared
+layouts, handle-valued leaves, richer typed APIs, and crash-recoverable pending
+state remain open.
+
 M0 precedes M1. Each later milestone requires M1 and its own approved design and
 plan. Map/sequence/schema development can proceed independently only after
 agreeing changeset and codec interfaces; a sequence-field rebaser is not a

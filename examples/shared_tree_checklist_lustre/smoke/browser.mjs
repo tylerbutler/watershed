@@ -26,6 +26,8 @@ const snapshotExpression = `(() => ({
   status: document.querySelector("[data-runtime-status]")?.dataset.runtimeStatus,
   document: document.querySelector("[data-document-id]")?.dataset.documentId,
   pending: Number(document.querySelector("[data-pending]")?.dataset.pending ?? -1),
+  undo: Number(document.querySelector("[data-undo-count]")?.dataset.undoCount ?? -1),
+  redo: Number(document.querySelector("[data-redo-count]")?.dataset.redoCount ?? -1),
   items: Array.from(document.querySelectorAll("[data-item-id]")).map((row) => ({
     id: row.dataset.itemId,
     text: row.querySelector('[data-action="edit"]').value,
@@ -33,6 +35,12 @@ const snapshotExpression = `(() => ({
   })),
   errors: Array.from(document.querySelectorAll("[data-error]")).map((node) =>
     node.textContent
+  ),
+  controls: Object.fromEntries(
+    ["undo", "redo", "complete-all", "clear-history", "close"].map((action) => [
+      action,
+      document.querySelector('[data-action="' + action + '"]')?.disabled ?? null,
+    ]),
   ),
   url: location.href,
 }))()`;
@@ -218,7 +226,180 @@ async function main() {
                 ),
             );
 
-            return pair;
+            await clickAction(firstSend, firstId, "move-up");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "move-up to restore the original order",
+              (value) =>
+                value.items.map((item) => item.id).join(",") ===
+                  originalIds.join(",") &&
+                value.items.find((item) => item.id === editedId)?.text ===
+                  "edited during reorder",
+            );
+
+            const beforeClear = pair.first.items;
+            await clickGlobalAction(firstSend, "clear-history");
+            const cleared = await waitForSnapshot(
+              firstSend,
+              "clear history without changing checklist data",
+              (value) =>
+                ready(value) &&
+                value.undo === 0 &&
+                value.redo === 0 &&
+                JSON.stringify(value.items) === JSON.stringify(beforeClear),
+            );
+            assertClean(cleared);
+
+            await clickGlobalAction(firstSend, "complete-all");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "complete all to converge as one local history step",
+              (value) =>
+                value.items.length === 3 &&
+                value.items.every((item) => item.completed),
+            );
+            await waitForSnapshot(
+              firstSend,
+              "complete all to create one undo step",
+              (value) => ready(value) && value.undo === 1 && value.redo === 0,
+            );
+
+            const peerEditedId = originalIds[1];
+            await editItem(secondSend, peerEditedId, "peer text survives undo");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "the peer edit before local undo",
+              (value) =>
+                value.items.find((item) => item.id === peerEditedId)?.text ===
+                "peer text survives undo",
+            );
+
+            await clickGlobalAction(firstSend, "undo");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "one undo to restore both incomplete items and preserve peer text",
+              (value) =>
+                value.items.find((item) => item.id === planId)?.completed ===
+                  true &&
+                value.items.find((item) => item.id === peerEditedId)
+                  ?.completed === false &&
+                value.items.find((item) => item.id === editedId)?.completed ===
+                  false &&
+                value.items.find((item) => item.id === peerEditedId)?.text ===
+                  "peer text survives undo",
+            );
+            await waitForSnapshot(
+              firstSend,
+              "undo to leave exactly one redo step",
+              (value) => ready(value) && value.undo === 0 && value.redo === 1,
+            );
+
+            await clickGlobalAction(firstSend, "redo");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "one redo to complete both items again",
+              (value) => value.items.every((item) => item.completed),
+            );
+            await waitForSnapshot(
+              firstSend,
+              "redo to restore exactly one undo step",
+              (value) => ready(value) && value.undo === 1 && value.redo === 0,
+            );
+
+            await clickGlobalAction(firstSend, "undo");
+            await waitForSnapshot(
+              firstSend,
+              "the second undo to restore the redo entry",
+              (value) => ready(value) && value.undo === 0 && value.redo === 1,
+            );
+            await editItem(firstSend, editedId, "new local edit clears redo");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "a new local edit to invalidate redo",
+              (value) =>
+                value.items.find((item) => item.id === editedId)?.text ===
+                "new local edit clears redo",
+            );
+            await waitForSnapshot(
+              firstSend,
+              "redo invalidation after the new local edit",
+              (value) => ready(value) && value.undo === 1 && value.redo === 0,
+            );
+
+            const beforeFinalClear = pair.first.items;
+            await clickGlobalAction(firstSend, "clear-history");
+            await waitForSnapshot(
+              firstSend,
+              "the final clear history to preserve data",
+              (value) =>
+                ready(value) &&
+                value.undo === 0 &&
+                value.redo === 0 &&
+                JSON.stringify(value.items) ===
+                  JSON.stringify(beforeFinalClear),
+            );
+
+            await editItem(firstSend, editedId, "retained handle closes cleanly");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "the retained close-history fixture to converge",
+              (value) =>
+                value.items.find((item) => item.id === editedId)?.text ===
+                "retained handle closes cleanly",
+            );
+            const beforeClose = pair.first.items;
+            await waitForSnapshot(
+              firstSend,
+              "close to begin with one retained undo handle",
+              (value) => ready(value) && value.undo === 1 && value.redo === 0,
+            );
+
+            await clickGlobalAction(firstSend, "close");
+            const closed = await waitForSnapshot(
+              firstSend,
+              "close to drain cleanup and disable the app",
+              (value) =>
+                value.status === "closed" &&
+                value.pending === 0 &&
+                value.undo === 0 &&
+                value.redo === 0 &&
+                value.errors.length === 0 &&
+                Object.values(value.controls).every(
+                  (disabled) => disabled === true,
+                ),
+            );
+
+            await firstSend("Page.enable");
+            await firstSend("Page.reload", { ignoreCache: true });
+            const reloaded = await waitForSnapshot(
+              firstSend,
+              "reload to recover data with empty local history",
+              (value) =>
+                ready(value) &&
+                value.document === firstReady.document &&
+                value.undo === 0 &&
+                value.redo === 0 &&
+                JSON.stringify(value.items) ===
+                  JSON.stringify(beforeClose),
+            );
+            const peer = await snapshot(secondSend);
+            assertClean(reloaded);
+            assertClean(peer);
+            if (JSON.stringify(reloaded.items) !== JSON.stringify(peer.items)) {
+              throw new Error(
+                "reload did not recover the peer checklist:\n" +
+                  JSON.stringify({ reloaded, peer }, null, 2),
+              );
+            }
+
+            return { first: reloaded, second: peer, closed };
           },
         );
       },
@@ -226,7 +407,8 @@ async function main() {
 
     console.log(
       "PASS: two browser contexts created one native SharedTree document and " +
-        "converged after add, edit, toggle, delete, reorder, and a race.",
+        "proved CRUD, move-up, a reorder race, grouped completion, undo/redo, " +
+        "peer-edit preservation, redo invalidation, clear, close, and reload.",
     );
     console.log(JSON.stringify(report.first, null, 2));
     return 0;
@@ -360,6 +542,25 @@ async function clickAction(send, id, action) {
       return { ok: true };
     },
     [id, action],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function clickGlobalAction(send, action) {
+  const result = await call(
+    send,
+    function (actionName) {
+      const button = document.querySelector(
+        '[data-action="' + actionName + '"]',
+      );
+      if (!button) return { ok: false, detail: actionName + " is missing" };
+      if (button.disabled) {
+        return { ok: false, detail: actionName + " is disabled" };
+      }
+      button.click();
+      return { ok: true };
+    },
+    [action],
   );
   if (!result.ok) throw new Error(result.detail);
 }

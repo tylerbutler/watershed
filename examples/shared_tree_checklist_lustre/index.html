@@ -14,8 +14,13 @@
         place-items: start center;
       }
       #app { width: min(42rem, calc(100% - 2rem)); padding: 2rem 0; }
-      form, [data-item-id] { display: flex; gap: 0.5rem; align-items: center; }
+      form, [data-item-id], [data-history-controls] {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
       form { margin: 1.5rem 0; }
+      [data-history-controls] { flex-wrap: wrap; }
       input[type="text"] { flex: 1; min-width: 0; }
       [data-item-id] { padding: 0.5rem 0; }
       [data-item-completed="true"] input[type="text"] {
