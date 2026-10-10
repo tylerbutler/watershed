@@ -132,7 +132,7 @@ existing browser CDP helpers.
 **Produces:** A runnable example with complete application-owned history and
 current local acceptance evidence. M7 remains explicitly partial.
 
-- [ ] Add a failing history test for the routing invariant:
+- [x] Add a failing history test for the routing invariant:
 
   ```text
   default A -> undo [A], redo []
@@ -145,7 +145,7 @@ current local acceptance evidence. M7 remains explicitly partial.
   Drive real handles where required; pure reducer tests may use generic
   entries if the application reducer is generic. Run
   `cd examples/shared_tree_checklist_lustre && gleam test`.
-- [ ] Subscribe to commits when the tree opens, retain both subscription
+- [x] Subscribe to commits when the tree opens, retain both subscription
   tokens, route local kinds into model-owned stacks and dispose cleared redo
   entries. Add Undo, Redo and Clear history controls; show stack counts.
   Gate history actions during outstanding local work. Keep failed revert
@@ -159,22 +159,22 @@ current local acceptance evidence. M7 remains explicitly partial.
 
   Cover redo invalidation, disposed-handle pruning, empty actions, failed
   acquisition/settlement paths, clearing and late captured handles after close.
-- [ ] Add a failing bulk-action test: latest snapshot with two incomplete
+- [x] Add a failing bulk-action test: latest snapshot with two incomplete
   items yields one outer commit and one undo restores both. Implement
   Complete all with `tree.transaction`; read/decode the latest tree in its
   callback, set only false completion fields, preserve all other fields.
   An all-complete snapshot authors no commit. Surface abort/runtime errors
   instead of mapping them to success.
-- [ ] Add Close: unsubscribe both tokens, dispose both lists, close the native
+- [x] Add Close: unsubscribe both tokens, dispose both lists, close the native
   document, clear history and disable edits. Keep cleanup errors visible.
   Reload must recover document data but start with empty local stacks.
-- [ ] Extend `smoke/browser.mjs` with assertions for move-up, bulk completion,
+- [x] Extend `smoke/browser.mjs` with assertions for move-up, bulk completion,
   one-step undo/redo, peer text-edit preservation during local undo,
   redo invalidation after a new local edit, clear-history without data
   mutation, close, and reload with empty stacks. Continue checking item IDs,
   exact values/order, errors and drained pending work in both contexts.
   Preserve existing race and CRUD coverage; no skipped run is acceptance.
-- [ ] Run the focused package/Node tests, build and browser gate:
+- [x] Run the focused package/Node tests, build and browser gate:
 
   ```sh
   cd examples/shared_tree_checklist_lustre && gleam test
@@ -187,10 +187,10 @@ current local acceptance evidence. M7 remains explicitly partial.
   gate lacks its service, use the repository's owned pinned local-service
   mechanism; do not kill or reconfigure another user's process. Record the
   actual browser run and errors, not just a command's skipped-success exit.
-- [ ] Update the three related READMEs/roadmap with the implemented consumer
+- [x] Update the three related READMEs/roadmap with the implemented consumer
   slice and its limits. Commit verified app chunks as
   `feat(checklist): add local undo and bulk completion`.
-- [ ] Run combined release coverage:
+- [x] Run combined release coverage:
 
   ```sh
   cd watershed_lustre && gleam test
@@ -212,3 +212,27 @@ current local acceptance evidence. M7 remains explicitly partial.
 Implementation evidence will be recorded here after the two tasks and their
 reviews. Initial adapter baseline: `cd watershed_lustre && gleam test`,
 89 passed with no failures on `69d1fa0f`.
+
+Task 2 implementation and fix-round evidence, 2026-10-09:
+
+- `f6284168` implemented the consumer slice. Fix commits `ebf86c59` and
+  `88678ec7` add application-level lifecycle coverage and rendered pending-state
+  gating for every editing control.
+- The checklist lifecycle tests use real native handles and subscriptions for
+  acquisition and settlement errors, failed-revert retention, disposal failure,
+  late token and handle cleanup, pending drainage, and disposal-before-close.
+  Fabricated outcomes are limited to non-full settlement branches that the
+  in-memory runtime cannot produce directly.
+- `cd watershed_lustre && gleam test`: 104 passed, no failures.
+- `cd examples/shared_tree_checklist_lustre && gleam test`: 14 passed, no
+  failures.
+- The required format check, two Node tests, and explicit checklist build
+  passed.
+- `just shared-tree-checklist` passed against pinned Floodgate
+  `0eb493fc46d1bb9baf1151a6ccdde93544e057e7` and real Chromium with no skip.
+  The gate observes all add, item, history, bulk, and close controls disabled
+  during pending bulk work and after close, then verifies exact IDs, values,
+  order, empty local history, zero pending work, and no errors after reload.
+- M7 remains partial. Broader layouts, live attachment, handle-valued leaves,
+  richer typed consumers, production authentication, and crash-recoverable
+  pending state remain open. Task 2 awaits its scoped re-review.

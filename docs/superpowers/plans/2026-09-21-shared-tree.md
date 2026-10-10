@@ -42,7 +42,7 @@ acceptance on 2026-10-09 with the published profile and full regression gates.
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
 | M5: transactions and undo/redo | Implemented and published; local release accepted. M6 Task 11 closes the earlier full-build/standalone-browser prerequisite under the unchanged registry policy. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; fresh combined release evidence below. |
 | M6: branching | Approved runtime-local slice complete, published and locally release-accepted through Task 11. | [Local branching](2026-10-05-shared-tree-local-branching.md). Shared/persisted branches remain excluded and require a separate profile/version decision. |
-| M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
+| M7: application/container lifecycle | Fixed-layout native creation plus the Lustre transaction, commit/revertible, application-owned history, and browser checklist slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md) and [Lustre consumer slice](2026-10-09-shared-tree-lustre.md); broader layouts, live attachment, handle-valued leaves, richer typed consumers, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
 The generated and service profiles publish the approved M5 transaction and
@@ -2432,8 +2432,7 @@ new scope needs its own approved design and interoperability proof.
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
 | Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
-| Richer Lustre and typed schema UX | Stable native facade | Transaction and commit/revertible effects, application-owned stack examples, and typed consumers without changing kernel or bootstrap contracts. |
-| Browser-slice evidence gaps | Existing adapter and checklist | Dedicated adapter lifecycle/scheduling tests, move-up browser coverage, and recorded complete release-validation evidence. |
+| Richer typed schema UX | Stable native and Lustre facades | Typed consumers and generated schema ergonomics without changing kernel or bootstrap contracts. |
 | Crash-recoverable pending state | In-process reconnect | Disk restoration of compressor session and unsent changes, resubmission, and accepted-before-crash deduplication. |
 | M8 scale and incremental summaries | Representative object/map/array/transaction/undo workloads | Measured operation costs, safe reclamation with live handles, incremental persistence, and cross-version compatibility. |
 
@@ -2444,7 +2443,7 @@ staging is historical. The remaining work can split as follows:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| Selected M7 consumers | Richer bindings, typed consumers, application-owned stack examples, and browser coverage. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
+| Selected M7 consumers | Typed consumers and generated schema ergonomics beyond the implemented Lustre history/checklist slice. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
 | New-scope design/oracle work | Array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 
 Further M7 container lifecycle work can overlap the consumer lane after its
@@ -2453,12 +2452,12 @@ handle behavior.
 
 **Pulled-forward M7 browser slice:** The thin `watershed_lustre/tree` adapter
 and `shared_tree_checklist_lustre` example cover browser-native creation,
-fixed-layout resolution, subscriptions, object/array edits, and a two-context
-Chromium gate. They do not close M7. Production token services, arbitrary
-layouts, live attachment, handle-valued leaves, richer typed APIs, and pending
-state recovery remain open. The adapter does not yet provide transaction or
-commit/revertible effects, and the example has no application-owned undo stack.
-Its local pending counter measures effect completion, not acknowledgement.
+fixed-layout resolution, subscriptions, transaction and commit/revertible
+effects, application-owned undo/redo, grouped completion, ordered cleanup, and
+a two-context Chromium gate. They do not close M7. Production token services,
+arbitrary layouts, live attachment, handle-valued leaves, richer typed APIs,
+and pending-state recovery remain open. The example's local pending counter
+measures effect completion, not sequenced acknowledgement.
 
 The fixed-layout creation slice now has a standalone dual-target example at
 `examples/shared_tree_cli`. It uses caller-authored schema and initial content,
