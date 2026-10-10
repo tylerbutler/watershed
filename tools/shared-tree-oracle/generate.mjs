@@ -5364,6 +5364,16 @@ function lifecycleRootNode(contents, detail) {
   return root[0];
 }
 
+function lifecyclePlainNodes(nodes) {
+  return nodes.map((node) => ({
+    type: node.type,
+    ...(node.value === undefined ? {} : { value: node.value }),
+    fields: Object.fromEntries(
+      [...node.fields].map(([key, field]) => [key, lifecyclePlainNodes(field)]),
+    ),
+  }));
+}
+
 function lifecycleSharedTreeForest(snapshot, path, detail) {
   const [, datastoreId, channelId] = path.split("/");
   assert(datastoreId && channelId, `${detail}: invalid tree route`);
@@ -5767,6 +5777,33 @@ export function validateLifecycleCase(value) {
     validateActiveDocumentAttachment(observed, records, "active-transaction", check);
   }
   if (value.id === "handle-leaves") {
+    const input = value.input;
+    const storedSchema = input?.storedSchema;
+    const targetTagged = input?.taggedValues?.target;
+    const targetMarker = targetTagged?.value;
+    check(input?.sourceDatastoreContext === "/B"
+      && object(storedSchema)
+      && storedSchema.version === 2
+      && storedSchema.nodes?.["com.fluidframework.leaf.handle"]?.kind?.leaf === 3
+      && storedSchema.nodes?.["org.watershed.shared-tree.handles.Root"]
+        ?.kind?.object?.link?.types?.includes("com.fluidframework.leaf.handle")
+      && isDeepStrictEqual(targetTagged, {
+        kind: "handle",
+        value: { type: "__fluid_handle__", url: "/B/child" },
+      }),
+    "complete handle leaf input");
+    for (const id of [
+      "required-root", "optional-root", "object-field", "map-entry", "array-element",
+    ]) {
+      const scenario = scenarios.find((item) => item.id === id);
+      check(scenario?.input?.sourceDatastoreContext === input.sourceDatastoreContext
+        && scenario.input.schema === "storedSchema"
+        && isDeepStrictEqual(scenario.input.taggedValue, targetTagged)
+        && scenario.input.edit === id
+        && isDeepStrictEqual(scenario.input.expectedDecodedValue, targetMarker),
+      `${id} executable input`);
+    }
+
     const required = observed.find((item) => item.id === "required-root");
     const serialized = required.evidence
       .map((item) => records.get(item.id))
@@ -5774,6 +5811,141 @@ export function validateLifecycleCase(value) {
       ?.item.value;
     check(serialized?.type === "__fluid_handle__"
       && serialized.url === required.value?.path, "serialized handle path");
+
+    const sameTarget = observed.find((item) => item.id === "same-target-handles");
+    const sameTargetRecord = sameTarget.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "live-handle-resolution")?.item.value;
+    check(isDeepStrictEqual(sameTargetRecord, sameTarget.value)
+      && sameTarget.value?.sameHandleInstance === false
+      && sameTarget.value?.sameResolvedInstance === true
+      && typeof sameTarget.value?.sourcePath === "string"
+      && sameTarget.value.sourcePath.endsWith("/child")
+      && sameTarget.value?.decodedPath === sameTarget.value.sourcePath
+      && sameTarget.value?.encoded?.type === "__fluid_handle__"
+      && sameTarget.value?.encoded?.url === sameTarget.value.sourcePath
+      && sameTarget.value?.sourceTarget?.path === sameTarget.value.sourcePath
+      && isDeepStrictEqual(sameTarget.value.decodedTarget, sameTarget.value.sourceTarget)
+      && typeof sameTarget.value.sourceTarget.type === "string"
+      && sameTarget.value.sourceTarget.type.length > 0
+      && isDeepStrictEqual(sameTarget.value.sourceTarget.data, { context: "first" }),
+    "same-target resolved target evidence");
+
+    const relative = observed.find((item) => item.id === "relative-path");
+    const relativeRecord = relative.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "legacy-relative-resolution")?.item.value;
+    check(relativeRecord?.marker?.type === "__fluid_handle__"
+      && relativeRecord.marker.url === "child"
+      && isDeepStrictEqual(relativeRecord.contexts, relative.value?.contexts)
+      && relative.value?.contexts?.length === 2
+      && new Set(relative.value.contexts.map((item) =>
+        item.sourceDatastorePath)).size === 2
+      && isDeepStrictEqual(relative.value.contexts.map((item) =>
+        item.relativeUrl), ["child", "child"])
+      && relative.value.contexts.every((item) =>
+        item.decodedPath === `${item.sourceDatastorePath}/child`
+        && item.resolvedTarget?.path === item.decodedPath)
+      && isDeepStrictEqual(relative.value.contexts.map((item) =>
+        item.resolvedTarget?.data), [{ context: "first" }, { context: "second" }])
+      && relative.value.contexts.every((item) =>
+        typeof item.resolvedTarget?.type === "string"
+        && item.resolvedTarget.type.length > 0),
+    "relative-path source datastore context");
+
+    const escaped = observed.find((item) => item.id === "escaped-path");
+    const escapedRecord = escaped.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "escaped-live-resolution")?.item.value;
+    check(isDeepStrictEqual(escapedRecord, escaped.value)
+      && escaped.value?.logicalId === "space and#hash"
+      && escaped.value?.sourcePath === "/A/space and#hash"
+      && escaped.value?.serializedMarker?.type === "__fluid_handle__"
+      && escaped.value.serializedMarker.url === "/A/space%20and%23hash"
+      && escaped.value?.decodedPath === escaped.value.serializedMarker.url
+      && escaped.value?.resolvedTarget?.path === escaped.value.sourcePath
+      && isDeepStrictEqual(escaped.value.resolvedTarget.data, { value: "escaped-target" })
+      && typeof escaped.value.resolvedTarget.type === "string"
+      && escaped.value.sameHandleInstance === false
+      && escaped.value.sameResolvedInstance === true,
+    "escaped-path live target resolution");
+
+    for (const [id, kind, form] of [
+      ["uncompressed-v2", "field-batch-v2", "nonincremental-field-batch-v2"],
+      ["schema-aware-v2", "schema-aware-field-batch-v2", "schema-aware-field-batch-v2"],
+    ]) {
+      const scenario = scenarios.find((item) => item.id === id);
+      const codec = scenario?.codec;
+      check(codec?.form === form
+        && codec.sourceDatastoreContext === input.sourceDatastoreContext
+        && isDeepStrictEqual(codec.storedSchema, storedSchema)
+        && isDeepStrictEqual(codec.taggedValue, targetTagged)
+        && nonemptyArray(codec.fieldKeys)
+        && object(codec.payload)
+        && nonemptyArray(codec.expectedDecoded),
+      `${id} codec input`);
+      const decoded = lifecycleDecodeFieldBatch(codec.payload, codec.fieldKeys, id);
+      const decodedValue = lifecyclePlainNodes(decoded.get(codec.fieldKeys[0]) ?? []);
+      check(isDeepStrictEqual(decodedValue, codec.expectedDecoded),
+        `${id} FieldBatch decoded value`);
+      const observation = observed.find((item) => item.id === id);
+      const codecRecord = observation.evidence
+        .map((item) => records.get(item.id))
+        .find((item) => item?.section === "summaries"
+          && item.item.kind === kind)?.item.value;
+      check(isDeepStrictEqual(codecRecord, codec)
+        && observation.value?.version === 2
+        && isDeepStrictEqual(observation.value.decoded, decodedValue),
+      `${id} codec schema payload value correspondence`);
+    }
+
+    const malformed = observed.find((item) => item.id === "malformed-marker");
+    const malformedRecord = malformed.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "serializer-outcomes")?.item.value;
+    check(isDeepStrictEqual(malformedRecord?.outcomes, malformed.value?.outcomes)
+      && isDeepStrictEqual(malformed.value?.outcomes?.map((item) => item.id), [
+        "missing-url", "non-string-url", "nested-late-malformed", "pending-payload",
+      ])
+      && malformed.value.outcomes.slice(0, 3).every((item) =>
+        item.serializer?.kind === "error"
+        && typeof item.serializer.error === "string"
+        && item.serializer.error.length > 0
+        && item.resolution?.attempted === false
+        && item.treeImport?.kind === "refused")
+      && malformed.value.outcomes[3]?.serializer?.kind === "handle"
+      && malformed.value.outcomes[3]?.serializer?.decodedPath === "/B/child"
+      && malformed.value.outcomes[3]?.resolution?.attempted === false
+      && malformed.value.outcomes[3]?.nativeProfile?.reason === "pending handle payload",
+    "malformed-marker serializer outcomes");
+
+    const unsupported = observed.find((item) => item.id === "unsupported-marker");
+    const unsupportedRecord = unsupported.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "serializer-outcomes")?.item.value;
+    const outcomes = unsupported.value?.outcomes;
+    check(isDeepStrictEqual(unsupportedRecord?.outcomes, outcomes)
+      && isDeepStrictEqual(outcomes?.map((item) => item.id), [
+        "unknown-marker-kind", "external-url", "traversal", "invalid-escape",
+      ])
+      && outcomes[0]?.serializer?.kind === "json"
+      && isDeepStrictEqual(outcomes[0].serializer.value, outcomes[0].input)
+      && outcomes[0]?.resolution?.attempted === false
+      && outcomes[0]?.treeImport?.kind === "refused"
+      && outcomes.slice(1).every((item) =>
+        item.serializer?.kind === "handle"
+        && typeof item.serializer.decodedPath === "string"
+        && item.resolution?.attempted === true
+        && typeof item.resolution.error === "string"
+        && item.resolution.error.length > 0
+        && item.nativeProfile?.outcome === "refused"
+        && typeof item.nativeProfile.reason === "string"),
+    "unsupported-marker serializer and profile outcomes");
   }
   if (value.id === "cross-datastore-attachment") {
     for (const observation of observed) {

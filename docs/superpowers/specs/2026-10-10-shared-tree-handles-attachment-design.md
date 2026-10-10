@@ -81,8 +81,10 @@ checkpoints listed here, not the complete lifecycle contract.
 
 | Case / scenario | Measured result | Raw evidence |
 | --- | --- | --- |
-| `handle-leaves` / `required-root`, `same-target-handles`, `relative-path`, `escaped-path` | The serializer writes an absolute handle marker. Decoding a second instance preserves the target path, not JavaScript object identity. A relative path uses the mock datastore context; an escaped path remains escaped. | `raw.serialization`, linked by each observation's `evidence` |
-| `handle-leaves` / `uncompressed-v2`, `schema-aware-v2` | Both captured FieldBatch V2 forms contain serialized handle markers. | `raw.summaries` |
+| `handle-leaves` / `required-root`, `same-target-handles` | The executable input uses the exact tagged `{"kind":"handle","value":{"type":"__fluid_handle__","url":"/B/child"}}` value. A separately decoded handle wrapper is not the source wrapper, but both `get()` calls resolve the same live SharedMap instance, route, type and visible data. | `input.storedSchema`, `input.taggedValues`, scenario inputs, and `raw.serialization` kind `live-handle-resolution` |
+| `handle-leaves` / `relative-path`, `escaped-path` | The same relative `child` marker resolves through two distinct live source datastore contexts to their respective maps. A real channel whose logical ID is `space and#hash` resolves from `/A/space%20and%23hash`; the decoded handle keeps the escaped path while the resolved target reports its logical channel path. | `raw.serialization` kinds `legacy-relative-resolution` and `escaped-live-resolution` |
+| `handle-leaves` / `uncompressed-v2`, `schema-aware-v2` | Both scenarios contain executable FieldBatch V2 payloads, the captured stored Schema V2 document, source datastore context, tagged handle value and literal decoded nodes. Validation structurally decodes each payload and compares schema, payload and decoded value; it does not scan strings for marker text. | `input.scenarios[].codec` and the matching `raw.summaries` records |
+| `handle-leaves` / `malformed-marker`, `unsupported-marker` | Genuine serializer calls throw for missing/non-string URLs and a late nested malformed marker. A pending marker decodes to a handle and is accepted by the tree, while the native profile refuses it. An unknown marker kind remains ordinary JSON and only tree assignment refuses it. External, traversal and invalid-escape URLs decode to handles upstream, fail target resolution in this document, and remain explicit stronger native-profile refusals. | `raw.serialization` kinds `serializer-outcomes` and `tree-assignment-outcome` |
 | `live-channel-attachment` / `serialize-remove` | A detached map's attach-summary serialization binds its target. Removing that value before attaching the owner does not remove the binding: the target attaches while the owner's displayed value is absent. Merely setting and deleting the value without serialization did not attach the target in the earlier probe. | `raw.summaries` (`owner-before-removal`) and the matching `raw.messages` slice |
 | `cross-datastore-attachment` / `map-cycle`, `tree-cycle` | Two unpublished declared stores can reference each other. The captured batch contains allocation, the dependency store attach, the referring store attach, then the visible DDS operation. Each cycle has two genuine datastore attaches. | `raw.messages`; `expected.observations[].value.attachOrder` is checked against the actual nested message envelopes |
 | `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | A successful or nested committed handle edit attaches its target. The rolled-back edit leaves its target unattached and restores the prior reference at the captured checkpoint. | Matching `raw.messages` slices, including an explicit empty rollback checkpoint |
@@ -101,10 +103,10 @@ raw compatibility observation, but do not require native failure-side-effect
 parity. Accepted graph operations must still preserve the measured upstream
 wire ordering.
 
-The discovery gate still needs complete executable native replay inputs;
-leaf decoding/resolution; complete replay inputs; and the remaining identity,
-serialization-context, and event-lifetime observations required by Task 1.
-Do not derive native invariants from this table alone.
+The discovery gate still needs graph/runtime replay inputs, receiving-client
+graph outcomes, multi-tree document-compressor identity, and the remaining
+commit/factory/revertible/event-lifetime observations required by Task 1. Do
+not derive native invariants from this table alone.
 
 ## 3. Global constraints
 

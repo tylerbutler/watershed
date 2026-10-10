@@ -78,8 +78,14 @@ interface Observation {
 	value: unknown;
 	evidence: { section: EvidenceSection; id: string }[];
 }
+interface LifecycleScenario {
+	id: string;
+	operation: string;
+	input?: unknown;
+	codec?: unknown;
+}
 interface DeferredCase {
-	scenarios: { id: string; operation: string }[];
+	scenarios: LifecycleScenario[];
 	observations: Observation[];
 	raw: {
 		messages: RawRecord[];
@@ -89,6 +95,7 @@ interface DeferredCase {
 }
 let deferredLiveAttachment: DeferredCase | undefined;
 let deferredTransactionBranch: DeferredCase | undefined;
+let deferredHandleLeaves: (() => Promise<void>) | undefined;
 
 function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
@@ -122,6 +129,51 @@ function internalHandle(handle: IFluidHandle): IFluidHandleInternal {
 
 function pathOf(handle: IFluidHandle): string {
 	return internalHandle(handle).absolutePath;
+}
+
+function serializerFor(handle: IFluidHandle): FluidSerializer {
+	const context = (internalHandle(handle) as IFluidHandleInternal & {
+		routeContext?: ConstructorParameters<typeof FluidSerializer>[0];
+	}).routeContext;
+	assert(context !== undefined, "The handle must have a datastore route context");
+	return new FluidSerializer(context);
+}
+
+function mapValue(map: ISharedMap) {
+	return Object.fromEntries(map.entries());
+}
+
+function mapType(map: ISharedMap): string {
+	const type = (map as unknown as { attributes?: { type?: unknown } }).attributes?.type;
+	assert(typeof type === "string", "The resolved map must expose its channel type");
+	return type;
+}
+
+async function errorOfAsync(action: () => Promise<unknown>): Promise<string> {
+	try {
+		await action();
+		return "";
+	} catch (error) {
+		try {
+			if (typeof error === "object" && error !== null) {
+				const value = error as {
+					errorFromRequestFluidObject?: unknown;
+					message?: unknown;
+					name?: unknown;
+					code?: unknown;
+				};
+				return JSON.stringify({
+					errorFromRequestFluidObject: value.errorFromRequestFluidObject,
+					message: value.message,
+					name: value.name,
+					code: value.code,
+				});
+			}
+			return String(error);
+		} catch {
+			return String(error);
+		}
+	}
 }
 
 function isAttached(value: unknown): boolean {
@@ -281,13 +333,14 @@ function sourceIdentity() {
 
 async function writeCase(
 	id: string,
-	scenarios: { id: string; operation: string }[],
+	scenarios: LifecycleScenario[],
 	observations: Observation[],
 	raw: {
 		messages: RawRecord[];
 		serialization: RawRecord[];
 		summaries: RawRecord[];
 	},
+	input: Record<string, unknown> = {},
 ): Promise<void> {
 	assert.deepEqual(
 		observations.map((item) => item.id),
@@ -299,7 +352,7 @@ async function writeCase(
 		reference: { package: "@fluidframework/tree", version: "3.1.0", commit },
 		id,
 		domain: "lifecycle",
-		input: { scenarios },
+		input: { ...input, scenarios },
 		expected: { observations },
 		raw: { ...raw, source: sourceIdentity() },
 	};
@@ -320,8 +373,9 @@ function record(
 	return { section, id };
 }
 
-function mockTree(id: string) {
+function mockTree(id: string, datastoreId?: string) {
 	const runtime = new MockFluidDataStoreRuntime({
+		...(datastoreId === undefined ? {} : { id: datastoreId }),
 		idCompressor: createIdCompressor(),
 		registry: [SharedMapAlpha.getFactory(), treeFactory()],
 	});
@@ -367,6 +421,13 @@ const GraphStore = defineDataStore<GraphData, ISharedMap>({
 		createTree: async () => context.createSharedObject(PinnedTree),
 	}),
 });
+
+function createMapWithId(root: ISharedMap, id: string): ISharedMap {
+	const runtime = (root as unknown as {
+		runtime: { createChannel(id: string, type: string): unknown };
+	}).runtime;
+	return runtime.createChannel(id, SharedMapAlpha.getFactory().type) as ISharedMap;
+}
 
 const oldestSupportedClient = "2.117.0";
 const summarizerRuntimeOptions = {
@@ -628,7 +689,7 @@ async function activeDocumentAttachment(
 describe("Watershed handle and attachment lifecycle", () => {
 	it("captures handle leaves and serializer behavior", async () => {
 		const raw = { messages: [] as RawRecord[], serialization: [] as RawRecord[], summaries: [] as RawRecord[] };
-		const scenarios = [
+		const scenarios: LifecycleScenario[] = [
 			{ id: "required-root", operation: "store a handle as the required root" },
 			{ id: "optional-root", operation: "set and clear an optional root handle" },
 			{ id: "object-field", operation: "set a handle object field" },
@@ -689,55 +750,15 @@ describe("Watershed handle and attachment lifecycle", () => {
 			evidence: [record("serialization", raw, "array-element", "handle", serializer.encode(map.handle, internalHandle(tree.handle)))],
 		});
 
-		const encoded = serializer.stringify(map.handle, internalHandle(tree.handle));
-		const decoded = serializer.parse(encoded) as IFluidHandle;
-		observations.push({
-			id: "same-target-handles",
-			value: {
-				sameInstance: decoded === map.handle,
-				firstPath: pathOf(map.handle),
-				secondPath: pathOf(decoded),
-			},
-			evidence: [record("serialization", raw, "same-target-handles", "roundtrip", { encoded })],
-		});
-		const relative = serializer.parse('{"type":"__fluid_handle__","url":"leaf-target"}') as IFluidHandle;
-		observations.push({
-			id: "relative-path",
-			value: { resolvedPath: pathOf(relative) },
-			evidence: [record("serialization", raw, "relative-path", "legacy-relative", { url: "leaf-target" })],
-		});
-		const escapedUrl = `${runtime.absolutePath}/space%20and%23hash`;
-		const escaped = serializer.parse(JSON.stringify({ type: "__fluid_handle__", url: escapedUrl })) as IFluidHandle;
-		observations.push({
-			id: "escaped-path",
-			value: { serializedPath: escapedUrl, resolvedPath: pathOf(escaped) },
-			evidence: [record("serialization", raw, "escaped-path", "escaped", { url: escapedUrl })],
-		});
-
 		runtimeFactory.processAllMessages();
 		const summary = await summarize(tree);
 		const blobs = summaryBlobText(summary.summary);
 		const uncompressed = blobs.find((blob) =>
 			blob.includes('"builds"') && blob.includes('"trees":{"version":2'));
 		assert(uncompressed !== undefined, "The summary must contain nonincremental FieldBatch V2");
-		observations.push({
-			id: "uncompressed-v2",
-			value: {
-				version: 2,
-				hasHandleMarker: uncompressed.includes("__fluid_handle__"),
-			},
-			evidence: [record("summaries", raw, "uncompressed-v2", "field-batch-v2", uncompressed)],
-		});
 		const schemaAware = blobs.find((blob) => blob.includes('"fields":{"version":2'));
 		assert(schemaAware !== undefined, "The summary must contain schema-aware FieldBatch V2");
-		observations.push({
-			id: "schema-aware-v2",
-			value: {
-				version: 2,
-				hasHandleMarker: schemaAware.includes("__fluid_handle__"),
-			},
-			evidence: [record("summaries", raw, "schema-aware-v2", "schema-aware-field-batch-v2", schemaAware)],
-		});
+		const assignmentEvidence = new Map<string, { section: EvidenceSection; id: string }>();
 		for (const [id, marker] of [
 			["malformed-marker", { type: "__fluid_handle__" }],
 			["unsupported-marker", { type: "__fluid_handle_v3__", url: "/unsupported" }],
@@ -747,15 +768,421 @@ describe("Watershed handle and attachment lifecycle", () => {
 					(view.root as unknown as { link: unknown }).link = marker;
 				}),
 			};
-			assert.notEqual(outcome.error, "", `${id}: unsupported handle marker must be refused`);
-			observations.push({
+			assert.notEqual(outcome.error, "", `${id}: tree assignment must refuse ordinary JSON`);
+			assignmentEvidence.set(id, record(
+				"serialization",
+				raw,
 				id,
-				value: outcome,
-				evidence: [record("serialization", raw, id, "marker-outcome", { marker, outcome })],
-			});
+				"tree-assignment-outcome",
+				{ marker, outcome },
+			));
 		}
-		record("messages", raw, "object-field", "checkpoint", [], "mock-runtime-drained");
-		await writeCase("handle-leaves", scenarios, observations, raw);
+
+		deferredHandleLeaves = async () => {
+			const live = await attachedGraph();
+			try {
+			const target = createMapWithId(live.container.data.root, "leaf-target");
+			target.set("value", "target");
+			const escapedLogicalId = "space and#hash";
+			const escapedTarget = createMapWithId(live.container.data.root, escapedLogicalId);
+			escapedTarget.set("value", "escaped-target");
+			live.container.data.root.set("target", target.handle);
+			live.container.data.root.set("escaped", escapedTarget.handle);
+
+			const firstContext = await live.container.createDataStore(GraphStore);
+			const firstChild = createMapWithId(firstContext.root, "child");
+			firstChild.set("context", "first");
+			firstContext.root.set("child", firstChild.handle);
+			live.container.data.root.set("first-context", firstContext.root.handle);
+
+			const secondContext = await live.container.createDataStore(GraphStore);
+			const secondChild = createMapWithId(secondContext.root, "child");
+			secondChild.set("context", "second");
+			secondContext.root.set("child", secondChild.handle);
+			live.container.data.root.set("second-context", secondContext.root.handle);
+			await live.service.synchronize();
+
+			const liveSerializer = serializerFor(live.container.data.root.handle);
+			const encoded = liveSerializer.stringify(
+				firstChild.handle,
+				internalHandle(live.container.data.root.handle),
+			);
+			const decoded = liveSerializer.parse(encoded) as IFluidHandle;
+			const sourceTarget = await firstChild.handle.get() as ISharedMap;
+			const decodedTarget = await decoded.get() as ISharedMap;
+			const sameTargetEvidence = {
+				encoded: JSON.parse(encoded),
+				sourcePath: pathOf(firstChild.handle),
+				decodedPath: pathOf(decoded),
+				sourceTarget: {
+					path: pathOf(sourceTarget.handle),
+					type: mapType(sourceTarget),
+					data: mapValue(sourceTarget),
+				},
+				decodedTarget: {
+					path: pathOf(decodedTarget.handle),
+					type: mapType(decodedTarget),
+					data: mapValue(decodedTarget),
+				},
+				sameHandleInstance: decoded === firstChild.handle,
+				sameResolvedInstance: decodedTarget === sourceTarget,
+			};
+			observations.push({
+				id: "same-target-handles",
+				value: sameTargetEvidence,
+				evidence: [record(
+					"serialization",
+					raw,
+					"same-target-handles",
+					"live-handle-resolution",
+					sameTargetEvidence,
+				)],
+			});
+
+			const relativeContexts = [];
+			for (const [context, child] of [
+				[firstContext, firstChild],
+				[secondContext, secondChild],
+			] as const) {
+				const contextSerializer = serializerFor(context.root.handle);
+				const marker = { type: "__fluid_handle__", url: "child" };
+				const relative = contextSerializer.decode(marker) as IFluidHandle;
+				const resolved = await relative.get() as ISharedMap;
+				relativeContexts.push({
+					sourceDatastorePath: pathOf(context.root.handle).replace(/\/root$/, ""),
+					relativeUrl: marker.url,
+					decodedPath: pathOf(relative),
+					resolvedTarget: {
+						path: pathOf(resolved.handle),
+						type: mapType(resolved),
+						data: mapValue(resolved),
+					},
+				});
+			}
+			observations.push({
+				id: "relative-path",
+				value: { contexts: relativeContexts },
+				evidence: [record(
+					"serialization",
+					raw,
+					"relative-path",
+					"legacy-relative-resolution",
+					{ marker: { type: "__fluid_handle__", url: "child" }, contexts: relativeContexts },
+				)],
+			});
+
+			const escapedMarker = {
+				type: "__fluid_handle__",
+				url: `${pathOf(escapedTarget.handle).replace(" ", "%20").replace("#", "%23")}`,
+			};
+			const escaped = liveSerializer.decode(escapedMarker) as IFluidHandle;
+			const escapedResolved = await escaped.get() as ISharedMap;
+			const escapedValue = {
+				logicalId: escapedLogicalId,
+				sourcePath: pathOf(escapedTarget.handle),
+				serializedMarker: escapedMarker,
+				decodedPath: pathOf(escaped),
+				resolvedTarget: {
+					path: pathOf(escapedResolved.handle),
+					type: mapType(escapedResolved),
+					data: mapValue(escapedResolved),
+				},
+				sameHandleInstance: escaped === escapedTarget.handle,
+				sameResolvedInstance: escapedResolved === escapedTarget,
+			};
+			observations.push({
+				id: "escaped-path",
+				value: escapedValue,
+				evidence: [record(
+					"serialization",
+					raw,
+					"escaped-path",
+					"escaped-live-resolution",
+					escapedValue,
+				)],
+			});
+
+			const replayTree = await live.container.data.createTree();
+			const replayView = newRoot(replayTree);
+			replayView.root.link = firstChild.handle;
+			replayView.root.links.set("target", firstChild.handle);
+			replayView.root.sequence.insertAtEnd(firstChild.handle);
+			live.container.data.root.set("leaf-codec-tree", replayTree.handle);
+			await live.service.synchronize();
+
+			const codecCapture = mockTree("leaf-codec", "B");
+			const codecTarget = SharedMapAlpha.create(codecCapture.runtime, "child");
+			codecTarget.set("context", "codec");
+			codecCapture.view.root.link = codecTarget.handle;
+			codecCapture.view.root.links.set("target", codecTarget.handle);
+			codecCapture.view.root.sequence.insertAtEnd(codecTarget.handle);
+			codecCapture.runtimeFactory.processAllMessages();
+			const replaySummary = await summarize(codecCapture.tree);
+			const replayBlobs = summaryBlobText(replaySummary.summary);
+			const storedSchemaText = replayBlobs.find((blob) =>
+				blob.includes('"nodes"')
+				&& blob.includes('"org.watershed.shared-tree.handles.Root"')
+				&& blob.includes('"com.fluidframework.leaf.handle"'));
+			const uncompressedText = replayBlobs.find((blob) =>
+				blob.includes('"builds"') && blob.includes('"trees":{"version":2'));
+			const schemaAwareText = replayBlobs.find((blob) =>
+				blob.includes('"fields":{"version":2'));
+			assert(storedSchemaText !== undefined, "The summary must contain the stored schema");
+			assert(uncompressedText !== undefined, "The summary must contain replayable builds");
+			assert(schemaAwareText !== undefined, "The summary must contain the replayable forest");
+			const storedSchema = JSON.parse(storedSchemaText);
+			const uncompressedPayload = JSON.parse(uncompressedText).trunk[0].change[0]
+				.data.builds.trees;
+			const schemaAwarePayload = JSON.parse(schemaAwareText);
+			const marker = { type: "__fluid_handle__", url: "/B/child" };
+			const handleNode = { type: "com.fluidframework.leaf.handle", value: marker, fields: {} };
+			const codecInput = {
+				storedSchema,
+				sourceDatastoreContext: "/B",
+				taggedValue: { kind: "handle", value: marker },
+			};
+			for (const id of [
+				"required-root", "optional-root", "object-field", "map-entry", "array-element",
+			]) {
+				const scenario = scenarios.find((item) => item.id === id);
+				assert(scenario !== undefined);
+				scenario.input = {
+					schema: "storedSchema",
+					sourceDatastoreContext: "/B",
+					taggedValue: codecInput.taggedValue,
+					edit: id,
+					expectedDecodedValue: marker,
+				};
+			}
+			const uncompressedScenario = scenarios.find((item) => item.id === "uncompressed-v2");
+			const schemaAwareScenario = scenarios.find((item) => item.id === "schema-aware-v2");
+			assert(uncompressedScenario !== undefined && schemaAwareScenario !== undefined);
+			const uncompressedCodec = {
+				...codecInput,
+				form: "nonincremental-field-batch-v2",
+				fieldKeys: ["build"],
+				payload: uncompressedPayload,
+				expectedDecoded: [handleNode],
+			};
+			const schemaAwareCodec = {
+				...codecInput,
+				form: "schema-aware-field-batch-v2",
+				fieldKeys: schemaAwarePayload.keys,
+				payload: schemaAwarePayload.fields,
+				expectedDecoded: [{
+					type: "org.watershed.shared-tree.handles.Root",
+					fields: {
+						label: [{ type: "com.fluidframework.leaf.string", value: "leaf-codec", fields: {} }],
+						link: [handleNode],
+						links: [{
+							type: "org.watershed.shared-tree.handles.Links",
+							fields: { target: [handleNode] },
+						}],
+						sequence: [{
+							type: "org.watershed.shared-tree.handles.Sequence",
+							fields: { "": [handleNode] },
+						}],
+					},
+				}],
+			};
+			uncompressedScenario.codec = uncompressedCodec;
+			schemaAwareScenario.codec = schemaAwareCodec;
+
+			observations.push({
+				id: "uncompressed-v2",
+				value: {
+					version: 2,
+					decoded: uncompressedCodec.expectedDecoded,
+				},
+				evidence: [record(
+					"summaries",
+					raw,
+					"uncompressed-v2",
+					"field-batch-v2",
+					uncompressedCodec,
+				)],
+			});
+			observations.push({
+				id: "schema-aware-v2",
+				value: {
+					version: 2,
+					decoded: schemaAwareCodec.expectedDecoded,
+				},
+				evidence: [record(
+					"summaries",
+					raw,
+					"schema-aware-v2",
+					"schema-aware-field-batch-v2",
+					schemaAwareCodec,
+				)],
+			});
+
+			const serializerCases = [
+				{
+					id: "missing-url",
+					method: "decode",
+					value: { type: "__fluid_handle__" },
+					profile: { outcome: "refused", reason: "invalid handle marker" },
+				},
+				{
+					id: "non-string-url",
+					method: "parse",
+					value: { type: "__fluid_handle__", url: 7 },
+					profile: { outcome: "refused", reason: "invalid handle marker" },
+				},
+				{
+					id: "nested-late-malformed",
+					method: "decode",
+					value: {
+						first: marker,
+						later: { type: "__fluid_handle__" },
+					},
+					profile: { outcome: "refused", reason: "invalid handle marker" },
+				},
+				{
+					id: "pending-payload",
+					method: "decode",
+					value: { ...marker, payloadPending: true },
+					profile: { outcome: "refused", reason: "pending handle payload" },
+				},
+			] as const;
+			const malformedOutcomes = [];
+			for (const item of serializerCases) {
+				let decodedValue: unknown;
+				const serializerError = errorOf(() => {
+					decodedValue = item.method === "parse"
+						? liveSerializer.parse(JSON.stringify(item.value))
+						: liveSerializer.decode(item.value);
+				});
+				const handle = decodedValue as IFluidHandle | undefined;
+				const decodedPath = handle === undefined || typeof handle.get !== "function"
+					? undefined
+					: pathOf(handle);
+				const treeImportError = errorOf(() => {
+					(replayView.root as unknown as { link: unknown }).link =
+						decodedValue ?? item.value;
+				});
+				replayView.root.link = firstChild.handle;
+				malformedOutcomes.push({
+					id: item.id,
+					method: item.method,
+					input: item.value,
+					serializer: {
+						kind: serializerError === "" ? "handle" : "error",
+						error: serializerError,
+						decodedPath,
+					},
+					resolution: {
+						attempted: false,
+						reason: item.id === "pending-payload"
+							? "payload pending"
+							: "serializer did not produce a resolvable handle",
+					},
+					treeImport: {
+						kind: treeImportError === "" ? "accepted" : "refused",
+						error: treeImportError,
+					},
+					nativeProfile: item.profile,
+				});
+			}
+			observations.push({
+				id: "malformed-marker",
+				value: { outcomes: malformedOutcomes },
+				evidence: [
+					assignmentEvidence.get("malformed-marker") as {
+						section: EvidenceSection;
+						id: string;
+					},
+					record(
+						"serialization",
+						raw,
+						"malformed-marker",
+						"serializer-outcomes",
+						{ outcomes: malformedOutcomes },
+					),
+				],
+			});
+
+			const unsupportedCases = [
+				{
+					id: "unknown-marker-kind",
+					value: { type: "__fluid_handle_v3__", url: "/unsupported" },
+					profile: { outcome: "refused", reason: "invalid handle marker" },
+				},
+				{
+					id: "external-url",
+					value: { type: "__fluid_handle__", url: "https://example.test/object" },
+					profile: { outcome: "refused", reason: "external handle path" },
+				},
+				{
+					id: "traversal",
+					value: { type: "__fluid_handle__", url: "../child" },
+					profile: { outcome: "refused", reason: "path traversal" },
+				},
+				{
+					id: "invalid-escape",
+					value: { type: "__fluid_handle__", url: "/B/bad%ZZ" },
+					profile: { outcome: "refused", reason: "invalid path escape" },
+				},
+			] as const;
+			const unsupportedOutcomes = [];
+			for (const item of unsupportedCases) {
+				const decodedValue = liveSerializer.decode(item.value);
+				const handle = decodedValue as IFluidHandle;
+				const isHandle = typeof handle?.get === "function";
+				const resolutionError = isHandle
+					? await errorOfAsync(async () => handle.get())
+					: "";
+				const treeImportError = errorOf(() => {
+					(replayView.root as unknown as { link: unknown }).link = decodedValue;
+				});
+				replayView.root.link = firstChild.handle;
+				unsupportedOutcomes.push({
+					id: item.id,
+					input: item.value,
+					serializer: isHandle
+						? { kind: "handle", decodedPath: pathOf(handle) }
+						: { kind: "json", value: decodedValue },
+					resolution: isHandle
+						? { attempted: true, error: resolutionError }
+						: { attempted: false, reason: "ordinary JSON" },
+					treeImport: {
+						kind: treeImportError === "" ? "accepted" : "refused",
+						error: treeImportError,
+					},
+					nativeProfile: item.profile,
+				});
+			}
+			observations.push({
+				id: "unsupported-marker",
+				value: { outcomes: unsupportedOutcomes },
+				evidence: [
+					assignmentEvidence.get("unsupported-marker") as {
+						section: EvidenceSection;
+						id: string;
+					},
+					record(
+						"serialization",
+						raw,
+						"unsupported-marker",
+						"serializer-outcomes",
+						{ outcomes: unsupportedOutcomes },
+					),
+				],
+			});
+
+			record("messages", raw, "object-field", "checkpoint", [], "mock-runtime-drained");
+			await writeCase("handle-leaves", scenarios, observations, raw, {
+				sourceDatastoreContext: "/B",
+				storedSchema,
+				taggedValues: {
+					target: { kind: "handle", value: marker },
+				},
+			});
+			} finally {
+				await live.service.close();
+			}
+		};
 	});
 
 	it("captures live channel attachment", async () => {
@@ -1407,5 +1834,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 				await service.close();
 			}
 		}
+		assert(deferredHandleLeaves !== undefined, "handle-leaves: deferred case");
+		await deferredHandleLeaves();
 	});
 });

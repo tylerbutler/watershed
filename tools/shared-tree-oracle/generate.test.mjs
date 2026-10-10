@@ -114,6 +114,57 @@ test("lifecycle validator binds captured handle paths to raw serialized handles"
   assert.throws(() => validateLifecycleCase(value), /serialized.*path/i);
 });
 
+test("handle leaf resolution rejects a fabricated decoded target", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const observation = value.expected.observations.find((item) =>
+    item.id === "same-target-handles");
+  observation.value.decodedTarget = {
+    path: "/unrelated/fake-target",
+    type: "SharedMap",
+    data: { value: "target" },
+  };
+  assert.throws(() => validateLifecycleCase(value), /same-target.*resolved target/i);
+});
+
+test("legacy relative decoding rejects the wrong source datastore context", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const observation = value.expected.observations.find((item) => item.id === "relative-path");
+  observation.value.contexts = [{
+    sourceDatastorePath: "/wrong-context",
+    relativeUrl: "leaf-target",
+    decodedPath: "/wrong-context/leaf-target",
+    resolvedTarget: {
+      path: "/wrong-context/leaf-target",
+      type: "SharedMap",
+      data: { value: "target" },
+    },
+  }];
+  assert.throws(() => validateLifecycleCase(value), /relative-path.*context|source datastore/i);
+});
+
+test("malformed marker evidence cannot be replaced by tree assignment refusal", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  const observation = value.expected.observations.find((item) => item.id === "malformed-marker");
+  const evidenceIds = new Set(observation.evidence.map((item) => item.id));
+  const record = value.raw.serialization.find((item) =>
+    evidenceIds.has(item.id) && item.kind === "serializer-outcomes");
+  record.kind = "tree-assignment";
+  record.value = {
+    marker: { type: "__fluid_handle__" },
+    outcome: { error: "schema refused ordinary object assignment" },
+  };
+  assert.throws(() => validateLifecycleCase(value), /malformed-marker.*serializer/i);
+});
+
+test("handle codec scenarios reject empty executable inputs", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  for (const id of ["uncompressed-v2", "schema-aware-v2"]) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    scenario.codec = { schema: {}, payload: {}, expectedDecoded: [] };
+  }
+  assert.throws(() => validateLifecycleCase(value), /codec.*input|FieldBatch/i);
+});
+
 test("lifecycle validator rejects cross-datastore order invented by observations", async () => {
   const value = await lifecycleCapture("cross-datastore-attachment");
   value.expected.observations.find((item) => item.id === "map-cross-datastore")

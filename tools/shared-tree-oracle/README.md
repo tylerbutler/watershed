@@ -84,11 +84,19 @@ capture records the injected source digest. Corpus regeneration includes these
 cases, but neither native semantic runner nor the supported profile claims
 handle-leaf or live-attachment support yet.
 
-This is preliminary discovery, not Task 1 acceptance. In particular, a fresh
-service load from an attach snapshot plus sequenced operations is not proof of
-loading a newly published summary. Document-level retained GC, publication and
-fetched-byte reload evidence, complete native replay inputs, and additional
-attachment boundary observations remain required by the
+The `handle-leaves` input now contains the stored Schema V2 document, executable
+root/object/map/array edits, the exact tagged `/B/child` handle value, and
+replayable nonincremental and schema-aware FieldBatch V2 payloads with decoded
+values. Its observations resolve distinct handle wrappers through `get()`,
+resolve the same relative channel name from two live datastore contexts, and
+resolve a percent-escaped marker to a real channel. Serializer outcomes for
+malformed, unknown, pending, external, traversal, and invalid-escape markers
+remain separate from tree assignment and native-profile refusals.
+
+This is still discovery, not Task 1 acceptance. Published storage and leaf
+codec/resolution proof are complete, but graph/runtime replay inputs,
+receiving-client graph outcomes, multi-tree document-compressor identity, and
+commit/factory/revertible/event lifetime evidence remain required by the
 [handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
 before native implementation proceeds.
 

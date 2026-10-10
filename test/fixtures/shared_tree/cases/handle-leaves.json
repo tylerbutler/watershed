@@ -8,26 +8,189 @@
   "id": "handle-leaves",
   "domain": "lifecycle",
   "input": {
+    "sourceDatastoreContext": "/B",
+    "storedSchema": {
+      "version": 2,
+      "nodes": {
+        "com.fluidframework.leaf.handle": {
+          "kind": {
+            "leaf": 3
+          }
+        },
+        "com.fluidframework.leaf.string": {
+          "kind": {
+            "leaf": 1
+          }
+        },
+        "org.watershed.shared-tree.handles.Links": {
+          "kind": {
+            "map": {
+              "kind": "Optional",
+              "types": [
+                "com.fluidframework.leaf.handle"
+              ]
+            }
+          }
+        },
+        "org.watershed.shared-tree.handles.Root": {
+          "kind": {
+            "object": {
+              "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "link": {
+                "kind": "Optional",
+                "types": [
+                  "com.fluidframework.leaf.handle"
+                ]
+              },
+              "links": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Links"
+                ]
+              },
+              "sequence": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.handles.Sequence"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.handles.Sequence": {
+          "kind": {
+            "object": {
+              "": {
+                "kind": "Sequence",
+                "types": [
+                  "com.fluidframework.leaf.handle"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "root": {
+        "kind": "Value",
+        "types": [
+          "org.watershed.shared-tree.handles.Root"
+        ]
+      }
+    },
+    "taggedValues": {
+      "target": {
+        "kind": "handle",
+        "value": {
+          "type": "__fluid_handle__",
+          "url": "/B/child"
+        }
+      }
+    },
     "scenarios": [
       {
         "id": "required-root",
-        "operation": "store a handle as the required root"
+        "operation": "store a handle as the required root",
+        "input": {
+          "schema": "storedSchema",
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "edit": "required-root",
+          "expectedDecodedValue": {
+            "type": "__fluid_handle__",
+            "url": "/B/child"
+          }
+        }
       },
       {
         "id": "optional-root",
-        "operation": "set and clear an optional root handle"
+        "operation": "set and clear an optional root handle",
+        "input": {
+          "schema": "storedSchema",
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "edit": "optional-root",
+          "expectedDecodedValue": {
+            "type": "__fluid_handle__",
+            "url": "/B/child"
+          }
+        }
       },
       {
         "id": "object-field",
-        "operation": "set a handle object field"
+        "operation": "set a handle object field",
+        "input": {
+          "schema": "storedSchema",
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "edit": "object-field",
+          "expectedDecodedValue": {
+            "type": "__fluid_handle__",
+            "url": "/B/child"
+          }
+        }
       },
       {
         "id": "map-entry",
-        "operation": "set a handle map entry"
+        "operation": "set a handle map entry",
+        "input": {
+          "schema": "storedSchema",
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "edit": "map-entry",
+          "expectedDecodedValue": {
+            "type": "__fluid_handle__",
+            "url": "/B/child"
+          }
+        }
       },
       {
         "id": "array-element",
-        "operation": "insert a handle array element"
+        "operation": "insert a handle array element",
+        "input": {
+          "schema": "storedSchema",
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "edit": "array-element",
+          "expectedDecodedValue": {
+            "type": "__fluid_handle__",
+            "url": "/B/child"
+          }
+        }
       },
       {
         "id": "same-target-handles",
@@ -43,11 +206,365 @@
       },
       {
         "id": "uncompressed-v2",
-        "operation": "capture the uncompressed attach summary"
+        "operation": "capture the uncompressed attach summary",
+        "codec": {
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "form": "nonincremental-field-batch-v2",
+          "fieldKeys": [
+            "build"
+          ],
+          "payload": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.handle",
+                  "value": true
+                }
+              }
+            ],
+            "data": [
+              [
+                0,
+                {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              ]
+            ]
+          },
+          "expectedDecoded": [
+            {
+              "type": "com.fluidframework.leaf.handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              },
+              "fields": {}
+            }
+          ]
+        }
       },
       {
         "id": "schema-aware-v2",
-        "operation": "capture the schema-aware attach summary"
+        "operation": "capture the schema-aware attach summary",
+        "codec": {
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "form": "schema-aware-field-batch-v2",
+          "fieldKeys": [
+            "rootFieldKey"
+          ],
+          "payload": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "a": 5
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Root",
+                  "value": false,
+                  "fields": [
+                    [
+                      "label",
+                      2
+                    ],
+                    [
+                      "link",
+                      0
+                    ],
+                    [
+                      "links",
+                      3
+                    ],
+                    [
+                      "sequence",
+                      4
+                    ]
+                  ]
+                }
+              },
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.string",
+                  "value": true
+                }
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Links",
+                  "value": false,
+                  "extraFields": 0
+                }
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Sequence",
+                  "value": false,
+                  "fields": [
+                    [
+                      "",
+                      0
+                    ]
+                  ]
+                }
+              },
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.handle",
+                  "value": true
+                }
+              }
+            ],
+            "data": [
+              [
+                1,
+                "leaf-codec",
+                [
+                  {
+                    "type": "__fluid_handle__",
+                    "url": "/B/child"
+                  }
+                ],
+                [
+                  "target",
+                  [
+                    {
+                      "type": "__fluid_handle__",
+                      "url": "/B/child"
+                    }
+                  ]
+                ],
+                [
+                  {
+                    "type": "__fluid_handle__",
+                    "url": "/B/child"
+                  }
+                ]
+              ]
+            ]
+          },
+          "expectedDecoded": [
+            {
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": {
+                "label": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "leaf-codec",
+                    "fields": {}
+                  }
+                ],
+                "link": [
+                  {
+                    "type": "com.fluidframework.leaf.handle",
+                    "value": {
+                      "type": "__fluid_handle__",
+                      "url": "/B/child"
+                    },
+                    "fields": {}
+                  }
+                ],
+                "links": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Links",
+                    "fields": {
+                      "target": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "sequence": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Sequence",
+                    "fields": {
+                      "": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
       },
       {
         "id": "malformed-marker",
@@ -145,39 +662,97 @@
       {
         "id": "same-target-handles",
         "value": {
-          "sameInstance": false,
-          "firstPath": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target",
-          "secondPath": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+          "encoded": {
+            "type": "__fluid_handle__",
+            "url": "/ae357367-0393-4986-a0ec-57c3393d702e/child"
+          },
+          "sourcePath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+          "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+          "sourceTarget": {
+            "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "context": "first"
+            }
+          },
+          "decodedTarget": {
+            "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "context": "first"
+            }
+          },
+          "sameHandleInstance": false,
+          "sameResolvedInstance": true
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "same-target-handles:serialization:5"
+            "id": "same-target-handles:serialization:7"
           }
         ]
       },
       {
         "id": "relative-path",
         "value": {
-          "resolvedPath": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target"
+          "contexts": [
+            {
+              "sourceDatastorePath": "/ae357367-0393-4986-a0ec-57c3393d702e",
+              "relativeUrl": "child",
+              "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+              "resolvedTarget": {
+                "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+                "type": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "context": "first"
+                }
+              }
+            },
+            {
+              "sourceDatastorePath": "/ae357367-0393-4986-a0ec-57c3393d702f",
+              "relativeUrl": "child",
+              "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702f/child",
+              "resolvedTarget": {
+                "path": "/ae357367-0393-4986-a0ec-57c3393d702f/child",
+                "type": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "context": "second"
+                }
+              }
+            }
+          ]
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "relative-path:serialization:6"
+            "id": "relative-path:serialization:8"
           }
         ]
       },
       {
         "id": "escaped-path",
         "value": {
-          "serializedPath": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/space%20and%23hash",
-          "resolvedPath": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/space%20and%23hash"
+          "logicalId": "space and#hash",
+          "sourcePath": "/A/space and#hash",
+          "serializedMarker": {
+            "type": "__fluid_handle__",
+            "url": "/A/space%20and%23hash"
+          },
+          "decodedPath": "/A/space%20and%23hash",
+          "resolvedTarget": {
+            "path": "/A/space and#hash",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "value": "escaped-target"
+            }
+          },
+          "sameHandleInstance": false,
+          "sameResolvedInstance": true
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "escaped-path:serialization:7"
+            "id": "escaped-path:serialization:9"
           }
         ]
       },
@@ -185,7 +760,16 @@
         "id": "uncompressed-v2",
         "value": {
           "version": 2,
-          "hasHandleMarker": true
+          "decoded": [
+            {
+              "type": "com.fluidframework.leaf.handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              },
+              "fields": {}
+            }
+          ]
         },
         "evidence": [
           {
@@ -198,7 +782,64 @@
         "id": "schema-aware-v2",
         "value": {
           "version": 2,
-          "hasHandleMarker": true
+          "decoded": [
+            {
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": {
+                "label": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "leaf-codec",
+                    "fields": {}
+                  }
+                ],
+                "link": [
+                  {
+                    "type": "com.fluidframework.leaf.handle",
+                    "value": {
+                      "type": "__fluid_handle__",
+                      "url": "/B/child"
+                    },
+                    "fields": {}
+                  }
+                ],
+                "links": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Links",
+                    "fields": {
+                      "target": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "sequence": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Sequence",
+                    "fields": {
+                      "": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
         },
         "evidence": [
           {
@@ -210,24 +851,231 @@
       {
         "id": "malformed-marker",
         "value": {
-          "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+          "outcomes": [
+            {
+              "id": "missing-url",
+              "method": "decode",
+              "input": {
+                "type": "__fluid_handle__"
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: Cannot read properties of undefined (reading 'startsWith')"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "non-string-url",
+              "method": "parse",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": 7
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: value.url.startsWith is not a function"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "nested-late-malformed",
+              "method": "decode",
+              "input": {
+                "first": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                },
+                "later": {
+                  "type": "__fluid_handle__"
+                }
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: Cannot read properties of undefined (reading 'startsWith')"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "pending-payload",
+              "method": "decode",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "/B/child",
+                "payloadPending": true
+              },
+              "serializer": {
+                "kind": "handle",
+                "error": "",
+                "decodedPath": "/B/child"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "payload pending"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "pending handle payload"
+              }
+            }
+          ]
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "malformed-marker:serialization:8"
+            "id": "malformed-marker:serialization:5"
+          },
+          {
+            "section": "serialization",
+            "id": "malformed-marker:serialization:10"
           }
         ]
       },
       {
         "id": "unsupported-marker",
         "value": {
-          "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+          "outcomes": [
+            {
+              "id": "unknown-marker-kind",
+              "input": {
+                "type": "__fluid_handle_v3__",
+                "url": "/unsupported"
+              },
+              "serializer": {
+                "kind": "json",
+                "value": {
+                  "type": "__fluid_handle_v3__",
+                  "url": "/unsupported"
+                }
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "ordinary JSON"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "external-url",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "https://example.test/object"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/A/https://example.test/object"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"not found: /https:/example.test/object\",\"name\":\"Error\",\"code\":404}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "external handle path"
+              }
+            },
+            {
+              "id": "traversal",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "../child"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/A/../child"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"not found: /../child\",\"name\":\"Error\",\"code\":404}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "path traversal"
+              }
+            },
+            {
+              "id": "invalid-escape",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "/B/bad%ZZ"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/B/bad%ZZ"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"URIError: URI malformed\",\"name\":\"Error\",\"code\":500}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid path escape"
+              }
+            }
+          ]
         },
         "evidence": [
           {
             "section": "serialization",
-            "id": "unsupported-marker:serialization:9"
+            "id": "unsupported-marker:serialization:6"
+          },
+          {
+            "section": "serialization",
+            "id": "unsupported-marker:serialization:11"
           }
         ]
       }
@@ -290,33 +1138,9 @@
         }
       },
       {
-        "id": "same-target-handles:serialization:5",
-        "scenarioId": "same-target-handles",
-        "kind": "roundtrip",
-        "value": {
-          "encoded": "{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}"
-        }
-      },
-      {
-        "id": "relative-path:serialization:6",
-        "scenarioId": "relative-path",
-        "kind": "legacy-relative",
-        "value": {
-          "url": "leaf-target"
-        }
-      },
-      {
-        "id": "escaped-path:serialization:7",
-        "scenarioId": "escaped-path",
-        "kind": "escaped",
-        "value": {
-          "url": "/71527a3b-4122-4737-aeff-a78ebb1b8cca/space%20and%23hash"
-        }
-      },
-      {
-        "id": "malformed-marker:serialization:8",
+        "id": "malformed-marker:serialization:5",
         "scenarioId": "malformed-marker",
-        "kind": "marker-outcome",
+        "kind": "tree-assignment-outcome",
         "value": {
           "marker": {
             "type": "__fluid_handle__"
@@ -327,9 +1151,9 @@
         }
       },
       {
-        "id": "unsupported-marker:serialization:9",
+        "id": "unsupported-marker:serialization:6",
         "scenarioId": "unsupported-marker",
-        "kind": "marker-outcome",
+        "kind": "tree-assignment-outcome",
         "value": {
           "marker": {
             "type": "__fluid_handle_v3__",
@@ -339,6 +1163,310 @@
             "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
           }
         }
+      },
+      {
+        "id": "same-target-handles:serialization:7",
+        "scenarioId": "same-target-handles",
+        "kind": "live-handle-resolution",
+        "value": {
+          "encoded": {
+            "type": "__fluid_handle__",
+            "url": "/ae357367-0393-4986-a0ec-57c3393d702e/child"
+          },
+          "sourcePath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+          "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+          "sourceTarget": {
+            "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "context": "first"
+            }
+          },
+          "decodedTarget": {
+            "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "context": "first"
+            }
+          },
+          "sameHandleInstance": false,
+          "sameResolvedInstance": true
+        }
+      },
+      {
+        "id": "relative-path:serialization:8",
+        "scenarioId": "relative-path",
+        "kind": "legacy-relative-resolution",
+        "value": {
+          "marker": {
+            "type": "__fluid_handle__",
+            "url": "child"
+          },
+          "contexts": [
+            {
+              "sourceDatastorePath": "/ae357367-0393-4986-a0ec-57c3393d702e",
+              "relativeUrl": "child",
+              "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+              "resolvedTarget": {
+                "path": "/ae357367-0393-4986-a0ec-57c3393d702e/child",
+                "type": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "context": "first"
+                }
+              }
+            },
+            {
+              "sourceDatastorePath": "/ae357367-0393-4986-a0ec-57c3393d702f",
+              "relativeUrl": "child",
+              "decodedPath": "/ae357367-0393-4986-a0ec-57c3393d702f/child",
+              "resolvedTarget": {
+                "path": "/ae357367-0393-4986-a0ec-57c3393d702f/child",
+                "type": "https://graph.microsoft.com/types/map",
+                "data": {
+                  "context": "second"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "escaped-path:serialization:9",
+        "scenarioId": "escaped-path",
+        "kind": "escaped-live-resolution",
+        "value": {
+          "logicalId": "space and#hash",
+          "sourcePath": "/A/space and#hash",
+          "serializedMarker": {
+            "type": "__fluid_handle__",
+            "url": "/A/space%20and%23hash"
+          },
+          "decodedPath": "/A/space%20and%23hash",
+          "resolvedTarget": {
+            "path": "/A/space and#hash",
+            "type": "https://graph.microsoft.com/types/map",
+            "data": {
+              "value": "escaped-target"
+            }
+          },
+          "sameHandleInstance": false,
+          "sameResolvedInstance": true
+        }
+      },
+      {
+        "id": "malformed-marker:serialization:10",
+        "scenarioId": "malformed-marker",
+        "kind": "serializer-outcomes",
+        "value": {
+          "outcomes": [
+            {
+              "id": "missing-url",
+              "method": "decode",
+              "input": {
+                "type": "__fluid_handle__"
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: Cannot read properties of undefined (reading 'startsWith')"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "non-string-url",
+              "method": "parse",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": 7
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: value.url.startsWith is not a function"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "nested-late-malformed",
+              "method": "decode",
+              "input": {
+                "first": {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                },
+                "later": {
+                  "type": "__fluid_handle__"
+                }
+              },
+              "serializer": {
+                "kind": "error",
+                "error": "TypeError: Cannot read properties of undefined (reading 'startsWith')"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "serializer did not produce a resolvable handle"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "pending-payload",
+              "method": "decode",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "/B/child",
+                "payloadPending": true
+              },
+              "serializer": {
+                "kind": "handle",
+                "error": "",
+                "decodedPath": "/B/child"
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "payload pending"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "pending handle payload"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "unsupported-marker:serialization:11",
+        "scenarioId": "unsupported-marker",
+        "kind": "serializer-outcomes",
+        "value": {
+          "outcomes": [
+            {
+              "id": "unknown-marker-kind",
+              "input": {
+                "type": "__fluid_handle_v3__",
+                "url": "/unsupported"
+              },
+              "serializer": {
+                "kind": "json",
+                "value": {
+                  "type": "__fluid_handle_v3__",
+                  "url": "/unsupported"
+                }
+              },
+              "resolution": {
+                "attempted": false,
+                "reason": "ordinary JSON"
+              },
+              "treeImport": {
+                "kind": "refused",
+                "error": "Error: The provided data is incompatible with all of the types allowed by the schema. The set of allowed types is: [\"com.fluidframework.leaf.handle\" (name: undefined)]."
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid handle marker"
+              }
+            },
+            {
+              "id": "external-url",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "https://example.test/object"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/A/https://example.test/object"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"not found: /https:/example.test/object\",\"name\":\"Error\",\"code\":404}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "external handle path"
+              }
+            },
+            {
+              "id": "traversal",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "../child"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/A/../child"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"not found: /../child\",\"name\":\"Error\",\"code\":404}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "path traversal"
+              }
+            },
+            {
+              "id": "invalid-escape",
+              "input": {
+                "type": "__fluid_handle__",
+                "url": "/B/bad%ZZ"
+              },
+              "serializer": {
+                "kind": "handle",
+                "decodedPath": "/B/bad%ZZ"
+              },
+              "resolution": {
+                "attempted": true,
+                "error": "{\"errorFromRequestFluidObject\":true,\"message\":\"URIError: URI malformed\",\"name\":\"Error\",\"code\":500}"
+              },
+              "treeImport": {
+                "kind": "accepted",
+                "error": ""
+              },
+              "nativeProfile": {
+                "outcome": "refused",
+                "reason": "invalid path escape"
+              }
+            }
+          ]
+        }
       }
     ],
     "summaries": [
@@ -346,20 +1474,372 @@
         "id": "uncompressed-v2:summaries:0",
         "scenarioId": "uncompressed-v2",
         "kind": "field-batch-v2",
-        "value": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}]]}}}}],\"revision\":4,\"sessionId\":\"b0a79973-f1c6-47c1-829d-109b74102d2a\",\"sequenceNumber\":4},{\"change\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"target\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":3,\"s\":4}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}]]}}}}],\"revision\":5,\"sessionId\":\"b0a79973-f1c6-47c1-829d-109b74102d2a\",\"sequenceNumber\":6},{\"change\":[{\"data\":{\"maxId\":9,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"sequence\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"effect\":{\"insert\":{\"id\":7}},\"cellId\":7}]}]}]]}]}]]}],\"builds\":{\"builds\":[[[[7,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}]]}}}}],\"revision\":6,\"sessionId\":\"b0a79973-f1c6-47c1-829d-109b74102d2a\",\"sequenceNumber\":8}],\"branches\":[],\"version\":7}"
+        "value": {
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "form": "nonincremental-field-batch-v2",
+          "fieldKeys": [
+            "build"
+          ],
+          "payload": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.handle",
+                  "value": true
+                }
+              }
+            ],
+            "data": [
+              [
+                0,
+                {
+                  "type": "__fluid_handle__",
+                  "url": "/B/child"
+                }
+              ]
+            ]
+          },
+          "expectedDecoded": [
+            {
+              "type": "com.fluidframework.leaf.handle",
+              "value": {
+                "type": "__fluid_handle__",
+                "url": "/B/child"
+              },
+              "fields": {}
+            }
+          ]
+        }
       },
       {
         "id": "schema-aware-v2:summaries:1",
         "scenarioId": "schema-aware-v2",
         "kind": "schema-aware-field-batch-v2",
-        "value": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"a\":5},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",2],[\"link\",0],[\"links\",3],[\"sequence\",4]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":0}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[1,\"handle-leaves\",[{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}],[\"target\",[{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}]],[{\"type\":\"__fluid_handle__\",\"url\":\"/71527a3b-4122-4737-aeff-a78ebb1b8cca/leaf-target\"}]]]},\"version\":2}"
+        "value": {
+          "storedSchema": {
+            "version": 2,
+            "nodes": {
+              "com.fluidframework.leaf.handle": {
+                "kind": {
+                  "leaf": 3
+                }
+              },
+              "com.fluidframework.leaf.string": {
+                "kind": {
+                  "leaf": 1
+                }
+              },
+              "org.watershed.shared-tree.handles.Links": {
+                "kind": {
+                  "map": {
+                    "kind": "Optional",
+                    "types": [
+                      "com.fluidframework.leaf.handle"
+                    ]
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Root": {
+                "kind": {
+                  "object": {
+                    "label": {
+                      "kind": "Value",
+                      "types": [
+                        "com.fluidframework.leaf.string"
+                      ]
+                    },
+                    "link": {
+                      "kind": "Optional",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    },
+                    "links": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Links"
+                      ]
+                    },
+                    "sequence": {
+                      "kind": "Value",
+                      "types": [
+                        "org.watershed.shared-tree.handles.Sequence"
+                      ]
+                    }
+                  }
+                }
+              },
+              "org.watershed.shared-tree.handles.Sequence": {
+                "kind": {
+                  "object": {
+                    "": {
+                      "kind": "Sequence",
+                      "types": [
+                        "com.fluidframework.leaf.handle"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "root": {
+              "kind": "Value",
+              "types": [
+                "org.watershed.shared-tree.handles.Root"
+              ]
+            }
+          },
+          "sourceDatastoreContext": "/B",
+          "taggedValue": {
+            "kind": "handle",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/B/child"
+            }
+          },
+          "form": "schema-aware-field-batch-v2",
+          "fieldKeys": [
+            "rootFieldKey"
+          ],
+          "payload": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "a": 5
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Root",
+                  "value": false,
+                  "fields": [
+                    [
+                      "label",
+                      2
+                    ],
+                    [
+                      "link",
+                      0
+                    ],
+                    [
+                      "links",
+                      3
+                    ],
+                    [
+                      "sequence",
+                      4
+                    ]
+                  ]
+                }
+              },
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.string",
+                  "value": true
+                }
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Links",
+                  "value": false,
+                  "extraFields": 0
+                }
+              },
+              {
+                "c": {
+                  "type": "org.watershed.shared-tree.handles.Sequence",
+                  "value": false,
+                  "fields": [
+                    [
+                      "",
+                      0
+                    ]
+                  ]
+                }
+              },
+              {
+                "c": {
+                  "type": "com.fluidframework.leaf.handle",
+                  "value": true
+                }
+              }
+            ],
+            "data": [
+              [
+                1,
+                "leaf-codec",
+                [
+                  {
+                    "type": "__fluid_handle__",
+                    "url": "/B/child"
+                  }
+                ],
+                [
+                  "target",
+                  [
+                    {
+                      "type": "__fluid_handle__",
+                      "url": "/B/child"
+                    }
+                  ]
+                ],
+                [
+                  {
+                    "type": "__fluid_handle__",
+                    "url": "/B/child"
+                  }
+                ]
+              ]
+            ]
+          },
+          "expectedDecoded": [
+            {
+              "type": "org.watershed.shared-tree.handles.Root",
+              "fields": {
+                "label": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "leaf-codec",
+                    "fields": {}
+                  }
+                ],
+                "link": [
+                  {
+                    "type": "com.fluidframework.leaf.handle",
+                    "value": {
+                      "type": "__fluid_handle__",
+                      "url": "/B/child"
+                    },
+                    "fields": {}
+                  }
+                ],
+                "links": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Links",
+                    "fields": {
+                      "target": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "sequence": [
+                  {
+                    "type": "org.watershed.shared-tree.handles.Sequence",
+                    "fields": {
+                      "": [
+                        {
+                          "type": "com.fluidframework.leaf.handle",
+                          "value": {
+                            "type": "__fluid_handle__",
+                            "url": "/B/child"
+                          },
+                          "fields": {}
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
       }
     ],
     "source": {
       "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
       "version": "3.1.0",
       "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
-      "digest": "4ae88f402e9841d846f6dd83c20644266593e7631a9288f2e7722aff2b1647e4"
+      "digest": "f61c693afe63865c24d094828da4beeb857709ea8d30f558fe927228b6ebfd1c"
     }
   }
 }
