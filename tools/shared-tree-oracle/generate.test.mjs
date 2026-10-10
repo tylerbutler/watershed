@@ -294,6 +294,23 @@ test("fresh-load validator rejects a different genuine publication", async () =>
     /fresh-load.*publication|continuation/i);
 });
 
+test("fresh-load validator requires the live root field key", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  const observation = value.expected.observations.find((item) => item.id === "fresh-load");
+  const publication = value.raw.summaries.find((item) =>
+    item.scenarioId === "fresh-load" && item.kind === "published-document").value;
+  const [, datastoreId, channelId] = observation.value.loadedTree.path.split("/");
+  const forest = publication.snapshot.tree.trees[".channels"].trees[datastoreId]
+    .trees[".channels"].trees[channelId].trees.indexes.trees.Forest;
+  const contents = JSON.parse(
+    Buffer.from(publication.snapshot.blobs[forest.blobs.contents], "base64"),
+  );
+  contents.keys = ["repair-2"];
+  publication.snapshot.blobs[forest.blobs.contents] =
+    Buffer.from(JSON.stringify(contents)).toString("base64");
+  assert.throws(() => validateLifecycleCase(value), /fresh-load.*rootFieldKey|live root/i);
+});
+
 test("fresh-load validator rejects false continuation and wrong continuation target", async () => {
   const falseContinuation = await lifecycleCapture("handle-retention");
   const falseObservation = falseContinuation.expected.observations.find((item) =>
@@ -438,7 +455,93 @@ for (const [id, scenarioId] of [
     assert.throws(() => validateLifecycleCase(value),
       new RegExp(`${scenarioId}.*creation range|allocation`, "i"));
   });
+
+  test(`${scenarioId} validator rejects missing encoded field keys`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      const snapshot = grouped.contents.find((entry) =>
+        entry.contents?.type === "component")
+        .contents.contents.contents.content.snapshot;
+      const indexes = snapshot.entries.find((entry) => entry.path === "indexes");
+      const forest = indexes.value.entries.find((entry) => entry.path === "Forest");
+      const contents = forest.value.entries.find((entry) => entry.path === "contents");
+      const encoded = JSON.parse(contents.value.contents);
+      encoded.keys = [];
+      contents.value.contents = JSON.stringify(encoded);
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*field key|FieldBatch`, "i"));
+  });
+
+  test(`${scenarioId} validator rejects a value-free string shape`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      const snapshot = grouped.contents.find((entry) =>
+        entry.contents?.type === "component")
+        .contents.contents.contents.content.snapshot;
+      const indexes = snapshot.entries.find((entry) => entry.path === "indexes");
+      const forest = indexes.value.entries.find((entry) => entry.path === "Forest");
+      const contents = forest.value.entries.find((entry) => entry.path === "contents");
+      const encoded = JSON.parse(contents.value.contents);
+      encoded.fields.shapes.find((shape) =>
+        shape.c?.type === "com.fluidframework.leaf.string").c.value = false;
+      contents.value.contents = JSON.stringify(encoded);
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*forest|FieldBatch|string`, "i"));
+  });
 }
+
+test("active target validator rejects duplicate keys and invalid shape references", async () => {
+  const mutateForest = async (mutate) => {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const observation = value.expected.observations.find((item) => item.id === "active-target");
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === "active-target" && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      const snapshot = grouped.contents.find((entry) =>
+        entry.contents?.type === "component")
+        .contents.contents.contents.content.snapshot;
+      const indexes = snapshot.entries.find((entry) => entry.path === "indexes");
+      const forest = indexes.value.entries.find((entry) => entry.path === "Forest");
+      const contents = forest.value.entries.find((entry) => entry.path === "contents");
+      const encoded = JSON.parse(contents.value.contents);
+      mutate(encoded);
+      contents.value.contents = JSON.stringify(encoded);
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    return value;
+  };
+
+  const duplicateKeys = await mutateForest((encoded) => {
+    encoded.keys = ["rootFieldKey", "rootFieldKey"];
+  });
+  assert.throws(() => validateLifecycleCase(duplicateKeys), /duplicate.*field key/i);
+
+  const duplicateNodeFields = await mutateForest((encoded) => {
+    const root = encoded.fields.shapes.find((shape) =>
+      shape.c?.type === "org.watershed.shared-tree.handles.Root");
+    root.c.fields.at(-1)[0] = "links";
+  });
+  assert.throws(() => validateLifecycleCase(duplicateNodeFields), /duplicate.*field key/i);
+
+  const invalidShape = await mutateForest((encoded) => {
+    encoded.fields.shapes.find((shape) =>
+      shape.c?.type === "org.watershed.shared-tree.handles.Links").c.extraFields = 99;
+  });
+  assert.throws(() => validateLifecycleCase(invalidShape), /shape.*index|FieldBatch/i);
+});
 
 test("successful transaction evidence contains the claimed attached target", async () => {
   const value = await lifecycleCapture("handle-transaction-branch");

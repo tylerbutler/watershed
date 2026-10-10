@@ -14,7 +14,6 @@ import {
 } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
-import { fieldBatchFieldPayloads } from "./codec-interop.mjs";
 import {
   branchExcludedFeatures,
   branchServiceReport,
@@ -5233,14 +5232,134 @@ function lifecycleSharedMapSummary(snapshot, path, detail) {
   return { tree, header };
 }
 
-function lifecycleFieldBatch(value, detail) {
+function lifecycleFieldBatchIdentifier(value, identifiers, detail) {
+  if (typeof value === "string") return value;
+  assert(Number.isSafeInteger(value) && value >= 0 && value < identifiers.length,
+    `${detail}: invalid identifier index`);
+  return identifiers[value];
+}
+
+function lifecycleDecodeFieldBatch(value, keys, detail) {
   assert(object(value)
+    && isDeepStrictEqual(Object.keys(value).sort(),
+      ["data", "identifiers", "shapes", "version"])
     && value.version === 2
     && Array.isArray(value.identifiers)
+    && value.identifiers.every((item) => typeof item === "string")
     && Array.isArray(value.shapes)
-    && Array.isArray(value.data),
+    && value.shapes.length > 0
+    && Array.isArray(value.data)
+    && Array.isArray(keys),
   `${detail}: invalid FieldBatch`);
-  return value;
+  assert(new Set(value.identifiers).size === value.identifiers.length,
+    `${detail}: duplicate FieldBatch identifier`);
+  assert(keys.length === value.data.length
+    && keys.every((key) => typeof key === "string"),
+  `${detail}: invalid FieldBatch field key cardinality`);
+  assert(new Set(keys).size === keys.length,
+    `${detail}: duplicate FieldBatch field key`);
+
+  const shapeAt = (index) => {
+    assert(Number.isSafeInteger(index) && index >= 0 && index < value.shapes.length,
+      `${detail}: invalid shape index`);
+    return value.shapes[index];
+  };
+  const read = (stream) => {
+    assert(stream.offset < stream.data.length, `${detail}: truncated FieldBatch stream`);
+    return stream.data[stream.offset++];
+  };
+  const decode = (index, stream, depth = 0) => {
+    assert(depth <= value.shapes.length + 1, `${detail}: cyclic FieldBatch shape`);
+    const shape = shapeAt(index);
+    assert(object(shape) && Object.keys(shape).length === 1,
+      `${detail}: unsupported FieldBatch shape`);
+    if (Object.hasOwn(shape, "a")) {
+      const childIndex = shape.a;
+      shapeAt(childIndex);
+      const encoded = read(stream);
+      if (typeof encoded === "number") {
+        assert(Number.isSafeInteger(encoded) && encoded >= 0,
+          `${detail}: invalid nested array length`);
+        const empty = { data: [], offset: 0 };
+        const nodes = [];
+        for (let item = 0; item < encoded; item++) {
+          nodes.push(...decode(childIndex, empty, depth + 1));
+        }
+        assert(empty.offset === 0, `${detail}: invalid zero-width nested array`);
+        return nodes;
+      }
+      assert(Array.isArray(encoded), `${detail}: invalid nested array`);
+      const inner = { data: encoded, offset: 0 };
+      const nodes = [];
+      while (inner.offset < inner.data.length) {
+        nodes.push(...decode(childIndex, inner, depth + 1));
+      }
+      return nodes;
+    }
+    assert(Object.hasOwn(shape, "c"), `${detail}: unsupported FieldBatch shape`);
+    const nodeShape = shape.c;
+    assert(object(nodeShape)
+      && Object.keys(nodeShape).every((key) =>
+        ["type", "value", "fields", "extraFields"].includes(key))
+      && nodeShape.type !== undefined
+      && (nodeShape.fields === undefined || Array.isArray(nodeShape.fields)),
+    `${detail}: unsupported node shape`);
+    const type = lifecycleFieldBatchIdentifier(nodeShape.type, value.identifiers, detail);
+    let nodeValue;
+    if (nodeShape.value === true) {
+      nodeValue = read(stream);
+    } else if (nodeShape.value === false) {
+      nodeValue = undefined;
+    } else if (Array.isArray(nodeShape.value) && nodeShape.value.length === 1) {
+      [nodeValue] = nodeShape.value;
+    } else {
+      assert.fail(`${detail}: unsupported node value shape`);
+    }
+    const fields = new Map();
+    for (const field of nodeShape.fields ?? []) {
+      assert(Array.isArray(field) && field.length === 2,
+        `${detail}: invalid node field shape`);
+      const key = lifecycleFieldBatchIdentifier(field[0], value.identifiers, detail);
+      assert(!fields.has(key), `${detail}: duplicate node field key ${key}`);
+      shapeAt(field[1]);
+      fields.set(key, decode(field[1], stream, depth + 1));
+    }
+    if (nodeShape.extraFields !== undefined) {
+      shapeAt(nodeShape.extraFields);
+      const encoded = read(stream);
+      assert(Array.isArray(encoded), `${detail}: invalid extra fields`);
+      const inner = { data: encoded, offset: 0 };
+      while (inner.offset < inner.data.length) {
+        const key = lifecycleFieldBatchIdentifier(read(inner), value.identifiers, detail);
+        assert(!fields.has(key), `${detail}: duplicate node field key ${key}`);
+        fields.set(key, decode(nodeShape.extraFields, inner, depth + 1));
+      }
+    }
+    return [{ type, value: nodeValue, fields }];
+  };
+
+  const decoded = new Map();
+  for (const [index, field] of value.data.entries()) {
+    assert(Array.isArray(field), `${detail}: invalid encoded field`);
+    const stream = { data: field, offset: 0 };
+    const shape = read(stream);
+    const nodes = decode(shape, stream);
+    assert(stream.offset === stream.data.length, `${detail}: unconsumed FieldBatch data`);
+    decoded.set(keys[index], nodes);
+  }
+  return decoded;
+}
+
+function lifecycleRootNode(contents, detail) {
+  assert(object(contents)
+    && isDeepStrictEqual(Object.keys(contents).sort(), ["fields", "keys", "version"])
+    && contents.version === 2,
+  `${detail}: invalid forest contents`);
+  const fields = lifecycleDecodeFieldBatch(contents.fields, contents.keys, detail);
+  const root = fields.get("rootFieldKey");
+  assert(Array.isArray(root) && root.length === 1,
+    `${detail}: missing live rootFieldKey`);
+  return root[0];
 }
 
 function lifecycleSharedTreeForest(snapshot, path, detail) {
@@ -5259,8 +5378,7 @@ function lifecycleSharedTreeForest(snapshot, path, detail) {
   const metadata = lifecycleJsonBlob(snapshot, forest, ".metadata", `${detail} forest`);
   assert.deepEqual(metadata, { version: 3 }, `${detail}: invalid forest metadata`);
   const contents = lifecycleJsonBlob(snapshot, forest, "contents", `${detail} forest`);
-  assert(Array.isArray(contents?.keys), `${detail}: invalid forest keys`);
-  return lifecycleFieldBatch(contents.fields, `${detail} forest`);
+  return lifecycleRootNode(contents, `${detail} forest`);
 }
 
 function lifecycleSummaryEntry(entries, path, type, detail) {
@@ -5307,11 +5425,13 @@ function lifecycleTreeAttachSnapshot(snapshot, detail) {
   const contents = lifecycleSummaryJsonBlob(
     forest.value?.entries, "contents", `${detail} forest`,
   );
-  assert(Array.isArray(contents?.keys), `${detail}: invalid forest keys`);
-  const fields = lifecycleFieldBatch(contents.fields, `${detail} forest`);
-  assert.deepEqual(
-    fieldBatchFieldPayloads(fields, "label", "active-target"),
-    [["label", "active-target"]],
+  const root = lifecycleRootNode(contents, `${detail} forest`);
+  const label = root.fields.get("label");
+  assert(root.type === "org.watershed.shared-tree.handles.Root"
+    && Array.isArray(label)
+    && label.length === 1
+    && label[0].type === "com.fluidframework.leaf.string"
+    && label[0].value === "active-target",
   `${detail}: attach snapshot target state`);
   validateSchemaString(
     lifecycleSummaryEntry(schema.value?.entries, "SchemaString", "Blob", `${detail} schema`)
@@ -5827,10 +5947,10 @@ export function validateLifecycleCase(value) {
     const targetSummary = lifecycleSharedMapSummary(
       freshPublication.value.snapshot, fresh.value?.path, "fresh-load target summary",
     );
-    const publishedTree = lifecycleSharedTreeForest(
+    const publishedRoot = lifecycleSharedTreeForest(
       freshPublication.value.snapshot, fresh.value?.loadedTree?.path, "fresh-load tree",
     );
-    const publishedLinks = fieldBatchFieldPayloads(publishedTree, "link", "root");
+    const publishedLinks = publishedRoot.fields.get("link");
     check(fresh.value?.loadedVersion === freshPublication.value.publication.handle
       && isDeepStrictEqual(fresh.value?.publication, {
         handle: freshPublication.value.publication.handle,
@@ -5844,9 +5964,13 @@ export function validateLifecycleCase(value) {
       && fresh.value.writerTarget?.path === fresh.value.path
       && typeof fresh.value.loadedTree?.path === "string"
       && fresh.value.loadedTree.path !== fresh.value.path
+      && publishedRoot.type === "org.watershed.shared-tree.handles.Root"
+      && Array.isArray(publishedLinks)
+      && publishedLinks.length === 1
+      && publishedLinks[0].type === "com.fluidframework.leaf.handle"
       && isDeepStrictEqual(
-        publishedLinks,
-        [["link", [{ type: "__fluid_handle__", url: fresh.value.path }]]],
+        publishedLinks[0].value,
+        { type: "__fluid_handle__", url: fresh.value.path },
       )
       && targetSummary.header.content?.value?.value === fresh.value.loadedTarget.before?.value
       && fresh.value.loadedTarget.before?.value === "before"

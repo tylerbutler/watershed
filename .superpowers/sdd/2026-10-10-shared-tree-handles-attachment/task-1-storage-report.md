@@ -407,3 +407,121 @@ Results:
 - No fixture, producer, pin, dependency, lock, profile, or support boundary
   changed.
 - Task 1 and M7 remain open.
+
+## Review fixes, round 3
+
+The round-two use of `fieldBatchFieldPayloads` was not structural decoding. It
+recursively scanned payloads and did not enforce the forest key-to-field map or
+the encoded shape stream. The two remaining review findings are fixed by a
+bounded strict decoder for the captured FieldBatch V2 forms.
+
+### Decoder source evidence
+
+The implementation follows the pinned Fluid 3.1.0 decoder behavior in:
+
+- `feature-libraries/forest-summary/codec.ts`: forest `keys` and decoded fields
+  have equal cardinality and pair by index
+- `feature-libraries/chunked-forest/codec/chunkDecodingGeneric.ts`: every
+  top-level field is a complete shape-indexed stream
+- `feature-libraries/chunked-forest/codec/chunkDecoding.ts`: shape `a` decodes a
+  nested array; shape `c` decodes node type, value, fixed fields, and extra
+  fields in order
+- `feature-libraries/chunked-forest/codec/format/formatV1.ts`: node value and
+  field shape semantics
+
+The local validator supports only the captured `a` and `c` shapes. It rejects
+other shape discriminants explicitly rather than guessing.
+
+### RED
+
+Command:
+
+```sh
+node --test \
+  --test-name-pattern='live root field key|missing encoded field keys|value-free string shape|duplicate keys and invalid shape' \
+  tools/shared-tree-oracle/generate.test.mjs
+```
+
+Result before the decoder change: 6 tests, 0 passed, 6 failed.
+
+Accepted mutations were:
+
+- fresh publication forest keys changed from `["rootFieldKey"]` to
+  `["repair-2"]` without changing encoded fields
+- both active scenarios changed forest keys to `[]` while retaining two encoded
+  fields
+- both active scenarios changed the string leaf shape from `value: true` to
+  `value: false` while retaining the encoded string
+- duplicate top-level field keys, duplicate fixed node field keys, and an
+  out-of-range used shape reference
+
+### Fix
+
+The strict decoder now:
+
+- validates the exact forest and FieldBatch V2 envelopes
+- validates identifier and shape indices
+- requires forest key/data cardinality and unique field keys
+- decodes only used `a` nested-array and `c` node shapes
+- applies `c.value` consumption rules
+- decodes fixed and extra fields in shape order
+- rejects duplicate node field keys
+- requires each encoded stream to be consumed completely
+- returns the field map keyed by the forest's actual `keys`
+
+Fresh-load validation inspects only the decoded `rootFieldKey` root and its
+decoded `link` field. It cannot satisfy the check with `repair-2`, retained
+history, or detached content. Active-target validation inspects the decoded
+root's `label` field and therefore rejects key, shape, and value-consumption
+corruption.
+
+The recursive helper remains private to its pre-existing Identifier artifact
+check and is no longer used by lifecycle storage validation.
+
+No producer code changed, so no source capture or fixture regeneration was
+needed.
+
+### GREEN and final validation
+
+Focused command:
+
+```sh
+node --test \
+  --test-name-pattern='lifecycle validator registers|fresh-load validator|live root field key|active target|attach snapshot|allocation|non-forest|encoded field keys|value-free string|duplicate keys' \
+  tools/shared-tree-oracle/generate.test.mjs
+```
+
+Result: 19 tests passed, 0 failed.
+
+Final commands:
+
+```sh
+node --test tools/shared-tree-oracle/source.test.mjs \
+  tools/shared-tree-oracle/generate.test.mjs
+node --test tools/shared-tree-oracle/codec-interop.test.mjs
+just shared-tree-oracle-check
+git diff --check
+node --check tools/shared-tree-oracle/generate.mjs
+node --check tools/shared-tree-oracle/generate.test.mjs
+node --check tools/shared-tree-oracle/codec-interop.mjs
+```
+
+Results:
+
+- 175 source/generator tests passed, 0 failed, 0 skipped
+- 13 codec-interoperability tests passed, 0 failed, 0 skipped
+- byte reproduction passed for all 68 upstream SharedTree cases
+- diff and JavaScript syntax checks passed
+
+### Round-three self-review
+
+- Current live state is derived from the decoded `rootFieldKey` only.
+- Key cardinality, uniqueness, shape references, value consumption, and full
+  stream consumption are enforced.
+- Detached and retained fields are decoded for integrity but cannot substitute
+  for the live root.
+- Unsupported FieldBatch forms fail explicitly.
+- Allocation validation from round 2 is unchanged.
+- No fixture, producer, pin, dependency, lock, profile, or support boundary
+  changed.
+- Task 1 and M7 remain open.
