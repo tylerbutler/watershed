@@ -100,6 +100,18 @@ pub fn read_root(
   queue_microtask(fn() { dispatch(read(watershed.tree_get(tree, []))) })
 }
 
+pub fn transaction(
+  tree: watershed.SharedTree,
+  constraints: List(watershed.TreeTransactionConstraint),
+  callback: fn(watershed.SharedTree) -> Result(value, callback_error),
+  completed: fn(Result(value, watershed.TreeTransactionError(callback_error))) ->
+    msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let outcome = watershed.tree_transaction(tree, constraints, callback)
+  queue_microtask(fn() { dispatch(completed(outcome)) })
+}
+
 pub fn perform(
   operation: fn() -> Result(Nil, String),
   completed: fn(Result(Nil, String)) -> msg,
