@@ -248,7 +248,13 @@
     "runtime-local-handle-lifetime",
     "reconnect-with-live-handles",
     "object-map-array-move-transaction-undo-redo",
-    "sequenced-commit-outcomes"
+    "sequenced-commit-outcomes",
+    "runtime-local-checkouts",
+    "local-fork-rebase-merge",
+    "checkout-scoped-transactions-and-revertibles",
+    "branch-and-revertible-history-retention",
+    "local-branch-reconnect",
+    "merged-branch-summary-continuation"
   ],
   "excludedFeatures": [
     "array-schema-evolution",
@@ -256,7 +262,6 @@
     "unknown-field-view-adapters",
     "data-migrations",
     "additional-upstream-versions",
-    "shared-branches",
     "gc-sweep",
     "compressed-ops",
     "chunked-ops",
@@ -273,7 +278,6 @@
     "remote-commit-undo",
     "undo-during-transactions",
     "cross-tree-atomic-undo",
-    "public-local-branch-apis",
     "custom-revert-metadata",
     "clone-to-view",
     "revert-to",
@@ -283,6 +287,13 @@
     "no-change-constraints",
     "transaction-metadata",
     "transaction-post-processors",
+    "shared-branches",
+    "persisted-branches",
+    "branch-wire-apis",
+    "branch-schema-authoring",
+    "cross-runtime-or-tree-merge",
+    "portable-branch-handles-and-revertibles",
+    "historical-checkouts",
     "async-cross-tree-transactions"
   ]
 }

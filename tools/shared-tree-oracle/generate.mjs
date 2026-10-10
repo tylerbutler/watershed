@@ -9,6 +9,9 @@ import { reference, runSource, validateCapture } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
 import {
+  branchExcludedFeatures,
+  branchServiceReport,
+  branchSupportedFeatures,
   excludedFeatures,
   supportedFeatures,
   transactionExcludedFeatures,
@@ -5466,7 +5469,9 @@ export async function writeCorpus(output, cases, smoke) {
       },
       branchContract: {
         cases: requiredBranchCases,
-        scope: "pinned executable observations; no native runner registered",
+        supportedFeatures: branchSupportedFeatures,
+        excludedFeatures: branchExcludedFeatures,
+        serviceReport: branchServiceReport,
       },
     },
     nativeSemanticRunners: {
@@ -5481,6 +5486,7 @@ export async function writeCorpus(output, cases, smoke) {
         "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
         ...schemaEvolutionCaseIds,
         ...requiredIdentifierCases.map(([id]) => id),
+        ...requiredBranchCases,
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -5493,6 +5499,7 @@ export async function writeCorpus(output, cases, smoke) {
         "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
         ...schemaEvolutionCaseIds,
         ...requiredIdentifierCases.map(([id]) => id),
+        ...requiredBranchCases,
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

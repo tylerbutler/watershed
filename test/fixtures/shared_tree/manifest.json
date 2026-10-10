@@ -285,7 +285,6 @@
         "remote-commit-undo",
         "undo-during-transactions",
         "cross-tree-atomic-undo",
-        "public-local-branch-apis",
         "custom-revert-metadata",
         "clone-to-view",
         "revert-to",
@@ -315,7 +314,38 @@
         "local-branch-retention",
         "local-branch-recovery"
       ],
-      "scope": "pinned executable observations; no native runner registered"
+      "supportedFeatures": [
+        "runtime-local-checkouts",
+        "local-fork-rebase-merge",
+        "checkout-scoped-transactions-and-revertibles",
+        "branch-and-revertible-history-retention",
+        "local-branch-reconnect",
+        "merged-branch-summary-continuation"
+      ],
+      "excludedFeatures": [
+        "shared-branches",
+        "persisted-branches",
+        "branch-wire-apis",
+        "branch-schema-authoring",
+        "cross-runtime-or-tree-merge",
+        "portable-branch-handles-and-revertibles",
+        "historical-checkouts"
+      ],
+      "serviceReport": {
+        "requiredSections": [
+          "localBranchIsolation",
+          "localBranchConcurrent",
+          "localBranchLifetime",
+          "localBranchReconnect",
+          "localBranchReloadMatrix"
+        ],
+        "nativeTargets": [
+          "javascript",
+          "erlang"
+        ],
+        "seed": 42,
+        "iterations": 300
+      }
     }
   },
   "nativeSemanticRunners": {
@@ -348,7 +378,15 @@
       "identifier-schema",
       "identifier-values",
       "identifier-field-batches",
-      "identifier-persistence"
+      "identifier-persistence",
+      "local-branch-isolation",
+      "local-branch-rebase",
+      "local-branch-merge",
+      "local-branch-transactions",
+      "local-branch-undo",
+      "local-branch-allocation",
+      "local-branch-retention",
+      "local-branch-recovery"
     ],
     "erlang": [
       "id-ranges",
@@ -379,7 +417,15 @@
       "identifier-schema",
       "identifier-values",
       "identifier-field-batches",
-      "identifier-persistence"
+      "identifier-persistence",
+      "local-branch-isolation",
+      "local-branch-rebase",
+      "local-branch-merge",
+      "local-branch-transactions",
+      "local-branch-undo",
+      "local-branch-allocation",
+      "local-branch-retention",
+      "local-branch-recovery"
     ]
   },
   "cases": [

@@ -16,6 +16,8 @@ import {
   observedDocumentServiceFactory,
   openSession,
   arrayServiceStore,
+  branchExcludedFeatures,
+  branchSupportedFeatures,
   mapServiceStore,
   excludedFeatures,
   serviceConfig,
@@ -78,7 +80,6 @@ test("service profile names supported M5 behavior and its limits", () => {
     "remote-commit-undo",
     "undo-during-transactions",
     "cross-tree-atomic-undo",
-    "public-local-branch-apis",
     "custom-revert-metadata",
     "clone-to-view",
     "revert-to",
@@ -92,6 +93,34 @@ test("service profile names supported M5 behavior and its limits", () => {
   ]) {
     assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
   }
+});
+
+test("service profile publishes the local M6 branch boundary", () => {
+  assert.deepEqual(branchSupportedFeatures, [
+    "runtime-local-checkouts",
+    "local-fork-rebase-merge",
+    "checkout-scoped-transactions-and-revertibles",
+    "branch-and-revertible-history-retention",
+    "local-branch-reconnect",
+    "merged-branch-summary-continuation",
+  ]);
+  assert.deepEqual(branchExcludedFeatures, [
+    "shared-branches",
+    "persisted-branches",
+    "branch-wire-apis",
+    "branch-schema-authoring",
+    "cross-runtime-or-tree-merge",
+    "portable-branch-handles-and-revertibles",
+    "historical-checkouts",
+  ]);
+  for (const feature of branchSupportedFeatures) {
+    assert(supportedFeatures.includes(feature), `Missing support: ${feature}`);
+    assert(!excludedFeatures.includes(feature), `Support excluded: ${feature}`);
+  }
+  for (const feature of branchExcludedFeatures) {
+    assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
+  }
+  assert(!excludedFeatures.includes("public-local-branch-apis"));
 });
 
 test("cleanup attempts every resource and attaches failures to the scenario error", () => {

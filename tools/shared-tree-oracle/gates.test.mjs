@@ -18,6 +18,33 @@ const undoRedoCaseIds = [
   "undo-redo-constraints",
   "undo-redo-reconnect",
 ];
+const branchCaseIds = [
+  "local-branch-isolation",
+  "local-branch-rebase",
+  "local-branch-merge",
+  "local-branch-transactions",
+  "local-branch-undo",
+  "local-branch-allocation",
+  "local-branch-retention",
+  "local-branch-recovery",
+];
+const branchSupportedFeatures = [
+  "runtime-local-checkouts",
+  "local-fork-rebase-merge",
+  "checkout-scoped-transactions-and-revertibles",
+  "branch-and-revertible-history-retention",
+  "local-branch-reconnect",
+  "merged-branch-summary-continuation",
+];
+const branchExcludedFeatures = [
+  "shared-branches",
+  "persisted-branches",
+  "branch-wire-apis",
+  "branch-schema-authoring",
+  "cross-runtime-or-tree-merge",
+  "portable-branch-handles-and-revertibles",
+  "historical-checkouts",
+];
 
 function recipeCommands(name) {
   const result = spawnSync("just", [
@@ -78,6 +105,52 @@ test("committed corpus gates the complete undo and redo contract", () => {
   ]);
 });
 
+test("committed profile and corpus publish the complete local branch contract", () => {
+  const profile = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/profile.json"),
+    "utf8",
+  ));
+  const manifest = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/manifest.json"),
+    "utf8",
+  ));
+  assert.deepEqual(
+    profile.supportedFeatures.filter((feature) =>
+      branchSupportedFeatures.includes(feature)),
+    branchSupportedFeatures,
+  );
+  assert.deepEqual(
+    profile.excludedFeatures.filter((feature) =>
+      branchExcludedFeatures.includes(feature)),
+    branchExcludedFeatures,
+  );
+  assert.deepEqual(manifest.inventory.branchContract, {
+    cases: branchCaseIds,
+    supportedFeatures: branchSupportedFeatures,
+    excludedFeatures: branchExcludedFeatures,
+    serviceReport: {
+      requiredSections: [
+        "localBranchIsolation",
+        "localBranchConcurrent",
+        "localBranchLifetime",
+        "localBranchReconnect",
+        "localBranchReloadMatrix",
+      ],
+      nativeTargets: ["javascript", "erlang"],
+      seed: 42,
+      iterations: 300,
+    },
+  });
+  const sourceCases = new Set(manifest.cases.map(({ id }) => id));
+  for (const id of branchCaseIds) {
+    assert(sourceCases.has(id), `Source corpus lacks ${id}`);
+    for (const target of ["javascript", "erlang"]) {
+      assert(manifest.nativeSemanticRunners[target].includes(id),
+        `${target} native coverage lacks ${id}`);
+    }
+  }
+});
+
 test("deep acceptance uses the same coordinator with 7500 schedules", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop-deep"), [
     "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42",
@@ -112,6 +185,8 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.doesNotMatch(nativeWorkflow, /^\s*install_args:/m);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-interop/);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-create-interop/);
+  assert.match(nativeWorkflow, /name: M6 local SharedTree profile validators/);
+  assert.match(nativeWorkflow, /name: M6 local SharedTree native acceptance/);
   assert.equal(existsSync(interopWorkflowPath), true);
 
   const interopWorkflow = readFileSync(interopWorkflowPath, "utf8");
@@ -121,6 +196,8 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.doesNotMatch(interopWorkflow, /^\s*install_args:/m);
   assert.match(interopWorkflow, /run: just shared-tree-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);
+  assert.match(interopWorkflow, /name: M6 local SharedTree profile validators/);
+  assert.match(interopWorkflow, /name: M6 local SharedTree three-client acceptance/);
   assert.match(interopWorkflow, /uses: actions\/upload-artifact@v4/);
 });
 

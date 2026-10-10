@@ -99,11 +99,40 @@ export const undoRedoExcludedFeatures = [
   "remote-commit-undo",
   "undo-during-transactions",
   "cross-tree-atomic-undo",
-  "public-local-branch-apis",
   "custom-revert-metadata",
   "clone-to-view",
   "revert-to",
 ];
+
+export const branchSupportedFeatures = [
+  "runtime-local-checkouts",
+  "local-fork-rebase-merge",
+  "checkout-scoped-transactions-and-revertibles",
+  "branch-and-revertible-history-retention",
+  "local-branch-reconnect",
+  "merged-branch-summary-continuation",
+];
+export const branchExcludedFeatures = [
+  "shared-branches",
+  "persisted-branches",
+  "branch-wire-apis",
+  "branch-schema-authoring",
+  "cross-runtime-or-tree-merge",
+  "portable-branch-handles-and-revertibles",
+  "historical-checkouts",
+];
+export const branchServiceReport = {
+  requiredSections: [
+    "localBranchIsolation",
+    "localBranchConcurrent",
+    "localBranchLifetime",
+    "localBranchReconnect",
+    "localBranchReloadMatrix",
+  ],
+  nativeTargets: ["javascript", "erlang"],
+  seed: 42,
+  iterations: 300,
+};
 
 export const supportedFeatures = [
   "fixed-object-schema",
@@ -127,6 +156,7 @@ export const supportedFeatures = [
   "strict-view-object-map-schema-evolution",
   ...transactionSupportedFeatures,
   ...undoRedoSupportedFeatures,
+  ...branchSupportedFeatures,
 ];
 export const excludedFeatures = [
   "array-schema-evolution",
@@ -134,7 +164,6 @@ export const excludedFeatures = [
   "unknown-field-view-adapters",
   "data-migrations",
   "additional-upstream-versions",
-  "shared-branches",
   "gc-sweep",
   "compressed-ops",
   "chunked-ops",
@@ -148,6 +177,7 @@ export const excludedFeatures = [
   "uuidv5-healing",
   ...undoRedoExcludedFeatures,
   ...transactionExcludedFeatures,
+  ...branchExcludedFeatures,
   "async-cross-tree-transactions",
 ];
 

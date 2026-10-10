@@ -52,6 +52,7 @@ import {
   validateTransactionConstraints,
 } from "./interop-scenarios.mjs";
 import {
+  branchServiceReport,
   preflight,
   excludedFeatures,
   serviceConfig,
@@ -100,13 +101,7 @@ export const requiredUndoRedoSections = [
   "undoRedoReconnect",
   "undoRedoReloadMatrix",
 ];
-export const requiredLocalBranchSections = [
-  "localBranchIsolation",
-  "localBranchConcurrent",
-  "localBranchLifetime",
-  "localBranchReconnect",
-  "localBranchReloadMatrix",
-];
+export const requiredLocalBranchSections = branchServiceReport.requiredSections;
 const localBranchFieldKinds = [
   "object",
   "map",
@@ -135,7 +130,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "df753f54b96d22433cbbc35b74d387240074e7ef92530ebc1b1861905aae9c68";
+  "51a465c9e685197b578eaa1a53cea84aa2da955da1000855fa5214534fb84608";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {

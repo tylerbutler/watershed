@@ -3877,7 +3877,6 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "remote-commit-undo",
       "undo-during-transactions",
       "cross-tree-atomic-undo",
-      "public-local-branch-apis",
       "custom-revert-metadata",
       "clone-to-view",
       "revert-to",
@@ -3887,6 +3886,38 @@ test("manifest records complete native runners and actual wire field kinds", asy
     commitKinds: ["Default", "Undo", "Redo"],
     settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
     handleLifetime: "runtime-local",
+  });
+  assert.deepEqual(manifest.inventory.branchContract, {
+    cases: generator.requiredBranchCases,
+    supportedFeatures: [
+      "runtime-local-checkouts",
+      "local-fork-rebase-merge",
+      "checkout-scoped-transactions-and-revertibles",
+      "branch-and-revertible-history-retention",
+      "local-branch-reconnect",
+      "merged-branch-summary-continuation",
+    ],
+    excludedFeatures: [
+      "shared-branches",
+      "persisted-branches",
+      "branch-wire-apis",
+      "branch-schema-authoring",
+      "cross-runtime-or-tree-merge",
+      "portable-branch-handles-and-revertibles",
+      "historical-checkouts",
+    ],
+    serviceReport: {
+      requiredSections: [
+        "localBranchIsolation",
+        "localBranchConcurrent",
+        "localBranchLifetime",
+        "localBranchReconnect",
+        "localBranchReloadMatrix",
+      ],
+      nativeTargets: ["javascript", "erlang"],
+      seed: 42,
+      iterations: 300,
+    },
   });
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
@@ -3902,6 +3933,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "schema-evolution-history", "schema-evolution-codecs",
       "identifier-schema", "identifier-values",
       "identifier-field-batches", "identifier-persistence",
+      ...generator.requiredBranchCases,
     ]);
   }
 });
