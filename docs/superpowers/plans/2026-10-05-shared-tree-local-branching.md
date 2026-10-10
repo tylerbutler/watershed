@@ -874,9 +874,10 @@ still admitted false claims, which later review fixed. The reported
 refusal-injection race was never reproduced on the unchanged execution base
 and is not a claimed baseline waiver.
 
-Task 10 profile publication and Task 11 full regression and section 5
-acceptance audit remain open. No hosted workflow was dispatched, and this
-task does not close M6 or authorize shared or persisted branches.
+Task 10 later published this evidence in the runtime-local profile and
+permanent gates. Task 11 full regression and section 5 acceptance audit remain
+open. No hosted workflow was dispatched, and Task 9 did not close M6 or
+authorize shared or persisted branches.
 
 - [x] **Step 1: Add command protocol RED for actual client-owned branches.**
 
@@ -950,7 +951,16 @@ parent roadmap, this plan, `.github/workflows/shared-tree.yml`,
 **Consumes:** Complete native and real-service evidence.
 **Produces:** Accurate supported local-branch contract and permanent enforcement.
 
-- [ ] **Step 1: Add failing profile/gate assertions.**
+**Execution status:** Complete. The generated profile and manifest publish the
+runtime-local M6 boundary, register all eight branch cases on both native
+targets, and bind service acceptance to the five complete Task 9 branch
+sections, seed 42, and 300 schedules. Permanent gates reject missing metadata,
+native coverage, report evidence, and stale profile bytes. The public docs cover
+the lifecycle, application-owned undo, settlement, retention, reconnect,
+schema refusal, and reload loss. Native checks remain automatic; real-service
+acceptance remains manual. Task 11 is still open.
+
+- [x] **Step 1: Add failing profile/gate assertions.**
 
   Require feature labels:
 
@@ -968,7 +978,7 @@ parent roadmap, this plan, `.github/workflows/shared-tree.yml`,
   branch wire APIs, branch schema authoring, cross-runtime merge, portable
   handles, and historical checkout explicitly unsupported.
 
-- [ ] **Step 2: Generate metadata and run validator gates.**
+- [x] **Step 2: Generate metadata and run validator gates.**
 
   ```bash
   rtk proxy npm --prefix tools/shared-tree-oracle run generate
@@ -976,7 +986,7 @@ parent roadmap, this plan, `.github/workflows/shared-tree.yml`,
   rtk proxy npm --prefix tools/shared-tree-oracle test
   ```
 
-- [ ] **Step 3: Document the public lifecycle and resource contract.**
+- [x] **Step 3: Document the public lifecycle and resource contract.**
 
   Show a fork edited through existing APIs, an explicit rebase, merge with
   disposal, preserved-source merge, and disposal on a failed workflow. Include
@@ -984,7 +994,7 @@ parent roadmap, this plan, `.github/workflows/shared-tree.yml`,
   semantics. Explain memory pins, ready-phase rules, reconnect, schema
   divergence, and reload loss without promising disk recovery.
 
-- [ ] **Step 4: Wire the existing workflow gates and roadmap.**
+- [x] **Step 4: Wire the existing workflow gates and roadmap.**
 
   Keep native checks on PR/main and real-service acceptance manual. Do not
   trigger a hosted workflow without user authorization. Publish only the local

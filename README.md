@@ -448,6 +448,92 @@ stacks, schema undo, remote-commit undo, cross-tree atomic undo, public
 branches, `noChange`, custom revert metadata, clone-to-view, and `revertTo`
 remain outside the profile. Richer Lustre and UI bindings remain M7 work.
 
+### SharedTree local branches
+
+`tree_fork` creates an in-memory checkout of the same runtime, document, and
+tree. Read and edit that checkout with the existing tree, map, array, move,
+Identifier, transaction, subscription, and revertible APIs. A fork does not
+submit tree operations until it is merged.
+
+```gleam
+import gleam/result
+import watershed
+import watershed/tree/types
+
+pub fn publish_draft(
+  main: watershed.SharedTree,
+) -> Result(Nil, String) {
+  use draft <- result.try(watershed.tree_fork(main))
+  case
+    watershed.tree_set(
+      draft,
+      ["title"],
+      types.StringValue("reviewed draft"),
+    )
+    |> result.then(fn(_) { watershed.tree_rebase_onto(draft, main) })
+    |> result.then(fn(_) { watershed.tree_merge(main, draft, True) })
+  {
+    Ok(Nil) -> Ok(Nil)
+    Error(error) -> {
+      // Merge with disposal can already have disposed the source. Keep the
+      // workflow error and make cleanup best-effort.
+      let _ = watershed.tree_dispose_branch(draft)
+      Error(error)
+    }
+  }
+}
+```
+
+Pass `True` to dispose the source after merge. Pass `False` when a workflow
+must keep the source checkout for more edits or another merge:
+
+```gleam
+pub fn publish_in_stages(
+  main: watershed.SharedTree,
+) -> Result(Nil, String) {
+  use draft <- result.try(watershed.tree_fork(main))
+  use _ <- result.try(watershed.tree_map_set(
+    draft,
+    ["settings"],
+    "theme",
+    types.StringValue("night"),
+  ))
+  use _ <- result.try(watershed.tree_merge(main, draft, False))
+  use _ <- result.try(watershed.tree_map_set(
+    draft,
+    ["settings"],
+    "density",
+    types.StringValue("compact"),
+  ))
+  use _ <- result.try(watershed.tree_rebase_onto(draft, main))
+  watershed.tree_merge(main, draft, True)
+}
+```
+
+Undo and redo remain application-owned. Subscribe to commits on the branch,
+acquire its one-shot revertible factory during the callback, and queue the
+result through the same `UndoMessage` dispatch pattern above. Do not call the
+application update loop directly from a commit callback. A branch registration
+does not settle merely because the local forest changed. If its commit is
+merged, the target commit can settle after sequencing; an accepted source
+registration remains independent of the subscription that created it, but
+disposing that source cancels its outstanding registrations.
+
+Local checkouts pin ancestry and repair data in memory. Revertibles add their
+own pins. Dispose unused handles and branches; descendants retain their own
+pins and remain usable. Authoring and publication still require the ready
+phase. Disconnect and reconnect in the same runtime preserve branches, pending
+main origins, and live handles. Runtime close or a fresh summary load loses all
+local branches, subscriptions, handles, and application stacks. Only merged
+document state reloads and continues editing.
+
+Branch schema authoring is unsupported. A schema change on main can make a
+branch incompatible; an unsupported reconciliation fails atomically rather
+than silently changing either checkout. Shared or persisted branches, branch
+wire APIs, cross-runtime or cross-tree merge, historical checkouts, portable
+handles, async transactions, offline or disk recovery, managed undo stacks,
+clone-to-view, `revertTo`, and preview diffs remain outside this profile.
+
 Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
 `tree_map_entries` on either facade. Each operation takes a path to the map;
 single-entry operations take the key as a separate argument. Per-key edits,
@@ -489,9 +575,10 @@ collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
 Map-wide clear, array schema evolution, staged upgrades,
-unknown-field adapters, data migration, handle-valued tree leaves, branching,
-persisted undo stacks, and incremental summaries remain deferred. Transaction
-and undo/redo support is limited as described above.
+unknown-field adapters, data migration, handle-valued tree leaves, shared or
+persisted branching, persisted undo stacks, and incremental summaries remain
+deferred. Transaction, undo/redo, and runtime-local branch support is limited
+as described above.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
 attachment, richer SharedTree Lustre bindings, and disk recovery of pending

@@ -912,14 +912,69 @@ The service and generated profiles publish these support labels:
 - `sequenced-commit-outcomes`
 
 They explicitly exclude persisted stacks, schema undo, remote-commit undo,
-undo during transactions, cross-tree atomic undo, public local-branch APIs,
-custom revert metadata, clone-to-view, and `revertTo`. Shared branches and
-`noChange` remain excluded by the full profile.
+undo during transactions, cross-tree atomic undo, custom revert metadata,
+clone-to-view, and `revertTo`. Shared branches and `noChange` remain excluded
+by the full profile.
 
 The manifest records these support labels and all named exclusions with the
 case IDs, commit kinds, settlement outcomes, and runtime-local handle lifetime under
 `inventory.undoRedoContract`. The injected suite runs in its own deterministic
 Mocha process so its identities cannot shift the older corpus.
+
+### Local branch source and service contract
+
+The eight local branch cases are:
+
+- `local-branch-isolation`
+- `local-branch-rebase`
+- `local-branch-merge`
+- `local-branch-transactions`
+- `local-branch-undo`
+- `local-branch-allocation`
+- `local-branch-retention`
+- `local-branch-recovery`
+
+Both native semantic runner inventories include all eight. The manifest also
+requires the five complete real-service sections: isolation, concurrent edits,
+lifetime, reconnect, and the reload matrix. The accepted Task 9 report
+`cc306c0d-c744-484b-aa1e-105eb4934ae2` ran 300 seed-42 schedules and the
+complete JavaScript and Erlang corpus selections. The permanent validators
+reject omitted branch sections, rows, raw publications, settlement evidence,
+reload cells, target runners, and stale profile digests.
+
+The service and generated profiles publish these support labels:
+
+- `runtime-local-checkouts`
+- `local-fork-rebase-merge`
+- `checkout-scoped-transactions-and-revertibles`
+- `branch-and-revertible-history-retention`
+- `local-branch-reconnect`
+- `merged-branch-summary-continuation`
+
+They explicitly exclude shared and persisted branches, branch wire APIs,
+branch schema authoring, cross-runtime or cross-tree merge, portable branch
+handles and revertibles, and historical checkouts. Local branches reuse the
+existing Message V7, SharedTreeChange V5, ModularChange V5, Schema V2, fixed
+bootstrap map, and tree channel. They add no branch wire or summary format.
+
+Fork edits use the existing public tree APIs and remain local until merge.
+Rebase changes the source, not the target. Merge with source disposal is the
+normal lifecycle; preserved-source merge is supported for workflows that need
+more edits or another merge. Failed workflows must preserve their primary error
+while attempting branch cleanup.
+
+Branch commit subscriptions use application-owned undo stacks and queued
+callback dispatch. A local forest edit is not a sequenced settlement. Target
+merge commits can settle after service acceptance; source registrations are
+checkout-scoped and disposal cancels the outstanding source registrations.
+Branches and revertibles pin runtime memory until rebase, disposal, or runtime
+close releases it.
+
+Ready-phase rules still apply. Reconnect in the same runtime retains local
+checkouts and handles. Fresh summary load restores only merged document state;
+it does not restore branches, subscriptions, handles, or application stacks.
+Branch schema authoring is rejected atomically. There is no offline or disk
+recovery guarantee for unmerged branch state.
 
 ### Native runtime interoperability
 

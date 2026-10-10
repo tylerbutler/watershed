@@ -39,8 +39,8 @@ its service evidence is recorded below.
 | M3: arrays and moves | Implemented and published. | [Arrays and moves](2026-09-26-shared-tree-arrays.md); array schema evolution remains excluded. |
 | M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
-| M5: transactions and undo/redo | Implemented and published, with passing local native, codec, service, creation, and repository tests. Full build and standalone browser acceptance remain blocked by a reproduced baseline pnpm policy failure. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; combined evidence below. |
-| M6: branching | Runtime-local facades and real-service proof are implemented through Task 9; profile publication and full release acceptance remain open. | [Local branching](2026-10-05-shared-tree-local-branching.md), Tasks 10-11. Shared/persisted branches remain excluded and require a separate profile/version decision. |
+| M5: transactions and undo/redo | Implemented and published, with passing local native, codec, service, creation, and repository tests. The earlier pnpm policy failure is historical; the checklist lockfile repair is committed and Task 11 owns the final build/browser result. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; combined evidence below. |
+| M6: branching | Runtime-local facades, real-service proof, supported metadata, and permanent gates are published through Task 10; full release acceptance remains open. | [Local branching](2026-10-05-shared-tree-local-branching.md), Task 11. Shared/persisted branches remain excluded and require a separate profile/version decision. |
 | M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
@@ -49,17 +49,17 @@ undo/redo slices. Both native facades expose runtime-local revertible handles,
 and the profile names application-owned stacks, commit kinds, reconnect,
 object/map/array/move/transaction reversion, and sequenced outcomes. The local
 M5 evidence below covers native behavior and real-service interoperability;
-the full build and standalone SharedTree browser gate remain blocked. No
-hosted workflow was dispatched for that continuation. The local M6 slice has
-separate native and service evidence; it is not yet published in the supported
-profile.
+the earlier build and browser policy failure remains historical evidence, while
+Task 11 owns the current release result. No hosted workflow was dispatched for
+that continuation. The local M6 slice is now published in the supported profile
+with separate native and service evidence.
 
-The current manifest has 63 generated cases and 29 registered native semantic
+The current manifest has 63 generated cases and 37 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
 7,500 for the deep run. `.github/workflows/shared-tree.yml` runs the native
 checks automatically; `.github/workflows/shared-tree-interop.yml` runs service
-acceptance only on manual dispatch. Their M5 names describe the published
-profile, and workflow existence is not fresh execution evidence. The browser
+acceptance only on manual dispatch. Their M6 names describe the published
+runtime-local profile, and workflow existence is not fresh execution evidence. The browser
 checklist is a separate manual recipe, not the website browser workflow.
 
 ### Deferred branch-schema work
@@ -103,8 +103,8 @@ settlement projection. Complete test footers are required; partial passing
 output is not acceptance evidence. The [local branching plan](2026-10-05-shared-tree-local-branching.md#task-9-prove-local-branch-merges-through-pinned-floodgate)
 records the final proof and the limits of earlier runs.
 
-This does not close M6. Task 10 publishes the local profile and permanent
-gates; Task 11 performs full repository, build, browser, and acceptance-matrix
+Task 10 now publishes the local profile and permanent gates. This does not close
+M6: Task 11 performs full repository, build, browser, and acceptance-matrix
 closure. No hosted workflow was dispatched, and shared/persisted branches
 remain outside this scope.
 
@@ -2366,8 +2366,10 @@ M5's [transaction plan](2026-09-29-shared-tree-transactions.md) implements
 synchronous single-tree callbacks, nested savepoints, abort, composed outer
 commits, and stable node-existence constraints. The generated profile, service
 profile, public documentation, and permanent gate definitions now publish that
-restricted slice. Task 11 records passing local native and service evidence,
-with full-build acceptance blocked by the baseline pnpm policy failure.
+restricted slice. Task 11 records passing local native and service evidence.
+The historical pnpm policy failure was repaired by the lockfile-only commit
+`a77cb140`; the current build and browser checklist pass, while the final Task
+11 outcome remains pending.
 
 The [undo/redo plan](2026-10-02-shared-tree-undo-redo.md) implements and
 publishes commit subscriptions, commit kinds, one-shot factories,
@@ -2376,8 +2378,9 @@ local or remote edits. Applications own their stacks. Reconnect retains live
 handles in-process; reload preserves committed document state but does not
 recreate old handles. Schema commits, active-transaction reversion,
 async/cross-tree transactions, and persisted application stacks remain
-outside the profile. Task 10 records local regression evidence; full build and
-standalone browser acceptance remain blocked by the same baseline failure.
+outside the profile. Task 10 records local regression evidence. The historical
+build/browser block is resolved; Task 11 remains responsible for the complete
+release result.
 
 Keep the original specification's milestone numbering, but use this roadmap
 and each feature plan's dated reconciliation for implementation status. Each
