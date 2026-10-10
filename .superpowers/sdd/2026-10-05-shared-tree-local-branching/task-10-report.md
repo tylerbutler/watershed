@@ -127,3 +127,130 @@ callback after unsubscription. The unchanged execution base reproduces the
 narrow test failure only after the M6 production commit. Task 11 owns the
 targeted production fix and full regression closure. Task 10 profile and oracle
 gates are green and do not waive this issue.
+
+## FIX ROUND1
+
+**Review base:** `5b5efc58`
+
+### Findings addressed
+
+1. **The README fork/edit example used a nonexistent API.**
+   Replaced both `result.then` calls with `result.try`.
+
+2. **The preserved-source example leaked a checkout on error.**
+   Wrapped every post-fork operation in one result pipeline. Any error now
+   attempts `tree_dispose_branch(draft)` and returns the original workflow
+   error even if cleanup also fails. The successful preserved-source path still
+   merges with `dispose_source: False`, continues editing, rebases, and finishes
+   with a disposing merge.
+
+3. **Branch evidence was not bound to the accepted run or profile.**
+   Every one of the five branch sections now records the current run ID and
+   profile digest. Every branch row writes a verified `local-branch` artifact
+   containing the complete captured row, including raw client, service,
+   transport, storage, and continuation evidence. The final validator requires
+   those artifacts, verifies their run, digest, kind, subject, and document
+   scope, and compares the report row with the immutable captured artifact.
+   `artifactReferences` now includes every branch-row artifact.
+
+### TDD RED/GREEN
+
+#### README public examples
+
+Added a permanent gate that extracts both Gleam blocks from the README local
+branch section, writes them as a temporary module in the existing compiled
+`tools/website-samples` package, and runs the Gleam compiler against the live
+public Watershed API.
+
+RED command:
+
+```text
+node --test --test-name-pattern='README local branch examples compile' tools/shared-tree-oracle/gates.test.mjs
+```
+
+Correct RED:
+
+```text
+error: Unknown module value
+result.then
+The module `gleam/result` does not have a `then` value.
+tests 1, pass 0, fail 1
+```
+
+GREEN after the README fixes:
+
+```text
+tests 1, pass 1, fail 0
+```
+
+The complete permanent gate file then passed:
+
+```text
+node --test tools/shared-tree-oracle/gates.test.mjs
+tests 10, pass 10, fail 0
+```
+
+#### Current-run, current-profile artifact binding
+
+Added behavior-specific mutations for:
+
+- each of the five branch sections copied from another run;
+- each section copied with another profile digest;
+- missing artifacts in each section;
+- verified branch artifact claims carrying a prior run ID;
+- verified branch artifact claims carrying a prior profile digest.
+
+RED command:
+
+```text
+node --test --test-name-pattern='branch sections reject copied|branch sections require verified' tools/shared-tree-oracle/interop.test.mjs
+```
+
+Correct RED:
+
+```text
+branch sections reject copied prior-run and prior-profile evidence:
+Missing expected exception
+branch sections require verified captured artifacts:
+Missing expected exception
+tests 2, pass 0, fail 2
+```
+
+GREEN commands and results:
+
+```text
+node --test --test-name-pattern='a complete current-run report|branch sections reject copied|branch sections require verified|branch artifacts reject' tools/shared-tree-oracle/interop.test.mjs
+tests 4, pass 4, fail 0
+
+node --test --test-name-pattern='local branch|branch sections|branch artifacts|complete current-run' tools/shared-tree-oracle/interop.test.mjs
+tests 24, pass 24, fail 0
+
+node --test --test-name-pattern='kind source artifacts|artifact evidence|artifact coordinator|branch sections|branch artifacts|complete current-run' tools/shared-tree-oracle/interop.test.mjs
+tests 6, pass 6, fail 0
+```
+
+### Final verification
+
+```text
+npm --prefix tools/shared-tree-oracle run check
+Verified 63 upstream SharedTree cases
+
+npm --prefix tools/shared-tree-oracle test
+tests 534, pass 534, fail 0, skipped 0
+```
+
+`git diff --check` passed for both committed chunks.
+
+### Fix commits
+
+- `48739310` — `docs(tree): fix local branch examples`
+- `d4c0194a` — `test(tree): bind branch reports to artifacts`
+
+The concurrent Task 11 runtime fix `b2e10a17` is not part of these staged
+changes. No Task 11 implementation, final acceptance documentation, schema,
+codec, profile-version, dependency, or lockfile change was made in this round.
+
+### Round 1 concerns
+
+None in Task 10 scope. Task 11 still owns final repository and release
+acceptance.
