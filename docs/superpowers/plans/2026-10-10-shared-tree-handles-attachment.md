@@ -911,6 +911,29 @@ unserialized removed-dependency scenario. The producer now captures five
 source-only cases in an isolated process. The spec records the measured
 checkpoints and their limitations.
 
+Preliminary recovery was committed as `80e4d09a`
+(`test(tree): start handle lifecycle discovery`). A scoped review found five
+evidence-validation gaps and two incorrectly associated records. The commit
+corrected them, and a scoped re-review marked all seven findings addressed.
+That review did not accept the complete Task 1 contract.
+
+Current recovery evidence:
+
+| Command | Result |
+| --- | --- |
+| Bounded `source.mjs lifecycle-capture` | Five source tests executed and passed, with no skips. |
+| `just shared-tree-oracle` | Generated 68 cases, including five new source-only lifecycle cases. |
+| `just shared-tree-oracle-check` | All 68 cases reproduced byte-for-byte. |
+| Source/generate Node suite after the scoped fixes | 173 passed, no failures or skips. |
+| Native fixture-loader selections after the scoped fixes | 22 Erlang and 22 JavaScript tests passed. |
+| `just shared-tree-test` during recovery, before validator-only fixes | 1084 Erlang and 1057 JavaScript tests passed; storage, bootstrap and creation smokes completed. |
+
+The existing negative source corpus prints caught upstream assertion
+diagnostics; target compilers also report existing unused-function and
+JavaScript unsafe-integer fixture warnings. These are not skipped gates.
+The generated supported profile and its 37 native semantic runners per target
+are unchanged.
+
 **Task 1 remains open.** The full discovery gate requires the missing
 publication/storage, document-level GC, replay-input and lifecycle evidence
 listed in the spec. Tasks 2-9 have not started. The generated profile and native
