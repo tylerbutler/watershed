@@ -68,6 +68,24 @@ document ripples.
 **Typed** (over a `watershed/schema` `TypedMap`):
 `subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
 
+**SharedTree** (`watershed_lustre/tree`) keeps transactions and undo handles in
+the same effect discipline:
+
+- `transaction` runs a synchronous native transaction when the effect is
+  performed, then delivers its typed value or callback error in a microtask.
+- `subscribe_commits` reports default, undo, and redo commits. Eligible local
+  commits include a retained revertible handle; remote and schema commits do
+  not. Settlement arrives separately after sequencing decides the outcome.
+- `revert` and `dispose_revertible` run only when their effects are performed.
+  The app owns its undo and redo stacks and must dispose every retained handle
+  it does not keep.
+- The existing `unsubscribe` accepts change-subscription and commit-subscription
+  tokens. It stops future native callbacks, but a message already queued for a
+  microtask can still arrive. An app that stops accepting history must also
+  dispose any late handle it receives.
+- Closing the document disposes runtime-owned handles. It does not persist or
+  manage application history.
+
 **Claims writes** — `claim_once(claims, key, value, to_msg:)` and
 `compare_and_set_claim(claims, key, value, to_msg:)` submit a claim and
 deliver its `claims_kernel.ClaimOutcome` (`Accepted` / `Lost` / `Aborted`)

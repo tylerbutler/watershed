@@ -1,5 +1,5 @@
 import gleam/javascript/promise
-import gleam/option.{type Option}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import lustre/effect.{type Effect}
 import watershed
@@ -10,6 +10,14 @@ import watershed/tree_kernel
 
 @external(javascript, "../watershed_lustre_ffi.mjs", "queue_microtask")
 fn queue_microtask(action: fn() -> Nil) -> Nil
+
+pub type CommitEvent {
+  CommitEvent(
+    kind: tree_types.TreeCommitKind,
+    local: Bool,
+    revertible: Option(watershed.TreeRevertible),
+  )
+}
 
 pub fn create(
   config: container.CreateConfig,
@@ -87,6 +95,43 @@ pub fn subscribe(
   queue_microtask(fn() { dispatch(subscribed(subscription)) })
 }
 
+pub fn subscribe_commits(
+  tree: watershed.SharedTree,
+  subscribed: fn(watershed.SubscriptionToken) -> msg,
+  committed: fn(Result(CommitEvent, String)) -> msg,
+  settled: fn(Result(tree_types.TreeCommitOutcome, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let subscription =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let watershed.TreeCommitEvent(kind, local, get_revertible, on_settled) =
+        event
+      let captured = case get_revertible {
+        None -> Ok(CommitEvent(kind, local, None))
+        Some(acquire) ->
+          acquire()
+          |> result.map(fn(revertible) {
+            CommitEvent(kind, local, Some(revertible))
+          })
+      }
+      queue_microtask(fn() { dispatch(committed(captured)) })
+      case on_settled {
+        None -> Nil
+        Some(register) ->
+          case
+            register(fn(outcome) {
+              queue_microtask(fn() { dispatch(settled(Ok(outcome))) })
+            })
+          {
+            Ok(Nil) -> Nil
+            Error(error) ->
+              queue_microtask(fn() { dispatch(settled(Error(error))) })
+          }
+      }
+    })
+  queue_microtask(fn() { dispatch(subscribed(subscription)) })
+}
+
 pub fn unsubscribe(subscription: watershed.SubscriptionToken) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed.unsubscribe(subscription)
@@ -110,6 +155,21 @@ pub fn transaction(
   use dispatch <- effect.from
   let outcome = watershed.tree_transaction(tree, constraints, callback)
   queue_microtask(fn() { dispatch(completed(outcome)) })
+}
+
+pub fn revert(
+  revertible: watershed.TreeRevertible,
+  dispose: Bool,
+  completed: fn(Result(Nil, String)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { watershed.tree_revert(revertible, dispose) }, completed)
+}
+
+pub fn dispose_revertible(
+  revertible: watershed.TreeRevertible,
+  completed: fn(Result(Nil, String)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { watershed.tree_dispose_revertible(revertible) }, completed)
 }
 
 pub fn perform(
