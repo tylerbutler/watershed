@@ -281,6 +281,12 @@ test("fresh-load validator rejects a different genuine publication", async () =>
   observation.value.loadedVersion = replacement.publication.handle;
   observation.value.snapshotSequenceNumber = replacement.snapshot.sequenceNumber;
   observation.value.documentGc = replacement.metadata.gcNodes;
+  observation.value.publication = {
+    handle: replacement.publication.handle,
+    snapshotSequenceNumber: replacement.snapshot.sequenceNumber,
+    acknowledgementSequenceNumber: replacement.publication.acknowledgementSequenceNumber,
+  };
+  observation.value.continuation.publicationHandle = replacement.publication.handle;
   value.raw.serialization.find((item) =>
     item.scenarioId === "fresh-load" && item.kind === "stored-summary-blobs").value =
       Object.keys(replacement.snapshot.blobs);
@@ -393,6 +399,44 @@ for (const [id, scenarioId] of [
     }
     assert.throws(() => validateLifecycleCase(value),
       new RegExp(`${scenarioId}.*allocation`, "i"));
+  });
+
+  test(`${scenarioId} validator rejects a non-forest attach payload`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      const snapshot = grouped.contents.find((entry) =>
+        entry.contents?.type === "component")
+        .contents.contents.contents.content.snapshot;
+      const indexes = snapshot.entries.find((entry) => entry.path === "indexes");
+      const forest = indexes.value.entries.find((entry) => entry.path === "Forest");
+      forest.value.entries.find((entry) => entry.path === "contents").value.contents =
+        "not a SharedTree forest: active-target";
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*forest|attach snapshot`, "i"));
+  });
+
+  test(`${scenarioId} validator rejects a malformed creation range`, async () => {
+    const value = await lifecycleCapture(id);
+    const observation = value.expected.observations.find((item) => item.id === scenarioId);
+    const attempt = value.raw.messages.find((item) =>
+      item.scenarioId === scenarioId && item.kind === "document-attachment");
+    for (const transport of [observation.value.transport, attempt.value.transport]) {
+      const grouped = JSON.parse(transport.find((message) => message.type === "op").contents);
+      const allocation = grouped.contents.find((entry) =>
+        entry.contents?.type === "idAllocation").contents.contents;
+      allocation.sessionId = "";
+      allocation.ids.firstGenCount = -100;
+      allocation.ids.localIdRanges = ["not a range"];
+      transport.find((message) => message.type === "op").contents = JSON.stringify(grouped);
+    }
+    assert.throws(() => validateLifecycleCase(value),
+      new RegExp(`${scenarioId}.*creation range|allocation`, "i"));
   });
 }
 

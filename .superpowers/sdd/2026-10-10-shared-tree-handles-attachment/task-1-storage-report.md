@@ -324,3 +324,86 @@ still preserve upstream wire ordering.
   edited by hand.
 - Pins, cases, profile, process isolation, and the source-only support boundary
   are unchanged.
+
+## Review fixes, round 2
+
+The scoped re-review accepted the stored header and protocol fix, but found
+that publication substitution and malformed active-target payloads still
+passed. Both remaining findings are fixed without changing the producer or
+regenerating fixtures.
+
+### RED
+
+Command:
+
+```sh
+node --test \
+  --test-name-pattern='different genuine publication|non-forest attach payload|malformed creation range' \
+  tools/shared-tree-oracle/generate.test.mjs
+```
+
+Result before the round-two validator fixes: 5 tests, 0 passed, 5 failed.
+
+- The genuine `after-removal` publication was accepted after updating every
+  fresh-load descriptor copy: loaded version, snapshot sequence, document GC,
+  publication handle/sequence/acknowledgement, continuation publication handle,
+  and stored blob list. Raw continuation transport was unchanged.
+- Both active scenarios accepted the nonempty forest text
+  `not a SharedTree forest: active-target` in raw and observation copies.
+- Both active scenarios accepted allocation payloads with an empty session ID,
+  `firstGenCount: -100`, and `localIdRanges: ["not a range"]` in both copies.
+
+### Fix
+
+- Exported and reused the existing structural FieldBatch field parser.
+- The fresh publication now parses the published SharedTree forest and requires
+  the current root `link` field to contain exactly the loaded target handle.
+  Historical and GC occurrences do not satisfy this check.
+- Active attach validation now parses the genuine summary tree, metadata,
+  schema, forest FieldBatch, detached index, and edit-manager record. The
+  measured forest must contain the `active-target` label structurally.
+- Allocation validation now reuses `assertCreationRange`.
+- The allocation session must equal the attach edit-manager session, and the
+  measured attach revision must fall inside that creation range.
+
+No producer code changed, so no source recapture or corpus regeneration was
+needed.
+
+### GREEN and final validation
+
+Focused command:
+
+```sh
+node --test \
+  --test-name-pattern='different genuine publication|non-forest attach payload|malformed creation range|lifecycle validator registers|active target records a real' \
+  tools/shared-tree-oracle/generate.test.mjs
+```
+
+Result: 7 tests passed, 0 failed.
+
+Final commands:
+
+```sh
+node --test tools/shared-tree-oracle/source.test.mjs \
+  tools/shared-tree-oracle/generate.test.mjs
+node --test tools/shared-tree-oracle/codec-interop.test.mjs
+just shared-tree-oracle-check
+```
+
+Results:
+
+- 169 source/generator tests passed, 0 failed, 0 skipped
+- 13 codec-interoperability tests passed, 0 failed, 0 skipped
+- byte reproduction passed for all 68 upstream SharedTree cases
+
+### Round-two self-review
+
+- Publication identity is derived from the current live forest field, not a
+  path substring or copied descriptor.
+- Attach state is derived from parsed FieldBatch structure, not text presence.
+- Allocation structure uses the shared complete creation-range validator.
+- Allocation and attachment are joined through the measured author session and
+  revision range.
+- No fixture, producer, pin, dependency, lock, profile, or support boundary
+  changed.
+- Task 1 and M7 remain open.

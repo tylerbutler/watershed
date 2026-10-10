@@ -366,7 +366,7 @@ function containsValue(value, expected) {
   return false;
 }
 
-function identifierPayloads(value, field, label) {
+export function fieldBatchFieldPayloads(value, field, label) {
   const payloads = [];
   function visit(item) {
     if (Array.isArray(item)) {
@@ -425,7 +425,7 @@ function validateIdentifierEncoding(item) {
     && (encoding.representation === "number" || encoding.representation === "string")
     && typeof encoding.stableId === "string",
   `${item.id} Identifier encoding`);
-  const payloads = identifierPayloads(
+  const payloads = fieldBatchFieldPayloads(
     identifierWireInput(item),
     encoding.field,
     encoding.label,

@@ -14,6 +14,7 @@ import {
 } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
+import { fieldBatchFieldPayloads } from "./codec-interop.mjs";
 import {
   branchExcludedFeatures,
   branchServiceReport,
@@ -5232,25 +5233,110 @@ function lifecycleSharedMapSummary(snapshot, path, detail) {
   return { tree, header };
 }
 
+function lifecycleFieldBatch(value, detail) {
+  assert(object(value)
+    && value.version === 2
+    && Array.isArray(value.identifiers)
+    && Array.isArray(value.shapes)
+    && Array.isArray(value.data),
+  `${detail}: invalid FieldBatch`);
+  return value;
+}
+
+function lifecycleSharedTreeForest(snapshot, path, detail) {
+  const [, datastoreId, channelId] = path.split("/");
+  assert(datastoreId && channelId, `${detail}: invalid tree route`);
+  const tree = lifecycleTreeAt(
+    snapshot.tree, [".channels", datastoreId, ".channels", channelId], detail,
+  );
+  const attributes = lifecycleJsonBlob(snapshot, tree, ".attributes", detail);
+  assert(attributes?.type === "https://graph.microsoft.com/types/tree"
+    && attributes.snapshotFormatVersion === "0.0.0"
+    && attributes.packageVersion === reference.version,
+  `${detail}: invalid SharedTree attributes`);
+  const indexes = lifecycleTreeAt(tree, ["indexes"], detail);
+  const forest = lifecycleTreeAt(indexes, ["Forest"], detail);
+  const metadata = lifecycleJsonBlob(snapshot, forest, ".metadata", `${detail} forest`);
+  assert.deepEqual(metadata, { version: 3 }, `${detail}: invalid forest metadata`);
+  const contents = lifecycleJsonBlob(snapshot, forest, "contents", `${detail} forest`);
+  assert(Array.isArray(contents?.keys), `${detail}: invalid forest keys`);
+  return lifecycleFieldBatch(contents.fields, `${detail} forest`);
+}
+
+function lifecycleSummaryEntry(entries, path, type, detail) {
+  const entry = entries?.find((item) => item?.path === path);
+  assert(entry?.type === type, `${detail}: missing ${path} ${type}`);
+  return entry;
+}
+
+function lifecycleSummaryJsonBlob(entries, path, detail) {
+  const entry = lifecycleSummaryEntry(entries, path, "Blob", detail);
+  let value;
+  assert.doesNotThrow(() => {
+    value = JSON.parse(entry.value?.contents);
+  }, `${detail}: invalid ${path} blob`);
+  return value;
+}
+
 function lifecycleTreeAttachSnapshot(snapshot, detail) {
   assert(object(snapshot) && Array.isArray(snapshot.entries) && snapshot.entries.length > 0,
   `${detail}: invalid attach snapshot`);
-  const entry = (entries, path) => entries.find((item) => item?.path === path);
-  const attributes = entry(snapshot.entries, ".attributes");
-  const indexes = entry(snapshot.entries, "indexes");
-  assert(attributes?.type === "Blob"
-    && attributes.value?.contents === JSON.stringify({
+  const attributes = lifecycleSummaryJsonBlob(snapshot.entries, ".attributes", detail);
+  assert(isDeepStrictEqual(attributes, {
       type: "https://graph.microsoft.com/types/tree",
       snapshotFormatVersion: "0.0.0",
       packageVersion: reference.version,
-    }) && indexes?.type === "Tree" && Array.isArray(indexes.value?.entries),
+    }),
   `${detail}: invalid attach snapshot`);
-  const forest = entry(indexes.value.entries, "Forest");
-  const contents = forest?.type === "Tree"
-    ? entry(forest.value?.entries, "contents") : undefined;
-  assert(contents?.type === "Blob" && typeof contents.value?.contents === "string"
-    && contents.value.contents.includes("active-target"),
+  assert.deepEqual(
+    lifecycleSummaryJsonBlob(snapshot.entries, ".metadata", detail),
+    { version: 2 },
+    `${detail}: invalid SharedTree metadata`,
+  );
+  const indexes = lifecycleSummaryEntry(snapshot.entries, "indexes", "Tree", detail);
+  const indexEntries = indexes.value?.entries;
+  const editManager = lifecycleSummaryEntry(indexEntries, "EditManager", "Tree", detail);
+  const schema = lifecycleSummaryEntry(indexEntries, "Schema", "Tree", detail);
+  const forest = lifecycleSummaryEntry(indexEntries, "Forest", "Tree", detail);
+  const detached = lifecycleSummaryEntry(indexEntries, "DetachedFieldIndex", "Tree", detail);
+  assert.deepEqual(
+    lifecycleSummaryJsonBlob(forest.value?.entries, ".metadata", `${detail} forest`),
+    { version: 3 },
+    `${detail}: invalid forest metadata`,
+  );
+  const contents = lifecycleSummaryJsonBlob(
+    forest.value?.entries, "contents", `${detail} forest`,
+  );
+  assert(Array.isArray(contents?.keys), `${detail}: invalid forest keys`);
+  const fields = lifecycleFieldBatch(contents.fields, `${detail} forest`);
+  assert.deepEqual(
+    fieldBatchFieldPayloads(fields, "label", "active-target"),
+    [["label", "active-target"]],
   `${detail}: attach snapshot target state`);
+  validateSchemaString(
+    lifecycleSummaryEntry(schema.value?.entries, "SchemaString", "Blob", `${detail} schema`)
+      .value?.contents,
+    `${detail} attach schema`,
+  );
+  const detachedIndex = lifecycleSummaryJsonBlob(
+    detached.value?.entries, "DetachedFieldIndexBlob", `${detail} detached index`,
+  );
+  assert(detachedIndex?.version === 2
+    && Array.isArray(detachedIndex.data)
+    && Number.isSafeInteger(detachedIndex.maxId)
+    && detachedIndex.maxId >= 0,
+  `${detail}: invalid detached field index`);
+  const edit = lifecycleSummaryJsonBlob(
+    editManager.value?.entries, "String", `${detail} edit manager`,
+  );
+  assert(edit?.version === 7 && edit.trunk?.length === 1
+    && typeof edit.trunk[0]?.sessionId === "string"
+    && Number.isSafeInteger(edit.trunk[0]?.revision),
+  `${detail}: invalid edit manager`);
+  return {
+    sessionId: edit.trunk[0].sessionId,
+    revision: edit.trunk[0].revision,
+  };
 }
 
 function lifecycleMessageOrder(messages) {
@@ -5401,26 +5487,22 @@ function validateActiveDocumentAttachment(observed, records, id, check) {
   const operationTransport = Array.isArray(value.transport)
     ? value.transport.filter((message) => message?.type === "op")
     : [];
-  check(operationTransport.length > 0
-    && lifecycleChannelAttaches(operationTransport, id)
-      .some((item) => {
-        if (item.path !== value.targetPath) return false;
-        lifecycleTreeAttachSnapshot(item.snapshot, id);
-        return true;
-      }),
-  `${id} transport evidence`);
+  const attachments = operationTransport.length > 0
+    ? lifecycleChannelAttaches(operationTransport, id)
+      .filter((item) => item.path === value.targetPath)
+    : [];
+  check(attachments.length === 1, `${id} transport evidence`);
+  const attachment = lifecycleTreeAttachSnapshot(attachments[0].snapshot, id);
   const allocations = lifecycleRuntimeMessages(operationTransport, id)
     .filter((message) => message.type === "idAllocation")
     .map((message) => message.contents);
-  check(allocations.length > 0 && allocations.every((allocation) =>
-    typeof allocation?.sessionId === "string"
-    && Number.isSafeInteger(allocation.ids?.firstGenCount)
-    && Number.isSafeInteger(allocation.ids?.count)
-    && allocation.ids.count > 0
-    && Number.isSafeInteger(allocation.ids?.requestedClusterSize)
-    && allocation.ids.requestedClusterSize >= allocation.ids.count
-    && Array.isArray(allocation.ids.localIdRanges)),
-  `${id} allocation payload`);
+  check(allocations.length === 1, `${id} allocation payload`);
+  assertCreationRange(allocations[0], `${id} allocation`);
+  check(attachment.sessionId === allocations[0].sessionId
+    && attachment.revision >= allocations[0].ids.firstGenCount
+    && attachment.revision
+      < allocations[0].ids.firstGenCount + allocations[0].ids.count,
+  `${id} allocation-to-attachment relationship`);
   check(isDeepStrictEqual(
     value.allocation,
     lifecycleMessageOrder(operationTransport).filter((item) => item === "id-allocation"),
@@ -5745,6 +5827,10 @@ export function validateLifecycleCase(value) {
     const targetSummary = lifecycleSharedMapSummary(
       freshPublication.value.snapshot, fresh.value?.path, "fresh-load target summary",
     );
+    const publishedTree = lifecycleSharedTreeForest(
+      freshPublication.value.snapshot, fresh.value?.loadedTree?.path, "fresh-load tree",
+    );
+    const publishedLinks = fieldBatchFieldPayloads(publishedTree, "link", "root");
     check(fresh.value?.loadedVersion === freshPublication.value.publication.handle
       && isDeepStrictEqual(fresh.value?.publication, {
         handle: freshPublication.value.publication.handle,
@@ -5758,7 +5844,10 @@ export function validateLifecycleCase(value) {
       && fresh.value.writerTarget?.path === fresh.value.path
       && typeof fresh.value.loadedTree?.path === "string"
       && fresh.value.loadedTree.path !== fresh.value.path
-      && JSON.stringify(freshPublication.parsed).includes(fresh.value.loadedTree.path)
+      && isDeepStrictEqual(
+        publishedLinks,
+        [["link", [{ type: "__fluid_handle__", url: fresh.value.path }]]],
+      )
       && targetSummary.header.content?.value?.value === fresh.value.loadedTarget.before?.value
       && fresh.value.loadedTarget.before?.value === "before"
       && fresh.value.loadedTarget.after?.continued === true
