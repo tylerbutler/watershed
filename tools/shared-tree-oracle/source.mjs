@@ -24,6 +24,7 @@ const transactionSource = join(directory, "upstream-transaction.spec.ts");
 const identifierSource = join(directory, "upstream-identifier.spec.ts");
 const undoRedoSource = join(directory, "upstream-undo-redo.spec.ts");
 const branchSource = join(directory, "upstream-branch.spec.ts");
+const lifecycleSource = join(directory, "upstream-lifecycle.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -65,11 +66,19 @@ export const undoRedoInjectedTestPath =
   "packages/dds/tree/src/test/watershedUndoRedo.spec.ts";
 export const branchInjectedTestPath =
   "packages/dds/tree/src/test/watershedBranch.spec.ts";
+export const lifecycleInjectedTestPath =
+  "packages/dds/tree/src/test/watershedLifecycle.spec.ts";
 export const branchSourceIdentity = {
   path: branchInjectedTestPath,
   version: reference.version,
   commit: reference.commit,
   digest: createHash("sha256").update(await readFile(branchSource)).digest("hex"),
+};
+export const lifecycleSourceIdentity = {
+  path: lifecycleInjectedTestPath,
+  version: reference.version,
+  commit: reference.commit,
+  digest: createHash("sha256").update(await readFile(lifecycleSource)).digest("hex"),
 };
 const injections = new Map([
   [injectedTestPath, oracleSource],
@@ -88,6 +97,7 @@ const injections = new Map([
   [identifierInjectedTestPath, identifierSource],
   [undoRedoInjectedTestPath, undoRedoSource],
   [branchInjectedTestPath, branchSource],
+  [lifecycleInjectedTestPath, lifecycleSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -318,6 +328,28 @@ export async function runSource(output, { corpus = false } = {}) {
   await verifyCheckout();
 }
 
+export async function runLifecycleSource(output) {
+  await verifyPackages();
+  await injectSource();
+  const tree = join(checkout, "packages/dds/tree");
+  await pnpm(["run", "build:compile"], tree);
+  await pnpm(["run", "build:test:esm"], tree);
+  await mkdir(output, { recursive: true });
+  await pnpm([
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
+    "lib/test/watershedLifecycle.spec.js",
+  ], tree, {
+    ...process.env,
+    WATERSHED_ORACLE_OUTPUT: resolve(output),
+    WATERSHED_ORACLE_COMMIT: reference.commit,
+    WATERSHED_ORACLE_DETERMINISTIC: "1",
+    WATERSHED_LIFECYCLE_DIGEST: lifecycleSourceIdentity.digest,
+  }, 90_000);
+  await verifyCheckout();
+}
+
 export async function captureSource(output) {
   await publishCapture(output, (temporary) => runSource(temporary));
 }
@@ -360,6 +392,12 @@ async function main() {
     case "generate":
       await captureSource(resolve(input ?? join(directory, ".output/source")));
       break;
+    case "lifecycle-capture":
+      if (input === undefined) {
+        throw new Error("Usage: node source.mjs lifecycle-capture <output-directory>");
+      }
+      await runLifecycleSource(resolve(input));
+      break;
     case "codec-consume":
       if (input === undefined || output === undefined) {
         throw new Error("Usage: node source.mjs codec-consume <input-file> <output-directory>");
@@ -369,6 +407,7 @@ async function main() {
     default:
       throw new Error(
         "Usage: node source.mjs prepare|verify|inject|generate [output-directory]"
+          + "|lifecycle-capture <output-directory>"
           + "|codec-consume <input-file> <output-directory>",
       );
   }

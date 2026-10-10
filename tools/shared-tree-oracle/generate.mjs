@@ -5,7 +5,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
-import { reference, runSource, validateCapture } from "./source.mjs";
+import {
+  lifecycleSourceIdentity,
+  reference,
+  runLifecycleSource,
+  runSource,
+  validateCapture,
+} from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
 import {
@@ -71,6 +77,40 @@ export const requiredCases = [
   ["transaction-wire", "codec"],
   ["transaction-history", "history"],
 ];
+
+export const requiredLifecycleCases = [
+  "handle-leaves",
+  "live-channel-attachment",
+  "cross-datastore-attachment",
+  "handle-transaction-branch",
+  "handle-retention",
+];
+
+const lifecycleScenarioIds = {
+  "handle-leaves": [
+    "required-root", "optional-root", "object-field", "map-entry", "array-element",
+    "same-target-handles", "relative-path", "escaped-path", "uncompressed-v2",
+    "schema-aware-v2", "malformed-marker", "unsupported-marker",
+  ],
+  "live-channel-attachment": [
+    "detached-map", "detached-tree", "serialize-remove", "nested-dependency",
+    "self-reference", "two-channel-cycle", "completed-transaction", "active-transaction",
+  ],
+  "cross-datastore-attachment": [
+    "map-cross-datastore", "map-cycle", "tree-cross-datastore", "tree-cycle",
+  ],
+  "handle-transaction-branch": [
+    "successful-transaction", "aborted-transaction", "nested-transaction", "active-target",
+    "branch-before-merge", "branch-after-merge", "branch-dropped", "branch-disposal",
+    "handle-undo-peer-edit",
+  ],
+  "handle-retention": [
+    "before-removal", "after-removal", "after-undo", "retained-repair",
+    "branch-disposal", "revertible-disposal", "unreferenced-datastore", "fresh-load",
+  ],
+};
+
+requiredCases.push(...requiredLifecycleCases.map((id) => [id, "lifecycle"]));
 
 export const requiredTransactionCases = [
   "transaction-callbacks",
@@ -5095,6 +5135,354 @@ export function validateBranchCase(value) {
   }
 }
 
+function lifecycleRuntimeMessages(messages, label = "Lifecycle") {
+  assert(Array.isArray(messages), `${label}: raw messages must be an array`);
+  return messages.flatMap((message) => {
+    assert(object(message), `${label}: raw message must be an object`);
+    const contents = typeof message.contents === "string"
+      ? JSON.parse(message.contents) : message.contents;
+    assert(object(contents), `${label}: raw message contents must be an object`);
+    if (contents.type !== "groupedBatch") return [contents];
+    assert(Array.isArray(contents.contents), `${label}: grouped batch must be an array`);
+    return contents.contents.map((item) => {
+      assert(object(item?.contents), `${label}: grouped message must be an object`);
+      return item.contents;
+    });
+  });
+}
+
+function lifecycleChannelAttaches(messages, label) {
+  return lifecycleRuntimeMessages(messages, label).flatMap((message) => {
+    const envelope = message.type === "component" ? message.contents : undefined;
+    const channel = envelope?.contents;
+    if (channel?.type !== "attach"
+      || typeof envelope.address !== "string"
+      || typeof channel.content?.id !== "string"
+      || !object(channel.content.snapshot)) return [];
+    return [{
+      path: `/${envelope.address}/${channel.content.id}`,
+      snapshot: channel.content.snapshot,
+    }];
+  });
+}
+
+function lifecycleDatastoreAttaches(messages, label) {
+  return lifecycleRuntimeMessages(messages, label).flatMap((message) => {
+    if (message.type !== "attach"
+      || typeof message.contents?.id !== "string"
+      || !object(message.contents.snapshot)) return [];
+    return [{ id: message.contents.id, snapshot: message.contents.snapshot }];
+  });
+}
+
+function lifecycleEvidenceContains(value, expected) {
+  if (isDeepStrictEqual(value, expected)) return true;
+  if (typeof value === "string") {
+    try {
+      return lifecycleEvidenceContains(JSON.parse(value), expected);
+    } catch {
+      return false;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => lifecycleEvidenceContains(item, expected));
+  }
+  return object(value)
+    && Object.values(value).some((item) => lifecycleEvidenceContains(item, expected));
+}
+
+function lifecycleMessageOrder(messages) {
+  return lifecycleRuntimeMessages(messages).map((message) => {
+    if (message.type === "idAllocation") return "id-allocation";
+    if (message.type === "attach") return `datastore-attach:${message.contents?.id}`;
+    if (message.type === "component") {
+      const envelope = message.contents;
+      const channel = envelope?.contents;
+      if (channel?.type === "attach") {
+        return `channel-attach:${envelope.address}/${channel.content?.id}`;
+      }
+      return `component:${envelope?.address}/${channel?.content?.address}`;
+    }
+    return String(message.type);
+  });
+}
+
+export function validateLifecycleCase(value) {
+  const detail = value?.id ?? "lifecycle";
+  const check = (condition, label) => assert(condition, `${detail}: ${label}`);
+  check(object(value) && requiredLifecycleCases.includes(value.id), "unknown lifecycle case");
+  check(value.domain === "lifecycle", "domain");
+  check(value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  check(value.raw?.source?.path === lifecycleSourceIdentity.path
+    && value.raw?.source?.version === lifecycleSourceIdentity.version
+    && value.raw?.source?.commit === lifecycleSourceIdentity.commit
+    && value.raw?.source?.digest === lifecycleSourceIdentity.digest,
+  "source digest");
+
+  const scenarios = value.input?.scenarios;
+  const observed = value.expected?.observations;
+  check(nonemptyArray(scenarios), "input scenarios");
+  check(nonemptyArray(observed), "expected observations");
+  const scenarioIds = scenarios.map((scenario) => scenario?.id);
+  const observationIds = observed.map((observation) => observation?.id);
+  check(scenarioIds.every((id) => typeof id === "string" && id.length > 0)
+    && new Set(scenarioIds).size === scenarioIds.length, "unique scenario IDs");
+  check(isDeepStrictEqual(scenarioIds, lifecycleScenarioIds[value.id]),
+    "scenario coverage");
+  check(observationIds.every((id) => typeof id === "string" && id.length > 0)
+    && new Set(observationIds).size === observationIds.length
+    && isDeepStrictEqual(observationIds, scenarioIds), "matching observations");
+
+  const records = new Map();
+  if (value.id === "live-channel-attachment") {
+    check(nonemptyArray(value.raw?.messages), "raw attach evidence");
+  }
+  for (const section of ["messages", "serialization", "summaries"]) {
+    const values = value.raw?.[section];
+    check(nonemptyArray(values), `raw ${section} evidence`);
+    for (const item of values) {
+      check(object(item) && typeof item.id === "string"
+        && scenarioIds.includes(item.scenarioId) && typeof item.kind === "string"
+        && item.value !== undefined,
+      `invalid raw ${section} record`);
+      check(!records.has(item.id), `duplicate raw evidence ${item.id}`);
+      if (section === "messages" && Array.isArray(item.value) && item.value.length === 0) {
+        check(item.kind === "checkpoint"
+          && typeof item.checkpoint === "string" && item.checkpoint.length > 0,
+        "empty message slice lacks measured checkpoint");
+      }
+      records.set(item.id, { section, item });
+    }
+  }
+
+  for (const observation of observed) {
+    check(nonemptyArray(observation.evidence), `observation ${observation.id} evidence`);
+    for (const evidence of observation.evidence) {
+      const record = records.get(evidence?.id);
+      check(record?.section === evidence?.section
+        && record.item.scenarioId === observation.id,
+      `observation ${observation.id} raw evidence association`);
+    }
+  }
+
+  if (value.id === "live-channel-attachment") {
+    const attachment = (id) => {
+      const observation = observed.find((item) => item.id === id);
+      const record = observation?.evidence
+        .map((evidence) => records.get(evidence.id))
+        .find((record) => record?.section === "messages"
+          && record.item.kind === "attach");
+      check(record !== undefined && Array.isArray(record.item.value),
+        `${id} raw attach evidence`);
+      const attaches = lifecycleChannelAttaches(record.item.value, id);
+      check(attaches.length > 0, `${id} captured channel attach`);
+      return { observation, record, attaches };
+    };
+    const attachedAt = (capture, path) =>
+      capture.attaches.find((item) => item.path === path);
+    const snapshotContains = (attach, value) =>
+      lifecycleEvidenceContains(attach?.snapshot, value);
+
+    const detachedMap = attachment("detached-map");
+    const detachedMapAttach = attachedAt(detachedMap, detachedMap.observation.value?.path);
+    check(detachedMapAttach !== undefined, "detached-map observed path matches attach ID");
+    check(snapshotContains(detachedMapAttach, detachedMap.observation.value?.local),
+      "detached-map snapshot contains local value");
+
+    const detachedTree = attachment("detached-tree");
+    const detachedTreeAttach = attachedAt(detachedTree, detachedTree.observation.value?.path);
+    check(detachedTreeAttach !== undefined, "detached-tree observed path matches attach ID");
+    check(snapshotContains(detachedTreeAttach, detachedTree.observation.value?.label),
+      "detached-tree snapshot contains label");
+
+    const removed = observed.find((item) => item.id === "serialize-remove");
+    const removedRecord = removed.evidence
+      .map((evidence) => records.get(evidence.id))
+      .find((record) => record?.section === "messages");
+    check(Array.isArray(removedRecord?.item.value), "serialize-remove raw attach evidence");
+    const removedAttaches = lifecycleChannelAttaches(
+      removedRecord.item.value, "serialize-remove",
+    );
+    check(removedAttaches.some((item) => item.path === removed.value?.ownerPath)
+      && removedAttaches.some((item) => item.path === removed.value?.targetPath),
+    "serialize-remove observed paths match attach IDs");
+    const removedSummary = removed.evidence
+      .map((evidence) => records.get(evidence.id))
+      .find((record) => record?.section === "summaries")?.item.value;
+    check(JSON.stringify(removedSummary).includes(removed.value?.targetPath),
+      "serialize-remove summary contains target reference");
+
+    const nested = attachment("nested-dependency");
+    const outer = attachedAt(nested, nested.observation.value?.outer);
+    const inner = attachedAt(nested, nested.observation.value?.inner);
+    check(outer !== undefined && inner !== undefined,
+      "nested-dependency observed paths match attach IDs");
+    check(snapshotContains(outer, nested.observation.value?.inner)
+      && snapshotContains(inner, "nested"), "nested-dependency snapshot references");
+
+    const self = attachment("self-reference");
+    const selfAttach = attachedAt(self, self.observation.value?.path);
+    check(self.observation.value?.resolved === self.observation.value?.path
+      && snapshotContains(selfAttach, self.observation.value?.path),
+    "self-reference snapshot identity");
+
+    const cycle = attachment("two-channel-cycle");
+    const left = attachedAt(cycle, cycle.observation.value?.left);
+    const right = attachedAt(cycle, cycle.observation.value?.right);
+    check(snapshotContains(left, cycle.observation.value?.right)
+      && snapshotContains(right, cycle.observation.value?.left),
+    "two-channel-cycle snapshot references");
+
+    const completed = attachment("completed-transaction");
+    const completedAttach = attachedAt(completed, completed.observation.value?.path);
+    check(completed.observation.value?.attached === true
+      && snapshotContains(completedAttach, completed.observation.value?.label),
+    "completed-transaction attached snapshot");
+  }
+  if (value.id === "handle-leaves") {
+    const required = observed.find((item) => item.id === "required-root");
+    const serialized = required.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization" && item.item.kind === "handle")
+      ?.item.value;
+    check(serialized?.type === "__fluid_handle__"
+      && serialized.url === required.value?.path, "serialized handle path");
+  }
+  if (value.id === "cross-datastore-attachment") {
+    for (const observation of observed) {
+      const messages = observation.evidence
+        .map((item) => records.get(item.id))
+        .find((item) => item?.section === "messages")?.item.value;
+      if (observation.value?.attachOrder !== undefined) {
+        check(isDeepStrictEqual(observation.value.attachOrder, lifecycleMessageOrder(messages)),
+          "message order differs from raw transport");
+      }
+      if (observation.id === "map-cycle" || observation.id === "tree-cycle") {
+        const stores = lifecycleDatastoreAttaches(messages, observation.id);
+        const paths = [observation.value?.left, observation.value?.right];
+        const ids = paths.map((path) => path?.split("/")[1]);
+        check(stores.length === 2
+          && isDeepStrictEqual(new Set(stores.map((item) => item.id)), new Set(ids)),
+        `raw datastore attach evidence for ${observation.id}`);
+        check(lifecycleEvidenceContains(
+          stores.find((item) => item.id === ids[0])?.snapshot, paths[1],
+        ) && lifecycleEvidenceContains(
+          stores.find((item) => item.id === ids[1])?.snapshot, paths[0],
+        ), `cross references for ${observation.id}`);
+      }
+    }
+    const mapCross = observed.find((item) => item.id === "map-cross-datastore");
+    const mapCrossMessages = mapCross.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "messages")?.item.value;
+    const secondaryId = mapCross.value?.secondary?.split("/")[1];
+    check(lifecycleDatastoreAttaches(mapCrossMessages, "map-cross-datastore")
+      .some((item) => item.id === secondaryId)
+      && lifecycleEvidenceContains(mapCrossMessages, mapCross.value?.secondary),
+    "map-cross-datastore target and reference");
+
+    const treeCross = observed.find((item) => item.id === "tree-cross-datastore");
+    const treeCrossMessages = treeCross.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "messages")?.item.value;
+    const treeCrossAttach = lifecycleChannelAttaches(
+      treeCrossMessages, "tree-cross-datastore",
+    ).find((item) => item.path === treeCross.value?.path);
+    check(treeCrossAttach !== undefined
+      && lifecycleEvidenceContains(treeCrossAttach.snapshot, treeCross.value?.label)
+      && lifecycleEvidenceContains(treeCrossMessages, treeCross.value?.path),
+    "tree-cross-datastore target snapshot and reference");
+
+    const treeCycle = observed.find((item) => item.id === "tree-cycle");
+    const cycleSummary = treeCycle.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "summaries"
+        && item.item.kind === "cycle-trees")?.item.value;
+    check(cycleSummary?.left?.path === treeCycle.value?.left
+      && cycleSummary?.right?.path === treeCycle.value?.right
+      && summary(cycleSummary.left.summary)
+      && summary(cycleSummary.right.summary)
+      && lifecycleEvidenceContains(cycleSummary.left.summary, treeCycle.value?.right)
+      && lifecycleEvidenceContains(cycleSummary.right.summary, treeCycle.value?.left),
+    "tree-cycle summaries identify both participants");
+  }
+  if (value.id === "handle-transaction-branch") {
+    const successful = observed.find((item) => item.id === "successful-transaction");
+    const successfulMessages = successful.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "messages"
+        && item.item.kind === "attach")?.item.value;
+    check(Array.isArray(successfulMessages)
+      && successful.value?.attached === true
+      && lifecycleChannelAttaches(successfulMessages, "successful-transaction")
+        .some((item) => item.path === successful.value?.path)
+      && JSON.stringify(successfulMessages).includes(successful.value?.path),
+    "successful-transaction captured attach and tree reference");
+
+    const nested = observed.find((item) => item.id === "nested-transaction");
+    const nestedVisible = nested.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "serialization"
+        && item.item.kind === "visible")?.item.value;
+    check(isDeepStrictEqual(nestedVisible, nested.value),
+      "nested-transaction visible checkpoint");
+
+    const undo = observed.find((item) => item.id === "handle-undo-peer-edit");
+    const messages = undo.evidence
+      .map((item) => records.get(item.id))
+      .find((item) => item?.section === "messages")?.item.value;
+    const authors = Array.isArray(messages)
+      ? new Set(messages.filter((message) =>
+        message.type === "op" && typeof message.clientId === "string")
+        .map((message) => message.clientId)) : new Set();
+    const peerEdit = Array.isArray(messages) ? messages.find((message) => {
+      if (message.type !== "op" || typeof message.contents !== "string") return false;
+      const contents = JSON.parse(message.contents);
+      const envelope = contents.type === "component" ? contents.contents : undefined;
+      const operation = envelope?.contents?.content;
+      return envelope?.contents?.type === "op"
+        && operation?.contents?.key === "peer";
+    }) : undefined;
+    const peerContents = peerEdit === undefined ? undefined : JSON.parse(peerEdit.contents);
+    const peerEnvelope = peerContents?.contents;
+    const peerOperation = peerEnvelope?.contents?.content;
+    const peerTargetPath = typeof peerEnvelope?.address === "string"
+      && typeof peerOperation?.address === "string"
+      ? `/${peerEnvelope.address}/${peerOperation.address}` : undefined;
+    check(authors.size === 2,
+    "raw undo peer-author evidence");
+    check(peerTargetPath === undo.value?.targetPath
+      && peerOperation?.contents?.type === "set"
+      && peerOperation.contents.key === "peer"
+      && peerOperation.contents.value?.value === undo.value?.targetValue,
+    "peer edit target and value evidence");
+  }
+  if (value.id === "handle-retention") {
+    for (const observation of observed) {
+      const summaries = observation.evidence
+        .map((item) => records.get(item.id))
+        .filter((item) => item?.section === "summaries");
+      for (const evidence of summaries) {
+        if (evidence.item.kind === "gc") {
+          check(isDeepStrictEqual(evidence.item.value?.gcNodes, observation.value?.routes),
+            `retention summary GC contents for ${observation.id}`);
+        } else {
+          check(summary(evidence.item.value),
+            `retention summary structure for ${observation.id}`);
+          for (const path of [
+            observation.value?.path,
+            ...Object.values(observation.value?.routes ?? {}).flat(),
+          ].filter((item) => typeof item === "string")) {
+            check(JSON.stringify(evidence.item.value).includes(path),
+              `retention summary path for ${observation.id}`);
+          }
+        }
+      }
+    }
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -5200,6 +5588,7 @@ export function validateCases(cases) {
       validateUndoRedoCase(value);
     }
     if (requiredBranchCases.includes(value.id)) validateBranchCase(value);
+    if (requiredLifecycleCases.includes(value.id)) validateLifecycleCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -5525,9 +5914,11 @@ export async function generate({ check = false } = {}) {
   const temporary = await mkdtemp(join(directory, ".output/corpus-"));
   try {
     const source = join(temporary, "source");
+    const lifecycle = join(temporary, "lifecycle");
     const container = join(temporary, "container");
     const artifacts = join(temporary, "artifacts");
     await runSource(source, { corpus: true });
+    await runLifecycleSource(lifecycle);
     execFileSync(process.execPath, [
       "--import", pathToFileURL(join(directory, "determinism.mjs")).href,
       "--input-type=module", "-e",
@@ -5556,6 +5947,8 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "identifier-cases.json")),
       ...await read(join(source, "undo-redo-cases.json")),
       ...await read(join(source, "branch-cases.json")),
+      ...await Promise.all(requiredLifecycleCases.map((id) =>
+        read(join(lifecycle, `${id}.json`)))),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

@@ -1,0 +1,538 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "handle-retention",
+  "domain": "lifecycle",
+  "input": {
+    "scenarios": [
+      {
+        "id": "before-removal",
+        "operation": "summarize a visible handle"
+      },
+      {
+        "id": "after-removal",
+        "operation": "summarize after removing the handle"
+      },
+      {
+        "id": "after-undo",
+        "operation": "undo handle removal"
+      },
+      {
+        "id": "retained-repair",
+        "operation": "retain removed content through a branch"
+      },
+      {
+        "id": "branch-disposal",
+        "operation": "dispose the retaining branch"
+      },
+      {
+        "id": "revertible-disposal",
+        "operation": "dispose the removal revertible"
+      },
+      {
+        "id": "unreferenced-datastore",
+        "operation": "remove a secondary datastore reference"
+      },
+      {
+        "id": "fresh-load",
+        "operation": "load the document from its attach snapshot and sequenced operations, then continue editing"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "before-removal",
+        "value": {
+          "routes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          },
+          "path": "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "before-removal:summaries:0"
+          }
+        ]
+      },
+      {
+        "id": "after-removal",
+        "value": {
+          "routes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          },
+          "attached": true
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "after-removal:summaries:1"
+          }
+        ]
+      },
+      {
+        "id": "after-undo",
+        "value": {
+          "path": "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a",
+          "targetValue": "before"
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "after-undo:messages:0"
+          }
+        ]
+      },
+      {
+        "id": "retained-repair",
+        "value": {
+          "routes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          },
+          "mainHasReference": false,
+          "branchPath": "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "retained-repair:summaries:2"
+          }
+        ]
+      },
+      {
+        "id": "branch-disposal",
+        "value": {
+          "routes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          }
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "branch-disposal:summaries:3"
+          }
+        ]
+      },
+      {
+        "id": "revertible-disposal",
+        "value": {
+          "routes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          }
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "revertible-disposal:summaries:4"
+          }
+        ]
+      },
+      {
+        "id": "unreferenced-datastore",
+        "value": {
+          "path": "/P/root",
+          "attached": true,
+          "rootGc": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a858"
+            ]
+          }
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "unreferenced-datastore:messages:1"
+          }
+        ]
+      },
+      {
+        "id": "fresh-load",
+        "value": {
+          "path": "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a",
+          "continued": true
+        },
+        "evidence": [
+          {
+            "section": "summaries",
+            "id": "fresh-load:summaries:5"
+          }
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "id": "after-undo:messages:0",
+        "scenarioId": "after-undo",
+        "kind": "undo",
+        "value": [
+          {
+            "clientId": "6efcda03-5dbe-4b9c-be73-1f06516b2aab",
+            "clientSequenceNumber": 3,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"ids\":{\"firstGenCount\":5,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"contents\":{\"revision\":4,\"originatorId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"changeset\":[{\"data\":{\"maxId\":4,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3}}}]}]]}]}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 2
+            },
+            "minimumSequenceNumber": 3,
+            "referenceSequenceNumber": 3,
+            "sequenceNumber": 4,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "32ba85bf"
+          },
+          {
+            "clientId": "6efcda03-5dbe-4b9c-be73-1f06516b2aab",
+            "clientSequenceNumber": 4,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"ids\":{\"firstGenCount\":6,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"contents\":{\"revision\":5,\"originatorId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":5,\"s\":[3,4]}}}]}]]}],\"refreshers\":{\"builds\":[[[[3,0]],4]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 2
+            },
+            "minimumSequenceNumber": 4,
+            "referenceSequenceNumber": 4,
+            "sequenceNumber": 5,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "31ff2e9a"
+          }
+        ]
+      },
+      {
+        "id": "unreferenced-datastore:messages:1",
+        "scenarioId": "unreferenced-datastore",
+        "kind": "remove",
+        "value": [
+          {
+            "clientId": "6efcda03-5dbe-4b9c-be73-1f06516b2aab",
+            "clientSequenceNumber": 5,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"ids\":{\"firstGenCount\":7,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"contents\":{\"revision\":6,\"originatorId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":5}}}]}]]}]}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 2
+            },
+            "minimumSequenceNumber": 5,
+            "referenceSequenceNumber": 5,
+            "sequenceNumber": 6,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "-26e57337"
+          },
+          {
+            "clientId": "6efcda03-5dbe-4b9c-be73-1f06516b2aab",
+            "clientSequenceNumber": 6,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"ids\":{\"firstGenCount\":8,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"P\",\"snapshot\":{\"entries\":[{\"path\":\".channels\",\"value\":{\"entries\":[{\"path\":\"root\",\"value\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".component\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"pkg\\\":\\\"[\\\\\\\"org.watershed.shared-tree.m7.graph\\\\\\\"]\\\",\\\"summaryFormatVersion\\\":2,\\\"isRootDataStore\\\":false}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/root\\\":[\\\"/P\\\"],\\\"/\\\":[\\\"/P/root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"org.watershed.shared-tree.m7.graph\"}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"secondary\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/P/root\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 6,
+            "referenceSequenceNumber": 6,
+            "sequenceNumber": 7,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "-648ba6f0"
+          },
+          {
+            "clientId": "6efcda03-5dbe-4b9c-be73-1f06516b2aab",
+            "clientSequenceNumber": 7,
+            "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"secondary\",\"type\":\"delete\"}},\"type\":\"op\"}}}",
+            "minimumSequenceNumber": 7,
+            "referenceSequenceNumber": 7,
+            "sequenceNumber": 8,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "-560b6706"
+          }
+        ]
+      }
+    ],
+    "serialization": [
+      {
+        "id": "fresh-load:serialization:0",
+        "scenarioId": "fresh-load",
+        "kind": "summary-blobs",
+        "value": [
+          "{\"version\":2}",
+          "{\"version\":2}",
+          "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":9,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}]]}}}}],\"revision\":8,\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"sequenceNumber\":9}],\"branches\":[],\"version\":7}",
+          "{\"version\":2}",
+          "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.handles.Links\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}},\"org.watershed.shared-tree.handles.Root\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"link\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"links\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Links\"]},\"sequence\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Sequence\"]}}}},\"org.watershed.shared-tree.handles.Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.handle\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Root\"]}}",
+          "{\"version\":3}",
+          "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"a\":5},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",2],[\"link\",0],[\"links\",3],[\"sequence\",4]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":0}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[1,\"root\",[{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}],[],0]]},\"version\":2}",
+          "{\"version\":2}",
+          "{\"version\":2,\"data\":[],\"maxId\":4}"
+        ]
+      }
+    ],
+    "summaries": [
+      {
+        "id": "before-removal:summaries:0",
+        "scenarioId": "before-removal",
+        "kind": "tree-summary",
+        "value": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}]]}}}}],\"revision\":3,\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"sequenceNumber\":3}],\"branches\":[],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.handles.Links\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}},\"org.watershed.shared-tree.handles.Root\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"link\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"links\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Links\"]},\"sequence\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Sequence\"]}}}},\"org.watershed.shared-tree.handles.Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.handle\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"a\":5},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",2],[\"link\",0],[\"links\",3],[\"sequence\",4]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":0}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[1,\"root\",[{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}],[],0]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[],\"maxId\":1}"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "after-removal:summaries:1",
+        "scenarioId": "after-removal",
+        "kind": "tree-summary",
+        "value": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":4,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3}}}]}]]}]}}],\"revision\":4,\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"sequenceNumber\":4}],\"branches\":[],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.handles.Links\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}},\"org.watershed.shared-tree.handles.Root\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"link\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"links\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Links\"]},\"sequence\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Sequence\"]}}}},\"org.watershed.shared-tree.handles.Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.handle\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\",\"repair-2\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"a\":1},{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",3],[\"link\",0],[\"links\",4],[\"sequence\",5]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":0}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",0]]}}],\"data\":[[2,\"root\",0,[],0],[1,{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[[4,3,2]],\"maxId\":2}"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "retained-repair:summaries:2",
+        "scenarioId": "retained-repair",
+        "kind": "gc",
+        "value": {
+          "gcNodes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          }
+        }
+      },
+      {
+        "id": "branch-disposal:summaries:3",
+        "scenarioId": "branch-disposal",
+        "kind": "gc",
+        "value": {
+          "gcNodes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          }
+        }
+      },
+      {
+        "id": "revertible-disposal:summaries:4",
+        "scenarioId": "revertible-disposal",
+        "kind": "gc",
+        "value": {
+          "gcNodes": {
+            "/": [
+              "/A/54a7559a-58a3-479a-a8b6-c5823a85a85a"
+            ]
+          }
+        }
+      },
+      {
+        "id": "fresh-load:summaries:5",
+        "scenarioId": "fresh-load",
+        "kind": "loaded-tree",
+        "value": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":9,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}]]}}}}],\"revision\":8,\"sessionId\":\"54a7559a-58a3-479a-a8b6-c5823a85a858\",\"sequenceNumber\":9}],\"branches\":[[\"54a7559a-58a3-479a-a8b6-c5823a85a858\",{\"base\":8,\"commits\":[]}]],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.handles.Links\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}},\"org.watershed.shared-tree.handles.Root\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"link\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"links\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Links\"]},\"sequence\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Sequence\"]}}}},\"org.watershed.shared-tree.handles.Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.handle\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"a\":5},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",2],[\"link\",0],[\"links\",3],[\"sequence\",4]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":0}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[1,\"root\",[{\"type\":\"__fluid_handle__\",\"url\":\"/A/54a7559a-58a3-479a-a8b6-c5823a85a85a\"}],[],0]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[],\"maxId\":4}"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "source": {
+      "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
+      "version": "3.1.0",
+      "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+      "digest": "cea641df0fd022c2cae84b079875fd418811b36666aa9cf9376d465e534fc5dd"
+    }
+  }
+}

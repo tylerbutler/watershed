@@ -14,6 +14,8 @@ import {
   historyInjectedTestPath,
   identifierInjectedTestPath,
   injectedTestPath,
+  lifecycleInjectedTestPath,
+  lifecycleSourceIdentity,
   modularInjectedTestPath,
   publishCapture,
   reference,
@@ -232,6 +234,21 @@ test("source runner registers the pinned branch injection identity", () => {
   assert.match(branchSourceIdentity.digest, /^[0-9a-f]{64}$/);
 });
 
+test("source runner registers the pinned lifecycle injection identity", () => {
+  assert.equal(
+    lifecycleInjectedTestPath,
+    "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
+  );
+  assert.deepEqual(lifecycleSourceIdentity, {
+    path: lifecycleInjectedTestPath,
+    version: "3.1.0",
+    commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    digest: lifecycleSourceIdentity.digest,
+  });
+  assert.match(lifecycleSourceIdentity.digest, /^[0-9a-f]{64}$/);
+  assert.equal(typeof source.runLifecycleSource, "function");
+});
+
 test("source runner declares the owned Identifier injection", () => {
   assert.equal(
     identifierInjectedTestPath,
@@ -318,6 +335,17 @@ test("source verification byte-checks the owned branch injection", async (t) => 
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, branchInjectedTestPath);
   const contents = await readFile(new URL("./upstream-branch.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned lifecycle injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, lifecycleInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-lifecycle.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);

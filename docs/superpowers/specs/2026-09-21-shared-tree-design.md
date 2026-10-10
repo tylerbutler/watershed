@@ -330,10 +330,11 @@ transactions, explicit history cleanup, close, and reload. Broader declared
 layouts, handle-valued leaves, richer typed APIs, and crash-recoverable pending
 state remain open.
 
-The proposed [handles and live attachment slice](2026-10-10-shared-tree-handles-attachment-design.md)
+The [handles and live attachment slice](2026-10-10-shared-tree-handles-attachment-design.md)
 uses upstream's separation of handle-valued tree data and runtime attachment
-graphs, including references across declared datastores. Its design and plan
-remain drafts; they add no implemented or accepted capability.
+graphs, including references across declared datastores. Preliminary
+pinned-source discovery started on 2026-10-10, but its complete discovery gate
+remains open. It adds no implemented or accepted native capability.
 
 M0 precedes M1. Each later milestone requires M1 and its own approved design and
 plan. Map/sequence/schema development can proceed independently only after

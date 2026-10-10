@@ -1,9 +1,9 @@
 # SharedTree Handles and Live Attachment Design
 
-**Status:** Planning draft for review. The user selected handles and live
-attachment, asked how upstream implements them, and requested a plan based on
-that behavior. This document defines the proposed slice; it records no native
-implementation or acceptance.
+**Status:** Execution started on 2026-10-10. Preliminary pinned-source discovery
+is recorded below. The complete Task 1 discovery gate is still open; native
+implementation and acceptance have not started. The interfaces below remain
+proposed until that gate closes.
 
 **Parent:** [Native SharedTree design](2026-09-21-shared-tree-design.md),
 M7 application and container lifecycle.
@@ -71,6 +71,33 @@ can bind a handle while serializing a value that it later removes. Capture
 whether upstream retains that dependency and reproduce the observed behavior.
 Do not extend staging-mode guarantees to transactions or local branches without
 an executable observation.
+
+### Preliminary execution observations, 2026-10-10
+
+These observations come from the registered
+`packages/dds/tree/src/test/watershedLifecycle.spec.ts` injection. The generated
+cases record its digest under `raw.source`. They establish only the specific
+checkpoints listed here, not the complete lifecycle contract.
+
+| Case / scenario | Measured result | Raw evidence |
+| --- | --- | --- |
+| `handle-leaves` / `required-root`, `same-target-handles`, `relative-path`, `escaped-path` | The serializer writes an absolute handle marker. Decoding a second instance preserves the target path, not JavaScript object identity. A relative path uses the mock datastore context; an escaped path remains escaped. | `raw.serialization`, linked by each observation's `evidence` |
+| `handle-leaves` / `uncompressed-v2`, `schema-aware-v2` | Both captured FieldBatch V2 forms contain serialized handle markers. | `raw.summaries` |
+| `live-channel-attachment` / `serialize-remove` | A detached map's attach-summary serialization binds its target. Removing that value before attaching the owner does not remove the binding: the target attaches while the owner's displayed value is absent. Merely setting and deleting the value without serialization did not attach the target in the earlier probe. | `raw.summaries` (`owner-before-removal`) and the matching `raw.messages` slice |
+| `cross-datastore-attachment` / `map-cycle`, `tree-cycle` | Two unpublished declared stores can reference each other. The captured batch contains allocation, the dependency store attach, the referring store attach, then the visible DDS operation. Each cycle has two genuine datastore attaches. | `raw.messages`; `expected.observations[].value.attachOrder` is checked against the actual nested message envelopes |
+| `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | A successful or nested committed handle edit attaches its target. The rolled-back edit leaves its target unattached and restores the prior reference at the captured checkpoint. | Matching `raw.messages` slices, including an explicit empty rollback checkpoint |
+| `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | A branch-only reference does not attach the target. Merging it attaches the target; disposing an unmerged branch leaves its target unattached. | Matching `raw.messages` slices and checkpoints |
+| `handle-transaction-branch` / `handle-undo-peer-edit` | A separately loaded upstream client edits the target map. Undo restores the parent's previous reference without removing the peer's target edit. | `raw.messages`, containing DDS operations from two distinct client IDs |
+| `live-channel-attachment` / `active-transaction` | The mock tree connection attempt throws the upstream active-transaction attachment error. The mock object's `isAttached()` flag is already true after the failed connection. This does not establish real document graph failure atomicity. | The scenario's measured error and post-failure flag |
+| `handle-retention` / removal, branch disposal, revertible disposal | The channel-level GC route remains present at these checkpoints, including when the main view no longer has the reference. | Channel summaries and `getGCData()` records under `raw.summaries` |
+| `handle-retention` / `fresh-load` | A fresh upstream service client loads the document and makes a target edit seen by the original client. This uses the attach snapshot and sequenced operations, not a newly published summary. | Loaded channel summary and continuation observation |
+
+The discovery gate still needs complete executable native replay inputs;
+document-level retained GC and unreferenced-store metadata; explicit summary
+publication, fetched tree/blob bytes, and fresh reload from those bytes; real
+document attachment during a target transaction; and the remaining identity,
+resolution, serialization-context, and event-lifetime observations required by
+Task 1. Do not derive native invariants from the preliminary table alone.
 
 ## 3. Global constraints
 

@@ -1,0 +1,464 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "handle-transaction-branch",
+  "domain": "lifecycle",
+  "input": {
+    "scenarios": [
+      {
+        "id": "successful-transaction",
+        "operation": "commit a handle insertion"
+      },
+      {
+        "id": "aborted-transaction",
+        "operation": "roll back a handle insertion"
+      },
+      {
+        "id": "nested-transaction",
+        "operation": "commit nested handle edits"
+      },
+      {
+        "id": "active-target",
+        "operation": "attach a target tree during its transaction"
+      },
+      {
+        "id": "branch-before-merge",
+        "operation": "set a branch-only handle"
+      },
+      {
+        "id": "branch-after-merge",
+        "operation": "merge a branch handle"
+      },
+      {
+        "id": "branch-dropped",
+        "operation": "drop unmerged branch changes"
+      },
+      {
+        "id": "branch-disposal",
+        "operation": "dispose a branch with a handle"
+      },
+      {
+        "id": "handle-undo-peer-edit",
+        "operation": "undo a handle while preserving target edits"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "successful-transaction",
+        "value": {
+          "path": "/A/_F",
+          "attached": true
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "successful-transaction:messages:0"
+          }
+        ]
+      },
+      {
+        "id": "aborted-transaction",
+        "value": {
+          "result": "rollback",
+          "attached": false,
+          "referringPath": "/A/_F"
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "aborted-transaction:messages:1"
+          }
+        ]
+      },
+      {
+        "id": "nested-transaction",
+        "value": {
+          "label": "root",
+          "link": "/A/_F",
+          "links": [
+            [
+              "outer",
+              "/A/_N"
+            ]
+          ],
+          "sequence": [
+            "/A/_N"
+          ]
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "nested-transaction:messages:2"
+          },
+          {
+            "section": "serialization",
+            "id": "nested-transaction:serialization:0"
+          }
+        ]
+      },
+      {
+        "id": "active-target",
+        "value": {
+          "error": "Error: Cannot attach while a transaction is in progress. Commit or abort the transaction before attaching.",
+          "attached": true
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "active-target:messages:3"
+          }
+        ]
+      },
+      {
+        "id": "branch-before-merge",
+        "value": {
+          "branchPath": "/A/_R",
+          "mainPath": "/A/_F",
+          "attached": false
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "branch-before-merge:messages:4"
+          }
+        ]
+      },
+      {
+        "id": "branch-after-merge",
+        "value": {
+          "mainPath": "/A/_R",
+          "attached": true
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "branch-after-merge:messages:5"
+          }
+        ]
+      },
+      {
+        "id": "branch-dropped",
+        "value": {
+          "mainPath": "/A/_R",
+          "attached": false
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "branch-dropped:messages:6"
+          }
+        ]
+      },
+      {
+        "id": "branch-disposal",
+        "value": {
+          "attached": false
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "branch-disposal:messages:7"
+          }
+        ]
+      },
+      {
+        "id": "handle-undo-peer-edit",
+        "value": {
+          "referringPath": "/A/_R",
+          "targetPath": "/A/_c",
+          "targetValue": "survives"
+        },
+        "evidence": [
+          {
+            "section": "messages",
+            "id": "handle-undo-peer-edit:messages:8"
+          },
+          {
+            "section": "summaries",
+            "id": "handle-undo-peer-edit:summaries:0"
+          }
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "id": "successful-transaction:messages:0",
+        "scenarioId": "successful-transaction",
+        "kind": "attach",
+        "value": [
+          {
+            "clientId": "016f6f85-71c6-47bb-bbdb-13a54cdff8fd",
+            "clientSequenceNumber": 2,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"ids\":{\"firstGenCount\":3,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"contents\":{\"revision\":3,\"originatorId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 2,
+            "referenceSequenceNumber": 2,
+            "sequenceNumber": 3,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "-2c45464e"
+          }
+        ]
+      },
+      {
+        "id": "aborted-transaction:messages:1",
+        "scenarioId": "aborted-transaction",
+        "kind": "checkpoint",
+        "value": [],
+        "checkpoint": "after-rollback"
+      },
+      {
+        "id": "nested-transaction:messages:2",
+        "scenarioId": "nested-transaction",
+        "kind": "attach",
+        "value": [
+          {
+            "clientId": "016f6f85-71c6-47bb-bbdb-13a54cdff8fd",
+            "clientSequenceNumber": 3,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"ids\":{\"firstGenCount\":5,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_N\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"contents\":{\"revision\":7,\"originatorId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"outer\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]},{\"fieldKey\":\"sequence\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"effect\":{\"insert\":{\"id\":4}},\"cellId\":4}]}]}]]}]}]]}],\"builds\":{\"builds\":[[[[1,0],[4,1]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_N\"}],[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_N\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 3,
+            "referenceSequenceNumber": 3,
+            "sequenceNumber": 4,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "792e2aac"
+          }
+        ]
+      },
+      {
+        "id": "active-target:messages:3",
+        "scenarioId": "active-target",
+        "kind": "checkpoint",
+        "value": [],
+        "checkpoint": "after-refusal"
+      },
+      {
+        "id": "branch-before-merge:messages:4",
+        "scenarioId": "branch-before-merge",
+        "kind": "checkpoint",
+        "value": [],
+        "checkpoint": "before-merge"
+      },
+      {
+        "id": "branch-after-merge:messages:5",
+        "scenarioId": "branch-after-merge",
+        "kind": "attach",
+        "value": [
+          {
+            "clientId": "016f6f85-71c6-47bb-bbdb-13a54cdff8fd",
+            "clientSequenceNumber": 4,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"ids\":{\"firstGenCount\":9,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_R\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"contents\":{\"revision\":9,\"originatorId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_R\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 4,
+            "referenceSequenceNumber": 4,
+            "sequenceNumber": 5,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "6a6403ca"
+          }
+        ]
+      },
+      {
+        "id": "branch-dropped:messages:6",
+        "scenarioId": "branch-dropped",
+        "kind": "checkpoint",
+        "value": [],
+        "checkpoint": "after-drop"
+      },
+      {
+        "id": "branch-disposal:messages:7",
+        "scenarioId": "branch-disposal",
+        "kind": "checkpoint",
+        "value": [],
+        "checkpoint": "after-disposal"
+      },
+      {
+        "id": "handle-undo-peer-edit:messages:8",
+        "scenarioId": "handle-undo-peer-edit",
+        "kind": "undo",
+        "value": [
+          {
+            "clientId": "016f6f85-71c6-47bb-bbdb-13a54cdff8fd",
+            "clientSequenceNumber": 5,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"ids\":{\"firstGenCount\":11,\"count\":6,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_c\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"contents\":{\"revision\":15,\"originatorId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 3
+            },
+            "minimumSequenceNumber": 5,
+            "referenceSequenceNumber": 5,
+            "sequenceNumber": 6,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "4b726ee6"
+          },
+          {
+            "clientId": null,
+            "clientSequenceNumber": -1,
+            "contents": null,
+            "minimumSequenceNumber": 5,
+            "referenceSequenceNumber": -1,
+            "sequenceNumber": 7,
+            "timestamp": 1700000000000,
+            "traces": [
+              {
+                "action": "start",
+                "service": "nexus",
+                "timestamp": 0
+              },
+              {
+                "action": "start",
+                "service": "broadcaster",
+                "timestamp": 1700000000000
+              }
+            ],
+            "type": "join",
+            "data": "{\"clientId\":\"e8b7a273-c36e-4aa6-9a9c-e9c2f24b80e6\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:6792b967-a329-4825-b5ca-e036b39154e0\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"92d2edd8-022a-4813-932e-1ff51786a096\",\"name\":\"92d2edd8-022a\"}}}",
+            "expHash1": "70a1c5a5"
+          },
+          {
+            "clientId": "e8b7a273-c36e-4aa6-9a9c-e9c2f24b80e6",
+            "clientSequenceNumber": 1,
+            "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_c\",\"contents\":{\"key\":\"peer\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":\"survives\"}}},\"type\":\"op\"}}}",
+            "metadata": {
+              "batchId": "1dca8dbb-e7d0-4f5e-992e-0ca7be643519_[1]"
+            },
+            "minimumSequenceNumber": 5,
+            "referenceSequenceNumber": 7,
+            "sequenceNumber": 8,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "610587b7"
+          },
+          {
+            "clientId": "016f6f85-71c6-47bb-bbdb-13a54cdff8fd",
+            "clientSequenceNumber": 6,
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"ids\":{\"firstGenCount\":17,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"contents\":{\"revision\":16,\"originatorId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"changeset\":[{\"data\":{\"maxId\":3,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3,\"s\":[0,15]}}}]}]]}],\"refreshers\":{\"builds\":[[[[0,0]],15]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_R\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "metadata": {
+              "groupedOpCount": 2
+            },
+            "minimumSequenceNumber": 7,
+            "referenceSequenceNumber": 8,
+            "sequenceNumber": 9,
+            "timestamp": 1700000000000,
+            "type": "op",
+            "expHash1": "60e3581b"
+          }
+        ]
+      }
+    ],
+    "serialization": [
+      {
+        "id": "nested-transaction:serialization:0",
+        "scenarioId": "nested-transaction",
+        "kind": "visible",
+        "value": {
+          "label": "root",
+          "link": "/A/_F",
+          "links": [
+            [
+              "outer",
+              "/A/_N"
+            ]
+          ],
+          "sequence": [
+            "/A/_N"
+          ]
+        }
+      }
+    ],
+    "summaries": [
+      {
+        "id": "handle-undo-peer-edit:summaries:0",
+        "scenarioId": "handle-undo-peer-edit",
+        "kind": "tree-summary",
+        "value": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":3,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":false,\"d\":3,\"s\":[0,15]}}}]}]]}]}}],\"revision\":16,\"sessionId\":\"69c90208-6f41-466f-a881-5056f02e5d33\",\"sequenceNumber\":9}],\"branches\":[],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.handles.Links\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}},\"org.watershed.shared-tree.handles.Root\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"link\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"links\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Links\"]},\"sequence\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Sequence\"]}}}},\"org.watershed.shared-tree.handles.Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.handle\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.handles.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\",\"repair-5\",\"repair-8\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}},{\"a\":0},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Root\",\"value\":false,\"fields\":[[\"label\",3],[\"link\",1],[\"links\",4],[\"sequence\",5]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Links\",\"value\":false,\"extraFields\":1}},{\"c\":{\"type\":\"org.watershed.shared-tree.handles.Sequence\",\"value\":false,\"fields\":[[\"\",1]]}}],\"data\":[[2,\"root\",[{\"type\":\"__fluid_handle__\",\"url\":\"/A/_R\"}],[\"outer\",[{\"type\":\"__fluid_handle__\",\"url\":\"/A/_N\"}]],[{\"type\":\"__fluid_handle__\",\"url\":\"/A/_N\"}]],[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}],[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[[9,0,5],[16,3,8]],\"maxId\":8}"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "source": {
+      "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
+      "version": "3.1.0",
+      "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+      "digest": "cea641df0fd022c2cae84b079875fd418811b36666aa9cf9376d465e534fc5dd"
+    }
+  }
+}

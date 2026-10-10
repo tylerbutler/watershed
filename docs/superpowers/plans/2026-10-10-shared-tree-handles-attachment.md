@@ -3,8 +3,10 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `subagent-driven-development` or `executing-plans` to implement this plan
 > task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-> This is a planning draft, not an implementation record. Review the written
-> scope before execution. Do not restart completed M0-M6 or Lustre tasks.
+> Execution started on 2026-10-10 with user authorization to work on `main`
+> and make task commits. Task 1 is incomplete; the dated execution record below
+> distinguishes preliminary source discovery from acceptance.
+> Do not restart completed M0-M6 or Lustre tasks.
 
 **Goal:** Interoperate with pinned upstream handle-valued SharedTree leaves and
 runtime-owned live attachment of maps/trees across declared datastores.
@@ -889,3 +891,27 @@ The source capture is the prerequisite for unsettled empirical behavior.
 Exact interfaces above define the proposed native boundary; reconcile them
 against Task 1 rather than claiming those unexecuted probes already passed.
 Implementation, generated profiles and acceptance remain pending.
+
+## Execution record, 2026-10-10
+
+Execution started at `90d993f2`. The supplied plan, spec, and parent links were
+committed as `db86a94a`. The user authorized the current `main` checkout and task
+commits, not merges, pushes, publishing, or hosted workflows.
+
+The baseline commands above completed successfully: pinned source verification,
+the existing native SharedTree recipe, and 62 Node baseline tests with no
+failures or skips. The native selections ran 1084 Erlang and 1057 JavaScript
+tests.
+
+The Task 1 implementation worker failed with an internal error after leaving
+partial edits, without a report or commit. Direct recovery corrected
+already-visible cycle scenarios, a locally authored edit labeled as a peer
+edit, incorrect nested message-order extraction, stale capture digests, and an
+unserialized removed-dependency scenario. The producer now captures five
+source-only cases in an isolated process. The spec records the measured
+checkpoints and their limitations.
+
+**Task 1 remains open.** The full discovery gate requires the missing
+publication/storage, document-level GC, replay-input and lifecycle evidence
+listed in the spec. Tasks 2-9 have not started. The generated profile and native
+semantic runners still exclude this lifecycle support; M7 remains partial.

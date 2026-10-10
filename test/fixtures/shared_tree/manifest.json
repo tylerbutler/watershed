@@ -132,6 +132,7 @@
     ],
     "messages": {
       "types": [
+        "attach",
         "component",
         "groupedBatch",
         "idAllocation",
@@ -658,6 +659,31 @@
       "id": "transaction-history",
       "domain": "history",
       "file": "cases/transaction-history.json"
+    },
+    {
+      "id": "handle-leaves",
+      "domain": "lifecycle",
+      "file": "cases/handle-leaves.json"
+    },
+    {
+      "id": "live-channel-attachment",
+      "domain": "lifecycle",
+      "file": "cases/live-channel-attachment.json"
+    },
+    {
+      "id": "cross-datastore-attachment",
+      "domain": "lifecycle",
+      "file": "cases/cross-datastore-attachment.json"
+    },
+    {
+      "id": "handle-transaction-branch",
+      "domain": "lifecycle",
+      "file": "cases/handle-transaction-branch.json"
+    },
+    {
+      "id": "handle-retention",
+      "domain": "lifecycle",
+      "file": "cases/handle-retention.json"
     },
     {
       "id": "identifier-schema",

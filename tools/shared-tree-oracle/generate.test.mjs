@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,12 +10,196 @@ import * as generator from "./generate.mjs";
 import {
   compareDirectories,
   requiredCases,
+  requiredLifecycleCases,
   validateArrayCase,
   schemaEvolutionCaseIds,
   schemaEvolutionHistoryScenarioIds,
   validateCases,
+  validateLifecycleCase,
   writeCorpus,
 } from "./generate.mjs";
+
+async function lifecycleCapture(id) {
+  return JSON.parse(await readFile(
+    new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url),
+    "utf8",
+  ));
+}
+
+test("lifecycle validator registers and accepts all five measured cases", async () => {
+  assert.deepEqual(requiredLifecycleCases, [
+    "handle-leaves",
+    "live-channel-attachment",
+    "cross-datastore-attachment",
+    "handle-transaction-branch",
+    "handle-retention",
+  ]);
+  for (const id of requiredLifecycleCases) {
+    const value = await lifecycleCapture(id);
+    assert.doesNotThrow(() => validateLifecycleCase(value), id);
+  }
+});
+
+test("lifecycle validator rejects source and observation mutations", async () => {
+  const wrongSource = await lifecycleCapture("handle-leaves");
+  wrongSource.raw.source.digest = "0".repeat(64);
+  assert.throws(() => validateLifecycleCase(wrongSource), /source.*digest/i);
+
+  const missingObservation = await lifecycleCapture("handle-transaction-branch");
+  missingObservation.expected.observations.pop();
+  assert.throws(() => validateLifecycleCase(missingObservation), /observation/i);
+
+  const missingSerialization = await lifecycleCapture("handle-leaves");
+  missingSerialization.raw.serialization = [];
+  assert.throws(() => validateLifecycleCase(missingSerialization), /raw.*serialization/i);
+
+  const missingSummary = await lifecycleCapture("handle-retention");
+  missingSummary.raw.summaries = [];
+  assert.throws(() => validateLifecycleCase(missingSummary), /raw.*summar/i);
+});
+
+test("live attachment requires the raw attach that its observation names", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  validateLifecycleCase(value);
+  const changed = structuredClone(value);
+  changed.raw.messages = [];
+  assert.throws(() => validateLifecycleCase(changed), /raw.*attach/i);
+});
+
+test("lifecycle validator rejects a missing scenario and its observation", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  value.input.scenarios = value.input.scenarios.filter((item) => item.id !== "map-cycle");
+  value.expected.observations = value.expected.observations.filter((item) =>
+    item.id !== "map-cycle");
+  value.raw.messages = value.raw.messages.filter((item) =>
+    item.scenarioId !== "map-cycle");
+  assert.throws(() => validateLifecycleCase(value), /scenario.*coverage/i);
+});
+
+test("live attachment rejects messages that do not contain an attach", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const record = value.raw.messages.find((item) => item.scenarioId === "detached-map");
+  record.value = [{ type: "op", contents: JSON.stringify({
+    type: "component",
+    contents: { address: "A", contents: {
+      type: "op", contents: { address: "root", contents: { type: "set" } },
+    } },
+  }) }];
+  assert.throws(() => validateLifecycleCase(value), /detached-map.*attach/i);
+});
+
+test("live attachment rejects an attach label without captured structure", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const record = value.raw.messages.find((item) => item.scenarioId === "detached-map");
+  const contents = JSON.parse(record.value[0].contents);
+  const attach = contents.contents.find((item) =>
+    item.contents.type === "component"
+    && item.contents.contents?.contents?.type === "attach");
+  attach.contents = { type: "attach" };
+  record.value[0].contents = JSON.stringify(contents);
+  assert.throws(() => validateLifecycleCase(value), /detached-map/i);
+});
+
+test("live attachment binds observed target paths to captured attach IDs", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  value.expected.observations.find((item) => item.id === "detached-map")
+    .value.path = "/invented/channel";
+  assert.throws(() => validateLifecycleCase(value), /detached-map.*path/i);
+});
+
+test("lifecycle validator binds captured handle paths to raw serialized handles", async () => {
+  const value = await lifecycleCapture("handle-leaves");
+  value.expected.observations.find((item) => item.id === "required-root")
+    .value.path = "/invented/channel";
+  assert.throws(() => validateLifecycleCase(value), /serialized.*path/i);
+});
+
+test("lifecycle validator rejects cross-datastore order invented by observations", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  value.expected.observations.find((item) => item.id === "map-cross-datastore")
+    .value.attachOrder.reverse();
+  assert.throws(() => validateLifecycleCase(value), /message.*order/i);
+});
+
+test("cross-datastore cycle probes attach two previously unpublished stores", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  for (const id of ["map-cycle", "tree-cycle"]) {
+    const messages = value.raw.messages.find((item) => item.scenarioId === id).value;
+    const entries = messages.flatMap((message) => {
+      const envelope = JSON.parse(message.contents);
+      return envelope.type === "groupedBatch"
+        ? envelope.contents.map((item) => item.contents) : [envelope];
+    });
+    const attached = entries.filter((item) => item.type === "attach");
+    assert.equal(new Set(attached.map((item) => item.contents.id)).size, 2, id);
+  }
+});
+
+test("retention observations require their captured summary and GC contents", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  for (const summary of value.raw.summaries) summary.value = {};
+  assert.throws(() => validateLifecycleCase(value), /retention.*summary/i);
+});
+
+test("successful transaction evidence contains the claimed attached target", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  value.raw.messages.find((item) => item.scenarioId === "successful-transaction")
+    .value = {};
+  assert.throws(() => validateLifecycleCase(value), /successful-transaction.*attach/i);
+});
+
+test("handle undo preserves a target edit authored by a distinct upstream client", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const messages = value.raw.messages
+    .find((item) => item.scenarioId === "handle-undo-peer-edit").value;
+  assert.equal(new Set(messages.filter((item) => item.type === "op")
+    .map((item) => item.clientId)).size, 2);
+});
+
+test("handle undo binds the peer edit to the claimed target map", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const record = value.raw.messages
+    .find((item) => item.scenarioId === "handle-undo-peer-edit");
+  const peerMessage = record.value.find((item) =>
+    item.type === "op" && typeof item.contents === "string"
+    && item.contents.includes('"key":"peer"'));
+  const contents = JSON.parse(peerMessage.contents);
+  contents.contents.address = "unrelated-map";
+  peerMessage.contents = JSON.stringify(contents);
+  assert.throws(() => validateLifecycleCase(value), /peer.*target/i);
+});
+
+test("tree-cycle summary evidence names both captured cycle participants", async () => {
+  const value = await lifecycleCapture("cross-datastore-attachment");
+  const observation = value.expected.observations.find((item) => item.id === "tree-cycle");
+  const summaries = observation.evidence
+    .filter((item) => item.section === "summaries")
+    .map((evidence) => value.raw.summaries.find((item) => item.id === evidence.id));
+  assert.deepEqual(
+    summaries.map((item) => [item.value.left.path, item.value.right.path]),
+    [[observation.value.left, observation.value.right]],
+  );
+});
+
+test("nested transaction serialization is captured at its observation checkpoint", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const observation = value.expected.observations.find((item) => item.id === "nested-transaction");
+  const serialization = observation.evidence
+    .filter((item) => item.section === "serialization")
+    .map((evidence) => value.raw.serialization.find((item) => item.id === evidence.id));
+  assert.deepEqual(serialization.map((item) => item.value), [observation.value]);
+});
+
+test("a serialized then removed dependency remains bound when its owner attaches", async () => {
+  const value = await lifecycleCapture("live-channel-attachment");
+  const observation = value.expected.observations.find((item) =>
+    item.id === "serialize-remove");
+  assert.equal(observation.value.visibleValue, false);
+  assert.equal(observation.value.attached, true);
+  const summary = value.raw.summaries.find((item) =>
+    item.scenarioId === "serialize-remove");
+  assert.match(JSON.stringify(summary.value), /__fluid_handle__/);
+});
 
 const schemaValidationCheckIds = [
   "matching-view",
@@ -1943,7 +2128,7 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 63);
+  assert.equal(requiredCases.length, 68);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
@@ -3939,7 +4124,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 63);
+  assert.equal(requiredCases.length, 68);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

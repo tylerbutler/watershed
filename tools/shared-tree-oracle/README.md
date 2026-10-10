@@ -69,7 +69,30 @@ npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
 just shared-tree-interop
 ```
 
-The final command is the combined SharedTree acceptance gate. It verifies the
+The M7 lifecycle discovery probe runs separately from the existing source
+batches, so it cannot change their deterministic ID stream:
+
+```sh
+node tools/shared-tree-oracle/source.mjs lifecycle-capture \
+  tools/shared-tree-oracle/.output/lifecycle
+```
+
+It captures five source-only cases: handle leaves, live channel attachment,
+cross-datastore attachment, transaction/branch binding, and retained handles.
+Each observation names raw serialization, message, or summary evidence and the
+capture records the injected source digest. Corpus regeneration includes these
+cases, but neither native semantic runner nor the supported profile claims
+handle-leaf or live-attachment support yet.
+
+This is preliminary discovery, not Task 1 acceptance. In particular, a fresh
+service load from an attach snapshot plus sequenced operations is not proof of
+loading a newly published summary. Document-level retained GC, publication and
+fetched-byte reload evidence, complete native replay inputs, and additional
+attachment boundary observations remain required by the
+[handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
+before native implementation proceeds.
+
+The `just shared-tree-interop` command is the combined SharedTree acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
 executes the native corpus on both targets, then runs deterministic object,
 map, array, and schema cases; focused reconnect and refusal cases; separate
