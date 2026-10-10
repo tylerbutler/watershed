@@ -15,9 +15,11 @@
 **Current status:** Tasks 1-9 are implemented. The supported profile, public
 documentation, roadmap handoff, generated manifest, and permanent oracle gate
 now publish the approved undo/redo slice. Task 10 records passing local native,
-codec, real-service, creation, and repository tests. Full build and standalone
-browser acceptance remain blocked by a pnpm policy failure reproduced at the
-unchanged execution base. Undo/redo is the M5 slice in the approved design;
+codec, real-service, creation, and repository tests. The later
+[M6 local release record](2026-09-21-shared-tree.md#m6-local-release-acceptance)
+closes full build and standalone browser acceptance after the lockfile repair,
+under the unchanged registry policy. The earlier pnpm failure remains
+historical evidence. Undo/redo is the M5 slice in the approved design;
 M6 is local branching, not undo/redo.
 
 The pure implementation is present in
@@ -1476,6 +1478,10 @@ cannot overwrite the state returned by `update_undo` during reversion.
 
 See the [combined validation record](2026-09-21-shared-tree.md#m5-combined-validation)
 for command outcomes, pins, report IDs, and the full-build/browser limitation.
+The [later M6 local release record](2026-09-21-shared-tree.md#m6-local-release-acceptance)
+resolves that limitation with the published profile, full repository/build
+gates and standalone real-Chromium acceptance. It reruns all undo/redo service
+sections, including the 18 reload cells; no hosted workflow was dispatched.
 The native acceptance below includes:
 
 | Contract | Native evidence |
@@ -1501,8 +1507,9 @@ preflight rejection tests.
 ## 5. Acceptance checklist
 
 Checked items below use the native and real-service evidence recorded under
-Task 10. Full build and standalone SharedTree browser acceptance remain open;
-the website's passing browser suite does not replace the checklist gate.
+Task 10 and the later M6 local release record. Full build and standalone
+SharedTree browser acceptance passed in M6 Task 11; the website's browser suite
+was not substituted for the checklist gate.
 No hosted workflow was dispatched.
 
 - [x] Eligible local data commits provide one one-shot revertible factory.
@@ -1534,7 +1541,7 @@ No hosted workflow was dispatched.
 - [x] Existing M1-M4, Identifier, transaction, and creation behavior remains intact.
 - [x] Documentation and the generated profile mark the M5 undo/redo slice
       supported without claiming M6 local branching or later features.
-- [ ] Complete repository build and standalone SharedTree browser acceptance pass.
+- [x] Complete repository build and standalone SharedTree browser acceptance pass.
 
 ## 6. Review matrix and stop conditions
 

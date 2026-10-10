@@ -1,8 +1,8 @@
 # SharedTree Local Branching Implementation Plan
 
 > **Implementation record:** Tasks 1-10 are complete. Their procedures and
-> unchecked historical substeps are not work to restart. Task 11 tracks the
-> remaining release acceptance.
+> unchecked historical substeps are not work to restart. Task 11 closes local
+> release acceptance with the current evidence below.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Stop at the Task 1 contract gate before implementing native branching.
 
@@ -962,7 +962,7 @@ sections, seed 42, and 300 schedules. Permanent gates reject missing metadata,
 native coverage, report evidence, and stale profile bytes. The public docs cover
 the lifecycle, application-owned undo, settlement, retention, reconnect,
 schema refusal, and reload loss. Native checks remain automatic; real-service
-acceptance remains manual. Task 11 is still open.
+acceptance remains manual. Task 11 closes local release acceptance below.
 
 - [x] **Step 1: Add failing profile/gate assertions.**
 
@@ -1013,10 +1013,12 @@ the parent roadmap. Do not create an empty implementation closure commit.
 **Consumes:** Tasks 1-10 and their named acceptance evidence.
 **Produces:** Honest M6 status, pinned report IDs, and any remaining blockers.
 
-**Execution status (2026-10-09):** Formatting, oracle, native, codec,
-published-profile service, and creation gates passed at unchanged execution
-HEAD `53c193e0`. Full repository, build, lint, and standalone browser closure
-is still in progress. No new production change has been required.
+**Execution status (2026-10-09):** Complete for the approved runtime-local M6
+slice. All required local gates passed with the published profile and unchanged
+production source from execution HEAD `53c193e0`. The acceptance matrix is
+reconciled against named tests and raw reports. No new production fix was
+required in this continuation. No hosted workflow was dispatched; this does
+not accept shared/persisted branches or the broader M7/M8 milestones.
 
 - [x] **Step 1: Run formatting, oracle, native, and codec gates.**
 
@@ -1028,7 +1030,7 @@ is still in progress. No new production change has been required.
   rtk proxy just shared-tree-codec-interop
   ```
 
-- [ ] **Step 2: Run service, creation, repository, and browser gates.**
+- [x] **Step 2: Run service, creation, repository, and browser gates.**
 
   ```bash
   rtk proxy just shared-tree-interop
@@ -1044,13 +1046,13 @@ is still in progress. No new production change has been required.
   registry-policy limitation or conflate website browser coverage with the
   standalone SharedTree gate.
 
-- [ ] **Step 3: Audit section 5 against named tests and raw reports.**
+- [x] **Step 3: Audit section 5 against named tests and raw reports.**
 
   Record native test names, targets, source digests, service/version identity,
   scenario coverage, 18 reload cells, seed/schedule counts, and report IDs.
   Mark implementation and release acceptance separately when blocked.
 
-- [ ] **Step 4: Review and commit only authorized regression fixes/docs.**
+- [x] **Step 4: Review and commit only authorized regression fixes/docs.**
 
   Confirm no private branch state entered wire/summaries, no new production
   Fluid dependency, no unrelated changes, and no M7/M8 claim. Suggested
@@ -1072,6 +1074,10 @@ This continuation preserves the earlier checklist lockfile repair
 | `just shared-tree-codec-interop` | Two targets passed, 38 items each. |
 | `just shared-tree-interop` | Full retry passed: 300 requested/generated/executed schedules, seed 42, zero skips or divergences. |
 | `just shared-tree-create-interop` | All 18 native-creator/profile/reader cells passed, zero skips or divergences. |
+| `just test` | All workspace suites and compile-fail gates passed; root Erlang 2,638 and JavaScript 2,889 tests. Website type checks, 2,360 unit tests and 42 real-browser tests passed without skips. |
+| `just build` | Both Gleam target families and all 18 example bundles passed under the unchanged registry policy. |
+| `just lint` | Passed the tracked-source formatting check. |
+| `just shared-tree-checklist` | Passed real Chromium in two isolated contexts: creation, add/edit/toggle/delete/reorder and concurrent edit/reorder; final pending count zero and no errors. |
 
 The accepted service report is
 `tools/shared-tree-oracle/.output/interop/f464dfdf-a6e4-4e4d-b1bf-fa260460b500/report.json`.
@@ -1121,6 +1127,23 @@ skipped work or a baseline waiver. The failed attempt remains recorded in its
 warnings and diagnostics from deliberate refusal tests remain in the raw
 logs.
 
+The first standalone browser attempt used an incorrectly configured local
+service: its default same-origin socket policy rejected the checklist's
+separate origin, leaving the page connecting. The final attempt used the
+documented development origin policy from `docker-compose.yml`,
+`FLOODGATE_ALLOWED_ORIGINS=*`, on an owned loopback-only, in-memory instance of
+the pinned service. Health and process ownership were verified before the
+gate; the service was stopped afterward. No repository code, browser timeout,
+registry policy or test expectation changed. Website browser tests were not
+substituted for this standalone run.
+
+Complete command logs, failed attempts and the separate artifact audit are
+retained in this session's `files/task11-*.log`. The production changes accepted
+here were already committed: the lockfile-only repair `a77cb140` and the
+ordinary-DDS snapshot repair `b2e10a17`. The latter's existing regression test
+passes in the full JavaScript suite while checkout-scoped TreeEvent and commit
+cancellation remain covered. This continuation changes only acceptance docs.
+
 #### Named native acceptance evidence
 
 Both target suites execute the pure/kernel/runtime tests below. Target-specific
@@ -1147,21 +1170,21 @@ Every row requires evidence; unchecked means not yet accepted.
 
 | Contract | Owning tasks | Accepted |
 | --- | --- | --- |
-| Pinned executable behavior, comment discrepancies, raw/normalized separation | 1 | [ ] |
-| Isolated document forks and nested local forks, stable node/Identifier identity | 2-4, 8 | [ ] |
-| Explicit rebase changes source only; main receives no implicit branch edits | 3, 5-9 | [ ] |
-| Object/map/array/move/transaction merge and both conflict orders | 3-4, 8-9 | [ ] |
-| Shared revisions deduplicate, preserved-source and repeated merges match oracle | 1-3, 8-9 | [ ] |
-| Shared allocator, abandoned ranges, allocation-before-use, no branch tree traffic | 1, 4-5, 8-9 | [ ] |
-| Checkout-scoped transactions, factories, undo/redo, and truthful settlement | 1, 4-8 | [ ] |
-| Atomic origin/lifetime/schema/transaction refusal; no main rebase | 3-7 | [ ] |
-| Descendant lifetime and independent branch/revertible retention beyond MSN | 1-2, 8 | [ ] |
-| JS/BEAM matching facade and callback/actor cleanup | 6-8 | [ ] |
-| In-process reconnect, pending-main origin, accepted-before-drop deduplication | 5, 8-9 | [ ] |
-| Unmerged data absent from summaries; 18 reload cells continue without old branches | 8-9 | [ ] |
-| Mandatory source/native/service/report coverage and permanent profile gates | 9-10 | [ ] |
-| Existing M1-M5 and creation intact; full build and standalone browser accepted | 11 | [ ] |
-| No shared branches, branch codecs, portable handles, or broader milestone claims | 1, 10-11 | [ ] |
+| Pinned executable behavior, comment discrepancies, raw/normalized separation | 1 | [x] |
+| Isolated document forks and nested local forks, stable node/Identifier identity | 2-4, 8 | [x] |
+| Explicit rebase changes source only; main receives no implicit branch edits | 3, 5-9 | [x] |
+| Object/map/array/move/transaction merge and both conflict orders | 3-4, 8-9 | [x] |
+| Shared revisions deduplicate, preserved-source and repeated merges match oracle | 1-3, 8-9 | [x] |
+| Shared allocator, abandoned ranges, allocation-before-use, no branch tree traffic | 1, 4-5, 8-9 | [x] |
+| Checkout-scoped transactions, factories, undo/redo, and truthful settlement | 1, 4-8 | [x] |
+| Atomic origin/lifetime/schema/transaction refusal; no main rebase | 3-7 | [x] |
+| Descendant lifetime and independent branch/revertible retention beyond MSN | 1-2, 8 | [x] |
+| JS/BEAM matching facade and callback/actor cleanup | 6-8 | [x] |
+| In-process reconnect, pending-main origin, accepted-before-drop deduplication | 5, 8-9 | [x] |
+| Unmerged data absent from summaries; 18 reload cells continue without old branches | 8-9 | [x] |
+| Mandatory source/native/service/report coverage and permanent profile gates | 9-10 | [x] |
+| Existing M1-M5 and creation intact; full build and standalone browser accepted | 11 | [x] |
+| No shared branches, branch codecs, portable handles, or broader milestone claims | 1, 10-11 | [x] |
 
 ## 6. Stop conditions
 

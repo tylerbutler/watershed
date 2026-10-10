@@ -6,7 +6,9 @@ conversation. Task 1 captured the pinned contract. User review selected
 upstream-compatible independent cross-checkout callback edits instead of the
 original refusal boundary. Native local checkouts and real-service proof are
 implemented through Task 9. Task 10 published the runtime-local profile and
-permanent gates. Task 11 full release acceptance remains open.
+permanent gates. Task 11 completed local release acceptance on 2026-10-09,
+including full repository/build and standalone browser gates. Hosted acceptance
+was not dispatched; shared/persisted branches remain outside this scope.
 **Milestone:** M6, local branching only.
 **Parent:** [Native SharedTree interoperability](2026-09-21-shared-tree-design.md)
 and [M5 undo and redo](2026-10-02-shared-tree-undo-redo-design.md).
@@ -57,10 +59,9 @@ Production semantics remain pure Gleam. Upstream packages are development/test
 dependencies, not a production branch engine. Preserve M1-M5, native creation,
 and the existing main-checkout API.
 
-The current M5 full-build and standalone browser limitation is a separate
-release prerequisite: pnpm rejects existing checklist lockfile registry URLs.
-M6 design and oracle work can proceed; final acceptance cannot silently waive
-the build/browser gates.
+The earlier M5 build/browser registry-policy failure was repaired by the
+lockfile-only commit `a77cb140`. M6 Task 11 passed both full build and standalone
+Chromium acceptance under the unchanged policy; those gates were not waived.
 
 ## 3. Evidence before native implementation
 

@@ -30,7 +30,8 @@ definitions. The M5 continuation started at `8194fbc5` and ran the local gates
 recorded below after the profile commits. The numbered M0/M1 tasks and their
 test counts remain historical acceptance records. The local branching
 continuation started at `18ec7c4a` and completed Task 9 through `5e8050a4`;
-its service evidence is recorded below.
+its service evidence is recorded below. Task 11 completed local M6 release
+acceptance on 2026-10-09 with the published profile and full regression gates.
 
 | Area | Current status | Plan or remaining scope |
 | --- | --- | --- |
@@ -39,8 +40,8 @@ its service evidence is recorded below.
 | M3: arrays and moves | Implemented and published. | [Arrays and moves](2026-09-26-shared-tree-arrays.md); array schema evolution remains excluded. |
 | M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
-| M5: transactions and undo/redo | Implemented and published, with passing local native, codec, service, creation, and repository tests. The earlier pnpm policy failure is historical; the checklist lockfile repair is committed and Task 11 owns the final build/browser result. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; combined evidence below. |
-| M6: branching | Runtime-local facades, real-service proof, supported metadata, and permanent gates are published through Task 10; full release acceptance remains open. | [Local branching](2026-10-05-shared-tree-local-branching.md), Task 11. Shared/persisted branches remain excluded and require a separate profile/version decision. |
+| M5: transactions and undo/redo | Implemented and published; local release accepted. M6 Task 11 closes the earlier full-build/standalone-browser prerequisite under the unchanged registry policy. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; fresh combined release evidence below. |
+| M6: branching | Approved runtime-local slice complete, published and locally release-accepted through Task 11. | [Local branching](2026-10-05-shared-tree-local-branching.md). Shared/persisted branches remain excluded and require a separate profile/version decision. |
 | M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
@@ -49,10 +50,10 @@ undo/redo slices. Both native facades expose runtime-local revertible handles,
 and the profile names application-owned stacks, commit kinds, reconnect,
 object/map/array/move/transaction reversion, and sequenced outcomes. The local
 M5 evidence below covers native behavior and real-service interoperability;
-the earlier build and browser policy failure remains historical evidence, while
-Task 11 owns the current release result. No hosted workflow was dispatched for
-that continuation. The local M6 slice is now published in the supported profile
-with separate native and service evidence.
+the earlier build and browser policy failure remains historical evidence.
+Local branching Task 11 supplies the passing current release result below.
+No hosted workflow was dispatched for either continuation. The local M6 slice
+is published and locally accepted with native, service and full release evidence.
 
 The current manifest has 63 generated cases and 37 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
@@ -103,10 +104,48 @@ settlement projection. Complete test footers are required; partial passing
 output is not acceptance evidence. The [local branching plan](2026-10-05-shared-tree-local-branching.md#task-9-prove-local-branch-merges-through-pinned-floodgate)
 records the final proof and the limits of earlier runs.
 
-Task 10 now publishes the local profile and permanent gates. This does not close
-M6: Task 11 performs full repository, build, browser, and acceptance-matrix
-closure. No hosted workflow was dispatched, and shared/persisted branches
-remain outside this scope.
+Task 10 publishes the local profile and permanent gates. Task 11 closes the
+approved local M6 slice with the fresh evidence below. No hosted workflow was
+dispatched, and shared/persisted branches remain outside this scope.
+
+### M6 local release acceptance
+
+The 2026-10-09 continuation began at clean `main` HEAD `53c193e0` and made no
+new production changes. All required local gates passed: oracle check/test,
+dual-target native and codec gates, full service and creation acceptance,
+`just test`, `just build`, `just lint`, and the standalone
+`just shared-tree-checklist` real-Chromium gate. All 15 rows in the
+[local branching acceptance matrix](2026-10-05-shared-tree-local-branching.md#5-acceptance-matrix)
+are reconciled against named tests and raw artifacts.
+
+Published-profile service run `f464dfdf-a6e4-4e4d-b1bf-fa260460b500` executed
+300/300 seed-42 schedules with zero skips or divergences. Its five branch
+sections have 3 isolation rows, 168 conflict cells, 6 lifetime rows,
+4 reconnect rows and all 18 before/after-merge reload cells. The current-profile
+artifact audit passed against 1,010 verified references. Creation run
+`c4cbc88b-23a5-483e-a46d-31cf9a57b843` passed all 18
+native-creator/profile/reader cells. Both runs use profile digest
+`51a465c9e685197b578eaa1a53cea84aa2da955da1000855fa5214534fb84608`
+and the unchanged Fluid 3.1.0/Floodgate pins.
+
+The native gate passed 1,084 Erlang and 1,057 JavaScript tests; the service
+coordinator's narrower selection passed 1,067 and 1,040. The oracle suite
+passed 534 tests and verified 63 cases. Full repository tests passed root
+Erlang 2,638 and JavaScript 2,889 tests, all workspace and compile-fail suites,
+website type checks, 2,360 website unit tests and 42 real-browser tests.
+Build passed both target families and all 18 example bundles. The separate
+Chromium checklist gate passed creation, edits, reorder and the race in two
+contexts with no errors and final pending count zero.
+
+The lockfile repair `a77cb140` resolves the old registry-policy failure without
+bypassing policy. The M6-caused ordinary-DDS delivery regression was already
+repaired by `b2e10a17`; full regression retains that snapshot behavior and
+SharedTree callback cancellation. An initial upstream summary-broadcast timeout
+was followed by an unchanged full passing service run. The standalone browser
+initially used a wrong same-origin development configuration; it passed with
+the documented origin policy on an owned loopback-only pinned service.
+Both failed attempts remain in the [Task 11 record](2026-10-05-shared-tree-local-branching.md#current-task-11-evidence);
+neither was waived or counted as acceptance.
 
 ### M5 combined validation
 
@@ -142,11 +181,13 @@ cells above, with no skips or divergences. Both reports use the unchanged Fluid
 3.1.0 and Floodgate references and profile digest
 `df753f54b96d22433cbbc35b74d387240074e7ef92530ebc1b1861905aae9c68`.
 
-The active pnpm policy rejects 28 existing Microsoft-registry tarball URLs in
-the checklist example's lockfile. An archive of unchanged base `8194fbc5`
+At that earlier execution, the active pnpm policy rejected 28 existing
+Microsoft-registry tarball URLs in the checklist example's lockfile. An archive
+of unchanged base `8194fbc5`
 reproduced the failure. No policy bypass or lockfile rewrite was used. The
 passing website browser suite does not substitute for the blocked standalone
-SharedTree checklist. Full build/browser release acceptance remains open.
+SharedTree checklist. The later M6 local release record above closes this
+build/browser prerequisite; the historical M5 results are unchanged.
 
 The four public README Gleam examples also passed formatting and JavaScript
 compilation in an isolated source archive. The stack example requires queued
@@ -2368,8 +2409,8 @@ commits, and stable node-existence constraints. The generated profile, service
 profile, public documentation, and permanent gate definitions now publish that
 restricted slice. Task 11 records passing local native and service evidence.
 The historical pnpm policy failure was repaired by the lockfile-only commit
-`a77cb140`; the current build and browser checklist pass, while the final Task
-11 outcome remains pending.
+`a77cb140`; local branching Task 11 now records complete passing build,
+standalone browser and repository release acceptance.
 
 The [undo/redo plan](2026-10-02-shared-tree-undo-redo.md) implements and
 publishes commit subscriptions, commit kinds, one-shot factories,
@@ -2379,8 +2420,8 @@ handles in-process; reload preserves committed document state but does not
 recreate old handles. Schema commits, active-transaction reversion,
 async/cross-tree transactions, and persisted application stacks remain
 outside the profile. Task 10 records local regression evidence. The historical
-build/browser block is resolved; Task 11 remains responsible for the complete
-release result.
+build/browser block is resolved and local branching Task 11 records the
+complete local release result.
 
 Keep the original specification's milestone numbering, but use this roadmap
 and each feature plan's dated reconciliation for implementation status. Each
@@ -2388,9 +2429,7 @@ new scope needs its own approved design and interoperability proof.
 
 | Remaining area | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| M5 release acceptance | Published slices and recorded local native/service evidence | Resolve the baseline pnpm policy/lockfile mismatch before completing full build and standalone browser acceptance. Hosted workflows were not dispatched in this continuation. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
-| M6 local branching publication and release | Native facades and Task 9 real-service proof | [Local branching plan](2026-10-05-shared-tree-local-branching.md), Tasks 10-11: publish the runtime-local profile and permanent gates, then complete full regression and acceptance closure. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
 | Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
 | Richer Lustre and typed schema UX | Stable native facade | Transaction and commit/revertible effects, application-owned stack examples, and typed consumers without changing kernel or bootstrap contracts. |
@@ -2405,8 +2444,6 @@ staging is historical. The remaining work can split as follows:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| M5 release owner | Remaining full-build/browser acceptance and any hosted release evidence. | Preserve the published profile, recorded local proof, and unsupported-feature exclusions. |
-| M6 profile and release owner | Local branching Tasks 10-11. | Preserve the completed native/service contract; shared/persisted branches remain excluded. |
 | Selected M7 consumers | Richer bindings, typed consumers, application-owned stack examples, and browser coverage. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
 | New-scope design/oracle work | Array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 

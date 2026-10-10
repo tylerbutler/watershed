@@ -27,10 +27,12 @@ Also read the [parent design](../specs/2026-09-21-shared-tree-design.md),
 ## Reconciliation (2026-10-04)
 
 **Current status:** Tasks 1-10 are implemented. Task 11 records passing local
-native, codec, real-service, creation, and repository tests. Full-build release
-acceptance remains blocked by a pnpm policy failure reproduced at the unchanged
-execution base. The task bodies below retain the historical test-first
-execution record; an unchecked historical substep is not evidence that its
+native, codec, real-service, creation, and repository tests. The later
+[M6 local release record](2026-09-21-shared-tree.md#m6-local-release-acceptance)
+closes the full-build prerequisite after the lockfile repair, with current
+repository/build and standalone browser acceptance. The earlier pnpm failure
+remains historical evidence. The task bodies below retain the historical
+test-first execution record; an unchecked historical substep is not evidence that its
 named source surface is absent.
 
 Current code exposes synchronous single-tree transactions on JavaScript at
@@ -52,7 +54,7 @@ claim.
 Undo and redo are implemented and profile-closed separately; references below
 that call them unimplemented describe the 2026-09-29 planning baseline. See
 [the undo/redo plan](2026-10-02-shared-tree-undo-redo.md) for its published
-profile and remaining full-build/browser release acceptance.
+profile and local release evidence.
 
 The initial reconciliation did not execute gates. The continuation from
 `8194fbc5` ran the commands recorded under Task 11 and in the
@@ -1734,6 +1736,10 @@ profile and stale-oracle fixes.
 
 See the [combined validation record](2026-09-21-shared-tree.md#m5-combined-validation)
 for command outcomes, pins, report IDs, and the full-build/browser limitation.
+The [later M6 local release record](2026-09-21-shared-tree.md#m6-local-release-acceptance)
+resolves that limitation with the published profile, full repository/build
+gates and standalone real-Chromium acceptance. It also reruns all transaction
+service sections and native creation; no hosted workflow was dispatched.
 The native acceptance below uses named tests rather than final-value equality:
 
 | Contract | Native evidence |
@@ -1757,8 +1763,8 @@ editing for all 18 required cells.
 ## 5. Acceptance checklist
 
 Checked boxes use Task 10 profile changes and Task 11 native/service evidence.
-The full-build release check remains open because the unchanged execution base
-reproduces the pnpm policy failure.
+The historical full-build failure was resolved by the lockfile-only repair
+`a77cb140`; M6 Task 11 supplies the passing current build/repository evidence.
 
 - [x] One outer success produces one composed SharedTree commit.
 - [x] Outer abort restores values, identities, history, and summary compressor
@@ -1784,7 +1790,7 @@ reproduces the pnpm policy failure.
 - [x] Existing M1-M4 behavior and native container creation remain intact.
 - [x] Transaction documentation distinguishes this implemented slice from the
       published undo/redo slice and from still-deferred transaction features.
-- [ ] Complete repository build passes.
+- [x] Complete repository build passes.
 
 ## 6. Review matrix and stop conditions
 
