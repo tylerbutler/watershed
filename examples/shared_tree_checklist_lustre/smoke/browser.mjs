@@ -36,12 +36,24 @@ const snapshotExpression = `(() => ({
   errors: Array.from(document.querySelectorAll("[data-error]")).map((node) =>
     node.textContent
   ),
-  controls: Object.fromEntries(
-    ["undo", "redo", "complete-all", "clear-history", "close"].map((action) => [
-      action,
-      document.querySelector('[data-action="' + action + '"]')?.disabled ?? null,
-    ]),
-  ),
+  controls: {
+    addInput: document.querySelector("[data-new-item]")?.disabled ?? null,
+    add: document.querySelector('[data-action="add"]')?.disabled ?? null,
+    global: Object.fromEntries(
+      ["undo", "redo", "complete-all", "clear-history", "close"].map((action) => [
+        action,
+        document.querySelector('[data-action="' + action + '"]')?.disabled ?? null,
+      ]),
+    ),
+    items: Array.from(document.querySelectorAll("[data-item-id]")).map((row) => ({
+      id: row.dataset.itemId,
+      edit: row.querySelector('[data-action="edit"]')?.disabled ?? null,
+      toggle: row.querySelector('[data-action="toggle"]')?.disabled ?? null,
+      delete: row.querySelector('[data-action="delete"]')?.disabled ?? null,
+      moveUp: row.querySelector('[data-action="move-up"]')?.disabled ?? null,
+      moveDown: row.querySelector('[data-action="move-down"]')?.disabled ?? null,
+    })),
+  },
   url: location.href,
 }))()`;
 
@@ -251,7 +263,16 @@ async function main() {
             );
             assertClean(cleared);
 
-            await clickGlobalAction(firstSend, "complete-all");
+            const pending = await clickGlobalActionAndSnapshot(
+              firstSend,
+              "complete-all",
+            );
+            if (pending.pending < 1 || !allControlsDisabled(pending.controls)) {
+              throw new Error(
+                "local pending work did not disable every editing control:\n" +
+                  JSON.stringify(pending, null, 2),
+              );
+            }
             pair = await waitForPair(
               firstSend,
               secondSend,
@@ -371,9 +392,7 @@ async function main() {
                 value.undo === 0 &&
                 value.redo === 0 &&
                 value.errors.length === 0 &&
-                Object.values(value.controls).every(
-                  (disabled) => disabled === true,
-                ),
+                allControlsDisabled(value.controls),
             );
 
             await firstSend("Page.enable");
@@ -556,6 +575,77 @@ async function clickGlobalAction(send, action) {
       if (!button) return { ok: false, detail: actionName + " is missing" };
       if (button.disabled) {
         return { ok: false, detail: actionName + " is disabled" };
+      }
+
+      async function clickGlobalActionAndSnapshot(send, action) {
+        const result = await call(
+          send,
+          function (actionName) {
+            const button = document.querySelector(
+              '[data-action="' + actionName + '"]',
+            );
+            if (!button) return { ok: false, detail: actionName + " is missing" };
+            if (button.disabled) {
+              return { ok: false, detail: actionName + " is disabled" };
+            }
+            button.click();
+            const items = Array.from(
+              document.querySelectorAll("[data-item-id]"),
+            ).map((row) => ({
+              id: row.dataset.itemId,
+              edit: row.querySelector('[data-action="edit"]')?.disabled ?? null,
+              toggle: row.querySelector('[data-action="toggle"]')?.disabled ?? null,
+              delete: row.querySelector('[data-action="delete"]')?.disabled ?? null,
+              moveUp:
+                row.querySelector('[data-action="move-up"]')?.disabled ?? null,
+              moveDown:
+                row.querySelector('[data-action="move-down"]')?.disabled ?? null,
+            }));
+            return {
+              ok: true,
+              pending: Number(
+                document.querySelector("[data-pending]")?.dataset.pending ?? -1,
+              ),
+              controls: {
+                addInput:
+                  document.querySelector("[data-new-item]")?.disabled ?? null,
+                add:
+                  document.querySelector('[data-action="add"]')?.disabled ?? null,
+                global: Object.fromEntries(
+                  [
+                    "undo",
+                    "redo",
+                    "complete-all",
+                    "clear-history",
+                    "close",
+                  ].map((name) => [
+                    name,
+                    document.querySelector(
+                      '[data-action="' + name + '"]',
+                    )?.disabled ?? null,
+                  ]),
+                ),
+                items,
+              },
+            };
+          },
+          [action],
+        );
+        if (!result.ok) throw new Error(result.detail);
+        return result;
+      }
+
+      function allControlsDisabled(controls) {
+        return (
+          controls.addInput === true &&
+          controls.add === true &&
+          Object.values(controls.global).every((disabled) => disabled === true) &&
+          controls.items.length > 0 &&
+          controls.items.every(({ id, ...item }) => {
+            void id;
+            return Object.values(item).every((disabled) => disabled === true);
+          })
+        );
       }
       button.click();
       return { ok: true };

@@ -3,6 +3,7 @@ import gleeunit
 import shared_tree_checklist_lustre
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/history
+import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed/tree/schema
 import watershed/tree/types
@@ -53,6 +54,66 @@ pub fn history_consumption_clear_and_disposed_pruning_keep_stack_order_test() {
   let assert history.Routed(history.History([], []), dispose) =
     history.clear(value)
   let assert ["undo-new", "undo-old", "redo"] = dispose
+}
+
+pub fn failed_history_and_empty_requests_preserve_application_state_test() {
+  let initial =
+    lifecycle.State(
+      history: history.History(["undo"], ["redo"]),
+      action: None,
+      pending: 0,
+    )
+  let assert #(after_empty_undo, None) =
+    lifecycle.request(
+      lifecycle.State(..initial, history: history.History([], ["redo"])),
+      lifecycle.Undoing,
+    )
+  let assert lifecycle.State(history.History([], ["redo"]), None, 0) =
+    after_empty_undo
+  let assert #(after_empty_redo, None) =
+    lifecycle.request(
+      lifecycle.State(..initial, history: history.History(["undo"], [])),
+      lifecycle.Redoing,
+    )
+  let assert lifecycle.State(history.History(["undo"], []), None, 0) =
+    after_empty_redo
+
+  let assert #(requested, Some("undo")) =
+    lifecycle.request(initial, lifecycle.Undoing)
+  let assert lifecycle.Transition(failed, [], Some(error)) =
+    lifecycle.history_finished(requested, Error("revert refused"))
+  let assert "History action failed: revert refused" = error
+  let assert lifecycle.State(history.History(["undo"], ["redo"]), None, 0) =
+    failed
+}
+
+pub fn capture_settlement_and_disposal_failures_are_visible_and_drain_test() {
+  let initial =
+    lifecycle.State(history: history.new(), action: None, pending: 0)
+  let assert lifecycle.Transition(
+    after_capture,
+    [],
+    Some("Commit capture failed: acquisition refused"),
+  ) = lifecycle.captured(initial, True, Error("acquisition refused"))
+  let assert lifecycle.State(history.History([], []), None, 0) = after_capture
+
+  let assert Some("Commit settlement failed: registration refused") =
+    lifecycle.settled(Error("registration refused"))
+  let assert Some("Commit settlement dropped the full change") =
+    lifecycle.settled(Ok(types.FullyDropped))
+  let assert Some("Commit settlement applied only new content") =
+    lifecycle.settled(Ok(types.NewContentOnly))
+
+  let closing =
+    lifecycle.State(history: history.new(), action: None, pending: 2)
+  let assert lifecycle.Disposal(
+    after_first,
+    Some("History disposal failed: dispose refused"),
+    False,
+  ) = lifecycle.disposal_finished(closing, Error("dispose refused"))
+  let assert lifecycle.Disposal(after_second, None, True) =
+    lifecycle.disposal_finished(after_first, Ok(Nil))
+  let assert 0 = after_second.pending
 }
 
 pub fn decode_and_prepare_every_required_operation_test() {

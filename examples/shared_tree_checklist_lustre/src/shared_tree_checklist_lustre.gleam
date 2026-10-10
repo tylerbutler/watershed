@@ -11,6 +11,7 @@ import lustre/element/html
 import lustre/event
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/history
+import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed
 import watershed/id
@@ -39,11 +40,6 @@ type Phase {
   Failed(String)
 }
 
-type HistoryAction {
-  Undoing
-  Redoing
-}
-
 type Model {
   Model(
     config: Config,
@@ -55,7 +51,7 @@ type Model {
     commit_subscription: Option(watershed.SubscriptionToken),
     checklist: checklist.Checklist,
     history: history.History(watershed.TreeRevertible),
-    history_action: Option(HistoryAction),
+    history_action: Option(lifecycle.Action),
     draft: String,
     pending: Int,
     errors: List(String),
@@ -227,17 +223,23 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       ]),
     )
     ChangeSubscribed(subscription) ->
-      case model.phase {
-        Closed -> #(model, tree.unsubscribe(subscription))
-        _ -> #(
+      case lifecycle.subscription(model.phase != Closed, subscription) {
+        lifecycle.Unsubscribe(subscription) -> #(
+          model,
+          tree.unsubscribe(subscription),
+        )
+        lifecycle.Retain(subscription) -> #(
           Model(..model, change_subscription: Some(subscription)),
           effect.none(),
         )
       }
     CommitSubscribed(subscription) ->
-      case model.phase {
-        Closed -> #(model, tree.unsubscribe(subscription))
-        _ -> #(
+      case lifecycle.subscription(model.phase != Closed, subscription) {
+        lifecycle.Unsubscribe(subscription) -> #(
+          model,
+          tree.unsubscribe(subscription),
+        )
+        lifecycle.Retain(subscription) -> #(
           Model(..model, commit_subscription: Some(subscription)),
           effect.none(),
         )
@@ -247,36 +249,30 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Closed, _ | _, None -> #(model, effect.none())
         _, Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
       }
-    CommitCaptured(Error(detail)) -> #(
-      append_error(model, "Commit capture failed: " <> detail),
-      effect.none(),
-    )
-    CommitCaptured(Ok(tree.CommitEvent(kind, local, revertible))) ->
-      case model.phase {
-        Ready -> {
-          let history.Routed(next_history, dispose) =
-            history.route(valid_history(model.history), kind, local, revertible)
-          dispose_handles(Model(..model, history: next_history), dispose)
-        }
-        _ ->
-          case revertible {
-            None -> #(model, effect.none())
-            Some(handle) -> dispose_handles(model, [handle])
-          }
+    CommitCaptured(outcome) -> {
+      let outcome =
+        result.map(outcome, fn(event) {
+          let tree.CommitEvent(kind, local, revertible) = event
+          #(kind, local, revertible)
+        })
+      let lifecycle.Transition(next, dispose, error) =
+        lifecycle.captured(
+          lifecycle_state(Model(..model, history: valid_history(model.history))),
+          model.phase == Ready,
+          outcome,
+        )
+      let model = apply_lifecycle(model, next)
+      let model = case error {
+        Some(detail) -> append_error(model, detail)
+        None -> model
       }
-    CommitSettled(Ok(types.FullyApplied)) -> #(model, effect.none())
-    CommitSettled(Ok(types.FullyDropped)) -> #(
-      append_error(model, "Commit settlement dropped the full change"),
-      effect.none(),
-    )
-    CommitSettled(Ok(types.NewContentOnly)) -> #(
-      append_error(model, "Commit settlement applied only new content"),
-      effect.none(),
-    )
-    CommitSettled(Error(detail)) -> #(
-      append_error(model, "Commit settlement failed: " <> detail),
-      effect.none(),
-    )
+      dispose_handles(model, dispose)
+    }
+    CommitSettled(outcome) ->
+      case lifecycle.settled(outcome) {
+        Some(detail) -> #(append_error(model, detail), effect.none())
+        None -> #(model, effect.none())
+      }
     Read(Error(detail)) -> #(append_error(model, detail), effect.none())
     Read(Ok(None)) -> fail(model, "The SharedTree root is absent")
     Read(Ok(Some(value))) ->
@@ -300,8 +296,8 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     DeleteClicked(item_id) -> mutate(model, Delete(item_id))
     MoveUpClicked(item_id) -> mutate(model, MoveUp(item_id))
     MoveDownClicked(item_id) -> mutate(model, MoveDown(item_id))
-    UndoClicked -> request_history(model, Undoing)
-    RedoClicked -> request_history(model, Redoing)
+    UndoClicked -> request_history(model, lifecycle.Undoing)
+    RedoClicked -> request_history(model, lifecycle.Redoing)
     CompleteAllClicked -> request_complete_all(model)
     ClearHistoryClicked ->
       case can_interact(model) {
@@ -325,26 +321,12 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       }
     }
     HistoryFinished(outcome) -> {
-      let model = finish_pending(model)
-      let model = case outcome, model.history_action {
-        Ok(Nil), Some(Undoing) ->
-          Model(
-            ..model,
-            history: history.consume_undo(model.history),
-            history_action: None,
-          )
-        Ok(Nil), Some(Redoing) ->
-          Model(
-            ..model,
-            history: history.consume_redo(model.history),
-            history_action: None,
-          )
-        Error(detail), _ ->
-          append_error(
-            Model(..model, history_action: None),
-            "History action failed: " <> detail,
-          )
-        _, None -> Model(..model, history_action: None)
+      let lifecycle.Transition(next, _, error) =
+        lifecycle.history_finished(lifecycle_state(model), outcome)
+      let model = apply_lifecycle(model, next)
+      let model = case error {
+        Some(detail) -> append_error(model, detail)
+        None -> model
       }
       case model.tree {
         Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
@@ -366,11 +348,12 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       }
     }
     Disposed(outcome) -> {
-      let model = finish_pending(model)
-      let model = case outcome {
-        Ok(Nil) -> model
-        Error(detail) ->
-          append_error(model, "History disposal failed: " <> detail)
+      let lifecycle.Disposal(next, error, _) =
+        lifecycle.disposal_finished(lifecycle_state(model), outcome)
+      let model = apply_lifecycle(model, next)
+      let model = case error {
+        Some(detail) -> append_error(model, detail)
+        None -> model
       }
       continue_close(model)
     }
@@ -444,25 +427,17 @@ fn complete_incomplete(
 
 fn request_history(
   model: Model,
-  action: HistoryAction,
+  action: lifecycle.Action,
 ) -> #(Model, Effect(Msg)) {
   case can_interact(model) {
     False -> #(model, effect.none())
     True -> {
-      let current = valid_history(model.history)
-      let next = case action {
-        Undoing -> history.next_undo(current)
-        Redoing -> history.next_redo(current)
-      }
-      case next {
-        None -> #(Model(..model, history: current), effect.none())
+      let current = Model(..model, history: valid_history(model.history))
+      let #(next, handle) = lifecycle.request(lifecycle_state(current), action)
+      case handle {
+        None -> #(apply_lifecycle(current, next), effect.none())
         Some(handle) -> #(
-          Model(
-            ..model,
-            history: current,
-            history_action: Some(action),
-            pending: model.pending + 1,
-          ),
+          apply_lifecycle(current, next),
           tree.revert(handle, True, HistoryFinished),
         )
       }
@@ -508,18 +483,13 @@ fn close_document(model: Model) -> #(Model, Effect(Msg)) {
     False, _ -> #(model, effect.none())
     True, None -> #(append_error(model, "Document is not ready"), effect.none())
     True, Some(document) -> {
-      let history.Routed(empty, dispose) =
-        history.clear(valid_history(model.history))
-      let unsubscribe =
-        list.flat_map(
-          [model.change_subscription, model.commit_subscription],
-          fn(subscription) {
-            case subscription {
-              Some(subscription) -> [tree.unsubscribe(subscription)]
-              None -> []
-            }
-          },
+      let lifecycle.Close(next, unsubscribe, dispose) =
+        lifecycle.close(
+          lifecycle_state(Model(..model, history: valid_history(model.history))),
+          model.change_subscription,
+          model.commit_subscription,
         )
+      let unsubscribe = list.map(unsubscribe, tree.unsubscribe)
       let cleanup =
         list.map(dispose, fn(handle) {
           tree.dispose_revertible(handle, Disposed)
@@ -531,9 +501,9 @@ fn close_document(model: Model) -> #(Model, Effect(Msg)) {
           tree: None,
           change_subscription: None,
           commit_subscription: None,
-          history: empty,
-          history_action: None,
-          pending: list.length(dispose),
+          history: next.history,
+          history_action: next.action,
+          pending: next.pending,
         )
       case dispose {
         [] -> {
@@ -598,6 +568,26 @@ fn valid_history(
 
 fn can_interact(model: Model) -> Bool {
   model.phase == Ready && model.pending == 0 && model.history_action == None
+}
+
+fn lifecycle_state(model: Model) -> lifecycle.State(watershed.TreeRevertible) {
+  lifecycle.State(
+    history: model.history,
+    action: model.history_action,
+    pending: model.pending,
+  )
+}
+
+fn apply_lifecycle(
+  model: Model,
+  state: lifecycle.State(watershed.TreeRevertible),
+) -> Model {
+  Model(
+    ..model,
+    history: state.history,
+    history_action: state.action,
+    pending: state.pending,
+  )
 }
 
 fn finish_pending(model: Model) -> Model {
@@ -676,6 +666,7 @@ fn view(model: Model) -> Element(Msg) {
         [
           attribute.disabled(!ready || string.trim(model.draft) == ""),
           attribute.type_("submit"),
+          attribute.attribute("data-action", "add"),
         ],
         [html.text("Add")],
       ),
