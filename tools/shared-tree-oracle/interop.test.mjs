@@ -17,6 +17,7 @@ import {
   loadInteropProfile,
   parseTestCount,
   parseInteropOptions,
+  requiredLocalBranchSections,
   runInteropCommand,
   validateInteropReport,
   validateLocalBranchSections,
@@ -4232,6 +4233,18 @@ async function validFixture() {
       })),
     ])),
   ]));
+  const localBranches = localBranchReport();
+  for (const name of requiredLocalBranchSections) {
+    const section = localBranches[name];
+    section.runId = "current";
+    section.profileDigest = loaded.profileDigest;
+    for (const row of section.implementations ?? section.cells) {
+      const subject = `${name}:${row.id ?? row.implementation}`;
+      row.artifacts = [artifact("local-branch", subject, null, {
+        result: structuredClone(row),
+      })];
+    }
+  }
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -4282,7 +4295,7 @@ async function validFixture() {
     undoRedoConcurrent,
     undoRedoReconnect,
     undoRedoReloadMatrix,
-    ...localBranchReport(),
+    ...localBranches,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -4359,6 +4372,62 @@ test("an empty result cannot prove interoperability", async () => {
 test("a complete current-run report satisfies the Task 15 coverage gate", async () => {
   const { expected, report } = await validFixture();
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("branch sections reject copied prior-run and prior-profile evidence", async () => {
+  for (const section of requiredLocalBranchSections) {
+    for (const [name, mutate] of [
+      ["run", (report) => {
+        report[section].runId = "prior-run";
+      }],
+      ["profile", (report) => {
+        report[section].profileDigest = "0".repeat(64);
+      }],
+    ]) {
+      const { expected, report } = await validFixture();
+      mutate(report);
+      assert.throws(
+        () => validateInteropReport(report, expected),
+        /another run|another profile/i,
+        `${section} ${name}`,
+      );
+    }
+  }
+});
+
+test("branch sections require verified captured artifacts", async () => {
+  for (const section of requiredLocalBranchSections) {
+    const { expected, report } = await validFixture();
+    const rows = report[section].implementations ?? report[section].cells;
+    delete rows[0].artifacts;
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /artifact/i,
+      section,
+    );
+  }
+});
+
+test("branch artifacts reject prior-run and prior-profile captures", async () => {
+  for (const [name, mutate] of [
+    ["run", (claim) => { claim.runId = "prior-run"; }],
+    ["profile", (claim) => { claim.profileDigest = "0".repeat(64); }],
+  ]) {
+    const { expected, owned, report } = await validFixture();
+    const row = report.localBranchConcurrent.cells[0];
+    const reference = row.artifacts[0];
+    const path = join(owned, reference);
+    const claim = JSON.parse(await readFile(path, "utf8"));
+    mutate(claim);
+    await writeFile(path, `${JSON.stringify(claim)}\n`);
+    expected.artifacts =
+      await createArtifactEvidence(owned, [...expected.artifacts.keys()]);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /artifact belongs to another run|artifact uses another profile/i,
+      name,
+    );
+  }
 });
 
 test("Identifier coverage rejects missing authors, refusals, and reload cells", async () => {

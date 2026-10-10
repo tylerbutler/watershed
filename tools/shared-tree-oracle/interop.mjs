@@ -729,6 +729,11 @@ export function artifactReferences(report) {
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.arrayReload).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...requiredLocalBranchSections.flatMap((name) => {
+      const section = report[name];
+      return (section.implementations ?? section.cells)
+        .flatMap(({ artifacts }) => artifacts);
+    }),
     ...Object.values(report.corpus).flatMap(({ artifacts }) => artifacts),
   ];
   const seen = new Set(references);
@@ -741,6 +746,37 @@ export function artifactReferences(report) {
     }
   }
   return references;
+}
+
+function localBranchRows(section) {
+  return section.implementations ?? section.cells;
+}
+
+function localBranchSubject(section, row) {
+  return `${section}:${row.id ?? row.implementation}`;
+}
+
+async function attachLocalBranchArtifacts(runDirectory, context, sections) {
+  for (const name of requiredLocalBranchSections) {
+    const section = sections[name];
+    section.runId = context.runId;
+    section.profileDigest = context.profileDigest;
+    for (const row of localBranchRows(section)) {
+      const subject = localBranchSubject(name, row);
+      const artifact =
+        `local-branch/${subject.replace(/[^a-z0-9.-]+/gi, "_")}.json`;
+      await writeJson(join(runDirectory, artifact), {
+        formatVersion: 1,
+        runId: context.runId,
+        profileDigest: context.profileDigest,
+        kind: "local-branch",
+        subject,
+        documentId: null,
+        result: row,
+      });
+      row.artifacts = [artifact];
+    }
+  }
 }
 
 async function liveAcceptance(config, runDirectory, context, options, corpus, log) {
@@ -825,6 +861,14 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   const localBranch = await runLocalBranchScenarios(config, context);
   const localBranchReloadMatrix =
     await runLocalBranchReloadMatrix(config, context);
+  const localBranchSections = {
+    localBranchIsolation: localBranch.isolation,
+    localBranchConcurrent: localBranch.concurrent,
+    localBranchLifetime: localBranch.lifetime,
+    localBranchReconnect: localBranch.reconnect,
+    localBranchReloadMatrix,
+  };
+  await attachLocalBranchArtifacts(runDirectory, context, localBranchSections);
 
   await writeStatus(runDirectory, "reload");
   log("shared-tree interop: selected-summary reload matrix");
@@ -931,11 +975,7 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     undoRedoConcurrent: undoRedo.concurrent,
     undoRedoReconnect: undoRedo.reconnect,
     undoRedoReloadMatrix,
-    localBranchIsolation: localBranch.isolation,
-    localBranchConcurrent: localBranch.concurrent,
-    localBranchLifetime: localBranch.lifetime,
-    localBranchReconnect: localBranch.reconnect,
-    localBranchReloadMatrix,
+    ...localBranchSections,
     corpus,
     skipped: [],
     divergences: [],
@@ -4372,7 +4412,32 @@ export function validateLocalBranchRow(row, label = row?.id ?? "Local branch row
   return row;
 }
 
-export function validateLocalBranchSections(report) {
+export function validateLocalBranchSections(report, evidence, expected) {
+  if (evidence !== undefined || expected !== undefined) {
+    assert(evidence instanceof Map && expected,
+      "Local branch artifact validation requires evidence and expectations");
+    for (const name of requiredLocalBranchSections) {
+      const section = report[name];
+      assert.equal(section?.runId, expected.runId,
+        `${name} belongs to another run`);
+      assert.equal(section?.profileDigest, expected.profileDigest,
+        `${name} uses another profile`);
+      for (const row of localBranchRows(section)) {
+        const label = `${name} ${row.id ?? row.implementation}`;
+        artifacts(row, evidence, expected, {
+          kind: "local-branch",
+          subject: localBranchSubject(name, row),
+          documentId: null,
+        }, label);
+        const measured = Object.fromEntries(Object.entries(row)
+          .filter(([key]) => key !== "artifacts"));
+        for (const reference of row.artifacts) {
+          assert.deepEqual(evidence.get(reference).claim.result, measured,
+            `${label} artifact differs from captured evidence`);
+        }
+      }
+    }
+  }
   for (const name of requiredLocalBranchSections) {
     validateLocalBranchService(report[name], name);
   }
@@ -4745,7 +4810,7 @@ export function validateInteropReport(report, expected) {
   validateIdentifierSections(report, expected, evidence);
   validateTransactionSections(report, expected, evidence);
   validateUndoRedoSections(report, evidence, expected);
-  validateLocalBranchSections(report);
+  validateLocalBranchSections(report, evidence, expected);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(
