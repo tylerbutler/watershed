@@ -48,6 +48,13 @@ lifecycle cleanup and browser proof do not close the remaining M7 areas.
 | M7: application/container lifecycle | Fixed-layout native creation plus the Lustre transaction, commit/revertible, application-owned history, and browser checklist slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md) and [Lustre consumer slice](2026-10-09-shared-tree-lustre.md); broader layouts, live attachment, handle-valued leaves, richer typed consumers, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
+The next proposed M7 slice is
+[handles and live attachment](2026-10-10-shared-tree-handles-attachment.md),
+with a [design draft](../specs/2026-10-10-shared-tree-handles-attachment-design.md).
+It plans handle-valued leaves and runtime-owned map/tree attachment graphs
+across declared datastores, starting with pinned upstream probes. It is not
+implemented or accepted; the M7 status above remains unchanged.
+
 The generated and service profiles publish the approved M5 transaction and
 undo/redo slices. Both native facades expose runtime-local revertible handles,
 and the profile names application-owned stacks, commit kinds, reconnect,
