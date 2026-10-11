@@ -77,6 +77,8 @@ import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "watershed/root"
 
+const graph_datastore_type = "org.watershed.shared-tree.m7.graph"
+
 /// Where the core reads its operations from now. A replay reads a complete,
 /// ordered log, so it needs none of the protections that guard the live lane.
 /// The position is one value, and not a flag, because the two positions name
@@ -111,6 +113,9 @@ pub type Core {
     channels: Dict(String, ChannelState),
     channel_order: List(String),
     detached: Dict(String, ChannelState),
+    local_datastores: Dict(String, LocalDatastore),
+    bindings: Dict(String, List(handle.Reference)),
+    prepared_attachments: List(fluid_container.MessageKind),
     next_client_sequence_number: Int,
     last_seen_sequence_number: Int,
     in_flight: List(InFlight),
@@ -165,6 +170,10 @@ pub type Core {
     /// `channel.apply_remote` can add to it, by returning owed operations.
     owed: Dict(String, List(channel.ChannelOperation)),
   )
+}
+
+pub type LocalDatastore {
+  LocalDatastore(package_path: List(String), entry_point_channel_id: String)
 }
 
 pub opaque type ReconnectBarrier {
@@ -907,6 +916,9 @@ fn start_core(
       channels: channels,
       channel_order: channel_order,
       detached: dict.new(),
+      local_datastores: dict.new(),
+      bindings: dict.new(),
+      prepared_attachments: [],
       next_client_sequence_number: 1,
       last_seen_sequence_number: last_seen,
       last_summary_sequence_number: case connected.summary_context {
@@ -1057,6 +1069,31 @@ pub fn new_channel_address(
     id,
   ))
   |> result.map_error(ContainerOperationFailed)
+}
+
+pub fn new_channel_address_in(
+  core: Core,
+  store_id: String,
+  channel_id: String,
+) -> Result(String, CoreError) {
+  use _ <- result.try(seed_requirement(
+    {
+      dict.has_key(core.routing.datastores, store_id)
+      || dict.has_key(core.local_datastores, store_id)
+    }
+      && !dict.has_key(core.routing.aliases, store_id),
+    "channel datastore is not declared",
+  ))
+  use address <- result.try(
+    fluid_container.route_key(fluid_container.Route(store_id, channel_id))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    !has_channel(core, address)
+      && !dict.has_key(core.routing.channel_attributes, address),
+    "duplicate channel route",
+  ))
+  Ok(address)
 }
 
 pub fn resume_bootstrap(
@@ -1652,8 +1689,28 @@ pub fn resubmit(
               list.append(outbounds, [sent]),
             ))
           }
-          InFlightBatch(pending: [_, _, ..], ..) ->
-            Error(AckMismatch("resubmit cannot flatten a grouped pending batch"))
+          InFlightBatch(pending: [_, _, ..], items: items, ..) ->
+            case has_datastore_attach(items) {
+              True -> {
+                use #(updated, sent) <- result.try(restamp_attachment_batch(
+                  core,
+                  entry,
+                  client_sequence_number,
+                ))
+                Ok(#(
+                  core,
+                  compressor,
+                  remaining,
+                  client_sequence_number + 1,
+                  list.append(entries, [updated]),
+                  list.append(outbounds, [sent]),
+                ))
+              }
+              False ->
+                Error(AckMismatch(
+                  "resubmit cannot flatten a grouped pending batch",
+                ))
+            }
           _ -> {
             let #(core, next_sequence, restamped, outbound) =
               restamp_in_flight(core, entry, client_sequence_number)
@@ -1709,6 +1766,88 @@ pub fn resubmit(
       in_flight: new_in_flight,
     ),
     outbound,
+  ))
+}
+
+fn restamp_attachment_batch(
+  core: Core,
+  entry: InFlight,
+  csn: Int,
+) -> Result(#(InFlight, wire.OutboundOperation), CoreError) {
+  let assert InFlightBatch(items: items, pending: pending, ..) = entry
+  let batch_id = core.client_id <> "_[" <> int.to_string(csn) <> "]"
+  let metadata =
+    Some(
+      json.object([
+        #("batchId", json.string(batch_id)),
+        #("groupedOpCount", json.int(list.length(items))),
+      ]),
+    )
+  let last = list.length(items) - 1
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      metadata,
+      list.index_map(items, fn(item, index) {
+        let boundary = case index {
+          0 ->
+            Some(
+              json.object([
+                #("batch", json.bool(True)),
+                #("batchId", json.string(batch_id)),
+              ]),
+            )
+          index if index == last ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        }
+        fluid_container.ContainerMessage(item, index, boundary)
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let pending =
+    list.map(pending, fn(item) {
+      case item {
+        InFlightOperation(
+          address: address,
+          operation: operation,
+          meta: meta,
+          ..,
+        ) -> InFlightOperation(core.client_id, csn, address, operation, meta)
+        InFlightAttach(address: address, snapshot: snapshot, ..) ->
+          InFlightAttach(core.client_id, csn, address, snapshot)
+        InFlightBatch(items: items, ..) ->
+          InFlightBatch(
+            core.client_id,
+            csn,
+            core.last_seen_sequence_number,
+            False,
+            None,
+            items,
+            [],
+          )
+      }
+    })
+  let updated =
+    InFlightBatch(
+      core.client_id,
+      csn,
+      core.last_seen_sequence_number,
+      True,
+      Some(batch_id),
+      items,
+      pending,
+    )
+  Ok(#(
+    updated,
+    wire.OutboundOperation(
+      csn,
+      core.last_seen_sequence_number,
+      "op",
+      contents,
+      metadata,
+    ),
   ))
 }
 
@@ -2897,52 +3036,68 @@ fn handle_operation(
             )
           }
           fluid_container.DatastoreAttach(datastore, contents) -> {
-            use _ <- result.try(seed_requirement(
-              result.is_ok(
-                fluid_container.route_key(fluid_container.Route(
-                  datastore,
-                  "root",
-                )),
-              )
-                && !dict.has_key(core.routing.datastores, datastore)
-                && !dict.has_key(core.routing.aliases, datastore),
-              "invalid or duplicate datastore identity",
-            ))
             use #(package_path, channels) <- result.try(
               wire_op.decode_datastore_attach(contents)
               |> result.map_error(ContainerOperationFailed),
             )
-            let candidate =
-              Core(
-                ..core,
-                routing: Routing(
-                  ..core.routing,
-                  datastores: dict.insert(
-                    core.routing.datastores,
-                    datastore,
-                    package_path,
-                  ),
-                ),
-              )
-            use candidate <- result.try(
-              list.try_fold(channels, candidate, fn(candidate, entry) {
-                use address <- result.try(
-                  fluid_container.route_key(fluid_container.Route(
-                    datastore,
-                    entry.0,
-                  ))
-                  |> result.map_error(ContainerOperationFailed),
-                )
-                use #(candidate, _, _) <- result.try(remote_attach(
-                  candidate,
-                  msg.sequence_number,
-                  address,
-                  entry.1,
+            case
+              is_own_operation(core, msg.client_id),
+              dict.get(core.local_datastores, datastore)
+            {
+              True, Ok(local) -> {
+                use _ <- result.try(seed_requirement(
+                  dict.get(core.routing.datastores, datastore)
+                    == Ok(local.package_path)
+                    && package_path == local.package_path,
+                  "own datastore attach does not match the prepared store",
                 ))
-                Ok(candidate)
-              }),
-            )
-            Ok(#(candidate, [], []))
+                Ok(#(core, [], []))
+              }
+              _, _ -> {
+                use _ <- result.try(seed_requirement(
+                  result.is_ok(
+                    fluid_container.route_key(fluid_container.Route(
+                      datastore,
+                      "root",
+                    )),
+                  )
+                    && !dict.has_key(core.routing.datastores, datastore)
+                    && !dict.has_key(core.routing.aliases, datastore),
+                  "invalid or duplicate datastore identity",
+                ))
+                let candidate =
+                  Core(
+                    ..core,
+                    routing: Routing(
+                      ..core.routing,
+                      datastores: dict.insert(
+                        core.routing.datastores,
+                        datastore,
+                        package_path,
+                      ),
+                    ),
+                  )
+                use candidate <- result.try(
+                  list.try_fold(channels, candidate, fn(candidate, entry) {
+                    use address <- result.try(
+                      fluid_container.route_key(fluid_container.Route(
+                        datastore,
+                        entry.0,
+                      ))
+                      |> result.map_error(ContainerOperationFailed),
+                    )
+                    use #(candidate, _, _) <- result.try(remote_attach(
+                      candidate,
+                      msg.sequence_number,
+                      address,
+                      entry.1,
+                    ))
+                    Ok(candidate)
+                  }),
+                )
+                Ok(#(candidate, [], []))
+              }
+            }
           }
           fluid_container.IdAllocation(range) -> {
             use compressor <- result.try(case core.compressor {
@@ -3142,11 +3297,24 @@ fn handle_channel_operation(
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, msg.sequence_number))
         Ok(state) -> {
+          use context <- result.try(handle_context(address))
+          use bound <- result.try(
+            handle.bind_serialized_references(
+              wire.dynamic_to_json(raw_contents),
+              context,
+            )
+            |> result.map_error(fn(error) {
+              ContainerOperationFailed(fluid_container.InvalidRoute(
+                "handle",
+                string.inspect(error),
+              ))
+            }),
+          )
           use decoder <- result.try(
             wire_op.channel_operation_decoder(channel.channel_type(state))
             |> result.map_error(ChannelBoundaryFailed),
           )
-          case decode.run(raw_contents, decoder) {
+          case json.parse(json.to_string(bound), decoder) {
             Error(_) -> Error(BadOperationContents(msg.sequence_number))
             Ok(operation) ->
               case is_own_operation(core, msg.client_id) {
@@ -3577,6 +3745,44 @@ fn ack_own_operation(
 // Outbound
 // ─────────────────────────────────────────────────────────────────────────────
 
+pub fn create_detached_data_store(
+  core: Core,
+  id: String,
+) -> Result(Core, CoreError) {
+  use _ <- result.try(
+    fluid_container.route_key(fluid_container.Route(id, "root"))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    !dict.has_key(core.routing.datastores, id)
+      && !dict.has_key(core.routing.aliases, id)
+      && !dict.has_key(core.local_datastores, id),
+    "duplicate datastore identity",
+  ))
+  use compressor <- result.try(case core.compressor {
+    Some(compressor) -> Ok(compressor)
+    None ->
+      Error(BadBootstrapSeed(
+        "declared datastore creation requires a document compressor",
+      ))
+  })
+  use #(compressor, _) <- result.try(
+    fluid_ids.generate(compressor)
+    |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) }),
+  )
+  let core =
+    Core(
+      ..core,
+      compressor: Some(compressor),
+      local_datastores: dict.insert(
+        core.local_datastores,
+        id,
+        LocalDatastore([graph_datastore_type], "root"),
+      ),
+    )
+  create_detached(core, id <> "/root", channel.InitMap)
+}
+
 pub fn create_detached(
   core: Core,
   address: String,
@@ -3601,7 +3807,10 @@ pub fn create_detached(
   )
   use _ <- result.try(seed_requirement(
     canonical == address
-      && dict.has_key(core.routing.datastores, route.data_store_id),
+      && {
+      dict.has_key(core.routing.datastores, route.data_store_id)
+      || dict.has_key(core.local_datastores, route.data_store_id)
+    },
     "detached channel has an invalid route",
   ))
   case address == root_address || has_channel(core, address) {
@@ -8095,8 +8304,23 @@ fn attach_dependencies(
       ))
     }),
   )
-  use #(order, _) <- result.try(collect_attach_order(core, addresses, []))
-  submit_attaches(core, order)
+  use references <- result.try(
+    list.try_map(addresses, fn(address) {
+      handle.reference_from_path("/" <> address)
+      |> result.map_error(fn(error) {
+        ContainerOperationFailed(fluid_container.InvalidRoute(
+          "handle",
+          string.inspect(error),
+        ))
+      })
+    }),
+  )
+  use #(core, _) <- result.try(prepare_attachments(
+    core,
+    source_address,
+    references,
+  ))
+  Ok(#(core, []))
 }
 
 fn handle_context(address: String) -> Result(String, CoreError) {
@@ -8118,113 +8342,324 @@ fn attach_dependencies_from_register_string(
   }
 }
 
-fn collect_attach_order(
+pub fn prepare_attachments(
   core: Core,
-  addresses: List(String),
-  visited: List(String),
-) -> Result(#(List(String), List(String)), CoreError) {
-  list.try_fold(addresses, #([], visited), fn(acc, address) {
-    let #(order, visited) = acc
-    use #(next, visited) <- result.try(collect_attach_for(
-      core,
-      address,
-      visited,
-    ))
-    Ok(#(list.append(order, next), visited))
-  })
+  source_address: String,
+  references: List(handle.Reference),
+) -> Result(#(Core, List(fluid_container.MessageKind)), CoreError) {
+  use source_address <- result.try(resolve_alias(core, source_address))
+  use _ <- result.try(locate_channel(core, source_address))
+  let core =
+    Core(
+      ..core,
+      bindings: dict.insert(
+        core.bindings,
+        source_address,
+        merge_references(
+          dict.get(core.bindings, source_address) |> result.unwrap([]),
+          references,
+        ),
+      ),
+      prepared_attachments: [],
+    )
+  use #(core, messages, _) <- result.try(
+    list.try_fold(references, #(core, [], []), fn(acc, reference) {
+      let #(core, messages, visited) = acc
+      use #(core, next, visited) <- result.try(prepare_reference(
+        core,
+        reference,
+        visited,
+      ))
+      Ok(#(core, list.append(messages, next), visited))
+    }),
+  )
+  let #(core, messages) = case has_datastore_attach(messages), core.compressor {
+    True, Some(compressor) -> {
+      let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+      #(Core(..core, compressor: Some(compressor)), case range {
+        Some(range) -> [fluid_container.IdAllocation(range), ..messages]
+        None -> messages
+      })
+    }
+    _, _ -> #(core, messages)
+  }
+  Ok(#(Core(..core, prepared_attachments: messages), messages))
 }
 
-fn collect_attach_for(
+fn prepare_reference(
   core: Core,
-  address: String,
+  reference: handle.Reference,
   visited: List(String),
-) -> Result(#(List(String), List(String)), CoreError) {
+) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
+  use address <- result.try(
+    handle.routed_address(handle.reference_to_json(reference), "/")
+    |> result.map_error(fn(error) {
+      ContainerOperationFailed(fluid_container.InvalidRoute(
+        "handle",
+        string.inspect(error),
+      ))
+    }),
+  )
   use address <- result.try(resolve_alias(core, address))
   case list.any(visited, fn(seen) { seen == address }) {
-    True -> Ok(#([], visited))
+    True -> Ok(#(core, [], visited))
     False -> {
       let visited = [address, ..visited]
-      case dict.get(core.detached, address) {
-        Error(_) -> Ok(#([], visited))
-        Ok(state) -> {
-          use context <- result.try(handle_context(address))
-          use deps <- result.try(
-            channel.routed_handle_addresses(state, context)
-            |> result.map_error(fn(error) {
-              ContainerOperationFailed(fluid_container.InvalidRoute(
-                "handle",
-                string.inspect(error),
-              ))
-            }),
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> address)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use _ <- result.try(case has_channel(core, address) {
+        True -> Ok(Nil)
+        False -> Error(UnknownChannel(address, core.last_seen_sequence_number))
+      })
+      case
+        dict.get(core.local_datastores, route.data_store_id),
+        dict.has_key(core.routing.datastores, route.data_store_id)
+      {
+        Ok(store), False ->
+          prepare_local_datastore(
+            Core(
+              ..core,
+              routing: Routing(
+                ..core.routing,
+                datastores: dict.insert(
+                  core.routing.datastores,
+                  route.data_store_id,
+                  store.package_path,
+                ),
+              ),
+            ),
+            route.data_store_id,
+            store,
+            visited,
           )
-          use #(order, visited) <- result.try(collect_attach_order(
+        _, _ -> {
+          use #(core, messages, visited) <- result.try(prepare_bound_references(
             core,
-            deps,
+            address,
             visited,
           ))
-          Ok(#(list.append(order, [address]), visited))
+          case dict.get(core.detached, address) {
+            Error(_) -> Ok(#(core, messages, visited))
+            Ok(state) ->
+              case dict.has_key(core.local_datastores, route.data_store_id) {
+                True -> Ok(#(core, messages, visited))
+                False -> {
+                  use snapshot <- result.try(
+                    channel.attach_snapshot(state)
+                    |> result.map_error(ChannelBoundaryFailed),
+                  )
+                  use kind <- result.try(
+                    wire_op.attachment_message(address, snapshot)
+                    |> result.map_error(ContainerOperationFailed),
+                  )
+                  use attached <- result.try(
+                    channel.attach_state(state, replica: core.client_id)
+                    |> result.map_error(ChannelBoundaryFailed),
+                  )
+                  let core =
+                    add_attached_channel(core, address, attached)
+                    |> fn(core) {
+                      Core(
+                        ..core,
+                        detached: dict.delete(core.detached, address),
+                      )
+                    }
+                  Ok(#(core, list.append(messages, [kind]), visited))
+                }
+              }
+          }
         }
       }
     }
   }
 }
 
-fn submit_attaches(
+fn prepare_local_datastore(
   core: Core,
-  addresses: List(String),
-) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
-  list.try_fold(addresses, #(core, []), fn(acc, address) {
-    let #(core, outbound) = acc
-    case dict.get(core.detached, address) {
-      Error(_) -> Ok(#(core, outbound))
-      Ok(state) -> {
-        use snapshot <- result.try(
-          channel.attach_snapshot(state)
-          |> result.map_error(ChannelBoundaryFailed),
-        )
-        let client_sequence_number = core.next_client_sequence_number
-        use outbound_operation <- result.try(
-          wire_op.outbound_attach_operation(
-            address: address,
-            client_sequence_number: client_sequence_number,
-            reference_sequence_number: core.last_seen_sequence_number,
-            snapshot: snapshot,
-          )
-          |> result.map_error(ContainerOperationFailed),
-        )
-        use pending <- result.try(pending_submission(
-          core.client_id,
-          client_sequence_number,
-          core.last_seen_sequence_number,
-          InFlightAttach(
-            core.client_id,
-            client_sequence_number,
-            address,
-            snapshot,
-          ),
-          outbound_operation,
-        ))
-        use attached <- result.try(
-          channel.attach_state(state, replica: core.client_id)
-          |> result.map_error(ChannelBoundaryFailed),
-        )
-        let core = add_attached_channel(core, address, attached)
-        let core =
-          Core(
-            ..core,
-            detached: dict.delete(core.detached, address),
-            next_client_sequence_number: client_sequence_number + 1,
-            in_flight: list.append(core.in_flight, [
-              pending,
-            ]),
-          )
-        Ok(#(core, list.append(outbound, [outbound_operation])))
+  data_store_id: String,
+  store: LocalDatastore,
+  visited: List(String),
+) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
+  let channels =
+    core.detached
+    |> dict.to_list
+    |> list.filter_map(fn(entry) {
+      case fluid_container.route_from_path("/" <> entry.0) {
+        Ok(route) if route.data_store_id == data_store_id ->
+          Ok(#(entry.0, route.channel_id, entry.1))
+        _ -> Error(Nil)
       }
+    })
+  use _ <- result.try(seed_requirement(
+    list.any(channels, fn(entry) { entry.1 == store.entry_point_channel_id }),
+    "declared datastore has no entry point channel",
+  ))
+  use #(core, messages, visited) <- result.try(
+    list.try_fold(channels, #(core, [], visited), fn(acc, entry) {
+      let #(core, messages, visited) = acc
+      use #(core, next, visited) <- result.try(prepare_bound_references(
+        core,
+        entry.0,
+        visited,
+      ))
+      Ok(#(core, list.append(messages, next), visited))
+    }),
+  )
+  use snapshots <- result.try(
+    list.try_map(channels, fn(entry) {
+      use snapshot <- result.try(
+        channel.attach_snapshot(entry.2)
+        |> result.map_error(ChannelBoundaryFailed),
+      )
+      Ok(#(entry.1, snapshot))
+    }),
+  )
+  let routes =
+    channels
+    |> list.flat_map(fn(entry) {
+      references_for(core, entry.0)
+      |> list.map(handle.reference_path)
+    })
+    |> list.unique
+  use attach <- result.try(
+    wire_op.encode_datastore_attach(
+      data_store_id,
+      store.package_path,
+      snapshots,
+      routes,
+    )
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use core <- result.try(
+    list.try_fold(channels, core, fn(core, entry) {
+      use attached <- result.try(
+        channel.attach_state(entry.2, replica: core.client_id)
+        |> result.map_error(ChannelBoundaryFailed),
+      )
+      Ok(
+        add_attached_channel(core, entry.0, attached)
+        |> fn(core) {
+          Core(..core, detached: dict.delete(core.detached, entry.0))
+        },
+      )
+    }),
+  )
+  Ok(#(core, list.append(messages, [attach]), visited))
+}
+
+fn prepare_bound_references(
+  core: Core,
+  address: String,
+  visited: List(String),
+) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
+  let references = references_for(core, address)
+  let core =
+    Core(..core, bindings: dict.insert(core.bindings, address, references))
+  list.try_fold(references, #(core, [], visited), fn(acc, reference) {
+    let #(core, messages, visited) = acc
+    use #(core, next, visited) <- result.try(prepare_reference(
+      core,
+      reference,
+      visited,
+    ))
+    Ok(#(core, list.append(messages, next), visited))
+  })
+}
+
+fn references_for(core: Core, address: String) -> List(handle.Reference) {
+  let retained = dict.get(core.bindings, address) |> result.unwrap([])
+  let current = case locate_channel(core, address) {
+    Ok(Detached(state)) | Ok(Attached(state)) ->
+      case handle_context(address) {
+        Ok(context) ->
+          channel.routed_handle_addresses(state, context)
+          |> result.unwrap([])
+          |> list.filter_map(fn(address) {
+            handle.reference_from_path("/" <> address)
+          })
+        Error(_) -> []
+      }
+    Error(_) -> []
+  }
+  merge_references(retained, current)
+}
+
+fn merge_references(
+  retained: List(handle.Reference),
+  added: List(handle.Reference),
+) -> List(handle.Reference) {
+  list.fold(added, retained, fn(references, reference) {
+    case
+      list.any(references, fn(existing) {
+        handle.reference_path(existing) == handle.reference_path(reference)
+      })
+    {
+      True -> references
+      False -> list.append(references, [reference])
+    }
+  })
+}
+
+fn has_datastore_attach(messages: List(fluid_container.MessageKind)) -> Bool {
+  list.any(messages, fn(message) {
+    case message {
+      fluid_container.DatastoreAttach(..) -> True
+      _ -> False
     }
   })
 }
 
 fn stamp_attached(
+  core: Core,
+  address: String,
+  state: ChannelState,
+  events: List(#(String, ChannelEvent)),
+  operation: channel.ChannelOperation,
+  meta: channel.LocalOperationMeta,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  case core.prepared_attachments {
+    [] ->
+      stamp_attached_operation(core, address, state, events, operation, meta)
+    prepared -> {
+      case has_datastore_attach(prepared) {
+        True ->
+          stamp_attachment_batch(
+            core,
+            prepared,
+            address,
+            state,
+            events,
+            operation,
+            meta,
+          )
+        False -> {
+          use #(core, attachments) <- result.try(
+            stamp_prepared_channel_attaches(
+              Core(..core, prepared_attachments: []),
+              prepared,
+            ),
+          )
+          use #(core, events, outbound) <- result.try(stamp_attached_operation(
+            core,
+            address,
+            state,
+            events,
+            operation,
+            meta,
+          ))
+          Ok(#(core, events, list.append(attachments, outbound)))
+        }
+      }
+    }
+  }
+}
+
+fn stamp_attached_operation(
   core: Core,
   address: String,
   state: ChannelState,
@@ -8268,6 +8703,162 @@ fn stamp_attached(
       ]),
     )
   Ok(#(core, events, [outbound]))
+}
+
+fn stamp_prepared_channel_attaches(
+  core: Core,
+  messages: List(fluid_container.MessageKind),
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  list.try_fold(messages, #(core, []), fn(acc, message) {
+    let #(core, outbound) = acc
+    case message {
+      fluid_container.ChannelAttach(route, type_name, snapshot) -> {
+        use address <- result.try(
+          fluid_container.route_key(route)
+          |> result.map_error(ContainerOperationFailed),
+        )
+        use decoded <- result.try(
+          wire_op.decode_attach_snapshot(type_name, snapshot)
+          |> result.map_error(ContainerOperationFailed),
+        )
+        let csn = core.next_client_sequence_number
+        use contents <- result.try(
+          fluid_container.encode(message)
+          |> result.map_error(ContainerOperationFailed),
+        )
+        let sent =
+          wire.OutboundOperation(
+            csn,
+            core.last_seen_sequence_number,
+            "op",
+            contents,
+            None,
+          )
+        use pending <- result.try(pending_submission(
+          core.client_id,
+          csn,
+          core.last_seen_sequence_number,
+          InFlightAttach(core.client_id, csn, address, decoded),
+          sent,
+        ))
+        Ok(#(
+          Core(
+            ..core,
+            next_client_sequence_number: csn + 1,
+            in_flight: list.append(core.in_flight, [pending]),
+          ),
+          list.append(outbound, [sent]),
+        ))
+      }
+      _ ->
+        Error(AckMismatch(
+          "non-channel message was prepared outside a datastore batch",
+        ))
+    }
+  })
+}
+
+fn stamp_attachment_batch(
+  core: Core,
+  prepared: List(fluid_container.MessageKind),
+  address: String,
+  state: ChannelState,
+  events: List(#(String, ChannelEvent)),
+  operation: channel.ChannelOperation,
+  meta: channel.LocalOperationMeta,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use encoded_operation <- result.try(
+    wire_op.encode_channel_operation(operation)
+    |> result.map_error(ChannelBoundaryFailed),
+  )
+  let kinds =
+    list.append(prepared, [
+      fluid_container.ChannelOperation(route, encoded_operation),
+    ])
+  let csn = core.next_client_sequence_number
+  let batch_id = core.client_id <> "_[" <> int.to_string(csn) <> "]"
+  let metadata =
+    Some(
+      json.object([
+        #("batchId", json.string(batch_id)),
+        #("groupedOpCount", json.int(list.length(kinds))),
+      ]),
+    )
+  let last = list.length(kinds) - 1
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      metadata,
+      list.index_map(kinds, fn(kind, index) {
+        let boundary = case index {
+          0 ->
+            Some(
+              json.object([
+                #("batch", json.bool(True)),
+                #("batchId", json.string(batch_id)),
+              ]),
+            )
+          index if index == last ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        }
+        fluid_container.ContainerMessage(kind, index, boundary)
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let outbound =
+    wire.OutboundOperation(
+      csn,
+      core.last_seen_sequence_number,
+      "op",
+      contents,
+      metadata,
+    )
+  let placeholders =
+    list.map(prepared, fn(kind) {
+      InFlightBatch(
+        core.client_id,
+        csn,
+        core.last_seen_sequence_number,
+        False,
+        None,
+        [kind],
+        [],
+      )
+    })
+  let pending =
+    InFlightBatch(
+      core.client_id,
+      csn,
+      core.last_seen_sequence_number,
+      True,
+      Some(batch_id),
+      kinds,
+      list.append(placeholders, [
+        InFlightOperation(core.client_id, csn, address, operation, meta),
+      ]),
+    )
+  Ok(
+    #(
+      Core(
+        ..core,
+        channels: dict.insert(core.channels, address, state),
+        prepared_attachments: [],
+        next_client_sequence_number: csn + 1,
+        in_flight: list.append(core.in_flight, [pending]),
+      ),
+      events,
+      [outbound],
+    ),
+  )
 }
 
 fn tag_events(

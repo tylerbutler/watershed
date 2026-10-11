@@ -97,13 +97,113 @@ pub fn encode_attach(
   address: String,
   snapshot: channel.Snapshot,
 ) -> Result(Json, fluid_container.ContainerError) {
+  use message <- result.try(attachment_message(address, snapshot))
+  fluid_container.encode(message)
+}
+
+pub fn attachment_message(
+  address: String,
+  snapshot: channel.Snapshot,
+) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
   use route <- result.try(fluid_container.route_from_path("/" <> address))
+  let kind = channel.snapshot_type(snapshot)
+  use snapshot <- result.try(channel_attach_snapshot(snapshot))
+  Ok(fluid_container.ChannelAttach(
+    route,
+    channel.fluid_type_to_string(kind),
+    snapshot,
+  ))
+}
+
+pub fn encode_datastore_attach(
+  data_store_id: String,
+  package_path: List(String),
+  channels: List(#(String, channel.Snapshot)),
+  routes: List(String),
+) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
+  use _ <- result.try(case package_path {
+    ["org.watershed.shared-tree.m7.graph"] -> Ok(Nil)
+    _ ->
+      Error(fluid_container.UnsupportedMessage(
+        "unsupported declared datastore package",
+      ))
+  })
+  use store_type <- result.try(
+    list.last(package_path)
+    |> result.map_error(fn(_) {
+      fluid_container.MalformedMessage(
+        "datastore attach",
+        "missing package identity",
+      )
+    }),
+  )
+  use channel_entries <- result.try(
+    list.try_map(channels, fn(entry) {
+      use snapshot <- result.try(channel_attach_snapshot(entry.1))
+      Ok(attach_tree_entry(entry.0, snapshot))
+    }),
+  )
+  let component =
+    json.object([
+      #(
+        "pkg",
+        json.string(json.to_string(json.array(package_path, json.string))),
+      ),
+      #("summaryFormatVersion", json.int(2)),
+      #("isRootDataStore", json.bool(False)),
+    ])
+  let gc =
+    json.object([
+      #(
+        "gcNodes",
+        json.object([
+          #(
+            "/root",
+            json.array(list.append(routes, ["/" <> data_store_id]), json.string),
+          ),
+          #("/", json.array(["/" <> data_store_id <> "/root"], json.string)),
+        ]),
+      ),
+    ])
+  let contents =
+    json.object([
+      #("id", json.string(data_store_id)),
+      #(
+        "snapshot",
+        json.object([
+          #(
+            "entries",
+            json.preprocessed_array([
+              attach_tree_entry(
+                ".channels",
+                json.object([
+                  #("entries", json.preprocessed_array(channel_entries)),
+                ]),
+              ),
+              attach_blob(".component", component),
+              attach_blob(".gcdata", gc),
+            ]),
+          ),
+        ]),
+      ),
+      #("type", json.string(store_type)),
+    ])
+  use _ <- result.try(
+    fluid_container.encode(fluid_container.DatastoreAttach(
+      data_store_id,
+      contents,
+    )),
+  )
+  Ok(fluid_container.DatastoreAttach(data_store_id, contents))
+}
+
+fn channel_attach_snapshot(
+  snapshot: channel.Snapshot,
+) -> Result(Json, fluid_container.ContainerError) {
   let kind = channel.snapshot_type(snapshot)
   let attributes = channel.fluid_attributes(kind)
   use blobs <- result.try(case snapshot {
-    channel.MapSnapshot(entries) ->
-      encode_map_attach_blobs(entries)
-      |> Ok
+    channel.MapSnapshot(entries) -> Ok(encode_map_attach_blobs(entries))
     _ ->
       channel.encode_snapshot(snapshot)
       |> result.map(fn(encoded) { [attach_blob("header", encoded)] })
@@ -111,21 +211,18 @@ pub fn encode_attach(
         fluid_container.MalformedMessage("attach", string.inspect(error))
       })
   })
-  let snapshot =
+  Ok(
     json.object([
       #(
         "entries",
-        json.preprocessed_array([
-          attach_blob(".attributes", attributes),
-          ..blobs
-        ]),
+        json.preprocessed_array(
+          list.append(blobs, [
+            attach_blob(".attributes", attributes),
+          ]),
+        ),
       ),
-    ])
-  fluid_container.encode(fluid_container.ChannelAttach(
-    route,
-    channel.fluid_type_to_string(kind),
-    snapshot,
-  ))
+    ]),
+  )
 }
 
 fn attach_blob(path: String, contents: Json) -> Json {
@@ -140,6 +237,15 @@ fn attach_blob(path: String, contents: Json) -> Json {
         #("encoding", json.string("utf-8")),
       ]),
     ),
+  ])
+}
+
+fn attach_tree_entry(path: String, contents: Json) -> Json {
+  json.object([
+    #("path", json.string(path)),
+    #("mode", json.string("040000")),
+    #("type", json.string("Tree")),
+    #("value", contents),
   ])
 }
 
@@ -2081,7 +2187,8 @@ pub fn decode_datastore_attach(
   )
   use entries <- result.try(attach_entries(snapshot))
   use _ <- result.try(case list.sort(dict.keys(entries), string.compare) {
-    [".channels", ".component"] -> Ok(Nil)
+    [".channels", ".component"] | [".channels", ".component", ".gcdata"] ->
+      Ok(Nil)
     _ ->
       Error(fluid_container.UnsupportedMessage(
         "unsupported datastore attach snapshot",
