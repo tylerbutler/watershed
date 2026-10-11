@@ -115,11 +115,32 @@ own document input and a `preflight-refusal` native boundary; upstream's poisone
 views and submitted failure transport remain measured evidence, not a native
 submission recipe.
 
+Transaction/branch and retention cases now use the same initial document
+format. Their cumulative commands include rollback, nested transactions,
+named checkout fork/merge/disposal, revertible acquisition/use/disposal,
+peer edits, and named summary publication/load. Each `history-checkpoint`
+records the writer and actual receiver tree, resolved attached targets,
+unattached local targets, branch state, and ongoing compressor.
+`checkpoint-tree` records provide a separately decoded live forest.
+Nonpublishing branch and rollback checkpoints preserve explicit empty
+transport slices.
+
+The transaction stages show local handle edits before attachment or transport.
+Rollback restores the prior tree reference while preserving local compressor
+advancement. A receiver changes connection ID when its first target edit
+promotes it from read to write mode; `sessions.receiverClientId` and
+`receiverWriteClientId` preserve both measured identities. Undo restores the
+prior reference, auto-disposes the original revertible, and leaves the peer's
+target edit intact. History validation decodes the captured nested optional
+and sequence edits and revision-keyed undo refreshers. It also checks summary
+proposals/acknowledgements and compares published map/tree bytes with their
+sequenced checkpoint, including the fresh-client continuation.
+
 This is still discovery, not Task 1 acceptance. Published storage, leaf
-codec/resolution proof and the two attachment-case replay inputs are complete.
-Transaction/branch/retention replay and remaining receiver checkpoints,
-multi-tree document-compressor identity, and commit/factory/revertible/event
-lifetime evidence remain required by the
+codec/resolution proof, all four graph/history replay inputs and their
+receiver checkpoints are complete. Multi-tree document-compressor identity
+and the remaining commit/factory/revertible/event lifetime evidence remain
+required by the
 [handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
 before native implementation proceeds.
 

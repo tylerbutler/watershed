@@ -91,9 +91,10 @@ checkpoints listed here, not the complete lifecycle contract.
 | `live-channel-attachment`, `cross-datastore-attachment` / replay input | Each case includes the actual initial document snapshot, base64 blob bytes, protocol sequence, stored compressor, writer's ongoing compressor/session, runtime registry, entry point, and gap-free sequenced prefix. Each positive scenario has cumulative typed commands and an inclusive prefix checkpoint. These are attachment-snapshot inputs, not published-summary evidence. | `input.decoderInput`; `input.scenarios[].commands` and `.replay`; matching `raw.messages` slices |
 | `cross-datastore-attachment` / all four scenarios | The receiving client reads the secondary map, resolves both sides of unpublished map/tree cycles, and resolves a secondary tree through both the primary tree and secondary entry-point map to the same DDS instance. Datastore snapshots carry the declared package and root channel; the later secondary tree arrives as a channel attach after that datastore is visible. | `raw.serialization` kind `receiver-graph`; datastore/channel snapshot metadata and live FieldBatch roots in `input.decoderInput.deliveryPrefix` |
 | `cross-datastore-attachment` / `map-cycle`, `tree-cycle` | Two unpublished declared stores can reference each other. The captured batch contains allocation, the dependency store attach, the referring store attach, then the visible DDS operation. Each cycle has two genuine datastore attaches. | `raw.messages`; `expected.observations[].value.attachOrder` is checked against the actual nested message envelopes |
-| `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | A successful or nested committed handle edit attaches its target. The rolled-back edit leaves its target unattached and restores the prior reference at the captured checkpoint. | Matching `raw.messages` slices, including an explicit empty rollback checkpoint |
-| `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | A branch-only reference does not attach the target. Merging it attaches the target; disposing an unmerged branch leaves its target unattached. | Matching `raw.messages` slices and checkpoints |
-| `handle-transaction-branch` / `handle-undo-peer-edit` | A separately loaded upstream client edits the target map. Undo restores the parent's previous reference without removing the peer's target edit. | `raw.messages`, containing DDS operations from two distinct client IDs |
+| `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | Intermediate local reads contain the new handles while targets remain unattached and transport stays empty. Successful/nested commit attaches the target and the receiver sees the committed state. Rollback restores the prior reference, leaves its target unattached, and preserves the local compressor advancement made by the aborted edit. The nested map/array edits publish in one tree operation. | `history-checkpoint.stages` in `raw.serialization`; actual `replay-transport` or empty `checkpoint` in `raw.messages`; `checkpoint-tree` in `raw.summaries` |
+| `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | Branch-only references are absent from the main and receiving trees, with no target attachment or transport. Merge attaches the target and updates both trees; disposing an unmerged checkout leaves its target unattached. | Typed named-checkout commands; `history-checkpoint.branches`, `.targets` and `.receiver`; matching sequenced slices |
+| `handle-transaction-branch` / `handle-undo-peer-edit` | A separately loaded client edits the target map after changing from its read connection to a new write connection. Undo restores the parent's previous reference without removing the peer's target edit. The originally acquired insertion revertible changes from status `0` (valid) to `1` (disposed) through default revert; it is not acquired again or disposed a second time. | `input.decoderInput.sessions.receiverClientId` and `.receiverWriteClientId`; two DDS authors in `raw.messages`; revision-keyed refresher; `revertibleStatus` and `history-checkpoint` |
+| `handle-transaction-branch`, `handle-retention` / history replay input | Both cases have the actual initial snapshot/blob/compressor/runtime input, exact cumulative creation/edit/transaction/checkout/revertible/publication commands, and contiguous sequenced prefixes. Sixteen checkpoints record actual writer, receiver, target and relevant branch state. Every retained publication's map/tree bytes match its sequenced graph, and fresh continuation is a later peer-authored map edit. | `input.decoderInput`; `input.scenarios[].commands` and `.replay`; `raw.serialization` kind `history-checkpoint`; `raw.summaries` kind `checkpoint-tree` and `published-document` |
 | `live-channel-attachment` / `active-transaction`; `handle-transaction-branch` / `active-target` | A real document graph publication attempt throws the exact active-transaction error after submitting allocation and channel-attach transport. The target becomes attached, while both target and parent tree views enter the measured invalid state. The refusal is not atomic. | `raw.messages` records of kind `document-attachment`, including the target attach snapshot and sequenced transport |
 | `handle-retention` / removal, undo, retained repair, branch disposal, revertible disposal | Each checkpoint publishes a full document summary. Stored GC bytes continue to route to the referenced target through the captured retention states. | `raw.summaries` records of kind `published-document`, with fetched tree/blob bytes, parsed GC, component metadata, and sequence boundaries |
 | `handle-retention` / `unreferenced-datastore` | The removed secondary datastore remains non-root metadata with retained GC nodes and the frozen `1700000000000` unreferenced timestamp on both datastore and root-channel routes. | The published snapshot's `/gc/__gc_root` and `/.channels/P/.component` bytes |
@@ -107,17 +108,18 @@ raw compatibility observation, but do not require native failure-side-effect
 parity. Accepted graph operations must still preserve the measured upstream
 wire ordering.
 
-The live attachment case's active-transaction scenario uses a separate
-document. Its own `input.decoderInput` and typed commands preserve the measured
-failed submission; `replay.nativeBoundary` is `preflight-refusal`. The native
-runner must not submit that captured failure tail as an accepted candidate.
+Both active-target scenarios use separate documents. Their own
+`input.decoderInput` and typed commands preserve the measured failed
+submission; `replay.nativeBoundary` is `preflight-refusal`. The native runner
+must not submit those captured failure tails as accepted candidates.
 
 Graph validation decodes map headers, keyed FieldBatch roots, and the captured
 optional-handle reference edits. It compares the resulting checkpoint graph
 with the finite commands and measured receiver data. It does not implement a
 second CRDT or general application runtime. Delta storage uses an empty
-`traces` array; live joins include service traces, while live operations omit
-the array. Validation checks those trace shapes and compares the remaining
+`traces` array; live joins and some operations include service `start`/`end`
+traces, while other live operations omit the array. Validation checks those
+trace shapes and compares the remaining
 envelope without changing the captured identities, contents, or bytes.
 
 The two map-only cross-datastore scenarios run before any tree is created.
@@ -125,10 +127,18 @@ Their commands do not require Task 4's tree APIs. The primary tree setup starts
 in `tree-cross-datastore`; `tree-cycle` creates both detached trees before
 initializing either, preserving the source's allocation order.
 
-The discovery gate still needs transaction/branch/retention replay inputs and
-their remaining receiver checkpoints, multi-tree document-compressor identity,
-and the remaining commit/factory/revertible/event-lifetime observations required
-by Task 1. Do not derive native invariants from this table alone.
+History validation extends that bounded decoder to the measured nested
+map/sequence insertions, optional clears, revision-keyed undo refreshers, peer
+map edits, and summary membership/proposal/acknowledgement messages. Refresher
+leaves must match the node removed under the referenced revision. Exact
+command sequences are checked against independently decoded transport and
+checkpoint forests, not a scan for handle marker text. Published snapshots
+are checked at their own reference sequence, before fresh-client edits.
+
+The discovery gate still needs multi-tree document-compressor identity and the
+remaining commit/factory/revertible/event-lifetime observations required by
+Task 1, followed by the original checklist audit. Do not derive the complete
+native lifecycle contract from this table alone.
 
 ## 3. Global constraints
 

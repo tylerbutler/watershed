@@ -5866,26 +5866,181 @@ function lifecycleGraphStoredEnvelope(live, stored) {
   const { traces: storedTraces, ...storedWire } = stored ?? {};
   assert(Array.isArray(storedTraces) && storedTraces.length === 0
     && Array.isArray(liveTraces) && liveTraces.every((trace) =>
-      trace.action === "start" && typeof trace.service === "string"
+      ["start", "end"].includes(trace.action) && typeof trace.service === "string"
       && Number.isSafeInteger(trace.timestamp) && trace.timestamp >= 0),
   "graph delivery prefix: invalid envelope traces");
   return isDeepStrictEqual(liveWire, storedWire);
 }
 
+function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
+  assert(edit.changeset?.length === 1 && object(edit.changeset[0].data),
+    `${detail}: history tree changeset`);
+  const change = edit.changeset[0].data;
+  assert(Number.isSafeInteger(change.maxId) && change.maxId >= 0
+    && change.changes?.length === 1, `${detail}: history tree change identity`);
+  const root = change.changes[0];
+  assert(root.fieldKey === "rootFieldKey" && root.fieldKind === "ModularEditBuilder.Generic"
+    && root.change?.length === 1 && root.change[0][0] === 0
+    && nonemptyArray(root.change[0][1]?.fieldChanges),
+  `${detail}: history root field changes`);
+  const built = new Map();
+  for (const kind of ["builds", "refreshers"]) {
+    const batch = change[kind];
+    if (batch === undefined) continue;
+    assert(batch.builds?.length === 1 && Array.isArray(batch.trees?.data),
+      `${detail}: history ${kind} mappings`);
+    const [mapping, revision = edit.revision] = batch.builds[0];
+    assert(Array.isArray(mapping) && batch.builds[0].length <= 2
+      && Number.isSafeInteger(revision), `${detail}: history ${kind} revision`);
+    const fields = lifecycleDecodeFieldBatch(
+      batch.trees, batch.trees.data.map((_, index) => String(index)), detail,
+    );
+    assert(mapping.length === fields.size, `${detail}: history ${kind} cardinality`);
+    const indexes = new Set();
+    for (const [id, index] of mapping) {
+      const field = fields.get(String(index));
+      assert(Number.isSafeInteger(id) && id >= 0 && id <= change.maxId
+        && Number.isSafeInteger(index) && !indexes.has(index)
+        && field?.length === 1 && field[0].type === lifecycleHandleType
+        && field[0].fields.size === 0, `${detail}: history ${kind} leaf`);
+      const key = `${revision}:${id}`;
+      const path = lifecycleGraphHandle(field[0].value, detail);
+      assert(!built.has(key), `${detail}: duplicate history build identity`);
+      if (kind === "refreshers") {
+        assert(detached.get(key) === path, `${detail}: history refresher removed revision`);
+      } else assert(revision === edit.revision, `${detail}: history build revision`);
+      indexes.add(index);
+      built.set(key, { path, kind });
+    }
+  }
+  const use = (atom) => {
+    const [id, revision] = Array.isArray(atom) ? atom : [atom, edit.revision];
+    assert(Number.isSafeInteger(id) && Number.isSafeInteger(revision),
+      `${detail}: history restore atom`);
+    const key = `${revision}:${id}`;
+    const value = built.get(key);
+    assert(value !== undefined, `${detail}: history restore/build association`);
+    built.delete(key);
+    return value;
+  };
+  const effects = [];
+  const optional = (field, old, set, name) => {
+    const replacement = field.change?.r;
+    assert(field.fieldKind === "Optional" && object(replacement)
+      && Object.keys(replacement).every((key) => ["e", "d", "s"].includes(key))
+      && replacement.e === (old === undefined)
+      && Number.isSafeInteger(replacement.d)
+      && replacement.d >= 0 && replacement.d <= change.maxId,
+    `${detail}: history optional presence and identity`);
+    if (old !== undefined) detached.set(`${edit.revision}:${replacement.d}`, old);
+    if (replacement.s === undefined) {
+      assert(old !== undefined && name === "link", `${detail}: history optional clear`);
+      set(undefined);
+      effects.push({ type: "tree-clear-handle", field: name });
+    } else {
+      const value = use(replacement.s);
+      set(value.path);
+      effects.push({
+        type: value.kind === "refreshers" ? "tree-restore-handle"
+          : name === "link" ? "tree-set-handle" : "tree-map-set-handle",
+        field: name, value: value.path,
+      });
+    }
+  };
+  for (const field of root.change[0][1].fieldChanges) {
+    if (field.fieldKey === "link") {
+      optional(field, data.link, (path) => {
+        if (path === undefined) delete data.link;
+        else data.link = path;
+      }, "link");
+      continue;
+    }
+    assert(["links", "sequence"].includes(field.fieldKey)
+      && field.fieldKind === "ModularEditBuilder.Generic"
+      && field.change?.length === 1 && field.change[0][0] === 0
+      && field.change[0][1]?.fieldChanges?.length === 1,
+    `${detail}: history collection field`);
+    const inner = field.change[0][1].fieldChanges[0];
+    if (field.fieldKey === "links") {
+      assert(typeof inner.fieldKey === "string"
+        && !data.links.some(([key]) => key === inner.fieldKey),
+      `${detail}: history map insertion`);
+      optional(inner, undefined, (path) => data.links.push([inner.fieldKey, path]),
+        inner.fieldKey);
+    } else {
+      const mark = inner.change?.[0];
+      assert(inner.fieldKey === "" && inner.fieldKind === "Sequence"
+        && inner.change.length === 1 && mark.count === 1
+        && Object.keys(mark).length === 3
+        && Object.keys(mark.effect ?? {}).length === 1
+        && Number.isSafeInteger(mark.effect.insert?.id)
+        && mark.cellId === mark.effect.insert.id
+        && data.sequence.length === 0, `${detail}: history sequence insertion`);
+      const value = use(mark.cellId);
+      assert(value.kind === "builds", `${detail}: history sequence build`);
+      data.sequence.push(value.path);
+      effects.push({ type: "tree-array-insert-handle", field: "sequence",
+        index: 0, value: value.path });
+    }
+  }
+  assert(built.size === 0, `${detail}: unconsumed history builds/refreshers`);
+  return effects;
+}
+
 // Decode only the finite attachment and optional-handle edits captured here.
 // This is an evidence validator, not a CRDT replay implementation.
-function lifecycleGraphTransport(input, detail, reader) {
+function lifecycleGraphTransport(input, detail, reader, history = false) {
   const graph = new Map([["/A/root", { channelType: lifecycleMapChannelType, data: {} }]]);
   const stores = new Set(["A"]);
   const checkpoints = new Map();
   const attachments = new Map();
+  const effects = new Map();
+  const compressors = new Map();
+  const detached = new Map();
+  const members = new Map();
+  const proposals = new Map();
   let nextGeneration = 1;
   for (const message of input.deliveryPrefix) {
+    effects.set(message.sequenceNumber, []);
+    const effect = (value) => effects.get(message.sequenceNumber).push({
+      ...value, clientId: message.clientId,
+    });
     if (message.type !== "op") {
-      assert(message.type === "join" && message.referenceSequenceNumber === -1
-        && JSON.parse(message.data).clientId === input.sessions.writerClientId,
-      `${detail}: unexpected delivery prefix message`);
+      if (history) {
+        const contents = typeof message.contents === "string"
+          ? JSON.parse(message.contents) : message.contents;
+        if (message.type === "join") {
+          lifecycleRuntimeMessages([message], detail);
+          const member = JSON.parse(message.data);
+          assert(message.referenceSequenceNumber === -1 && !members.has(member.clientId),
+            `${detail}: history prefix join identity`);
+          members.set(member.clientId, member.detail);
+        } else if (message.type === "leave") {
+          const clientId = JSON.parse(message.data);
+          assert(message.clientId === null && message.contents === null
+            && message.referenceSequenceNumber === -1 && members.delete(clientId),
+          `${detail}: history prefix leave identity`);
+        } else if (message.type === "summarize") {
+          assert(members.get(message.clientId)?.details?.type === "summarizer"
+            && typeof contents?.handle === "string"
+            && message.referenceSequenceNumber >= 0
+            && message.referenceSequenceNumber < message.sequenceNumber,
+          `${detail}: history prefix summary proposal`);
+          proposals.set(message.sequenceNumber, message);
+        } else {
+          assert(message.type === "summaryAck" && message.clientId === null
+            && message.referenceSequenceNumber === -1 && typeof contents?.handle === "string"
+            && proposals.has(contents.summaryProposal?.summarySequenceNumber)
+            && isDeepStrictEqual(contents, JSON.parse(message.data)),
+          `${detail}: history prefix summary acknowledgement`);
+        }
+      } else {
+        assert(message.type === "join" && message.referenceSequenceNumber === -1
+          && JSON.parse(message.data).clientId === input.sessions.writerClientId,
+        `${detail}: unexpected delivery prefix message`);
+      }
       checkpoints.set(message.sequenceNumber, structuredClone(graph));
+      compressors.set(message.sequenceNumber, reader.serialize(false));
       continue;
     }
     assert(Number.isSafeInteger(message.referenceSequenceNumber)
@@ -5895,16 +6050,20 @@ function lifecycleGraphTransport(input, detail, reader) {
       && message.minimumSequenceNumber >= 0
       && message.minimumSequenceNumber <= message.referenceSequenceNumber,
     `${detail}: delivery prefix sequence context`);
-    assert(message.clientId === input.sessions.writerClientId,
+    assert(history ? members.has(message.clientId)
+      : message.clientId === input.sessions.writerClientId,
       `${detail}: delivery prefix writer identity`);
     const runtimes = lifecycleRuntimeMessages([message], detail);
-    assert(runtimes[0]?.type === "idAllocation"
-      && runtimes.filter((runtime) => runtime.type === "idAllocation").length === 1,
+    const allocations = runtimes.filter((runtime) => runtime.type === "idAllocation");
+    assert(history ? allocations.length <= 1
+      && (allocations.length === 0 || runtimes[0] === allocations[0])
+      : runtimes[0]?.type === "idAllocation" && allocations.length === 1,
     `${detail}: allocation precedes attachment order`);
     for (const runtime of runtimes) {
       if (runtime.type === "idAllocation") {
         assertCreationRange(runtime.contents, detail);
-        assert(runtime.contents.sessionId === input.sessions.writer.sessionId
+        assert(message.clientId === input.sessions.writerClientId
+          && runtime.contents.sessionId === input.sessions.writer.sessionId
           && runtime.contents.ids.firstGenCount === nextGeneration,
         `${detail}: document compressor allocation order`);
         nextGeneration += runtime.contents.ids.count;
@@ -5917,6 +6076,10 @@ function lifecycleGraphTransport(input, detail, reader) {
         const channel = lifecycleGraphChannel(snapshot, type, `${detail} ${path}`);
         graph.set(path, structuredClone(channel));
         attachments.set(path, { ...channel, sequenceNumber: message.sequenceNumber });
+        if (history) {
+          assert(allocations.length === 1, `${detail}: history attachment allocation`);
+          effect({ type: "attach-channel", path, ...channel });
+        }
       };
       if (runtime.type === "attach") {
         const store = runtime.contents;
@@ -5957,6 +6120,27 @@ function lifecycleGraphTransport(input, detail, reader) {
       assert(channel !== undefined, `${detail}: unknown channel target ${path}`);
       const edit = operation.contents;
       if (channel.channelType === lifecycleMapChannelType) {
+        if (history) {
+          assert(typeof edit.key === "string", `${detail}: history map key`);
+          if (edit.type === "delete") {
+            assert(Object.keys(edit).length === 2 && Object.hasOwn(channel.data, edit.key),
+              `${detail}: history map deletion`);
+            delete channel.data[edit.key];
+            effect({ type: "map-delete", target: path, key: edit.key });
+          } else {
+            assert(edit.type === "set" && edit.value?.type === "Plain",
+              `${detail}: history map value`);
+            const value = edit.value.value;
+            if (object(value)) {
+              assert(graph.has(lifecycleGraphHandle(value, detail)),
+                `${detail}: history reference precedes attachment`);
+            } else assert(typeof value === "string" || typeof value === "boolean",
+              `${detail}: history map scalar`);
+            channel.data[edit.key] = value;
+            effect({ type: "map-set", target: path, key: edit.key, value });
+          }
+          continue;
+        }
         assert(edit.type === "set" && typeof edit.key === "string"
           && edit.value?.type === "Plain", `${detail}: unsupported map edit`);
         lifecycleGraphHandle(edit.value.value, detail);
@@ -5969,6 +6153,19 @@ function lifecycleGraphTransport(input, detail, reader) {
       assert.doesNotThrow(() => reader.decompress(
         reader.normalizeToSessionSpace(edit.revision, edit.originatorId),
       ), `${detail}: tree edit revision allocation`);
+      if (history) {
+        assert(message.clientId === input.sessions.writerClientId && allocations.length === 1,
+          `${detail}: history tree edit writer allocation`);
+        for (const change of lifecycleHistoryTreeEdit(
+          edit, channel.data, detached, `${detail} ${path}`,
+        )) {
+          if (change.value !== undefined) {
+            assert(graph.has(change.value), `${detail}: history reference precedes attachment`);
+          }
+          effect({ ...change, target: path });
+        }
+        continue;
+      }
       const change = edit.changeset[0].data;
       assert(object(change) && change.changes?.length === 1, `${detail}: tree edit fields`);
       const keys = [];
@@ -6005,8 +6202,451 @@ function lifecycleGraphTransport(input, detail, reader) {
       }
     }
     checkpoints.set(message.sequenceNumber, structuredClone(graph));
+    compressors.set(message.sequenceNumber, reader.serialize(false));
   }
-  return { checkpoints, attachments };
+  return { checkpoints, attachments, effects, compressors };
+}
+
+function lifecycleReplayCreate(path, channelType = lifecycleMapChannelType) {
+  return { type: "create-channel", datastoreId: path.split("/")[1],
+    channelId: path.split("/")[2], channelType };
+}
+
+function lifecycleReplayHandle(path) {
+  return { kind: "handle", value: { type: "__fluid_handle__", url: path } };
+}
+
+function lifecycleReplayInitialize(path, commands, detail) {
+  const schema = commands?.find((command) =>
+    command.type === "initialize-tree" && command.target === path)?.storedSchema;
+  validateLifecycleStoredSchema(schema, "Value", [lifecycleRootType], `${detail} initialization`);
+  return {
+    type: "initialize-tree", target: path, storedSchema: schema,
+    initialValue: {
+      kind: "object", type: lifecycleRootType,
+      fields: [
+        ["label", { kind: "string", value: "root" }],
+        ["links", { kind: "map", schemaId: lifecycleLinksType, entries: [] }],
+        ["sequence", { kind: "array", schemaId: lifecycleSequenceType, elements: [] }],
+      ],
+    },
+  };
+}
+
+function validateLifecycleActiveReplay(active, input, observation, check) {
+  const ownInput = active.input?.decoderInput;
+  const reader = lifecycleGraphInput(ownInput, `${active.id} replay`, false);
+  check(ownInput.documentId !== input.documentId, `${active.id} replay document`);
+  const transport = lifecycleGraphTransport(ownInput, active.id, reader);
+  check(ownInput.documentId === observation.documentId
+    && active.replay?.nativeBoundary === "preflight-refusal"
+    && active.replay.published === false
+    && active.replay.prefixEndSequenceNumber === ownInput.deliveryPrefix.length
+    && active.replay.deliveryPrefixLength === ownInput.deliveryPrefix.length,
+  `${active.id} replay publication refusal boundary`);
+  const parent = [...transport.attachments.keys()].find((path) => path !== observation.targetPath);
+  check(isDeepStrictEqual(active.commands, [
+    lifecycleReplayCreate(parent, lifecycleTreeChannelType),
+    lifecycleReplayInitialize(parent, active.commands, active.id),
+    { type: "map-set", target: "/A/root", key: "tree", value: lifecycleReplayHandle(parent) },
+    { type: "settle", checkpoint: "initial-tree" },
+    lifecycleReplayCreate(observation.targetPath, lifecycleTreeChannelType),
+    lifecycleReplayInitialize(observation.targetPath, active.commands, active.id),
+    { type: "tree-set-string", target: observation.targetPath, field: "label", value: "active-target" },
+    { type: "begin-transaction", target: observation.targetPath },
+    { type: "tree-set-handle", target: parent, field: { kind: "optional", name: "link" },
+      value: lifecycleReplayHandle(observation.targetPath) },
+  ]), `${active.id} replay commands`);
+  for (const message of observation.transport) {
+    check(lifecycleGraphStoredEnvelope(message,
+      ownInput.deliveryPrefix[message.sequenceNumber - 1]),
+    `${active.id} replay raw transport`);
+  }
+}
+
+function validateLifecycleHistoryReplay(value, records, check) {
+  const input = value.input.decoderInput;
+  const reader = lifecycleGraphInput(input, value.id);
+  const transport = lifecycleGraphTransport(input, value.id, reader, true);
+  const treePath = [...transport.attachments].find(([, channel]) =>
+    channel.channelType === lifecycleTreeChannelType)?.[0];
+  check(typeof treePath === "string", "history initial tree attachment");
+  let tree = { label: "root", links: [], sequence: [] };
+  const maps = new Map();
+  let working;
+  let retaining;
+  let successPath;
+  let branchPath;
+  let targetPath;
+  let previousSequence = 0;
+  let previousCommands = [];
+  const treeAction = (type) => ({ type, target: treePath });
+  const settle = (id) => ({ type: "settle", checkpoint: id });
+  const set = (path, checkout) => ({
+    ...treeAction("tree-set-handle"), field: { kind: "optional", name: "link" },
+    value: lifecycleReplayHandle(path), ...(checkout === undefined ? {} : { checkout }),
+  });
+  const clear = () => ({ ...treeAction("tree-clear-handle"),
+    field: { kind: "optional", name: "link" } });
+  const mapSet = (target, key, value, client) => ({
+    type: "map-set", target, key, value,
+    ...(client === undefined ? {} : { client }),
+  });
+  const attach = (path, data = {}, channelType = lifecycleMapChannelType) => ({
+    type: "attach-channel", path, channelType, data: structuredClone(data),
+  });
+  const treeEffect = (type, path) => ({
+    type, target: treePath, field: "link", ...(path === undefined ? {} : { value: path }),
+  });
+  const mapEffect = (target, key, value, clientId = input.sessions.writerClientId) => ({
+    type: "map-set", target, key, value, clientId,
+  });
+  for (const scenario of value.input.scenarios) {
+    const observation = value.expected.observations.find((item) => item.id === scenario.id);
+    if (scenario.id === "active-target") {
+      validateLifecycleActiveReplay(scenario, input, observation.value, check);
+      continue;
+    }
+    const id = scenario.id;
+    const checkpoint = observation.value.checkpoint;
+    check(object(checkpoint) && Array.isArray(checkpoint.targets)
+      && Array.isArray(checkpoint.branches) && Array.isArray(checkpoint.stages),
+    `${id} history checkpoint`);
+    check(nonemptyArray(scenario.commands), `${id} typed history commands`);
+    const replay = scenario.replay;
+    const end = replay?.prefixEndSequenceNumber;
+    check(Number.isSafeInteger(end) && end >= previousSequence
+      && replay.deliveryPrefixLength === end && transport.checkpoints.has(end),
+    `${id} history delivery prefix checkpoint`);
+    const evidence = observation.evidence.map((item) => records.get(item.id));
+    const rawCheckpoint = evidence.filter((item) =>
+      item.section === "serialization" && item.item.kind === "history-checkpoint");
+    check(rawCheckpoint.length === 1
+      && isDeepStrictEqual(rawCheckpoint[0].item.value, checkpoint),
+    `${id} raw history checkpoint`);
+    const rawTree = evidence.filter((item) =>
+      item.section === "summaries" && item.item.kind === "checkpoint-tree");
+    check(rawTree.length === 1 && summary(rawTree[0].item.value),
+      `${id} checkpoint-tree evidence`);
+    const indexes = rawTree[0].item.value.tree?.indexes?.tree;
+    validateLifecycleStoredSchema(
+      JSON.parse(indexes?.Schema?.tree?.SchemaString?.content),
+      "Value", [lifecycleRootType], `${id} checkpoint-tree schema`,
+    );
+    const root = lifecycleGraphTreeData(lifecycleRootNode(
+      JSON.parse(indexes?.Forest?.tree?.contents?.content), `${id} checkpoint-tree`,
+    ), `${id} checkpoint-tree`);
+    const messages = input.deliveryPrefix.slice(previousSequence, end);
+    const rawSlice = evidence.filter((item) => item.section === "messages"
+      && item.item.checkpoint === id);
+    check(rawSlice.length === 1 && Array.isArray(rawSlice[0].item.value)
+      && rawSlice[0].item.kind === (messages.length === 0 ? "checkpoint" : "replay-transport")
+      && rawSlice[0].item.value.length === messages.length,
+    `${id} complete history checkpoint transport`);
+    for (const [index, message] of rawSlice[0].item.value.entries()) {
+      check(lifecycleGraphStoredEnvelope(message, messages[index]),
+        `${id} history delivery prefix raw transport`);
+    }
+    for (const item of evidence.filter((item) =>
+      item.section === "messages" && Array.isArray(item.item.value))) {
+      for (const message of item.item.value) {
+        check(message.sequenceNumber > previousSequence && message.sequenceNumber <= end
+          && lifecycleGraphStoredEnvelope(message,
+            input.deliveryPrefix[message.sequenceNumber - 1]),
+        `${id} history raw transport association`);
+      }
+    }
+    const published = evidence.filter((item) =>
+      item.section === "summaries" && item.item.kind === "published-document");
+    check(replay.published === (value.id === "handle-retention")
+      && published.length === (replay.published ? 1 : 0),
+    `${id} history publication boundary`);
+    if (published.length === 1) {
+      const publication = published[0].item.value.publication;
+      const proposal = input.deliveryPrefix[publication.summarySequenceNumber - 1];
+      const ack = input.deliveryPrefix[publication.acknowledgementSequenceNumber - 1];
+      check(proposal?.type === "summarize"
+        && proposal.referenceSequenceNumber === publication.referenceSequenceNumber
+        && ack?.type === "summaryAck" && ack.contents.handle === publication.handle
+        && ack.contents.summaryProposal.summarySequenceNumber === proposal.sequenceNumber
+        && proposal.sequenceNumber > previousSequence && ack.sequenceNumber <= end,
+      `${id} history named publication prefix association`);
+      const snapshot = published[0].item.value.snapshot;
+      const publishedGraph = transport.checkpoints.get(publication.referenceSequenceNumber);
+      check(publishedGraph !== undefined, `${id} published checkpoint prefix`);
+      for (const [path, channel] of publishedGraph) {
+        if (channel.channelType === lifecycleTreeChannelType) {
+          check(isDeepStrictEqual(lifecycleGraphTreeData(lifecycleSharedTreeForest(
+            snapshot, path, `${id} published tree`,
+          ), `${id} published tree`), channel.data), `${id} published tree state`);
+        } else {
+          const { header } = lifecycleSharedMapSummary(snapshot, path, `${id} published map`);
+          check(isDeepStrictEqual(header, {
+            blobs: [], content: Object.fromEntries(Object.entries(channel.data)
+              .map(([key, value]) => [key, { type: "Plain", value }])),
+          }), `${id} published map state`);
+        }
+      }
+    }
+    const before = structuredClone(tree);
+    let commands = [];
+    let expectedEffects = [];
+    let branches = [];
+    let stageTrees = [];
+    let stageTarget;
+    const newMap = (data = {}) => {
+      const path = checkpoint.targets[maps.size]?.path;
+      check(typeof path === "string" && /^\/[^/]+\/[^/]+$/.test(path)
+        && !maps.has(path), `${id} new target identity`);
+      maps.set(path, structuredClone(data));
+      commands.push(lifecycleReplayCreate(path));
+      return path;
+    };
+    if (previousCommands.length === 0) {
+      previousCommands = [
+        lifecycleReplayCreate(treePath, lifecycleTreeChannelType),
+        lifecycleReplayInitialize(treePath, scenario.commands, value.id),
+        mapSet("/A/root", "tree", lifecycleReplayHandle(treePath)), settle("initial-tree"),
+      ];
+      expectedEffects.push(attach(treePath, tree, lifecycleTreeChannelType),
+        mapEffect("/A/root", "tree", lifecycleReplayHandle(treePath).value));
+    }
+    switch (id) {
+      case "successful-transaction":
+      case "aborted-transaction": {
+        const path = newMap();
+        stageTarget = path;
+        commands.push(treeAction("begin-transaction"), set(path),
+          treeAction(id === "successful-transaction" ? "commit-transaction" : "rollback-transaction"),
+          settle(id));
+        const edited = { ...structuredClone(before), link: path };
+        if (id === "successful-transaction") {
+          successPath = path;
+          tree = edited;
+          stageTrees = [edited];
+          expectedEffects.push(attach(path), treeEffect("tree-set-handle", path));
+          check(observation.value.path === path && observation.value.attached === true,
+            `${id} source target association`);
+        } else {
+          stageTrees = [before, edited, before];
+          check(observation.value.result === "rollback" && observation.value.attached === false
+            && observation.value.referringPath === successPath, `${id} rollback target association`);
+        }
+        break;
+      }
+      case "nested-transaction": {
+        const path = newMap();
+        stageTarget = path;
+        tree.links.push(["outer", path]);
+        stageTrees.push(structuredClone(tree));
+        tree.sequence.push(path);
+        stageTrees.push(structuredClone(tree), structuredClone(tree));
+        commands.push(treeAction("begin-transaction"),
+          { ...treeAction("tree-map-set-handle"), field: "links", key: "outer",
+            value: lifecycleReplayHandle(path) },
+          treeAction("begin-transaction"),
+          { ...treeAction("tree-array-insert-handle"), field: "sequence", index: 0,
+            value: lifecycleReplayHandle(path) },
+          treeAction("commit-transaction"), treeAction("commit-transaction"), settle(id));
+        expectedEffects.push(attach(path),
+          { type: "tree-map-set-handle", target: treePath, field: "outer", value: path },
+          { type: "tree-array-insert-handle", target: treePath, field: "sequence",
+            index: 0, value: path });
+        const visible = { ...observation.value };
+        delete visible.checkpoint;
+        check(isDeepStrictEqual(visible, tree), `${id} visible tree association`);
+        break;
+      }
+      case "branch-before-merge":
+      case "branch-dropped":
+      case "branch-disposal": {
+        if (id === "branch-disposal" && value.id === "handle-retention") {
+          commands.push({ ...treeAction("dispose-checkout"), checkout: "retaining" });
+          branches = [{ id: "retaining", disposed: true }];
+          break;
+        }
+        const path = newMap();
+        const checkout = id === "branch-before-merge" ? "working"
+          : id === "branch-dropped" ? "dropped" : "disposed";
+        commands.push({ ...treeAction("fork"), checkout }, set(path, checkout));
+        if (checkout === "working") {
+          branchPath = path;
+          working = { ...structuredClone(tree), link: path };
+          branches = [{ id: checkout, disposed: false, data: working }];
+          check(observation.value.branchPath === path
+            && observation.value.mainPath === tree.link,
+          `${id} branch-only reference association`);
+        } else {
+          commands.push({ ...treeAction("dispose-checkout"), checkout });
+          branches = [{ id: checkout, disposed: true }];
+          if (id === "branch-dropped") {
+            check(observation.value.mainPath === tree.link, `${id} main reference association`);
+          }
+        }
+        check(observation.value.attached === false, `${id} unattached branch target`);
+        commands.push(settle(id));
+        break;
+      }
+      case "branch-after-merge":
+        tree = structuredClone(working);
+        commands.push({ ...treeAction("merge"), checkout: "working" }, settle(id));
+        branches = [{ id: "working", disposed: true }];
+        expectedEffects.push(attach(branchPath), treeEffect("tree-set-handle", branchPath));
+        check(observation.value.mainPath === branchPath && observation.value.attached === true,
+          `${id} merged target attachment association`);
+        break;
+      case "handle-undo-peer-edit": {
+        const path = newMap({ peer: "survives" });
+        commands.push({ ...treeAction("capture-next-revertible"), id: "insertion" },
+          set(path), settle("before-peer-edit"),
+          mapSet(path, "peer", { kind: "string", value: "survives" }, "receiver"),
+          settle("before-undo"), { ...treeAction("revert"), id: "insertion", dispose: true },
+          settle(id));
+        expectedEffects.push(attach(path), treeEffect("tree-set-handle", path),
+          mapEffect(path, "peer", "survives", input.sessions.receiverWriteClientId),
+          treeEffect("tree-restore-handle", before.link));
+        check(typeof input.sessions.receiverWriteClientId === "string"
+          && input.sessions.receiverWriteClientId !== input.sessions.writerClientId
+          && input.sessions.receiverWriteClientId !== input.sessions.receiverClientId,
+        `${id} receiver read-to-write client transition`);
+        check(observation.value.targetPath === path
+          && observation.value.referringPath === before.link
+          && observation.value.targetValue === "survives"
+          && isDeepStrictEqual(observation.value.revertibleStatus, {
+            before: 0, after: 1,
+          }), `${id} original revertible lifetime`);
+        break;
+      }
+      case "before-removal":
+        targetPath = newMap({ value: "before" });
+        tree.link = targetPath;
+        commands.push(mapSet(targetPath, "value", { kind: "string", value: "before" }),
+          set(targetPath), settle(id));
+        expectedEffects.push(attach(targetPath, maps.get(targetPath)),
+          treeEffect("tree-set-handle", targetPath));
+        check(observation.value.path === targetPath, `${id} published referring path`);
+        break;
+      case "after-removal":
+        delete tree.link;
+        commands.push({ ...treeAction("subscribe-revertibles"), id: "retention" },
+          clear(), settle(id));
+        expectedEffects.push(treeEffect("tree-clear-handle"));
+        check(observation.value.attached === true, `${id} target remains attached`);
+        break;
+      case "after-undo":
+        tree.link = targetPath;
+        commands.push({ ...treeAction("revert"), id: "retention:0", dispose: true }, settle(id));
+        expectedEffects.push(treeEffect("tree-restore-handle", targetPath));
+        check(observation.value.path === targetPath && observation.value.targetValue === "before",
+          `${id} restored referring path and target value`);
+        break;
+      case "retained-repair":
+        retaining = structuredClone(tree);
+        delete tree.link;
+        commands.push({ ...treeAction("fork"), checkout: "retaining" }, clear(), settle(id));
+        branches = [{ id: "retaining", disposed: false, data: retaining }];
+        expectedEffects.push(treeEffect("tree-clear-handle"));
+        check(observation.value.mainHasReference === false
+          && observation.value.branchPath === retaining.link,
+        `${id} retaining branch reference association`);
+        break;
+      case "revertible-disposal":
+        commands.push({ ...treeAction("dispose-revertibles"), id: "retention" });
+        break;
+      case "unreferenced-datastore": {
+        const path = checkpoint.targets[maps.size]?.path;
+        check(typeof path === "string" && /^\/[^/]+\/root$/.test(path)
+          && !maps.has(path), `${id} secondary entry point identity`);
+        maps.set(path, {});
+        commands.push({
+          type: "create-datastore", datastoreId: path.split("/")[1],
+          storeType: lifecycleGraphStoreType, packagePath: [lifecycleGraphStoreType],
+          entryPointChannelId: "root", channels: [{ id: "root", type: lifecycleMapChannelType }],
+        }, mapSet("/A/root", "secondary", lifecycleReplayHandle(path)), settle("secondary-visible"),
+        { type: "map-delete", target: "/A/root", key: "secondary" }, settle(id));
+        expectedEffects.push(attach(path),
+          mapEffect("/A/root", "secondary", lifecycleReplayHandle(path).value),
+          { type: "map-delete", target: "/A/root", key: "secondary" });
+        check(observation.value.path === path && observation.value.attached === true,
+          `${id} unreferenced datastore remains attached`);
+        break;
+      }
+      case "fresh-load":
+        tree.link = targetPath;
+        maps.get(targetPath).continued = true;
+        commands.push(set(targetPath), settle("before-fresh-publication"));
+        expectedEffects.push(treeEffect("tree-set-handle", targetPath));
+        break;
+      default:
+        check(false, `${id} unknown history checkpoint`);
+    }
+    if (replay.published) {
+      commands.push({ type: "publish-summary", id, fullTree: true, reason: `watershed ${id}` });
+      if (id === "fresh-load") {
+        commands.push({
+          type: "load-publication", client: "fresh", publicationId: id,
+          version: published[0].item.value.publication.handle,
+        }, mapSet(targetPath, "continued", { kind: "boolean", value: true }, "fresh"), settle(id));
+        expectedEffects.push(mapEffect(targetPath, "continued", true,
+          observation.value.continuation.clientId));
+      }
+    }
+    check(isDeepStrictEqual(scenario.commands, [...previousCommands, ...commands]),
+      `${id} exact cumulative history commands`);
+    previousCommands = scenario.commands;
+    const effects = messages.flatMap((message) => transport.effects.get(message.sequenceNumber));
+    check(isDeepStrictEqual(effects, expectedEffects.map((effect) => ({
+      ...effect, clientId: effect.clientId ?? input.sessions.writerClientId,
+    }))), `${id} commands bound to decoded history transport`);
+    const graph = transport.checkpoints.get(end);
+    check(isDeepStrictEqual(root, tree)
+      && isDeepStrictEqual(graph.get(treePath)?.data, tree)
+      && isDeepStrictEqual(checkpoint.tree, {
+        path: treePath, channelType: lifecycleTreeChannelType, data: tree,
+      }), `${id} decoded history tree checkpoint`);
+    check(isDeepStrictEqual(checkpoint.receiver, {
+      clientId: id === "handle-undo-peer-edit" ? input.sessions.receiverWriteClientId
+        : input.sessions.receiverClientId,
+      tree: checkpoint.tree,
+    }), `${id} history receiver tree checkpoint`);
+    const targets = [...maps].map(([path, data]) => {
+      const target = { path, channelType: lifecycleMapChannelType, data };
+      const attached = graph.has(path);
+      if (attached) {
+        check(isDeepStrictEqual(graph.get(path), {
+          channelType: lifecycleMapChannelType, data,
+        }), `${id} decoded attached target state`);
+      }
+      return { ...target, attached, ...(attached ? { receiver: target } : {}) };
+    });
+    check(isDeepStrictEqual(checkpoint.targets, targets), `${id} history receiver target data and route`);
+    check(isDeepStrictEqual(checkpoint.branches, branches), `${id} history branch checkpoint`);
+    check(checkpoint.compressor?.sessionId === input.sessions.writer.sessionId,
+      `${id} checkpoint compressor session`);
+    const compressor = deserializeIdCompressor(checkpoint.compressor.compressor);
+    check(compressor.localSessionId === checkpoint.compressor.sessionId
+      && compressor.serialize(false) === transport.compressors.get(end),
+    `${id} checkpoint sequenced compressor state`);
+    check(checkpoint.stages.length === stageTrees.length, `${id} transaction stage coverage`);
+    for (const [index, stage] of checkpoint.stages.entries()) {
+      check(stage.target === stageTarget && stage.attached === false
+        && stage.transportLength === 0 && isDeepStrictEqual(stage.tree, stageTrees[index])
+        && stage.compressor.sessionId === input.sessions.writer.sessionId,
+      `${id} transaction stage visibility and deferred binding`);
+      const local = deserializeIdCompressor(stage.compressor.compressor);
+      check(local.localSessionId === stage.compressor.sessionId
+        && local.serialize(false) === transport.compressors.get(previousSequence || 2),
+      `${id} transaction stage deferred allocation`);
+    }
+    if (id === "aborted-transaction") {
+      const stages = checkpoint.stages;
+      check(stages[0].compressor.compressor !== stages[1].compressor.compressor
+        && stages[1].compressor.compressor === stages[2].compressor.compressor,
+      `${id} rollback preserves local compressor advancement`);
+    }
+    previousSequence = end;
+  }
+  check(previousSequence === input.deliveryPrefix.length, "complete final history delivery prefix");
 }
 
 function validateLifecycleGraphReplay(value, records, check) {
@@ -6016,29 +6656,9 @@ function validateLifecycleGraphReplay(value, records, check) {
   const firstTree = [...attachments].find(([, channel]) =>
     channel.channelType === lifecycleTreeChannelType)?.[0];
   check(typeof firstTree === "string", "initial tree attachment");
-  const create = (path, channelType = lifecycleMapChannelType) => ({
-    type: "create-channel", datastoreId: path.split("/")[1],
-    channelId: path.split("/")[2], channelType,
-  });
-  const tagged = (path) => ({
-    kind: "handle", value: { type: "__fluid_handle__", url: path },
-  });
-  const initialize = (path, commands) => {
-    const schema = commands?.find((command) =>
-      command.type === "initialize-tree" && command.target === path)?.storedSchema;
-    validateLifecycleStoredSchema(schema, "Value", [lifecycleRootType], `${value.id} initialization`);
-    return {
-      type: "initialize-tree", target: path, storedSchema: schema,
-      initialValue: {
-        kind: "object", type: lifecycleRootType,
-        fields: [
-          ["label", { kind: "string", value: "root" }],
-          ["links", { kind: "map", schemaId: lifecycleLinksType, entries: [] }],
-          ["sequence", { kind: "array", schemaId: lifecycleSequenceType, elements: [] }],
-        ],
-      },
-    };
-  };
+  const create = lifecycleReplayCreate;
+  const tagged = lifecycleReplayHandle;
+  const initialize = (path, commands) => lifecycleReplayInitialize(path, commands, value.id);
   const mapSet = (target, key, path) => ({
     type: "map-set", target, key, value: tagged(path),
   });
@@ -6324,32 +6944,8 @@ function validateLifecycleGraphReplay(value, records, check) {
   "complete final delivery prefix");
   const active = value.input.scenarios.find((scenario) => scenario.id === "active-transaction");
   if (active !== undefined) {
-    const ownInput = active.input?.decoderInput;
-    const ownReader = lifecycleGraphInput(ownInput, "active-transaction replay", false);
-    check(ownInput.documentId !== input.documentId, "active-transaction replay document");
-    const transport = lifecycleGraphTransport(ownInput, "active-transaction", ownReader);
     const observation = value.expected.observations.find((item) => item.id === active.id).value;
-    check(ownInput.documentId === observation.documentId
-      && active.replay?.nativeBoundary === "preflight-refusal"
-      && active.replay.published === false
-      && active.replay.prefixEndSequenceNumber === ownInput.deliveryPrefix.length
-      && active.replay.deliveryPrefixLength === ownInput.deliveryPrefix.length,
-    "active-transaction replay publication refusal boundary");
-    const parent = [...transport.attachments.keys()].find((path) => path !== observation.targetPath);
-    check(isDeepStrictEqual(active.commands, [
-      create(parent, lifecycleTreeChannelType), initialize(parent, active.commands),
-      mapSet("/A/root", "tree", parent), { type: "settle", checkpoint: "initial-tree" },
-      create(observation.targetPath, lifecycleTreeChannelType),
-      initialize(observation.targetPath, active.commands),
-      label(observation.targetPath, "active-target"),
-      { type: "begin-transaction", target: observation.targetPath },
-      treeSet(parent, observation.targetPath),
-    ]), "active-transaction replay commands");
-    for (const message of observation.transport) {
-      check(lifecycleGraphStoredEnvelope(message,
-        ownInput.deliveryPrefix[message.sequenceNumber - 1]),
-        "active-transaction replay raw transport");
-    }
+    validateLifecycleActiveReplay(active, input, observation, check);
   }
 }
 
@@ -6944,7 +7540,9 @@ export function validateLifecycleCase(value) {
       .map((item) => records.get(item.id))
       .find((item) => item?.section === "serialization"
         && item.item.kind === "visible")?.item.value;
-    check(isDeepStrictEqual(nestedVisible, nested.value),
+    const nestedData = { ...nested.value };
+    delete nestedData.checkpoint;
+    check(isDeepStrictEqual(nestedVisible, nestedData),
       "nested-transaction visible checkpoint");
 
     const undo = observed.find((item) => item.id === "handle-undo-peer-edit");
@@ -6992,6 +7590,7 @@ export function validateLifecycleCase(value) {
         } else if (evidence.item.kind !== "published-document") {
           check(summary(evidence.item.value),
             `retention summary structure for ${observation.id}`);
+          if (evidence.item.kind === "checkpoint-tree") continue;
           for (const path of [
             observation.value?.path,
             ...Object.values(observation.value?.routes ?? {}).flat(),
@@ -7096,6 +7695,9 @@ export function validateLifecycleCase(value) {
   }
   if (value.id === "live-channel-attachment" || value.id === "cross-datastore-attachment") {
     validateLifecycleGraphReplay(value, records, check);
+  }
+  if (value.id === "handle-transaction-branch" || value.id === "handle-retention") {
+    validateLifecycleHistoryReplay(value, records, check);
   }
 }
 

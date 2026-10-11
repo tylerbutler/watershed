@@ -777,6 +777,135 @@ function treeReceiverTarget(tree: ITree, view: RootView) {
 	};
 }
 
+function graphDecoderInput(
+	container: unknown,
+	initial: Awaited<ReturnType<typeof initialGraphSnapshot>>,
+	writer: ReturnType<typeof graphWriter>,
+	receiver: unknown,
+	deliveryPrefix: ISequencedDocumentMessage[],
+	receiverClientId = graphClientId(receiver),
+) {
+	return {
+		documentId: (container as { id: string }).id,
+		initialSnapshot: initial.snapshot,
+		compressor: initial.compressor,
+		deliveryPrefix,
+		runtime: {
+			oldestSupportedClient,
+			enableRuntimeIdCompressor: "on",
+			graphStoreType: GraphStore.type,
+			registry: [
+				{ channelType: SharedMapAlpha.getFactory().type, role: "entry-point" },
+				{ channelType: treeFactory().type, role: "declared" },
+			],
+			entryPoint: {
+				datastoreId: "A", channelId: "root", packagePath: [GraphStore.type],
+			},
+		},
+		sessions: {
+			writerClientId: graphClientId(container),
+			receiverClientId,
+			...(graphClientId(receiver) === receiverClientId ? {} : {
+				receiverWriteClientId: graphClientId(receiver),
+			}),
+			writer,
+		},
+	};
+}
+
+function createChannelCommand(value: ISharedMap | ITree) {
+	return {
+		type: "create-channel",
+		datastoreId: pathOf(value.handle).split("/")[1],
+		channelId: pathOf(value.handle).split("/")[2],
+		channelType: mapType(value as ISharedMap),
+	};
+}
+
+function initializeTreeCommand(tree: ITree) {
+	return {
+		type: "initialize-tree", target: pathOf(tree.handle),
+		storedSchema: graphStoredSchema(), initialValue: graphInitialRoot("root"),
+	};
+}
+
+function historyCapture(
+	graph: Awaited<ReturnType<typeof attachedGraph>>,
+	peer: Awaited<ReturnType<typeof openGraphContainer>>,
+	tree: ITree,
+	view: RootView,
+	peerTree: ITree,
+	peerView: RootView,
+	scenarios: LifecycleScenario[],
+	observations: Observation[],
+	raw: DeferredCase["raw"],
+) {
+	const commands: unknown[] = [
+		createChannelCommand(tree), initializeTreeCommand(tree),
+		{ type: "map-set", target: "/A/root", key: "tree", value: graphHandle(pathOf(tree.handle)) },
+		{ type: "settle", checkpoint: "initial-tree" },
+	];
+	const targets: ISharedMap[] = [];
+	const receiverClientId = graphClientId(peer.container);
+	let previousSequence = 0;
+	const checkpoints = async (
+		id: string,
+		branches: { id: string; disposed: boolean; view?: RootView }[] = [],
+		stages: unknown[] = [],
+	) => {
+		await graph.service.synchronize();
+		const messages = await graphMessages(graph.service, graph.resolvedUrl);
+		const prefixEndSequenceNumber = messages.at(-1)?.sequenceNumber ?? 0;
+		const prefix = graphPrefix(graph.initial.snapshot, messages, prefixEndSequenceNumber);
+		const checkpoint = {
+			tree: treeReceiverTarget(tree, view),
+			receiver: {
+				clientId: graphClientId(peer.container),
+				tree: treeReceiverTarget(peerTree, peerView),
+			},
+			targets: await Promise.all(targets.map(async (target) => {
+				const attached = isAttached(target);
+				const resolved = attached
+					? await resolveGraphTarget(peer.data.root, pathOf(target.handle)) as ISharedMap
+					: undefined;
+				return {
+					...mapReceiverTarget(target),
+					attached,
+					...(resolved === undefined ? {} : { receiver: mapReceiverTarget(resolved) }),
+				};
+			})),
+			branches: branches.map((branch) => ({
+				id: branch.id,
+				disposed: branch.disposed,
+				...(branch.view === undefined ? {} : { data: visible(branch.view.root) }),
+			})),
+			compressor: graphWriter(graph.container.data.root),
+			stages,
+		};
+		const observation = observations.find((item) => item.id === id);
+		const scenario = scenarios.find((item) => item.id === id);
+		assert(observation !== undefined && scenario !== undefined, `${id}: history checkpoint`);
+		scenario.commands = copy(commands);
+		scenario.replay = {
+			published: raw.summaries.some((record) =>
+				record.scenarioId === id && record.kind === "published-document"),
+			prefixEndSequenceNumber,
+			deliveryPrefixLength: prefix.length,
+		};
+		observation.value = { ...(observation.value as object), checkpoint };
+		const transport = prefix.filter((message) => message.sequenceNumber > previousSequence);
+		observation.evidence.push(
+			record("messages", raw, id, transport.length === 0 ? "checkpoint" : "replay-transport",
+				transport, id),
+			record("serialization", raw, id, "history-checkpoint", checkpoint),
+			record("summaries", raw, id, "checkpoint-tree", (await summarize(tree)).summary),
+		);
+		previousSequence = prefixEndSequenceNumber;
+		return prefix;
+	};
+	return { commands, targets, receiverClientId, checkpoint: checkpoints };
+}
+
 async function publishDocument(
 	service: unknown,
 	documentId: string,
@@ -2594,7 +2723,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 
 	it("captures transaction, branch, and undo side effects", async () => {
 		const raw = { messages: [] as RawRecord[], serialization: [] as RawRecord[], summaries: [] as RawRecord[] };
-		const scenarios = [
+		const scenarios: LifecycleScenario[] = [
 			{ id: "successful-transaction", operation: "commit a handle insertion" },
 			{ id: "aborted-transaction", operation: "roll back a handle insertion" },
 			{ id: "nested-transaction", operation: "commit nested handle edits" },
@@ -2606,18 +2735,43 @@ describe("Watershed handle and attachment lifecycle", () => {
 			{ id: "handle-undo-peer-edit", operation: "undo a handle while preserving target edits" },
 		];
 		const observations: Observation[] = [];
-		const { service, client, container, messages } = await attachedGraph();
+		const graph = await attachedGraph();
+		const { service, container, messages } = graph;
+		let peer: Awaited<ReturnType<typeof openGraphContainer>> | undefined;
 		try {
 			const tree = await container.data.createTree();
 			const view = newRoot(tree);
 			container.data.root.set("tree", tree.handle);
 			await service.synchronize();
+			peer = await openGraphContainer(service, container.id);
+			const peerTree = await (peer.data.root.get("tree") as IFluidHandle).get() as ITree;
+			const peerView = existingRoot(peerTree);
+			const history = historyCapture(graph, peer, tree, view, peerTree, peerView,
+				scenarios, observations, raw);
+			const setHandle = (target: ISharedMap, checkout?: string) => ({
+				type: "tree-set-handle", target: pathOf(tree.handle),
+				field: { kind: "optional", name: "link" },
+				value: graphHandle(pathOf(target.handle)),
+				...(checkout === undefined ? {} : { checkout }),
+			});
+			const stage = (target: ISharedMap) => ({
+				tree: visible(view.root), target: pathOf(target.handle),
+				attached: isAttached(target), compressor: graphWriter(container.data.root),
+				transportLength: messages.length,
+			});
 			messages.length = 0;
 
 			const success = await container.data.createMap();
+			history.targets.push(success);
+			const successStages: unknown[] = [];
 			Tree.runTransaction(view, () => {
 				view.root.link = success.handle;
+				successStages.push(stage(success));
 			});
+			history.commands.push(createChannelCommand(success),
+				{ type: "begin-transaction", target: pathOf(tree.handle) }, setHandle(success),
+				{ type: "commit-transaction", target: pathOf(tree.handle) },
+				{ type: "settle", checkpoint: "successful-transaction" });
 			await service.synchronize();
 			observations.push({
 				id: "successful-transaction",
@@ -2627,12 +2781,21 @@ describe("Watershed handle and attachment lifecycle", () => {
 				},
 				evidence: [record("messages", raw, "successful-transaction", "attach", messages.splice(0))],
 			});
+			await history.checkpoint("successful-transaction", [], successStages);
 
 			const aborted = await container.data.createMap();
+			history.targets.push(aborted);
+			const abortedStages: unknown[] = [stage(aborted)];
 			const abortedResult = Tree.runTransaction(view, () => {
 				view.root.link = aborted.handle;
+				abortedStages.push(stage(aborted));
 				return Tree.runTransaction.rollback;
 			});
+			abortedStages.push(stage(aborted));
+			history.commands.push(createChannelCommand(aborted),
+				{ type: "begin-transaction", target: pathOf(tree.handle) }, setHandle(aborted),
+				{ type: "rollback-transaction", target: pathOf(tree.handle) },
+				{ type: "settle", checkpoint: "aborted-transaction" });
 			observations.push({
 				id: "aborted-transaction",
 				value: {
@@ -2642,14 +2805,34 @@ describe("Watershed handle and attachment lifecycle", () => {
 				},
 				evidence: [record("messages", raw, "aborted-transaction", "checkpoint", messages.splice(0), "after-rollback")],
 			});
+			await history.checkpoint("aborted-transaction", [], abortedStages);
 
 			const nested = await container.data.createMap();
+			history.targets.push(nested);
+			const nestedStages: unknown[] = [];
 			Tree.runTransaction(view, () => {
 				view.root.links.set("outer", nested.handle);
+				nestedStages.push(stage(nested));
 				Tree.runTransaction(view, () => {
 					view.root.sequence.insertAtEnd(nested.handle);
+					nestedStages.push(stage(nested));
 				});
+				nestedStages.push(stage(nested));
 			});
+			history.commands.push(createChannelCommand(nested),
+				{ type: "begin-transaction", target: pathOf(tree.handle) },
+				{
+					type: "tree-map-set-handle", target: pathOf(tree.handle), field: "links",
+					key: "outer", value: graphHandle(pathOf(nested.handle)),
+				},
+				{ type: "begin-transaction", target: pathOf(tree.handle) },
+				{
+					type: "tree-array-insert-handle", target: pathOf(tree.handle),
+					field: "sequence", index: 0, value: graphHandle(pathOf(nested.handle)),
+				},
+				{ type: "commit-transaction", target: pathOf(tree.handle) },
+				{ type: "commit-transaction", target: pathOf(tree.handle) },
+				{ type: "settle", checkpoint: "nested-transaction" });
 			await service.synchronize();
 			const nestedVisible = visible(view.root);
 			observations.push({
@@ -2660,10 +2843,16 @@ describe("Watershed handle and attachment lifecycle", () => {
 					record("serialization", raw, "nested-transaction", "visible", nestedVisible),
 				],
 			});
+			await history.checkpoint("nested-transaction", [], nestedStages);
 
 			const branchTarget = await container.data.createMap();
+			history.targets.push(branchTarget);
 			const branch = view.fork() as RootView;
 			branch.root.link = branchTarget.handle;
+			history.commands.push(createChannelCommand(branchTarget),
+				{ type: "fork", target: pathOf(tree.handle), checkout: "working" },
+				setHandle(branchTarget, "working"),
+				{ type: "settle", checkpoint: "branch-before-merge" });
 			observations.push({
 				id: "branch-before-merge",
 				value: {
@@ -2673,55 +2862,83 @@ describe("Watershed handle and attachment lifecycle", () => {
 				},
 				evidence: [record("messages", raw, "branch-before-merge", "checkpoint", messages.splice(0), "before-merge")],
 			});
+			await history.checkpoint("branch-before-merge", [{ id: "working", disposed: false, view: branch }]);
 			view.merge(branch);
+			history.commands.push({ type: "merge", target: pathOf(tree.handle), checkout: "working" },
+				{ type: "settle", checkpoint: "branch-after-merge" });
 			await service.synchronize();
 			observations.push({
 				id: "branch-after-merge",
 				value: { mainPath: view.root.link === undefined ? undefined : pathOf(view.root.link), attached: isAttached(branchTarget) },
 				evidence: [record("messages", raw, "branch-after-merge", "attach", messages.splice(0))],
 			});
+			await history.checkpoint("branch-after-merge", [{ id: "working", disposed: true }]);
 
 			const droppedTarget = await container.data.createMap();
+			history.targets.push(droppedTarget);
 			const dropped = view.fork() as RootView;
 			dropped.root.link = droppedTarget.handle;
 			dropped.dispose();
+			history.commands.push(createChannelCommand(droppedTarget),
+				{ type: "fork", target: pathOf(tree.handle), checkout: "dropped" },
+				setHandle(droppedTarget, "dropped"),
+				{ type: "dispose-checkout", target: pathOf(tree.handle), checkout: "dropped" },
+				{ type: "settle", checkpoint: "branch-dropped" });
 			observations.push({
 				id: "branch-dropped",
 				value: { mainPath: view.root.link === undefined ? undefined : pathOf(view.root.link), attached: isAttached(droppedTarget) },
 				evidence: [record("messages", raw, "branch-dropped", "checkpoint", messages.splice(0), "after-drop")],
 			});
+			await history.checkpoint("branch-dropped", [{ id: "dropped", disposed: true }]);
 
 			const disposedTarget = await container.data.createMap();
+			history.targets.push(disposedTarget);
 			const disposed = view.fork() as RootView;
 			disposed.root.link = disposedTarget.handle;
 			disposed.dispose();
+			history.commands.push(createChannelCommand(disposedTarget),
+				{ type: "fork", target: pathOf(tree.handle), checkout: "disposed" },
+				setHandle(disposedTarget, "disposed"),
+				{ type: "dispose-checkout", target: pathOf(tree.handle), checkout: "disposed" },
+				{ type: "settle", checkpoint: "branch-disposal" });
 			observations.push({
 				id: "branch-disposal",
 				value: { attached: isAttached(disposedTarget) },
 				evidence: [record("messages", raw, "branch-disposal", "checkpoint", messages.splice(0), "after-disposal")],
 			});
+			await history.checkpoint("branch-disposal", [{ id: "disposed", disposed: true }]);
 
 			const undoTarget = await container.data.createMap();
-			let revertible: { revert(): unknown; dispose(): void } | undefined;
+			history.targets.push(undoTarget);
+			let revertible: RevertibleAlpha | undefined;
 			const off = view.events.on("changed", (metadata, getRevertible) => {
-				if (metadata.isLocal && getRevertible !== undefined) revertible = getRevertible();
+				if (metadata.isLocal && getRevertible !== undefined && revertible === undefined) {
+					revertible = getRevertible();
+				}
 			});
 			view.root.link = undoTarget.handle;
 			await service.synchronize();
-			const peer = await client.loadContainer(container.id, GraphStore);
-			const peerTree = await (peer.data.root.get("tree") as IFluidHandle).get() as typeof tree;
-			const peerView = asAlpha(peerTree.viewWith(
-				new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
-			));
+			off();
 			assert(peerView.root.link !== undefined);
 			const peerTarget = await peerView.root.link.get() as ISharedMap;
 			peerTarget.set("peer", "survives");
 			await service.synchronize();
 			assert(revertible !== undefined, "Handle insertion must produce a revertible");
+			const beforeRevert = revertible.status;
 			revertible.revert();
 			await service.synchronize();
-			off();
-			revertible.dispose();
+			const afterRevert = revertible.status;
+			history.commands.push(createChannelCommand(undoTarget),
+				{ type: "capture-next-revertible", target: pathOf(tree.handle), id: "insertion" },
+				setHandle(undoTarget),
+				{ type: "settle", checkpoint: "before-peer-edit" },
+				{
+					type: "map-set", client: "receiver", target: pathOf(undoTarget.handle),
+					key: "peer", value: { kind: "string", value: "survives" },
+				},
+				{ type: "settle", checkpoint: "before-undo" },
+				{ type: "revert", target: pathOf(tree.handle), id: "insertion", dispose: true },
+				{ type: "settle", checkpoint: "handle-undo-peer-edit" });
 			const undoSummary = record(
 				"summaries", raw, "handle-undo-peer-edit", "tree-summary", (await summarize(tree)).summary,
 			);
@@ -2731,22 +2948,28 @@ describe("Watershed handle and attachment lifecycle", () => {
 					referringPath: view.root.link === undefined ? undefined : pathOf(view.root.link),
 					targetPath: pathOf(undoTarget.handle),
 					targetValue: undoTarget.get("peer"),
+					revertibleStatus: { before: beforeRevert, after: afterRevert },
 				},
 				evidence: [
 					record("messages", raw, "handle-undo-peer-edit", "undo", messages.splice(0)),
 					undoSummary,
 				],
 			});
-			peer.close();
-			deferredTransactionBranch = { scenarios, observations, raw };
+			const deliveryPrefix = await history.checkpoint("handle-undo-peer-edit");
+			deferredTransactionBranch = {
+				scenarios, observations, raw,
+				input: { decoderInput: graphDecoderInput(container, graph.initial, graph.writer,
+					peer.container, deliveryPrefix, history.receiverClientId) },
+			};
 		} finally {
+			peer?.container.dispose();
 			await service.close();
 		}
 	});
 
 	it("captures summary and retained GC behavior", async () => {
 		const raw = { messages: [] as RawRecord[], serialization: [] as RawRecord[], summaries: [] as RawRecord[] };
-		const scenarios = [
+		const scenarios: LifecycleScenario[] = [
 			{ id: "before-removal", operation: "summarize a visible handle" },
 			{ id: "after-removal", operation: "summarize after removing the handle" },
 			{ id: "after-undo", operation: "undo handle removal" },
@@ -2754,13 +2977,20 @@ describe("Watershed handle and attachment lifecycle", () => {
 			{ id: "branch-disposal", operation: "dispose the retaining branch" },
 			{ id: "revertible-disposal", operation: "dispose the removal revertible" },
 			{ id: "unreferenced-datastore", operation: "remove a secondary datastore reference" },
-			{ id: "fresh-load", operation: "load the document from its attach snapshot and sequenced operations, then continue editing" },
+			{ id: "fresh-load", operation: "load the named published document, then continue editing" },
 		];
 		const observations: Observation[] = [];
-		const { service, container, messages, resolvedUrl } = await attachedGraph();
+		const graph = await attachedGraph();
+		const { service, container, messages, resolvedUrl } = graph;
+		let receiver: Awaited<ReturnType<typeof openGraphContainer>> | undefined;
 		try {
+			let history: ReturnType<typeof historyCapture>;
 			const publishCheckpoint = async (scenarioId: string) => {
 				await service.synchronize();
+				history.commands.push({
+					type: "publish-summary", id: scenarioId, fullTree: true,
+					reason: `watershed ${scenarioId}`,
+				});
 				const published = await publishDocument(
 					service, container.id, resolvedUrl, `watershed ${scenarioId}`,
 				);
@@ -2774,9 +3004,27 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const tree = await container.data.createTree();
 			const view = newRoot(tree);
 			container.data.root.set("tree", tree.handle);
+			await service.synchronize();
+			receiver = await openGraphContainer(service, container.id);
+			const receiverTree = await (receiver.data.root.get("tree") as IFluidHandle).get() as ITree;
+			const receiverView = existingRoot(receiverTree);
+			history = historyCapture(graph, receiver, tree, view, receiverTree, receiverView,
+				scenarios, observations, raw);
 			const target = await container.data.createMap();
+			history.targets.push(target);
 			target.set("value", "before");
 			view.root.link = target.handle;
+			history.commands.push(createChannelCommand(target),
+				{
+					type: "map-set", target: pathOf(target.handle), key: "value",
+					value: { kind: "string", value: "before" },
+				},
+				{
+					type: "tree-set-handle", target: pathOf(tree.handle),
+					field: { kind: "optional", name: "link" },
+					value: graphHandle(pathOf(target.handle)),
+				},
+				{ type: "settle", checkpoint: "before-removal" });
 			await service.synchronize();
 			messages.length = 0;
 
@@ -2795,6 +3043,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 					beforePublication.evidence,
 				],
 			});
+			await history.checkpoint("before-removal");
 
 			const retainedHandles: RevertibleAlpha[] = [];
 			const off = view.events.on("changed", (metadata, getRevertible) => {
@@ -2803,6 +3052,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 				}
 			});
 			view.root.link = undefined;
+			history.commands.push(
+				{ type: "subscribe-revertibles", target: pathOf(tree.handle), id: "retention" },
+				{
+					type: "tree-clear-handle", target: pathOf(tree.handle),
+					field: { kind: "optional", name: "link" },
+				},
+				{ type: "settle", checkpoint: "after-removal" });
 			await service.synchronize();
 			const afterSummary = await summarize(tree);
 			const afterPublication = await publishCheckpoint("after-removal");
@@ -2819,10 +3075,14 @@ describe("Watershed handle and attachment lifecycle", () => {
 					afterPublication.evidence,
 				],
 			});
+			await history.checkpoint("after-removal");
 
 			const removal = retainedHandles[0];
 			assert(removal !== undefined, "Handle removal must produce a revertible");
 			removal.revert();
+			history.commands.push(
+				{ type: "revert", target: pathOf(tree.handle), id: "retention:0", dispose: true },
+				{ type: "settle", checkpoint: "after-undo" });
 			await service.synchronize();
 			const undoMessages = messages.splice(0);
 			const undoPublication = await publishCheckpoint("after-undo");
@@ -2839,9 +3099,17 @@ describe("Watershed handle and attachment lifecycle", () => {
 					undoPublication.evidence,
 				],
 			});
+			await history.checkpoint("after-undo");
 
 			const retaining = view.fork() as RootView;
 			view.root.link = undefined;
+			history.commands.push(
+				{ type: "fork", target: pathOf(tree.handle), checkout: "retaining" },
+				{
+					type: "tree-clear-handle", target: pathOf(tree.handle),
+					field: { kind: "optional", name: "link" },
+				},
+				{ type: "settle", checkpoint: "retained-repair" });
 			await service.synchronize();
 			const repairPublication = await publishCheckpoint("retained-repair");
 			observations.push({
@@ -2858,7 +3126,11 @@ describe("Watershed handle and attachment lifecycle", () => {
 					repairPublication.evidence,
 				],
 			});
+			await history.checkpoint("retained-repair", [{ id: "retaining", disposed: false, view: retaining }]);
 			retaining.dispose();
+			history.commands.push({
+				type: "dispose-checkout", target: pathOf(tree.handle), checkout: "retaining",
+			});
 			const branchPublication = await publishCheckpoint("branch-disposal");
 			observations.push({
 				id: "branch-disposal",
@@ -2872,10 +3144,12 @@ describe("Watershed handle and attachment lifecycle", () => {
 					branchPublication.evidence,
 				],
 			});
+			await history.checkpoint("branch-disposal", [{ id: "retaining", disposed: true }]);
 			off();
 			for (const handle of retainedHandles) {
 				if (handle.status === RevertibleStatus.Valid) handle.dispose();
 			}
+			history.commands.push({ type: "dispose-revertibles", target: pathOf(tree.handle), id: "retention" });
 			const revertiblePublication = await publishCheckpoint("revertible-disposal");
 			observations.push({
 				id: "revertible-disposal",
@@ -2889,11 +3163,27 @@ describe("Watershed handle and attachment lifecycle", () => {
 					revertiblePublication.evidence,
 				],
 			});
+			await history.checkpoint("revertible-disposal");
 
 			const secondary = await container.createDataStore(GraphStore);
+			history.targets.push(secondary.root);
 			container.data.root.set("secondary", secondary.root.handle);
 			await service.synchronize();
 			container.data.root.delete("secondary");
+			history.commands.push(
+				{
+					type: "create-datastore", datastoreId: pathOf(secondary.root.handle).split("/")[1],
+					storeType: GraphStore.type, packagePath: [GraphStore.type],
+					entryPointChannelId: "root",
+					channels: [{ id: "root", type: SharedMapAlpha.getFactory().type }],
+				},
+				{
+					type: "map-set", target: "/A/root", key: "secondary",
+					value: graphHandle(pathOf(secondary.root.handle)),
+				},
+				{ type: "settle", checkpoint: "secondary-visible" },
+				{ type: "map-delete", target: "/A/root", key: "secondary" },
+				{ type: "settle", checkpoint: "unreferenced-datastore" });
 			await service.synchronize();
 			const secondaryMessages = messages.splice(0);
 			const secondaryPublication = await publishCheckpoint("unreferenced-datastore");
@@ -2912,8 +3202,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 					secondaryPublication.evidence,
 				],
 			});
+			await history.checkpoint("unreferenced-datastore");
 
 			view.root.link = target.handle;
+			history.commands.push({
+				type: "tree-set-handle", target: pathOf(tree.handle),
+				field: { kind: "optional", name: "link" }, value: graphHandle(pathOf(target.handle)),
+			}, { type: "settle", checkpoint: "before-fresh-publication" });
 			await service.synchronize();
 			const freshPublication = await publishCheckpoint("fresh-load");
 			const storedBlobEvidence = record(
@@ -2934,6 +3229,16 @@ describe("Watershed handle and attachment lifecycle", () => {
 				const loadedTargetBefore = Object.fromEntries(loadedTarget.entries());
 				const writerTargetBefore = Object.fromEntries(target.entries());
 				loadedTarget.set("continued", true);
+				history.commands.push(
+					{
+						type: "load-publication", client: "fresh", publicationId: "fresh-load",
+						version: freshPublication.published.publication.handle,
+					},
+					{
+						type: "map-set", client: "fresh", target: loadedTargetPath,
+						key: "continued", value: { kind: "boolean", value: true },
+					},
+					{ type: "settle", checkpoint: "fresh-load" });
 				await service.synchronize();
 				assert.equal(target.get("continued"), true, "Writer did not observe fresh-client edit");
 				const continuationMessages = messages.splice(0);
@@ -2980,11 +3285,19 @@ describe("Watershed handle and attachment lifecycle", () => {
 						continuationEvidence,
 					],
 				});
+				await history.checkpoint("fresh-load");
 			} finally {
 				loaded.container.dispose();
 			}
-			await writeCase("handle-retention", scenarios, observations, raw);
+			const deliveryPrefix = graphPrefix(graph.initial.snapshot,
+				await graphMessages(service, resolvedUrl),
+				(scenarios.at(-1)!.replay as GraphReplayCheckpoint).prefixEndSequenceNumber);
+			await writeCase("handle-retention", scenarios, observations, raw, {
+				decoderInput: graphDecoderInput(container, graph.initial, graph.writer,
+					receiver.container, deliveryPrefix, history.receiverClientId),
+			});
 		} finally {
+			receiver?.container.dispose();
 			await service.close();
 		}
 	});
@@ -3005,7 +3318,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 				const active = await activeDocumentAttachment(container, service, view, messages);
 				const index = deferred.scenarios.findIndex((scenario) => scenario.id === scenarioId);
 				assert(index >= 0, `${id}: active scenario`);
-				if (id === "live-channel-attachment") {
+				{
 					const prefixEndSequenceNumber = Math.max(...active.transport.map(
 						(message) => (message as ISequencedDocumentMessage).sequenceNumber,
 					));

@@ -287,6 +287,195 @@ test("map-only datastore replay does not require native tree creation", async ()
   }
 });
 
+test("history lifecycle cases require executable initial state and typed commands", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    validateLifecycleCase(value);
+    const missingInput = structuredClone(value);
+    delete missingInput.input.decoderInput;
+    assert.throws(() => validateLifecycleCase(missingInput), /initial.*replay|initial snapshot/i);
+    const missingCommands = structuredClone(value);
+    delete missingCommands.input.scenarios[0].commands;
+    assert.throws(() => validateLifecycleCase(missingCommands), /commands/i);
+  }
+});
+
+test("history checkpoints require actual receiver state and decoded tree evidence", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    validateLifecycleCase(value);
+    for (const mutation of [
+      (changed) => { delete changed.expected.observations[0].value.checkpoint; },
+      (changed) => { delete changed.expected.observations[0].value.checkpoint.receiver; },
+      (changed) => {
+        changed.raw.summaries = changed.raw.summaries.filter((item) =>
+          item.scenarioId !== changed.input.scenarios[0].id || item.kind !== "checkpoint-tree");
+      },
+    ]) {
+      const changed = structuredClone(value);
+      mutation(changed);
+      assert.throws(() => validateLifecycleCase(changed), /checkpoint|receiver|evidence/i);
+    }
+  }
+});
+
+test("history replay rejects missing compressor and gapped or altered delivery prefixes", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    for (const mutation of [
+      (changed) => { delete changed.input.decoderInput.compressor; },
+      (changed) => { changed.input.decoderInput.deliveryPrefix.splice(1, 1); },
+      (changed) => { changed.input.decoderInput.deliveryPrefix[2].clientId = "fabricated-author"; },
+    ]) {
+      const changed = structuredClone(value);
+      mutation(changed);
+      assert.throws(() => validateLifecycleCase(changed), /compressor|prefix|author|writer/i);
+    }
+  }
+});
+
+test("history checkpoints cannot fabricate synchronized local and receiver state", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    const checkpoint = value.expected.observations[0].value.checkpoint;
+    checkpoint.tree.data.link = "/A/fabricated-target";
+    checkpoint.receiver.tree.data.link = checkpoint.tree.data.link;
+    value.raw.serialization.find((item) => item.kind === "history-checkpoint").value =
+      structuredClone(checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /checkpoint|receiver|tree/i);
+  }
+});
+
+test("history nonpublishing checkpoints reject invented transport and publication", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const aborted = value.input.scenarios.find((item) => item.id === "aborted-transaction");
+  aborted.replay.published = true;
+  assert.throws(() => validateLifecycleCase(value), /publication/i);
+
+  const changed = await lifecycleCapture("handle-transaction-branch");
+  const empty = changed.raw.messages.find((item) =>
+    item.scenarioId === "aborted-transaction" && item.checkpoint === "aborted-transaction");
+  empty.value.push(structuredClone(changed.input.decoderInput.deliveryPrefix[2]));
+  assert.throws(() => validateLifecycleCase(changed), /transport|prefix|checkpoint/i);
+});
+
+test("history replay requires exact transaction, branch and undo commands", async () => {
+  for (const [id, scenarioId, type] of [
+    ["handle-transaction-branch", "aborted-transaction", "rollback-transaction"],
+    ["handle-transaction-branch", "nested-transaction", "tree-array-insert-handle"],
+    ["handle-transaction-branch", "branch-dropped", "dispose-checkout"],
+    ["handle-transaction-branch", "handle-undo-peer-edit", "revert"],
+    ["handle-retention", "revertible-disposal", "dispose-revertibles"],
+    ["handle-retention", "fresh-load", "load-publication"],
+  ]) {
+    const value = await lifecycleCapture(id);
+    const index = value.input.scenarios.findIndex((item) => item.id === scenarioId);
+    for (const scenario of value.input.scenarios.slice(index)) {
+      scenario.commands = scenario.commands.filter((command) => command.type !== type);
+    }
+    assert.throws(() => validateLifecycleCase(value), /commands/i, scenarioId);
+  }
+});
+
+test("history transaction stages preserve deferred binding and rollback visibility", async () => {
+  for (const mutate of [
+    (checkpoint) => { checkpoint.stages = []; },
+    (checkpoint) => { checkpoint.stages[1].attached = true; },
+    (checkpoint) => { checkpoint.stages[2].tree = checkpoint.stages[1].tree; },
+    (checkpoint) => { checkpoint.stages[1].transportLength = 1; },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const observation = value.expected.observations.find((item) => item.id === "aborted-transaction");
+    mutate(observation.value.checkpoint);
+    value.raw.serialization.find((item) =>
+      item.scenarioId === observation.id && item.kind === "history-checkpoint").value =
+      structuredClone(observation.value.checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /stage|rollback|binding/i);
+  }
+});
+
+test("history undo rejects a refresher unrelated to the removed revision", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    const message = value.input.decoderInput.deliveryPrefix.find((message) =>
+      message.type === "op" && message.contents.includes('"refreshers"'));
+    const encoded = JSON.parse(message.contents);
+    const runtimes = encoded.type === "groupedBatch"
+      ? encoded.contents.map((item) => item.contents) : [encoded];
+    const change = runtimes.find((item) => item.type === "component")
+      .contents.contents.content.contents.changeset[0].data;
+    change.refreshers.builds[0][1] = 0;
+    message.contents = JSON.stringify(encoded);
+    for (const record of value.raw.messages) {
+      if (!Array.isArray(record.value)) continue;
+      for (const raw of record.value) {
+        if (raw.sequenceNumber === message.sequenceNumber) raw.contents = message.contents;
+      }
+    }
+    assert.throws(() => validateLifecycleCase(value), /refresher|revision|restore/i);
+  }
+});
+
+test("history active target requires its own replay document and refusal boundary", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const active = value.input.scenarios.find((item) => item.id === "active-target");
+  delete active.input;
+  assert.throws(() => validateLifecycleCase(value), /active-target|replay|initial snapshot/i);
+});
+
+test("history peer edits require the receiver's actual write connection identity", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  value.input.decoderInput.sessions.receiverWriteClientId =
+    value.input.decoderInput.sessions.writerClientId;
+  assert.throws(() => validateLifecycleCase(value), /receiver|author|transport/i);
+});
+
+test("history branch observations must agree with the decoded main and attachment state", async () => {
+  for (const id of ["branch-before-merge", "branch-after-merge", "branch-dropped", "branch-disposal"]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const observation = value.expected.observations.find((item) => item.id === id);
+    observation.value.attached = !observation.value.attached;
+    assert.throws(() => validateLifecycleCase(value), /branch|attachment|target/i, id);
+  }
+});
+
+test("history receiver target routes and branch-only visibility cannot be swapped", async () => {
+  for (const mutation of [
+    (checkpoint) => { checkpoint.targets[0].receiver.path = "/A/fabricated"; },
+    (checkpoint) => { checkpoint.branches[0].data.link = checkpoint.tree.data.link; },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const id = "branch-before-merge";
+    const observation = value.expected.observations.find((item) => item.id === id);
+    mutation(observation.value.checkpoint);
+    value.raw.serialization.find((item) =>
+      item.scenarioId === id && item.kind === "history-checkpoint").value =
+      structuredClone(observation.value.checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /branch|receiver|target/i);
+  }
+});
+
+test("history raw transport permits upstream start/end traces but rejects invented actions", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const raw = value.raw.messages.find((item) =>
+    item.scenarioId === "branch-after-merge" && item.kind === "attach").value[0];
+  raw.traces = [{ action: "fabricated", service: "deli", timestamp: 0 }];
+  assert.throws(() => validateLifecycleCase(value), /traces/i);
+});
+
+test("history published target bytes must match the sequenced map state", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  const publication = value.raw.summaries.find((item) =>
+    item.scenarioId === "before-removal" && item.kind === "published-document").value;
+  const [, store, channel] = value.expected.observations[0].value.path.split("/");
+  const blobId = publication.snapshot.tree.trees[".channels"].trees[store]
+    .trees[".channels"].trees[channel].blobs.header;
+  const header = JSON.parse(Buffer.from(publication.snapshot.blobs[blobId], "base64").toString());
+  header.content.value.value = "not-the-sequenced-value";
+  publication.snapshot.blobs[blobId] = Buffer.from(JSON.stringify(header)).toString("base64");
+  assert.throws(() => validateLifecycleCase(value), /published.*state|snapshot.*map/i);
+});
+
 test("lifecycle validator rejects a missing scenario and its observation", async () => {
   const value = await lifecycleCapture("cross-datastore-attachment");
   value.input.scenarios = value.input.scenarios.filter((item) => item.id !== "map-cycle");
@@ -764,7 +953,7 @@ test("fresh-load validator rejects a non-advancing nested array", () => {
   ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 2_000,
+    timeout: 10_000,
   }), /non-advancing nested array/i);
 });
 
@@ -1061,7 +1250,10 @@ test("nested transaction serialization is captured at its observation checkpoint
   const serialization = observation.evidence
     .filter((item) => item.section === "serialization")
     .map((evidence) => value.raw.serialization.find((item) => item.id === evidence.id));
-  assert.deepEqual(serialization.map((item) => item.value), [observation.value]);
+  assert.deepEqual(serialization.filter((item) => item.kind === "visible")
+    .map((item) => item.value), [observation.value.checkpoint.tree.data]);
+  assert.deepEqual(serialization.filter((item) => item.kind === "history-checkpoint")
+    .map((item) => item.value), [observation.value.checkpoint]);
 });
 
 test("a serialized then removed dependency remains bound when its owner attaches", async () => {

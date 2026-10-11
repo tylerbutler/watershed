@@ -964,8 +964,43 @@ Lifecycle IDs changed as measured after adding real peers and moving primary
 tree creation after the map-only checkpoints. Regeneration includes those
 changes; no fixture bytes or IDs were normalized by hand.
 
-**Task 1 remains open.** Transaction/branch/retention executable replay and
-remaining receiver checkpoints, multi-tree document-compressor identity, and
-commit/factory/revertible/event lifetime evidence still precede the final
-contract review. Tasks 2-9 have not started. The generated profile and native
-semantic runners still exclude this lifecycle support; M7 remains partial.
+### History replay continuation
+
+Transaction/branch and retention replay inputs now include actual initial
+document storage, compressor/session context, complete delivery prefixes,
+exact cumulative commands, and sixteen writer/receiver checkpoints. Attached
+targets resolve on the receiver; aborted and unmerged targets remain local.
+Checkpoint forests and published map/tree bytes are decoded separately from
+the source's visible-value records.
+
+Intermediate transaction stages preserve deferred attachment/transport and
+the rollback's retained local compressor advancement. Nested map/array edits
+publish in one tree operation. Undo restores the prior reference through a
+revision-keyed refresher while preserving a peer-authored target edit. The
+peer's read-to-write connection change is captured explicitly; the original
+insertion revertible auto-disposes on default revert. The active-target history
+scenario now has its own failed-publication replay document and the same
+native preflight-refusal boundary as the live attachment case.
+
+Self-review added regressions for synchronized false receiver checkpoints,
+missing/gapped input, command/lifetime omissions, fabricated branch attachment
+observations, unrelated undo refreshers, incorrect publication/target bytes,
+and invalid trace actions. The existing nested-visible test now checks its
+two distinct source records. A child-process array-progress check retains its
+exact decoder-error assertion with a ten-second timeout: measured module
+startup took roughly two seconds, while the failing decode took 25 ms.
+
+| Command | History-slice result |
+| --- | --- |
+| Bounded `source.mjs lifecycle-capture` | Six executed source tests passed, no skips. |
+| `just shared-tree-oracle` | Generated all 68 cases. |
+| Source/generate/codec Node suites | 228 passed, no failures or skips. |
+| Focused history and related regression selections | 28 passed, no failures or skips. |
+| `just shared-tree-oracle-check` | All 68 cases reproduced byte-for-byte. |
+| Original corpus/profile comparison against `b8d7f11e` | All 63 non-lifecycle cases, manifest and native profile unchanged. |
+
+**Task 1 remains open.** Multi-tree document-compressor identity and the
+remaining commit/factory/revertible/event lifetime evidence precede the final
+original-checklist audit and contract review. Tasks 2-9 have not started. The
+generated profile and native semantic runners still exclude this lifecycle
+support; M7 remains partial.
