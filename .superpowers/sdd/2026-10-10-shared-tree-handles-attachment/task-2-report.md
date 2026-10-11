@@ -234,3 +234,97 @@ Existing warnings remain unchanged:
 
 There are no known Task 2 gaps. Native attachment lifecycle publication remains
 out of scope for this task and was not started.
+
+## Corrective follow-up: zero-width nested arrays
+
+### Root cause
+
+The compressed encoder represented every nested array as
+`VArray(child_data)`. That representation is length-delimited by consumed
+stream values. A null leaf and an empty structural node consume no values, so
+one present optional item and any number of array items all encoded as the same
+empty array. The decoder correctly interpreted that empty stream as zero
+items.
+
+The shared encoder now uses the FieldBatch integer-count form when a non-empty
+nested collection has zero encoded width. It keeps the source-compatible array
+form for value-consuming children and empty collections. The fix applies to
+optional and sequence fields, array-node contents, handle-activated
+compression, and identifier-activated compression without checking for a
+specific leaf or node kind.
+
+### RED
+
+The regressions were added before the production change. Both targets
+reproduced the data loss:
+
+```text
+gleam test --target erlang -- shared_tree_field_batch
+35 passed, 2 failed
+
+shared_tree_codec_field_batch_round_trips_zero_width_null_fields_test
+received: items = [], optional field absent
+expected: items = [NullValue, NullValue], optional field = NullValue
+
+shared_tree_codec_field_batch_round_trips_zero_width_structures_test
+received: items = [], optional field absent
+expected: two Empty nodes and one present optional Empty node
+
+gleam test --target javascript -- shared_tree_field_batch
+35 passed, 2 failed
+```
+
+The first regression uses a handle-bearing object. The second uses an
+identifier field to activate the compressed path and proves the problem is
+structural, not specific to null leaves.
+
+### GREEN
+
+Final focused selections:
+
+```text
+gleam test --target erlang -- shared_tree_handle shared_tree_field_batch shared_tree_schema shared_tree_codec
+131 passed, 0 failed
+
+gleam test --target javascript -- shared_tree_handle shared_tree_field_batch shared_tree_schema shared_tree_codec
+132 passed, 0 failed
+```
+
+Required upstream checks:
+
+```text
+just shared-tree-codec-interop
+SharedTree codec interoperability passed: 2 targets, 38 items each
+
+just shared-tree-oracle-check
+7 passing
+Verified 68 upstream SharedTree cases
+```
+
+Formatting and diff checks:
+
+```text
+git diff --check
+exit 0
+
+git ls-files -z '*.gleam' | xargs -0 gleam format --check
+exit 0
+```
+
+### Corrective self-review
+
+- Confirmed the failure on Erlang and JavaScript before changing production
+  code.
+- Confirmed the shared cause at both nested-array encoder sites and the existing
+  integer-count decoder path.
+- Used one generic encoding helper. It does not special-case null or handles.
+- Confirmed optional nulls, null arrays, optional empty objects, and arrays of
+  empty objects retain their cardinality.
+- Confirmed identifier-only schemas use the corrected compressed path.
+- Kept `VArray(data)` for value-consuming children and for empty collections,
+  preserving genuine source encoding.
+- Re-ran the pinned handle schema-aware payload comparison through the focused
+  handle tests.
+- Reviewed the diff: two source/test files plus this report; no dependencies,
+  profile changes, generated files, or fixture edits.
+- Did not start Task 3.

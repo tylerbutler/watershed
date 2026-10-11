@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot
 import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec/field_batch
@@ -12,8 +13,8 @@ import watershed/tree/fixtures
 import watershed/tree/identifier_fixture
 import watershed/tree/schema
 import watershed/tree/types.{
-  ArrayValue, BooleanValue, MapValue, NullValue, NumberValue, ObjectValue,
-  StringValue,
+  ArrayValue, BooleanValue, HandleValue, MapValue, NullValue, NumberValue,
+  ObjectValue, StringValue,
 }
 import watershed/wire
 
@@ -187,6 +188,22 @@ fn identifier_nesting_schema() -> schema.StoredSchema {
         ),
         #("root", field("Value", [identifier_container_type])),
       ]),
+    )
+  stored
+}
+
+fn zero_width_handle_schema() -> schema.StoredSchema {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"Nulls\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.null\"]}}}},\"Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"Nulls\"]},\"link\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"maybe\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}",
+    )
+  stored
+}
+
+fn zero_width_identifier_schema() -> schema.StoredSchema {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Empty\":{\"kind\":{\"object\":{}}},\"Empties\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"Empty\"]}}}},\"Root\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"items\":{\"kind\":\"Value\",\"types\":[\"Empties\"]},\"maybe\":{\"kind\":\"Optional\",\"types\":[\"Empty\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}",
     )
   stored
 }
@@ -920,6 +937,44 @@ pub fn shared_tree_codec_field_batch_encodes_nested_identifier_fields_test() {
     field_batch.MessageIds(receiver, sender_session),
   )
   |> expect.to_equal(Ok([[value]]))
+}
+
+pub fn shared_tree_codec_field_batch_round_trips_zero_width_null_fields_test() {
+  let assert Ok(reference) = handle.reference_from_path("/B/child")
+  let value =
+    ObjectValue("Root", [
+      #("items", ArrayValue("Nulls", [NullValue, NullValue])),
+      #("link", HandleValue(reference)),
+      #("maybe", NullValue),
+    ])
+  let values = [[value]]
+  let assert Ok(encoded) =
+    field_batch.encode_with_context(
+      values,
+      Some(zero_width_handle_schema()),
+      field_batch.SummaryIds(fluid_ids.new(identifier_fixture.sender_session())),
+    )
+  field_batch.decode_with_schema(encoded, Some(zero_width_handle_schema()))
+  |> expect.to_equal(Ok(values))
+}
+
+pub fn shared_tree_codec_field_batch_round_trips_zero_width_structures_test() {
+  let empty = ObjectValue("Empty", [])
+  let value =
+    ObjectValue("Root", [
+      #("id", StringValue("root")),
+      #("items", ArrayValue("Empties", [empty, empty])),
+      #("maybe", empty),
+    ])
+  let values = [[value]]
+  let assert Ok(encoded) =
+    field_batch.encode_with_context(
+      values,
+      Some(zero_width_identifier_schema()),
+      field_batch.SummaryIds(fluid_ids.new(identifier_fixture.sender_session())),
+    )
+  field_batch.decode_with_schema(encoded, Some(zero_width_identifier_schema()))
+  |> expect.to_equal(Ok(values))
 }
 
 pub fn shared_tree_codec_field_batch_summary_uses_stable_unfinalized_identifier_test() {

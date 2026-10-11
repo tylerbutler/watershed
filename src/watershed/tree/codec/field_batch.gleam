@@ -444,7 +444,11 @@ fn encode_compressed_tree(
   use tree <- result.try(encode_compressed_node(value, stored, definition, ids))
   case cardinality {
     schema.Optional | schema.Sequence ->
-      Ok(EncodedTree(EncodeNestedArray(tree.shape), [VArray(tree.data)]))
+      Ok(
+        EncodedTree(EncodeNestedArray(tree.shape), [
+          encode_nested_data(tree.data, 1),
+        ]),
+      )
     schema.Required | schema.Identifier -> Ok(tree)
   }
 }
@@ -588,11 +592,23 @@ fn encode_compressed_node(
             [#("", EncodeNestedArray(shape))],
             None,
           ),
-          [VArray(list.flat_map(encoded, fn(tree) { tree.data }))],
+          [
+            encode_nested_data(
+              list.flat_map(encoded, fn(tree) { tree.data }),
+              list.length(encoded),
+            ),
+          ],
         ),
       )
     }
     _, _ -> Error(Nil)
+  }
+}
+
+fn encode_nested_data(data: List(JsonValue), count: Int) -> JsonValue {
+  case data {
+    [] if count > 0 -> VNumber(NInt(count))
+    _ -> VArray(data)
   }
 }
 
