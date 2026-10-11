@@ -96,6 +96,14 @@ fn plain_string_schema() -> schema.StoredSchema {
   stored
 }
 
+fn recursive_node_schema() -> schema.StoredSchema {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"Node\":{\"kind\":{\"object\":{\"child\":{\"kind\":\"Optional\",\"types\":[\"Node\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Node\"]}}",
+    )
+  stored
+}
+
 fn identifier_nesting_schema() -> schema.StoredSchema {
   let field = fn(kind, types) {
     json.object([
@@ -1442,6 +1450,35 @@ pub fn shared_tree_codec_field_batch_accepts_finite_recursive_shape_test() {
       [ObjectValue("Node", [#("child", ObjectValue("Node", []))])],
     ]),
   )
+}
+
+pub fn shared_tree_codec_field_batch_summary_encodes_finite_recursive_tree_test() {
+  let value =
+    ObjectValue("Node", [
+      #("child", ObjectValue("Node", [])),
+    ])
+  let compressor = fluid_ids.new(identifier_fixture.receiver_session())
+  let encoded =
+    field_batch.encode_summary_with_context(
+      [[value]],
+      recursive_node_schema(),
+      field_batch.SummaryIds(compressor),
+    )
+    |> expect.to_be_ok
+  field_batch.decode(encoded) |> expect.to_equal(Ok([[value]]))
+}
+
+pub fn shared_tree_codec_field_batch_summary_encodes_absent_recursive_child_test() {
+  let value = ObjectValue("Node", [])
+  let compressor = fluid_ids.new(identifier_fixture.receiver_session())
+  let encoded =
+    field_batch.encode_summary_with_context(
+      [[value]],
+      recursive_node_schema(),
+      field_batch.SummaryIds(compressor),
+    )
+    |> expect.to_be_ok
+  field_batch.decode(encoded) |> expect.to_equal(Ok([[value]]))
 }
 
 pub fn shared_tree_codec_field_batch_rejects_malformed_streams_test() {

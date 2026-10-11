@@ -346,7 +346,11 @@ fn apply_to_client(
 /// synchronous: the reaction to each delivery goes back into the core before
 /// the next iteration.
 pub fn settle(sluice: Sluice) -> Nil {
-  drain(sluice.cell)
+  fire_due(sluice)
+  case step(sluice) {
+    True -> settle(sluice)
+    False -> Nil
+  }
 }
 
 @target(javascript)
@@ -523,14 +527,6 @@ fn fire_due(sluice: Sluice) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 // Delivery
 // ─────────────────────────────────────────────────────────────────────────────
-
-@target(javascript)
-fn drain(cell: Cell(State)) -> Nil {
-  case take_deliver(cell) {
-    Error(Nil) -> Nil
-    Ok(_) -> drain(cell)
-  }
-}
 
 @target(javascript)
 /// Take the next deliverable frame, deliver it, and return it. The result is

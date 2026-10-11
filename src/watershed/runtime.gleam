@@ -323,6 +323,10 @@ type State {
     summary_armed: Bool,
     pending_summary: Option(PendingSummary),
     next_summary_attempt_id: Int,
+    /// Hold an attachment until the current JavaScript turn ends.
+    /// Later synchronous edits can join the same transport batch.
+    pending_outbound: List(wire.OutboundOperation),
+    outbound_flush_armed: Bool,
     /// How the runtime schedules delayed work. In production it uses the real
     /// `setTimeout` function. The in-memory hub substitutes its logical clock,
     /// so `sluice_js.advance` drives the delay window of the policy, and not
@@ -570,6 +574,8 @@ fn start_with_optional_seed(
       summary_armed: False,
       pending_summary: None,
       next_summary_attempt_id: 0,
+      pending_outbound: [],
+      outbound_flush_armed: False,
       scheduler: transport_js.real_scheduler(),
     ))
 
@@ -2610,7 +2616,7 @@ pub fn tree_merge(
       cell_set(runtime.cell, state)
       prime_scoped_tree_commit_deliveries(runtime.cell, events)
       prime_selector_deliveries(runtime.cell, events, source)
-      send_outbound(state.channel, core.client_id, outbound)
+      queue_outbound(runtime.cell, outbound)
       use _ <- result.try(case cell_get(runtime.cell).phase {
         Ready(_, _) | Reconnecting(_) -> Ok(Nil)
         Failed(reason) | SuspendedPendingTree(_, reason) -> Error(reason)
@@ -2714,7 +2720,7 @@ pub fn tree_edit(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           prime_tree_commit_deliveries(cell, events)
-          send_outbound(state.channel, core.client_id, outbound)
+          queue_outbound(cell, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
               fan_out(
@@ -2771,7 +2777,7 @@ pub fn tree_edit_view_on(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           prime_scoped_tree_commit_deliveries(cell, events)
-          send_outbound(state.channel, core.client_id, outbound)
+          queue_outbound(cell, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
               fan_out_scoped(
@@ -4871,11 +4877,10 @@ fn edit(
         Ok(#(core, events, outbound)) -> {
           // Commit the new core before fan-out (see fan_out's contract).
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
-          // Push immediately only when fully synced with a live channel;
-          // otherwise the operation stays in-flight and `resubmit` sends it
-          // once, so a reconnect can't drop or duplicate it.
+          // An attachment waits until this JavaScript turn ends.
+          // Other operations push immediately. Reconnect keeps both in-flight.
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -5074,6 +5079,66 @@ fn maybe_request_operations(
         socket.encode_request_operations(from: from),
       )
     _, _ -> Nil
+  }
+}
+
+@target(javascript)
+fn queue_outbound(
+  cell: Cell(State),
+  outbound: List(wire.OutboundOperation),
+) -> Nil {
+  let state = cell_get(cell)
+  case state.phase, outbound {
+    _, [] -> Nil
+    Ready(core, None), _ -> {
+      let defer =
+        state.pending_outbound != []
+        || runtime_core.outbound_has_attachment(outbound)
+        |> result.unwrap(False)
+      case defer {
+        False -> send_outbound(state.channel, core.client_id, outbound)
+        True -> {
+          let arm = !state.outbound_flush_armed
+          cell_set(
+            cell,
+            State(
+              ..state,
+              pending_outbound: list.append(state.pending_outbound, outbound),
+              outbound_flush_armed: True,
+            ),
+          )
+          case arm {
+            False -> Nil
+            True -> {
+              let _ = state.scheduler.schedule(fn() { flush_outbound(cell) }, 0)
+              Nil
+            }
+          }
+        }
+      }
+    }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+fn flush_outbound(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  let pending = state.pending_outbound
+  let cleared =
+    State(..state, pending_outbound: [], outbound_flush_armed: False)
+  case state.phase, pending {
+    _, [] -> cell_set(cell, cleared)
+    Ready(core, None), _ ->
+      case runtime_core.coalesce_outbound_operations(core, pending) {
+        Error(error) ->
+          cell_set(cell, State(..cleared, phase: Failed(string.inspect(error))))
+        Ok(#(core, outbound)) -> {
+          cell_set(cell, State(..cleared, phase: Ready(core, None)))
+          send_outbound(state.channel, core.client_id, outbound)
+        }
+      }
+    _, _ -> cell_set(cell, cleared)
   }
 }
 

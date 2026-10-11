@@ -6196,6 +6196,28 @@ pub fn coalesce_outbound_operations(
   }
 }
 
+pub fn outbound_has_attachment(
+  outbound: List(wire.OutboundOperation),
+) -> Result(Bool, CoreError) {
+  outbound
+  |> list.try_fold(False, fn(found, operation) {
+    use batch <- result.try(
+      fluid_container.decode(operation.contents, operation.metadata)
+      |> result.map_error(ContainerOperationFailed),
+    )
+    Ok(
+      found
+      || list.any(batch.messages, fn(message) {
+        case message.kind {
+          fluid_container.ChannelAttach(_, _, _)
+          | fluid_container.DatastoreAttach(_, _) -> True
+          _ -> False
+        }
+      }),
+    )
+  })
+}
+
 fn deduplicate_allocations(
   kinds: List(fluid_container.MessageKind),
 ) -> List(fluid_container.MessageKind) {
@@ -6216,26 +6238,38 @@ fn deduplicate_allocations(
   let has_datastore_attachment = has_datastore_attach(operations)
   case allocations {
     [] -> operations
-    [fluid_container.IdAllocation(first), ..] if has_datastore_attachment -> [
-      fluid_container.IdAllocation(first),
-      ..operations
-    ]
-    [fluid_container.IdAllocation(first), ..rest] if has_channel_attachment -> {
-      let merged =
-        list.fold(rest, first, fn(merged, item) {
-          let assert fluid_container.IdAllocation(next) = item
-          merge_creation_ranges(merged, next)
-        })
-      [fluid_container.IdAllocation(merged), ..operations]
-    }
+    _ if has_datastore_attachment || has_channel_attachment ->
+      list.append(merge_creation_ranges(allocations), operations)
     _ -> kinds
   }
 }
 
 fn merge_creation_ranges(
+  allocations: List(fluid_container.MessageKind),
+) -> List(fluid_container.MessageKind) {
+  case allocations {
+    [] | [_] -> allocations
+    [
+      fluid_container.IdAllocation(first),
+      fluid_container.IdAllocation(second),
+      ..rest
+    ] ->
+      case merge_creation_range(first, second) {
+        Some(merged) ->
+          merge_creation_ranges([fluid_container.IdAllocation(merged), ..rest])
+        None -> [
+          fluid_container.IdAllocation(first),
+          ..merge_creation_ranges([fluid_container.IdAllocation(second), ..rest])
+        ]
+      }
+    [first, ..rest] -> [first, ..merge_creation_ranges(rest)]
+  }
+}
+
+fn merge_creation_range(
   first: fluid_ids.CreationRange,
   second: fluid_ids.CreationRange,
-) -> fluid_ids.CreationRange {
+) -> Option(fluid_ids.CreationRange) {
   case first, second {
     fluid_ids.CreationRange(session_id, Some(first_ids)),
       fluid_ids.CreationRange(session_id: next_session, ids: Some(second_ids))
@@ -6244,7 +6278,7 @@ fn merge_creation_ranges(
       == first_ids.first_gen_count + first_ids.count
       && first_ids.requested_cluster_size == second_ids.requested_cluster_size
     ->
-      fluid_ids.CreationRange(
+      Some(fluid_ids.CreationRange(
         session_id,
         Some(fluid_ids.RangeIds(
           first_ids.first_gen_count,
@@ -6252,8 +6286,8 @@ fn merge_creation_ranges(
           first_ids.requested_cluster_size,
           list.append(first_ids.local_id_ranges, second_ids.local_id_ranges),
         )),
-      )
-    _, _ -> first
+      ))
+    _, _ -> None
   }
 }
 

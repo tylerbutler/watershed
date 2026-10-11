@@ -404,6 +404,8 @@ pub fn revert(
     order,
   ))
   let history.RevertAuthoring(_, inverse, kind) = authored
+  use #(_, repair) <- result.try(replay_pending_commit(state.visible, inverse))
+  use inverse <- result.try(history.repair_commit(inverse, repair))
   use #(state, commit, events) <- result.try(apply_local_change(
     state,
     revision,

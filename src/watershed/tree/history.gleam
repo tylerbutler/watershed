@@ -2578,6 +2578,15 @@ pub fn resubmit(
   Ok(commits)
 }
 
+@internal
+pub fn repair_commit(
+  commit: Commit,
+  repair: List(forest.Build),
+) -> Result(Commit, TreeError) {
+  use change <- result.try(update_refreshers(commit.change, repair))
+  Ok(Commit(..commit, change:))
+}
+
 fn outer_revisions(
   revision: fluid_ids.StableId,
   changeset: shared_change.Changeset,

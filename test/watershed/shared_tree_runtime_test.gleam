@@ -92,6 +92,16 @@ fn applied_revision(
   |> expect.to_be_ok
 }
 
+fn allocation_count(batch: fluid_container.DecodedBatch) -> Int {
+  list.fold(batch.messages, 0, fn(total, message) {
+    case message.kind {
+      fluid_container.IdAllocation(fluid_ids.CreationRange(ids: Some(ids), ..)) ->
+        total + ids.count
+      _ -> total
+    }
+  })
+}
+
 fn upgraded_view(
   core: runtime_core.Core,
   address: String,
@@ -436,6 +446,113 @@ pub fn shared_tree_runtime_detached_revertible_uses_one_authoritative_state_test
   dict.has_key(disposed.detached, address) |> expect.to_be_false
   runtime_core.tree_revertible_is_valid(disposed, address, id)
   |> expect.to_be_false
+}
+
+pub fn shared_tree_runtime_detached_revert_reaches_peer_after_attach_test() {
+  let #(core, address, _) = detached_map_core()
+  let assert Ok(#(first, _, [])) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "title", tree_types.StringValue("first")),
+    ])
+  let assert Ok(#(second, events, [])) =
+    runtime_core.submit_tree_edits(first, address, [
+      tree_types.MapSet(["items"], "title", tree_types.StringValue("second")),
+    ])
+  let assert Ok(#(retained, id)) =
+    runtime_core.retain_tree_revertible(
+      second,
+      address,
+      applied_revision(events),
+      tree_types.DefaultCommit,
+    )
+  let assert Ok(reference) = handle.reference_from_path("/" <> address)
+  let assert Ok(#(attached, _, [attach])) =
+    runtime_core.set(
+      retained,
+      "A/root",
+      "tree",
+      handle.reference_to_json(reference),
+    )
+  let peer = map_core_for("attach-peer", "70000000-0000-4000-8000-000000000007")
+  let attach_message = map_message(attached, attach, 1)
+  let assert Ok(#(attached, _)) =
+    runtime_core.handle_sequenced(attached, attach_message)
+  let assert Ok(#(peer, _)) =
+    runtime_core.handle_sequenced(peer, attach_message)
+
+  let assert Ok(#(reverted, _, undo)) =
+    runtime_core.revert_tree(attached, address, id)
+  let assert Ok(#(reverted, _)) =
+    runtime_core.handle_sequenced(reverted, map_message(reverted, undo, 2))
+  let peer_undo =
+    runtime_core.handle_sequenced(peer, map_message(reverted, undo, 2))
+  peer_undo |> expect.to_be_ok
+  let assert Ok(#(peer, _)) = peer_undo
+
+  runtime_core.tree_map_get(peer, address, ["items"], "title")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("first"))))
+  runtime_core.tree_map_get(reverted, address, ["items"], "title")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("first"))))
+}
+
+pub fn shared_tree_runtime_datastore_attach_batch_keeps_later_allocation_test() {
+  let core = map_core()
+  let assert Ok(channel.TreeState(source)) = dict.get(core.channels, "A/_C")
+  let stored = tree_kernel.stored_schema(source)
+  let assert Ok(Some(initial)) = tree_kernel.read(source, [])
+  let assert Some(compressor) = core.compressor
+  let assert Ok(#(compressor, generated)) = fluid_ids.generate(compressor)
+  let assert Ok(view_id) = fluid_ids.decompress(compressor, generated)
+  let core = runtime_core.Core(..core, compressor: Some(compressor))
+  let core =
+    runtime_core.create_detached_data_store(core, "B") |> expect.to_be_ok
+  let core =
+    runtime_core.create_detached_tree(
+      core,
+      "B/tree",
+      stored,
+      Some(initial),
+      view_id,
+    )
+    |> expect.to_be_ok
+  let assert Ok(tree_reference) = handle.reference_from_path("/B/tree")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(
+      core,
+      "B/root",
+      "tree",
+      handle.reference_to_json(tree_reference),
+    )
+  let assert Ok(store_reference) = handle.reference_from_path("/B/root")
+  let assert Ok(#(attached, _, [attach])) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "secondary",
+      handle.reference_to_json(store_reference),
+    )
+  let assert Ok(#(edited, _, [edit])) =
+    runtime_core.submit_tree_edits(attached, "B/tree", [
+      tree_types.MapSet(
+        ["items"],
+        "after-attach",
+        tree_types.StringValue("kept"),
+      ),
+    ])
+  let attach_batch =
+    fluid_container.decode(attach.contents, attach.metadata) |> expect.to_be_ok
+  let edit_batch =
+    fluid_container.decode(edit.contents, edit.metadata) |> expect.to_be_ok
+  let assert Ok(#(grouped, [outbound])) =
+    runtime_core.coalesce_outbound_operations(edited, [attach, edit])
+  let batch =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> expect.to_be_ok
+  allocation_count(batch)
+  |> expect.to_equal(
+    allocation_count(attach_batch) + allocation_count(edit_batch),
+  )
+  grouped.in_flight |> list.length |> expect.to_equal(1)
 }
 
 pub fn shared_tree_runtime_settles_satisfied_local_commit_test() {

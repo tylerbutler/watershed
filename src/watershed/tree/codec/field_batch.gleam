@@ -473,9 +473,22 @@ fn shape_for_field(
   stored: schema.StoredSchema,
   definition: schema.FieldSchema,
 ) -> Result(EncodeShape, Nil) {
+  shape_for_field_seen(stored, definition, [])
+}
+
+fn shape_for_field_seen(
+  stored: schema.StoredSchema,
+  definition: schema.FieldSchema,
+  seen: List(String),
+) -> Result(EncodeShape, Nil) {
   let schema.FieldSchema(cardinality, allowed_types) = definition
   use type_id <- result.try(single(allowed_types))
-  use shape <- result.try(shape_for_node(stored, type_id, cardinality))
+  use shape <- result.try(shape_for_node_seen(
+    stored,
+    type_id,
+    cardinality,
+    seen,
+  ))
   case cardinality {
     schema.Optional | schema.Sequence -> Ok(EncodeNestedArray(shape))
     schema.Required | schema.Identifier -> Ok(shape)
@@ -487,9 +500,23 @@ fn shape_for_node(
   type_id: String,
   cardinality: schema.Cardinality,
 ) -> Result(EncodeShape, Nil) {
+  shape_for_node_seen(stored, type_id, cardinality, [])
+}
+
+fn shape_for_node_seen(
+  stored: schema.StoredSchema,
+  type_id: String,
+  cardinality: schema.Cardinality,
+  seen: List(String),
+) -> Result(EncodeShape, Nil) {
+  use _ <- result.try(case list.contains(seen, type_id) {
+    True -> Error(Nil)
+    False -> Ok(Nil)
+  })
   use node <- result.try(
     schema.node_schema(stored, type_id) |> result.map_error(fn(_) { Nil }),
   )
+  let seen = [type_id, ..seen]
   case node {
     schema.Leaf(schema.NullLeaf) ->
       Ok(EncodeNode(type_id, EncodeNullValue, [], None))
@@ -506,18 +533,22 @@ fn shape_for_node(
     schema.Object(definitions) -> {
       use fields <- result.try(
         list.try_map(definitions, fn(definition) {
-          use shape <- result.try(shape_for_field(stored, definition.1))
+          use shape <- result.try(shape_for_field_seen(
+            stored,
+            definition.1,
+            seen,
+          ))
           Ok(#(definition.0, shape))
         }),
       )
       Ok(EncodeNode(type_id, EncodeAbsentValue, fields, None))
     }
     schema.Map(entries) -> {
-      use shape <- result.try(shape_for_field(stored, entries))
+      use shape <- result.try(shape_for_field_seen(stored, entries, seen))
       Ok(EncodeNode(type_id, EncodeAbsentValue, [], Some(shape)))
     }
     schema.Array(elements) -> {
-      use shape <- result.try(shape_for_field(stored, elements))
+      use shape <- result.try(shape_for_field_seen(stored, elements, seen))
       Ok(EncodeNode(
         type_id,
         EncodeAbsentValue,

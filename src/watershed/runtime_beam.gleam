@@ -663,6 +663,7 @@ pub type Msg {
   )
   CommitDeliveryFinished(event_id: Int)
   ReplayDeferred
+  FlushOutbound
   TreeUpgradeSchema(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -1033,6 +1034,10 @@ type State {
     active_tree_transaction: Option(ActiveTreeTransaction),
     pending_reconnect: Option(message.ConnectedMessage),
     deferred_operations: List(List(SequencedDocumentMessage)),
+    /// Hold an attachment for the next actor command.
+    /// A synchronous tree edit can join the same transport batch.
+    pending_outbound: List(wire.OutboundOperation),
+    outbound_flush_armed: Bool,
     self: Subject(Msg),
   )
 }
@@ -1214,6 +1219,8 @@ fn start_with_optional_seed(
         active_tree_transaction: None,
         pending_reconnect: None,
         deferred_operations: [],
+        pending_outbound: [],
+        outbound_flush_armed: False,
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_milliseconds, Heartbeat)
@@ -3397,15 +3404,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                 }
                 Ok(#(core, events, outbound)) -> {
                   let #(next, outcome) =
-                    send_or_suspend(
-                      State(..state, phase: Ready(core, None)),
-                      core,
-                      send_outbound_checked(
-                        state.channel,
-                        core.client_id,
-                        outbound,
-                      ),
-                    )
+                    queue_or_send(state, core, None, outbound)
                   process.send(reply, case next.phase {
                     Reconnecting(_) -> Ok(Nil)
                     _ -> outcome
@@ -3457,15 +3456,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                 }
                 Ok(#(core, events, outbound)) -> {
                   let #(next, outcome) =
-                    send_or_suspend(
-                      State(..state, phase: Ready(core, None)),
-                      core,
-                      send_outbound_checked(
-                        state.channel,
-                        core.client_id,
-                        outbound,
-                      ),
-                    )
+                    queue_or_send(state, core, None, outbound)
                   process.send(reply, case next.phase {
                     Reconnecting(_) -> Ok(Nil)
                     _ -> outcome
@@ -3600,6 +3591,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CommitDeliveryFinished(event_id) ->
       finish_tree_commit_delivery(state, event_id, None)
     ReplayDeferred -> actor.continue(state)
+    FlushOutbound -> flush_outbound(state)
     TreeUpgradeSchema(address, selector, view, reply) ->
       case transaction_tree_access(state, address, reply) {
         Error(error) -> {
@@ -5660,7 +5652,7 @@ fn handle_claim_submit(
               outcome,
               immediate_outcome,
             )
-          let #(state, _) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, _) = queue_or_send(state, core, resubmit_at, outbound)
           process.send(reply, Pending(outcome))
           actor.continue(state)
         }
@@ -5820,7 +5812,7 @@ fn handle_ordered_acquire_with_outcome(
               outcome,
               immediate_outcome,
             )
-          let #(state, _) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, _) = queue_or_send(state, core, resubmit_at, outbound)
           actor.continue(fan_out(state, events))
         }
       }
@@ -5990,10 +5982,9 @@ fn edit(
         // drops the edit and stays alive.
         Error(_) -> actor.continue(state)
         Ok(#(core, events, outbound)) -> {
-          // Push immediately only when fully synced with a live channel;
-          // otherwise the operation stays in-flight and `resubmit` sends it
-          // once, so a reconnect can't drop or duplicate it.
-          let #(state, _) = send_ready(state, core, resubmit_at, outbound)
+          // An attachment waits for the next actor command.
+          // Other operations push immediately. Reconnect keeps both in-flight.
+          let #(state, _) = queue_or_send(state, core, resubmit_at, outbound)
           actor.continue(fan_out(state, events))
         }
       }
@@ -6768,6 +6759,66 @@ fn send_or_suspend(
           outcome,
         )
       }
+  }
+}
+
+@target(erlang)
+fn queue_or_send(
+  state: State,
+  core: runtime_core.Core,
+  resubmit_at: Option(Int),
+  outbound: List(wire.OutboundOperation),
+) -> #(State, Result(Nil, String)) {
+  let defer =
+    state.pending_outbound != []
+    || runtime_core.outbound_has_attachment(outbound)
+    |> result.unwrap(False)
+  case resubmit_at, outbound, defer {
+    _, [], _ -> #(State(..state, phase: Ready(core, resubmit_at)), Ok(Nil))
+    Some(_), _, _ -> #(State(..state, phase: Ready(core, resubmit_at)), Ok(Nil))
+    None, _, False -> send_ready(state, core, None, outbound)
+    None, _, True -> {
+      let arm = !state.outbound_flush_armed
+      let state =
+        State(
+          ..state,
+          phase: Ready(core, None),
+          pending_outbound: list.append(state.pending_outbound, outbound),
+          outbound_flush_armed: True,
+        )
+      case arm {
+        False -> Nil
+        True -> {
+          let _ = process.send_after(state.self, 1, FlushOutbound)
+          Nil
+        }
+      }
+      #(state, Ok(Nil))
+    }
+  }
+}
+
+@target(erlang)
+fn flush_outbound(state: State) -> actor.Next(State, Msg) {
+  let pending = state.pending_outbound
+  let state = State(..state, pending_outbound: [], outbound_flush_armed: False)
+  case state.phase, pending {
+    _, [] -> actor.continue(state)
+    Ready(core, None), _ ->
+      case runtime_core.coalesce_outbound_operations(core, pending) {
+        Error(error) ->
+          actor.continue(State(..state, phase: Failed(string.inspect(error))))
+        Ok(#(core, outbound)) -> {
+          let #(state, _) =
+            send_or_suspend(
+              State(..state, phase: Ready(core, None)),
+              core,
+              send_outbound_checked(state.channel, core.client_id, outbound),
+            )
+          actor.continue(state)
+        }
+      }
+    _, _ -> actor.continue(state)
   }
 }
 
