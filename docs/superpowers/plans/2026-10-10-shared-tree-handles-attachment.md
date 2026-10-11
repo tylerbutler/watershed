@@ -4,8 +4,8 @@
 > `subagent-driven-development` or `executing-plans` to implement this plan
 > task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > Execution started on 2026-10-10 with user authorization to work on `main`
-> and make task commits. Task 1 discovery is complete; native Tasks 2-9
-> remain pending. The dated execution record below separates source proof
+> and make task commits. Task 1 discovery and Task 2 native handle leaves
+> are complete; Tasks 3-9 remain pending. The dated execution record below separates source proof
 > from native acceptance.
 > Do not restart completed M0-M6 or Lustre tasks.
 
@@ -273,7 +273,7 @@ and `HandleLeaf`. Preserve existing codec signatures. Tagged native values use
 the exact `kind: "handle"` record in the spec; reference context comes from the
 source datastore.
 
-- [ ] Add a failing canonical handle-schema test and a FieldBatch round trip:
+- [x] Add a failing canonical handle-schema test and a FieldBatch round trip:
 
   ```gleam
   import gleam/option.{Some}
@@ -299,7 +299,7 @@ source datastore.
   }
   ```
 
-- [ ] Run the RED on both targets:
+- [x] Run the RED on both targets:
 
   ```sh
   gleam test --target erlang -- shared_tree_handle
@@ -310,28 +310,28 @@ source datastore.
   handle schema/codec boundary. Remove the canonical handle case from the old
   unsupported-feature tests; keep mismatched leaf identifiers and unknown
   semantic kinds as refusals.
-- [ ] Implement `Reference` using existing marker/path validation. Resolve
+- [x] Implement `Reference` using existing marker/path validation. Resolve
   legacy relative values through the source datastore context. Preserve the
   path/equality rules captured in Task 1 and explicit malformed/pending errors.
   Do not call runtime resolution from schema or forest functions.
-- [ ] Implement `bind_serialized_references` with the existing recursive JSON
+- [x] Implement `bind_serialized_references` with the existing recursive JSON
   traversal and marker/path helpers. Normalize relative serialized handles only
   when the runtime supplies the source datastore context; context-free
   FieldBatch decoding rejects them with a context error. Test the same `_C`
   marker under `/A` and `/B`, producing `/A/_C` and `/B/_C`, and reject a
   malformed marker nested at the end of a payload.
-- [ ] Implement `HandleLeaf` in public and comparison schema conversion,
+- [x] Implement `HandleLeaf` in public and comparison schema conversion,
   validation, compatibility and allowed-superset logic. Add `HandleValue` to
   forest value import/export, retained validation, identifier traversal and
   all compressed/uncompressed FieldBatch/repair/history codecs.
-- [ ] Add direct refusals for external URLs, path traversal, malformed percent
+- [x] Add direct refusals for external URLs, path traversal, malformed percent
   escapes, unsupported payloads, malformed handle leaf contents and wrong
   schema kinds. Add equivalent-instance/path cases from the source fixture.
   Assert the error variant/location, not merely a boolean failure.
-- [ ] Register tagged fixture decoding/encoding and replay
+- [x] Register tagged fixture decoding/encoding and replay
   `handle-leaves` through production codecs. Keep the raw upstream encoding
   comparison in addition to the native round trip.
-- [ ] Run both focused target selections, the upstream consumer and corpus check:
+- [x] Run both focused target selections, the upstream consumer and corpus check:
 
   ```sh
   gleam test --target erlang -- shared_tree_handle shared_tree_schema shared_tree_codec
@@ -340,7 +340,21 @@ source datastore.
   just shared-tree-oracle-check
   ```
 
-- [ ] Commit as `feat(tree): support Fluid handle leaves`.
+- [x] Commit as `feat(tree): support Fluid handle leaves`.
+
+**Task 2 acceptance, 2026-10-10:** Implemented at `ffe6c50e`, with the
+zero-width compressed-field correction at `5921b19c`. Both targets first
+failed on the missing reference and leaf interfaces. Final selections
+(`shared_tree_handle shared_tree_field_batch shared_tree_schema shared_tree_codec`)
+passed 131 Erlang and 132 JavaScript tests. Codec interoperability consumed
+38 items on each target; the corpus check executed seven lifecycle probes and
+reproduced all 68 upstream cases. `just lint` passed.
+
+The task review found compressed optional nulls and arrays of zero-width
+nodes losing their element count. The correction uses the existing integer
+count representation, with failing-then-passing null and structural-node
+regressions on both targets. Scoped review and fresh focused runs verified
+both regressions. No native attachment/profile acceptance is claimed here.
 
 ### Task 3: Extend binding graphs and declared datastore creation
 
