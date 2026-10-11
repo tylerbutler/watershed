@@ -258,6 +258,36 @@ pub fn routed_seed_input() -> Result(
   Ok(#(seed, input.prefix))
 }
 
+pub fn routed_two_tree_seed_input() -> Result(
+  runtime_core.BootstrapSeedInput,
+  String,
+) {
+  use #(input, _) <- result.try(routed_seed_input())
+  let assert [datastore] = input.datastores
+  let assert [tree_view] = input.tree_views
+  use tree_channel <- result.try(
+    list.find(input.channels, fn(seed) { seed.route == tree_view.route })
+    |> result.map_error(fn(_) { "tree seed has no matching tree channel" }),
+  )
+  let second_route = fluid_container.Route("B", "_C")
+  Ok(
+    runtime_core.BootstrapSeedInput(
+      ..input,
+      datastores: [
+        datastore,
+        runtime_core.DatastoreSeed("B", datastore.package_path),
+      ],
+      channels: list.append(input.channels, [
+        runtime_core.ChannelSeed(..tree_channel, route: second_route),
+      ]),
+      tree_views: [
+        tree_view,
+        runtime_core.TreeViewSeed(..tree_view, route: second_route),
+      ],
+    ),
+  )
+}
+
 pub fn routed_map_seed_input(
   schema_name: String,
   root: tree_types.TreeValue,

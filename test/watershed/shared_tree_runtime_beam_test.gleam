@@ -187,8 +187,16 @@ fn connect_message() -> message.ConnectMessage {
 @target(erlang)
 fn ready_tree_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  ready_tree_actor_from(input, push)
+}
+
+@target(erlang)
+fn ready_tree_actor_from(
+  input: runtime_core.BootstrapSeedInput,
+  push: fn(String, json.Json) -> Result(Nil, String),
+) {
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
-  let assert [view] = input.tree_views
+  let assert [view, ..] = input.tree_views
   let callbacks_subject = process.new_subject()
   let assert Ok(actor) =
     runtime_beam.start_with_transport_and_seed(
@@ -222,6 +230,39 @@ fn ready_tree_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
   )
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   #(actor, callbacks, view.view)
+}
+
+@target(erlang)
+pub fn aborting_tree_transaction_preserves_other_tree_fork_test() {
+  let input = runtime_fixture.routed_two_tree_seed_input() |> expect.to_be_ok()
+  let #(actor, _, view) = ready_tree_actor_from(input, fn(_, _) { Ok(Nil) })
+  runtime_beam.begin_tree_transaction(actor, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    actor,
+    "A/_C",
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("discarded")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let branch =
+    runtime_beam.tree_fork(actor, "B/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  runtime_beam.abort_tree_transaction(actor, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.tree_edit_view_on(
+    actor,
+    "B/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("preserved")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read_view_on(actor, "B/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("preserved"))))
+  process.send(actor, runtime_beam.Shutdown)
 }
 
 @target(erlang)

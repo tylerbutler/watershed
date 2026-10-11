@@ -168,7 +168,12 @@ async function rejectArtifactMutation(
   await writeFile(path, bytes, { mode: 0o600 });
   try {
     await assert.rejects(
-      () => validateLifecycleSection(name, section, artifacts),
+      () => validateLifecycleSection(
+        name,
+        section,
+        artifacts,
+        result.validationContext,
+      ),
       pattern,
     );
   } finally {
@@ -370,6 +375,315 @@ test("default lifecycle producer refuses a partial report", async () => {
   );
 });
 
+test("one real transaction branch writer validates fresh runtime evidence", {
+  timeout: 300_000,
+}, async () => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-transaction-${randomUUID()}`,
+  );
+  try {
+    const result = await withLocalFloodgate((config) =>
+      runLifecycleInterop({
+        config,
+        scenario: "handleTransactionBranch:upstream",
+        output,
+      }));
+    const section = result.report.sections.handleTransactionBranch;
+    assert.deepEqual(section.expectedWriters, ["upstream"]);
+    assert.equal(section.rows.length, 1);
+    assert.deepEqual(
+      section.rows[0].history.steps.map(({ id }) => id),
+      [
+        "successful-transaction",
+        "aborted-transaction",
+        "nested-transaction",
+        "active-target",
+        "branch-before-merge",
+        "branch-after-merge",
+        "branch-dropped",
+        "branch-disposal",
+        "handle-undo-peer-edit",
+      ],
+    );
+    await validateLifecycleSection(
+      "handleTransactionBranch",
+      section,
+      result.artifacts,
+      result.validationContext,
+    );
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("all transaction branch writers reject semantic counterexamples", {
+  timeout: 900_000,
+}, async (t) => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-transactions-${randomUUID()}`,
+  );
+  try {
+    const results = await withLocalFloodgate(async (config) => {
+      const captured = {};
+      for (const writer of ["upstream", "javascript", "erlang"]) {
+        captured[writer] = await runLifecycleInterop({
+          config,
+          scenario: `handleTransactionBranch:${writer}`,
+          output: join(output, writer),
+        });
+      }
+      return captured;
+    });
+    for (const [writer, result] of Object.entries(results)) {
+      const section = result.report.sections.handleTransactionBranch;
+      assert.equal(section.skipped, false);
+      assert.deepEqual(section.expectedWriters, [writer]);
+      assert.equal(section.rows.length, 1);
+      await validateLifecycleSection(
+        "handleTransactionBranch",
+        section,
+        result.artifacts,
+        result.validationContext,
+      );
+    }
+
+    const javascript = results.javascript;
+    const mutateHistory = (artifact, row, mutate) => {
+      mutate(row.history);
+      mutate(artifact.history);
+    };
+    const mutateHistoryEvent = (history, eventId, mutate) => {
+      const seen = new WeakSet();
+      const visit = (value) => {
+        if (value === null || typeof value !== "object" || seen.has(value)) return;
+        seen.add(value);
+        if (value.id === eventId) mutate(value);
+        for (const child of Object.values(value)) visit(child);
+      };
+      visit(history);
+    };
+    for (const [label, mutate, pattern] of [
+      ["missing commit", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          const step = history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          );
+          step.checkpoint.commits = step.checkpoint.commits.filter(
+            ({ type }) => type !== "commit",
+          );
+          if (history === artifact.history) {
+            artifact.raw.nativeReplies.find(({ request, result }) =>
+              request.command === "checkpoint"
+              && result.commits.some(
+                ({ actionId }) => actionId === step.inverse.actionId,
+              )
+            ).result.commits = step.checkpoint.commits;
+          }
+        },
+      ), /successful transaction.*commit|actual revision/i],
+      ["false factory acquisition", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          ).inverse.factoryAvailable = false;
+          if (history === artifact.history) {
+            artifact.raw.nativeReplies.find(({ request }) =>
+              request.op === "retainLastLocalCommit"
+              && request.name === "successful-edit"
+            ).result.factoryAvailable = false;
+          }
+        },
+      ), /successful transaction.*inverse factory/i],
+      ["false event acquisition", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          const step = history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          );
+          step.checkpoint.commits.find(({ type }) => type === "commit")
+            .handleAcquired = false;
+          if (history === artifact.history) {
+            artifact.raw.nativeReplies.find(({ request, result }) =>
+              request.command === "checkpoint"
+              && result.commits.some(
+                ({ actionId }) => actionId === step.inverse.actionId,
+              )
+            ).result.commits.find(({ type }) => type === "commit")
+              .handleAcquired = false;
+          }
+        },
+      ), /event acquisition/i],
+      ["invented revision", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          const step = history.steps.find(
+            ({ id }) => id === "branch-after-merge",
+          );
+          const invented = "00000000-0000-4000-8000-000000000001";
+          step.inverse.revision = invented;
+          step.checkpoint.commits.find(({ type }) => type === "commit")
+            .revision = invented;
+          if (history === artifact.history) {
+            artifact.raw.nativeReplies.find(({ request }) =>
+              request.op === "retainLastLocalCommit"
+              && request.name === "merge-edit"
+            ).result.revision = invented;
+            artifact.raw.nativeReplies.find(({ request, result }) =>
+              request.command === "checkpoint"
+              && result.commits.some(
+                ({ actionId }) => actionId === step.inverse.actionId,
+              )
+            ).result.commits.find(({ type }) => type === "commit")
+              .revision = invented;
+          }
+        },
+      ), /document compressor|revision/i],
+      ["wrong inverse target", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          history.steps.find(
+            ({ id }) => id === "handle-undo-peer-edit",
+          ).target = row.targets.branch.path;
+        },
+      ), /insertion inverse names another target/i],
+      ["wrong abort outcome", (artifact, row) => {
+        mutateHistory(artifact, row, (history) => {
+          history.steps.find(
+            ({ id }) => id === "aborted-transaction",
+          ).transaction.outcome = "committed";
+        });
+        artifact.raw.nativeReplies.find(({ request }) =>
+          request.command === "transaction" && request.result === "abort"
+        ).result.outcome = "committed";
+      }, /aborted handle transaction/i],
+      ["wrong branch lifetime", (artifact, row) => {
+        mutateHistory(artifact, row, (history) => {
+          history.steps.find(
+            ({ id }) => id === "branch-after-merge",
+          ).merge.disposed = false;
+        });
+        artifact.raw.nativeReplies.find(({ request }) =>
+          request.op === "mergeBranch"
+          && request.source === "working"
+          && request.target === "main"
+        ).result.disposed = false;
+      }, /branch lifetime/i],
+      ["branch traffic classified as document", (artifact, row) => {
+        mutateHistory(artifact, row, (history) => {
+          history.steps.find(
+            ({ id }) => id === "branch-before-merge",
+          ).edit.outboundCount = 1;
+        });
+        artifact.raw.nativeReplies.find(
+          ({ request }) => request.op === "branchEdit"
+            && request.branch === "working",
+        ).result.outboundCount = 1;
+      }, /branch-only edit reached document transport/i],
+      ["peer target data lost after undo", (artifact, row) => {
+        for (const peers of [row.peer.observations, artifact.peers]) {
+          for (const peer of Object.values(peers)) {
+            peer.targets.undo.peer = "lost";
+          }
+        }
+      }, /lost the peer target edit/i],
+      ["missing refusal side-effect proof", (artifact, row) => mutateHistory(
+        artifact,
+        row,
+        (history) => {
+          history.activeTarget.refusal.after = "changed";
+          history.steps.find(({ id }) => id === "active-target")
+            .refusal.after = "changed";
+        },
+      ), /preflight mutated runtime state/i],
+    ]) {
+      await t.test(label, () => rejectArtifactMutation(
+        "handleTransactionBranch",
+        javascript,
+        mutate,
+        pattern,
+        "javascript",
+      ));
+    }
+    const upstream = results.upstream;
+    for (const [label, mutate, pattern] of [
+      ["nested callback result replaced", (artifact, row) =>
+        mutateHistory(artifact, row, (history) => {
+          history.steps.find(({ id }) => id === "nested-transaction")
+            .transaction = {
+              outerResult: "forged-outer",
+              innerResult: "forged-inner",
+            };
+        }), /nested transaction.*callback result/i],
+      ["upstream revision settlement removed", (artifact, row) =>
+        mutateHistory(artifact, row, (history) => {
+          const step = history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          );
+          step.revisions = [];
+          step.settlements = [];
+        }), /successful transaction.*revision|settlement/i],
+      ["upstream duplicate acquisition accepted", (artifact, row) =>
+        mutateHistory(artifact, row, (history) => {
+          const event = history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          ).events.find(({ acquired }) => acquired);
+          mutateHistoryEvent(history, event.id, (candidate) => {
+            candidate.duplicateError = "";
+          });
+        }), /duplicate.*acquisition/i],
+      ["upstream inverse left valid", (artifact, row) =>
+        mutateHistory(artifact, row, (history) => {
+          const event = history.steps.find(
+            ({ id }) => id === "successful-transaction",
+          ).events.find(({ acquired }) => acquired);
+          mutateHistoryEvent(history, event.id, (candidate) => {
+            candidate.disposed = false;
+            candidate.status = "Valid";
+          });
+        }), /successful transaction.*inverse disposal/i],
+      ["branch discard replaced by disposal", (artifact, row) =>
+        mutateHistory(artifact, row, (history) => {
+          history.steps.find(({ id }) => id === "branch-dropped").discard = {
+            authoredKind: "Missing",
+            disposed: false,
+            status: "Valid",
+          };
+        }), /branch-dropped.*discard/i],
+    ]) {
+      await t.test(label, () => rejectArtifactMutation(
+        "handleTransactionBranch",
+        upstream,
+        mutate,
+        pattern,
+        "upstream",
+      ));
+    }
+    await t.test("inner active fingerprint changed", () =>
+      rejectArtifactMutation(
+        "handleTransactionBranch",
+        javascript,
+        (artifact, row) => mutateHistory(artifact, row, (history) => {
+          history.activeTarget.before.runtime = "changed";
+          history.steps.find(({ id }) => id === "active-target")
+            .before.runtime = "changed";
+        }),
+        /active callback.*runtime fingerprint/i,
+        "javascript",
+      ));
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
 test("one real writer slice rejects raw and persisted evidence mutations", {
   timeout: 300_000,
 }, async () => {
@@ -404,7 +718,12 @@ test("one real writer slice rejects raw and persisted evidence mutations", {
         `${name}: raw sequenced contents were not preserved`);
       assert.equal(row.raw.dependencies.source, "sequenced",
         `${name}: dependency order was not derived from sequenced bytes`);
-      await validateLifecycleSection(name, section, result.artifacts);
+      await validateLifecycleSection(
+        name,
+        section,
+        result.artifacts,
+        result.validationContext,
+      );
 
       for (const [label, mutate, pattern] of [
         ["raw submission omission", (copy) => {
@@ -446,7 +765,12 @@ test("one real writer slice rejects raw and persisted evidence mutations", {
         const changed = structuredClone(section);
         mutate(changed);
         await assert.rejects(
-          () => validateLifecycleSection(name, changed, result.artifacts),
+          () => validateLifecycleSection(
+            name,
+            changed,
+            result.artifacts,
+            result.validationContext,
+          ),
           pattern,
           `${name}: ${label}`,
         );
@@ -515,7 +839,7 @@ test("one real writer slice rejects raw and persisted evidence mutations", {
   }
 });
 
-test("all nine foundation rows validate exact peers publications and pins", {
+test("all implemented bounded rows validate exact peers publications and pins", {
   timeout: 600_000,
 }, async (t) => {
   const output = join(
@@ -529,12 +853,44 @@ test("all nine foundation rows validate exact peers publications and pins", {
       "handleValues",
       "channelAttachment",
       "datastoreAttachment",
+      "handleTransactionBranch",
     ]);
     assert.equal(Object.values(result.report.sections)
-      .flatMap(({ rows }) => rows).length, 9);
+      .flatMap(({ rows }) => rows).length, 12);
     for (const [name, section] of Object.entries(result.report.sections)) {
       await validateLifecycleSection(name, section, result.artifacts);
     }
+    await t.test("transaction selection and rows cannot shrink coverage", async () => {
+      const section = structuredClone(
+        result.report.sections.handleTransactionBranch,
+      );
+      section.selection = { kind: "writer", writer: "upstream" };
+      section.expectedWriters = ["upstream"];
+      section.rows = section.rows.filter(({ writer }) => writer === "upstream");
+      await assert.rejects(
+        () => validateLifecycleSection(
+          "handleTransactionBranch",
+          section,
+          result.artifacts,
+        ),
+        /complete section writer selection|declared writers|required writer coverage/i,
+      );
+    });
+    await t.test("transaction peer declaration cannot shrink coverage", () =>
+      rejectArtifactMutation(
+        "handleTransactionBranch",
+        result,
+        (artifact, row) => {
+          delete row.peer.observations.erlang;
+          delete artifact.peers.erlang;
+          row.peer.expectedImplementations =
+            row.peer.expectedImplementations.filter(
+              (implementation) => implementation !== "erlang",
+            );
+        },
+        /peer implementation (?:policy|coverage)/i,
+        "upstream",
+      ));
     await rejectRoundOneCounterexamples(t, result);
 
     await t.test("allocation moved after its dependent uses", () =>

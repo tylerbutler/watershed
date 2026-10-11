@@ -109,6 +109,7 @@ pub type Core {
         tree_branch.BranchTransaction,
       ),
     ),
+    active_tree_transaction_checkouts: Option(Dict(String, tree_branch.Forest)),
     persistence: Option(fluid_document.DocumentSummary),
     minimum_sequence_number: Int,
     channels: Dict(String, ChannelState),
@@ -912,6 +913,7 @@ fn start_core(
       tree_checkouts: initial_tree_checkouts(connected.client_id, channels),
       tree_publication_scopes: dict.new(),
       active_tree_transaction: None,
+      active_tree_transaction_checkouts: None,
       persistence: persistence,
       minimum_sequence_number: minimum_sequence_number,
       channels: channels,
@@ -5641,11 +5643,12 @@ pub fn begin_tree_transaction_on(
         tree_branch.begin_transaction(forest, checkout, compressor, targets)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      use core <- result.try(install_checkout_forest_state(
-        core,
-        address,
-        forest,
-      ))
+      let core =
+        Core(
+          ..core,
+          tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+          active_tree_transaction_checkouts: Some(core.tree_checkouts),
+        )
       Ok(
         Core(
           ..core,
@@ -5716,7 +5719,11 @@ pub fn commit_tree_transaction_on(
       case finished {
         tree_branch.TransactionNoCommit(forest, compressor) -> {
           use core <- result.try(install_checkout_forest(
-            Core(..core, active_tree_transaction: None),
+            Core(
+              ..core,
+              active_tree_transaction: None,
+              active_tree_transaction_checkouts: None,
+            ),
             address,
             forest,
             compressor,
@@ -5725,7 +5732,11 @@ pub fn commit_tree_transaction_on(
         }
         tree_branch.TransactionCommit(forest, commit, branch_events, compressor) -> {
           use core <- result.try(install_checkout_forest(
-            Core(..core, active_tree_transaction: None),
+            Core(
+              ..core,
+              active_tree_transaction: None,
+              active_tree_transaction_checkouts: None,
+            ),
             address,
             forest,
             compressor,
@@ -5819,17 +5830,60 @@ pub fn abort_tree_transaction_on(
           "tree channel has no document compressor",
         )),
       )
-      use #(forest, compressor) <- result.try(
+      use #(aborted, compressor) <- result.try(
         tree_branch.abort_transaction(forest, value, compressor)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      use core <- result.try(install_checkout_forest(
-        Core(..core, active_tree_transaction: None),
-        address,
-        forest,
-        compressor,
-      ))
-      Ok(#(core, []))
+      case
+        tree_branch.transaction_has_independent_forest_changes(value, forest)
+      {
+        True -> {
+          use core <- result.try(install_checkout_forest(
+            Core(
+              ..core,
+              active_tree_transaction: None,
+              active_tree_transaction_checkouts: None,
+            ),
+            address,
+            aborted,
+            compressor,
+          ))
+          Ok(#(core, []))
+        }
+        False ->
+          case core.active_tree_transaction_checkouts {
+            Some(checkouts) -> {
+              let tree_checkouts = case
+                dict.delete(core.tree_checkouts, address)
+                == dict.delete(checkouts, address)
+              {
+                True -> checkouts
+                False ->
+                  case dict.get(checkouts, address) {
+                    Ok(original) ->
+                      dict.insert(core.tree_checkouts, address, original)
+                    Error(Nil) -> core.tree_checkouts
+                  }
+              }
+              Ok(
+                #(
+                  Core(
+                    ..core,
+                    active_tree_transaction: None,
+                    active_tree_transaction_checkouts: None,
+                    tree_checkouts: tree_checkouts,
+                  ),
+                  [],
+                ),
+              )
+            }
+            None ->
+              transaction_error(
+                address,
+                "tree transaction lacks its original checkout state",
+              )
+          }
+      }
     }
   }
 }

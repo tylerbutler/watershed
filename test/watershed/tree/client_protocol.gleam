@@ -144,6 +144,7 @@ pub type Command {
   ArrayMove(FieldPath, Int, Int, FieldPath, Int)
   ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
   Transaction(TransactionScope)
+  ActiveTargetPreflight(String)
   Fork(String, String)
   BranchEditCommand(String, BranchEdit)
   RebaseBranch(String, String)
@@ -462,6 +463,8 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       Ok(ConstrainedArrayRemove(target_path, path, start, end))
     }
     "transaction" -> decode_transaction_scope(data) |> result.map(Transaction)
+    "active-target-preflight" ->
+      nonempty(data, "target") |> result.map(ActiveTargetPreflight)
     "fork" -> {
       use source <- result.try(nonempty(data, "source"))
       use name <- result.try(nonempty(data, "name"))

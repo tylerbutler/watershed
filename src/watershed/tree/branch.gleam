@@ -65,7 +65,11 @@ pub type AuthorResult {
 }
 
 pub opaque type BranchTransaction {
-  BranchTransaction(checkout: Checkout, value: tree_transaction.Transaction)
+  BranchTransaction(
+    checkout: Checkout,
+    value: tree_transaction.Transaction,
+    active: Forest,
+  )
 }
 
 pub type TransactionResult {
@@ -359,8 +363,8 @@ pub fn begin_transaction(
     compressor,
     constraints,
   ))
-  use state <- result.try(set_transaction_active(state, checkout, True))
-  Ok(#(state, BranchTransaction(checkout, value)))
+  use active <- result.try(set_transaction_active(state, checkout, True))
+  Ok(#(active, BranchTransaction(checkout, value, active)))
 }
 
 pub fn transaction_apply(
@@ -430,6 +434,13 @@ pub fn transaction_state(open: BranchTransaction) -> tree_kernel.TreeState {
 
 pub fn transaction_depth(open: BranchTransaction) -> Int {
   tree_transaction.depth(open.value)
+}
+
+pub fn transaction_has_independent_forest_changes(
+  open: BranchTransaction,
+  current: Forest,
+) -> Bool {
+  current != open.active
 }
 
 pub fn finish_transaction(

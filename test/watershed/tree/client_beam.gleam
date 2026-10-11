@@ -15,6 +15,8 @@ import gleam/result
 @target(erlang)
 import watershed/canonical_json
 @target(erlang)
+import watershed/handle
+@target(erlang)
 import watershed/id
 @target(erlang)
 import watershed/runtime_beam
@@ -27,7 +29,7 @@ import watershed/tree/client_retained_evidence
 @target(erlang)
 import watershed/tree/types.{
   type TreeCommitKind, type TreeCommitOutcome, DefaultCommit, FullyApplied,
-  FullyDropped, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
+  FullyDropped, HandleValue, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
 }
 @target(erlang)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
@@ -932,6 +934,88 @@ fn execute(
               active,
               False,
             )
+            protocol.ActiveTargetPreflight(target_name) -> {
+              let target =
+                process.call(object_store, waiting: 5000, sending: fn(reply) {
+                  LookupTree(target_name, reply)
+                })
+                |> result.map_error(fn(_) {
+                  facade(
+                    "active-target-preflight",
+                    "Unknown tree: " <> target_name,
+                  )
+                })
+              let outcome = {
+                use target <- result.try(target)
+                use target_reference <- result.try(
+                  handle.reference_from_json(
+                    watershed.tree_handle_of(target),
+                    "",
+                  )
+                  |> result.map_error(fn(_) {
+                    facade("active-target-preflight", "invalid target handle")
+                  }),
+                )
+                case
+                  watershed.tree_transaction(target, [], fn(_) {
+                    let before =
+                      runtime_state_evidence(watershed.runtime_subject(document))
+                    case
+                      watershed.tree_set(
+                        command_tree,
+                        ["link"],
+                        HandleValue(target_reference),
+                      )
+                    {
+                      Error(reason) ->
+                        Error(
+                          Ok(
+                            json.object([
+                              #("refused", json.bool(True)),
+                              #("error", json.string(reason)),
+                              #("before", json.string(before)),
+                              #(
+                                "after",
+                                json.string(
+                                  runtime_state_evidence(
+                                    watershed.runtime_subject(document),
+                                  ),
+                                ),
+                              ),
+                            ]),
+                          ),
+                        )
+                      Ok(_) ->
+                        Error(
+                          Error(
+                            EditFailed(facade(
+                              "active-target-preflight",
+                              "active target attachment unexpectedly succeeded",
+                            )),
+                          ),
+                        )
+                    }
+                  })
+                {
+                  Error(watershed.Aborted(Ok(evidence))) -> Ok(evidence)
+                  Error(watershed.Aborted(Error(EditFailed(error)))) ->
+                    Error(error)
+                  Error(watershed.Aborted(Error(RequestedAbort(_)))) ->
+                    Error(facade(
+                      "active-target-preflight",
+                      "active target attachment returned another abort",
+                    ))
+                  Ok(_) ->
+                    Error(facade(
+                      "active-target-preflight",
+                      "active target attachment committed without its refusal",
+                    ))
+                  Error(watershed.TransactionFailed(reason)) ->
+                    Error(facade("active-target-preflight", reason))
+                }
+              }
+              #(outcome, tree, events, active, False)
+            }
             protocol.Fork(source, name) -> {
               let outcome = {
                 let branch_owner = protocol.local_branch_owner(owner, name)

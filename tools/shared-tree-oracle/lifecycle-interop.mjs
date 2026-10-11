@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
 import { encodeCompactIdToString } from "@fluidframework/runtime-utils/internal";
+import { CommitKind, RevertibleStatus, Tree } from "@fluidframework/tree/internal";
 import {
   handleGraphStore,
   handleServiceStore,
@@ -39,7 +40,7 @@ const sections = [
   "handleReconnect",
   "handleReloadMatrix",
 ];
-const liveSections = sections.slice(0, 3);
+const liveSections = sections.slice(0, 4);
 const writers = ["upstream", "javascript", "erlang"];
 const reference = {
   package: "@fluidframework/tree",
@@ -876,6 +877,582 @@ async function authorNative(section, environment, writer, label) {
   };
 }
 
+function failureOf(callback) {
+  try {
+    callback();
+    return "";
+  } catch (error) {
+    return String(error);
+  }
+}
+
+function watchHistory(view, owner) {
+  const events = [];
+  const handles = [];
+  const off = view.events.on("changed", (metadata, getRevertible) => {
+    const event = {
+      id: `${owner}-event-${events.length + 1}`,
+      owner,
+      local: metadata.isLocal,
+      kind: CommitKind[metadata.kind],
+      factoryAvailable: getRevertible !== undefined,
+      acquired: false,
+      duplicateError: "",
+      disposed: false,
+    };
+    if (metadata.isLocal && getRevertible !== undefined) {
+      let handle;
+      handle = getRevertible((disposed) => {
+        event.disposed = disposed === handle;
+        event.status = RevertibleStatus[disposed.status];
+      });
+      event.acquired = true;
+      event.status = RevertibleStatus[handle.status];
+      event.duplicateError = failureOf(() => getRevertible());
+      handles.push({ event, handle });
+    }
+    events.push(event);
+  });
+  return { events, handles, off };
+}
+
+function visibleHandleRoot(view) {
+  return {
+    label: view.root.label,
+    ...(view.root.link === undefined
+      ? {}
+      : { link: view.root.link.absolutePath }),
+    links: [...view.root.links].map(([key, value]) => [key, value.absolutePath]),
+    sequence: [...view.root.sequence].map(({ absolutePath }) => absolutePath),
+  };
+}
+
+async function historyPeerEdit(environment, value) {
+  const parent = await environment.peerSession.data.bootstrap.get("history").get();
+  const view = parent.viewWith(handleTreeConfig);
+  const target = await view.root.link.get();
+  target.set("peer", value);
+  view.dispose();
+  await synchronize(environment);
+  return {
+    parent: parent.handle.absolutePath,
+    target: target.handle.absolutePath,
+    value: target.get("peer"),
+  };
+}
+
+async function authorTransactionBranchUpstream(environment, label) {
+  const data = environment.upstreamSession.data;
+  const replies = [];
+  const created = await createUpstreamTree(data, `${label}-document`);
+  data.bootstrap.set("history", created.tree.handle);
+  await synchronize(environment);
+  const main = watchHistory(created.view, "document");
+  let historyCursor = (await serverHistory(environment.creator)).length;
+  const settledEvidence = async () => {
+    const history = await serverHistory(environment.creator);
+    const sequenced = deltaEvidence(history.slice(historyCursor));
+    historyCursor = history.length;
+    const commits = dependencyEvidence(sequenced, targets).commits;
+    return {
+      revisions: commits.map(({ revision }) => revision),
+      settlements: commits.map(({
+        sequenceNumber,
+        clientSequenceNumber,
+        referenceSequenceNumber,
+        revision,
+      }) => ({
+        sequenceNumber,
+        clientSequenceNumber,
+        referenceSequenceNumber,
+        revision,
+      })),
+    };
+  };
+  const steps = [];
+  const targets = {
+    document: {
+      path: created.tree.handle.absolutePath,
+      attributes: attributes(created.tree),
+    },
+  };
+  const addTarget = async (name, target) => {
+    targets[name] = {
+      path: target.handle.absolutePath,
+      attributes: attributes(target),
+    };
+    data.bootstrap.set(`history-${name}`, target.handle);
+    await synchronize(environment);
+  };
+
+  const successful = await data.createMap();
+  successful.set("value", `${label}-successful`);
+  const successfulBefore = main.events.length;
+  const successfulHandlesBefore = main.handles.length;
+  const successfulResult = Tree.runTransaction(created.view, () => {
+    created.view.root.link = successful.handle;
+    return "successful-callback";
+  });
+  await addTarget("successful", successful);
+  const successfulSettled = await settledEvidence();
+  const successfulHandles = main.handles.slice(successfulHandlesBefore);
+  for (const { handle } of successfulHandles) handle.dispose();
+  steps.push({
+    id: "successful-transaction",
+    transaction: { callbackResult: successfulResult },
+    target: successful.handle.absolutePath,
+    events: main.events.slice(successfulBefore),
+    ...successfulSettled,
+    tree: visibleHandleRoot(created.view),
+  });
+  const aborted = await data.createMap();
+  const abortedBefore = main.events.length;
+  const abortedResult = Tree.runTransaction(created.view, () => {
+    created.view.root.link = aborted.handle;
+    aborted.set("independent", "survives-rollback");
+    return Tree.runTransaction.rollback;
+  });
+  steps.push({
+    id: "aborted-transaction",
+    outcome: abortedResult === Tree.runTransaction.rollback
+      ? "aborted"
+      : "committed",
+    target: aborted.handle.absolutePath,
+    targetAttached: aborted.isAttached?.() ?? false,
+    targetValue: aborted.get("independent"),
+    events: main.events.slice(abortedBefore),
+    tree: visibleHandleRoot(created.view),
+  });
+  await addTarget("aborted", aborted);
+  await settledEvidence();
+
+  const nested = await data.createMap();
+  nested.set("value", `${label}-nested`);
+  const nestedBefore = main.events.length;
+  const nestedHandlesBefore = main.handles.length;
+  let innerResult;
+  const outerResult = Tree.runTransaction(created.view, () => {
+    created.view.root.links.set("nested", nested.handle);
+    innerResult = Tree.runTransaction(created.view, () => {
+      created.view.root.sequence.insertAtEnd(nested.handle);
+      return "nested-inner-callback";
+    });
+    return "nested-outer-callback";
+  });
+  await addTarget("nested", nested);
+  const nestedSettled = await settledEvidence();
+  const nestedHandles = main.handles.slice(nestedHandlesBefore);
+  for (const { handle } of nestedHandles) handle.dispose();
+  steps.push({
+    id: "nested-transaction",
+    transaction: { outerResult, innerResult },
+    target: nested.handle.absolutePath,
+    events: main.events.slice(nestedBefore),
+    ...nestedSettled,
+    tree: visibleHandleRoot(created.view),
+  });
+
+  const branchTarget = await data.createMap();
+  branchTarget.set("value", `${label}-branch`);
+  const branch = created.view.fork();
+  const branchWatch = watchHistory(branch, "branch:working");
+  const beforeBranchTransport = submissionEvidence("upstream", environment).length;
+  branch.root.link = branchTarget.handle;
+  const branchHandle = {
+    type: "__fluid_handle__",
+    url: created.tree.handle.absolutePath,
+  };
+  steps.push({
+    id: "branch-before-merge",
+    target: branchTarget.handle.absolutePath,
+    document: created.tree.handle.absolutePath,
+    marker: branchHandle,
+    branch: visibleHandleRoot(branch),
+    main: visibleHandleRoot(created.view),
+    events: structuredClone(branchWatch.events),
+    transportDelta: submissionEvidence("upstream", environment).length
+      - beforeBranchTransport,
+  });
+  const branchInverse = branchWatch.handles.at(-1);
+  created.view.merge(branch);
+  await addTarget("branch", branchTarget);
+  steps.push({
+    id: "branch-after-merge",
+    target: branchTarget.handle.absolutePath,
+    main: visibleHandleRoot(created.view),
+    inverse: {
+      event: branchInverse?.event,
+      status: branchInverse
+        ? RevertibleStatus[branchInverse.handle.status]
+        : "Missing",
+    },
+  });
+  branchWatch.off();
+
+  for (const id of ["branch-dropped", "branch-disposal"]) {
+    const target = await data.createMap();
+    target.set("value", `${label}-${id}`);
+    const local = created.view.fork();
+    const watcher = watchHistory(local, `branch:${id}`);
+    const beforeTransport = submissionEvidence("upstream", environment).length;
+    local.root.link = target.handle;
+    const inverse = watcher.handles.at(-1);
+    const branchBeforeCleanup = visibleHandleRoot(local);
+    let discard;
+    if (id === "branch-dropped") {
+      const beforeStatus = inverse
+        ? RevertibleStatus[inverse.handle.status]
+        : "Missing";
+      inverse?.handle.revert(true);
+      discard = {
+        beforeStatus,
+        afterStatus: inverse
+          ? RevertibleStatus[inverse.handle.status]
+          : "Missing",
+        disposedSameHandle: inverse?.event.disposed ?? false,
+        branch: visibleHandleRoot(local),
+        events: structuredClone(watcher.events.slice(1)),
+      };
+    }
+    local.dispose();
+    steps.push({
+      id,
+      target: target.handle.absolutePath,
+      targetAttached: target.isAttached?.() ?? false,
+      main: visibleHandleRoot(created.view),
+      events: structuredClone(watcher.events),
+      branchBeforeCleanup,
+      ...(discard === undefined ? {} : { discard }),
+      transportDelta: submissionEvidence("upstream", environment).length
+        - beforeTransport,
+      inverse: {
+        acquired: inverse !== undefined,
+        status: inverse ? RevertibleStatus[inverse.handle.status] : "Missing",
+        disposed: inverse?.event.disposed ?? false,
+      },
+    });
+    await addTarget(id === "branch-dropped" ? "dropped" : "disposed", target);
+    watcher.off();
+  }
+
+  const undoTarget = await data.createMap();
+  undoTarget.set("value", `${label}-undo`);
+  const undoBefore = main.handles.length;
+  created.view.root.link = undoTarget.handle;
+  await addTarget("undo", undoTarget);
+  const insertion = main.handles[undoBefore];
+  assert(insertion, "Upstream handle insertion did not expose an inverse factory");
+  const peer = await historyPeerEdit(environment, "survives-insertion-undo");
+  const beforeStatus = RevertibleStatus[insertion.handle.status];
+  insertion.handle.revert(true);
+  await synchronize(environment);
+  const afterStatus = RevertibleStatus[insertion.handle.status];
+  steps.push({
+    id: "handle-undo-peer-edit",
+    target: undoTarget.handle.absolutePath,
+    referringPath: created.view.root.link?.absolutePath,
+    peer,
+    targetValue: undoTarget.get("peer"),
+    inverse: {
+      event: insertion.event,
+      beforeStatus,
+      afterStatus,
+      disposedSameHandle: insertion.event.disposed,
+    },
+  });
+
+  main.off();
+  created.view.dispose();
+  return {
+    targets,
+    local: { mapValue: `${label}-successful`, treeLabel: `${label}-document` },
+    localHistoryCount: 0,
+    replies,
+    history: { steps, events: main.events },
+  };
+}
+
+async function authorTransactionBranchNative(environment, writer, label) {
+  const adapter = environment.adapters[writer];
+  const replies = [];
+  const command = async (request) => {
+    const result = await nativeCommand(adapter, request);
+    replies.push({ request, result });
+    return result;
+  };
+  await command({ command: "root-map", name: "bootstrap" });
+  const document = await command({
+    command: "create-tree",
+    name: "history-tree",
+    schema: handleStoredSchema,
+    view: handleStoredSchema,
+    initialRoot: taggedHandleRoot(`${label}-document`),
+  });
+  await command({
+    command: "shared-map-set",
+    name: "bootstrap",
+    key: "history",
+    value: document,
+  });
+  await synchronize(environment);
+  await command({ command: "subscribe", tree: "history-tree" });
+  const steps = [];
+  const targets = {
+    document: { path: document.url, attributes: channelAttributes.tree },
+  };
+  const createMap = async (name, value) => {
+    const map = await command({ command: "create-map", name });
+    await command({
+      command: "shared-map-set", name, key: "value", value,
+    });
+    return map;
+  };
+  const publishTarget = async (name, target) => {
+    targets[name] = { path: target.url, attributes: channelAttributes.map };
+    await command({
+      command: "shared-map-set",
+      name: "bootstrap",
+      key: `history-${name}`,
+      value: target,
+    });
+    await synchronize(environment);
+  };
+  const checkpoint = async () => command({
+    command: "checkpoint", tree: "history-tree",
+  });
+
+  const successful = await createMap("history-successful", `${label}-successful`);
+  const successfulResult = await command({
+    command: "transaction",
+    tree: "history-tree",
+    constraints: [],
+    edits: [{ op: "set", path: ["link"], value: taggedHandle(successful) }],
+    result: "commit",
+  });
+  const successfulInverse = await command({
+    op: "retainLastLocalCommit",
+    tree: "history-tree",
+    name: "successful-edit",
+  });
+  await publishTarget("successful", successful);
+  const successfulCheckpoint = await checkpoint();
+  await command({
+    op: "disposeRevertible",
+    tree: "history-tree",
+    name: "successful-edit",
+  });
+  steps.push({
+    id: "successful-transaction",
+    target: successful.url,
+    transaction: successfulResult,
+    inverse: successfulInverse,
+    checkpoint: successfulCheckpoint,
+  });
+  const aborted = await createMap("history-aborted", `${label}-aborted`);
+  await command({
+    command: "shared-map-set",
+    name: "history-aborted",
+    key: "independent",
+    value: "survives-rollback",
+  });
+  const abortedResult = await command({
+    command: "transaction",
+    tree: "history-tree",
+    constraints: [],
+    edits: [{ op: "set", path: ["link"], value: taggedHandle(aborted) }],
+    result: "abort",
+  });
+  steps.push({
+    id: "aborted-transaction",
+    target: aborted.url,
+    transaction: abortedResult,
+    targetValue: (await adapter.client.sharedMapGet(
+      "history-aborted",
+      "independent",
+    )).value,
+    checkpoint: await checkpoint(),
+  });
+  await publishTarget("aborted", aborted);
+
+  const nested = await createMap("history-nested", `${label}-nested`);
+  const nestedResult = await command({
+    command: "transaction",
+    tree: "history-tree",
+    constraints: [],
+    edits: [
+      {
+        op: "map-set", path: ["links"], key: "nested",
+        value: taggedHandle(nested),
+      },
+      {
+        op: "transaction",
+        constraints: [],
+        edits: [{
+          op: "array-insert", path: ["sequence"], index: 0,
+          values: [taggedHandle(nested)],
+        }],
+        result: "commit",
+      },
+    ],
+    result: "commit",
+  });
+  await publishTarget("nested", nested);
+  steps.push({
+    id: "nested-transaction",
+    target: nested.url,
+    transaction: nestedResult,
+    checkpoint: await checkpoint(),
+  });
+
+  const branchTarget = await createMap("history-branch", `${label}-branch`);
+  await command({ op: "fork", tree: "history-tree", source: "main", name: "working" });
+  const branchEdit = await command({
+    op: "branchEdit",
+    tree: "history-tree",
+    branch: "working",
+    edit: { kind: "object-set", path: ["link"], value: taggedHandle(branchTarget) },
+  });
+  const branchRetained = await command({
+    op: "retainLastLocalCommit",
+    tree: "history-tree",
+    branch: "working",
+    name: "working-edit",
+  });
+  steps.push({
+    id: "branch-before-merge",
+    target: branchTarget.url,
+    document: document.url,
+    marker: document,
+    edit: branchEdit,
+    inverse: branchRetained,
+    checkpoint: await checkpoint(),
+  });
+  const merged = await command({
+    op: "mergeBranch",
+    tree: "history-tree",
+    target: "main",
+    source: "working",
+    dispose: true,
+  });
+  const mergeInverse = await command({
+    op: "retainLastLocalCommit",
+    tree: "history-tree",
+    name: "merge-edit",
+  });
+  await publishTarget("branch", branchTarget);
+  const mergeCheckpoint = await checkpoint();
+  await command({
+    op: "disposeRevertible",
+    tree: "history-tree",
+    name: "merge-edit",
+  });
+  steps.push({
+    id: "branch-after-merge",
+    target: branchTarget.url,
+    merge: merged,
+    inverse: mergeInverse,
+    checkpoint: mergeCheckpoint,
+  });
+
+  for (const [id, branchName] of [
+    ["branch-dropped", "dropped"],
+    ["branch-disposal", "disposed"],
+  ]) {
+    const target = await createMap(`history-${branchName}`, `${label}-${id}`);
+    await command({
+      op: "fork", tree: "history-tree", source: "main", name: branchName,
+    });
+    const edit = await command({
+      op: "branchEdit",
+      tree: "history-tree",
+      branch: branchName,
+      edit: { kind: "object-set", path: ["link"], value: taggedHandle(target) },
+    });
+    const retained = await command({
+      op: "retainLastLocalCommit",
+      tree: "history-tree",
+      branch: branchName,
+      name: `${branchName}-edit`,
+    });
+    const discard = id === "branch-dropped"
+      ? await command({
+        op: "revert",
+        tree: "history-tree",
+        name: `${branchName}-edit`,
+        dispose: true,
+      })
+      : undefined;
+    const disposed = await command({
+      op: "disposeBranch", tree: "history-tree", name: branchName,
+    });
+    steps.push({
+      id,
+      target: target.url,
+      edit,
+      inverse: retained,
+      ...(discard === undefined ? {} : { discard }),
+      disposed,
+      checkpoint: await checkpoint(),
+    });
+    await publishTarget(branchName, target);
+  }
+
+  const undoTarget = await createMap("history-undo", `${label}-undo`);
+  await command({
+    command: "set",
+    tree: "history-tree",
+    path: ["link"],
+    value: taggedHandle(undoTarget),
+  });
+  const retained = await command({
+    op: "retainLastLocalCommit",
+    tree: "history-tree",
+    name: "insertion",
+  });
+  await publishTarget("undo", undoTarget);
+  const peer = await historyPeerEdit(environment, "survives-insertion-undo");
+  const beforeStatus = await command({
+    op: "revertibleStatus", tree: "history-tree", name: "insertion",
+  });
+  const reverted = await command({
+    op: "revert",
+    tree: "history-tree",
+    name: "insertion",
+    dispose: true,
+  });
+  await synchronize(environment);
+  const undoCheckpoint = await checkpoint();
+  steps.push({
+    id: "handle-undo-peer-edit",
+    target: undoTarget.url,
+    peer,
+    inverse: { retained, beforeStatus, reverted },
+    checkpoint: undoCheckpoint,
+  });
+
+  let readiness;
+  try {
+    await until(async () => {
+      readiness = await adapter.client.request({
+        command: "pending-summary-evidence",
+      });
+      return readiness.ok === true;
+    }, `${writer} transaction history summary readiness`);
+  } catch (error) {
+    throw new Error(
+      `${error.message}: ${JSON.stringify({ readiness, undoCheckpoint })}`,
+      { cause: error },
+    );
+  }
+  return {
+    targets,
+    local: { mapValue: `${label}-successful`, treeLabel: `${label}-document` },
+    localHistoryCount: 0,
+    replies,
+    history: { steps },
+  };
+}
+
 function handleValue(value) {
   assert.equal(value.present, true, "Peer handle field is absent");
   assert.equal(value.value.kind, "handle", "Peer field is not a handle");
@@ -1078,6 +1655,223 @@ async function observeUpstreamPeer(session, section) {
   return result;
 }
 
+async function observeHistoryUpstreamPeer(session, targets) {
+  const documentHandle = session.data.bootstrap.get("history");
+  const tree = await documentHandle.get();
+  const view = tree.viewWith(handleTreeConfig);
+  const observed = {
+    document: documentHandle.absolutePath,
+    tree: visibleHandleRoot(view),
+    targets: {},
+  };
+  for (const name of [
+    "successful", "aborted", "nested", "branch", "dropped", "disposed", "undo",
+  ]) {
+    const handle = session.data.bootstrap.get(`history-${name}`);
+    const target = await handle.get();
+    observed.targets[name] = {
+      path: handle.absolutePath,
+      ...(target.has("value") ? { value: target.get("value") } : {}),
+      ...(target.has("peer") ? { peer: target.get("peer") } : {}),
+    };
+  }
+  view.dispose();
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(observed.targets)
+      .map(([name, value]) => [name, value.path])),
+    Object.fromEntries([
+      "successful", "aborted", "nested", "branch", "dropped", "disposed", "undo",
+    ]
+      .map((name) => [name, targets[name].path])),
+    "History upstream peer resolved another target identity",
+  );
+  return observed;
+}
+
+async function observeHistoryNativePeer(adapter, targets) {
+  await nativeCommand(adapter, { command: "root-map", name: "history-root" });
+  const document = (await nativeCommand(adapter, {
+    command: "shared-map-get", name: "history-root", key: "history",
+  })).value;
+  await nativeCommand(adapter, {
+    command: "open-tree",
+    name: "history-observed",
+    handle: document,
+    view: handleStoredSchema,
+  });
+  const observed = {
+    document: document.url,
+    tree: {
+      label: (await adapter.client.read(["label"], "history-observed")).value.value,
+      link: handleValue(
+        await adapter.client.read(["link"], "history-observed"),
+      ).url,
+      links: {
+        nested: handleValue(
+          await adapter.client.mapGet(["links"], "nested", "history-observed"),
+        ).url,
+      },
+      sequence: [
+        handleValue(
+          await adapter.client.arrayGet(["sequence"], 0, "history-observed"),
+        ).url,
+      ],
+    },
+    targets: {},
+  };
+  for (const name of [
+    "successful", "aborted", "nested", "branch", "dropped", "disposed", "undo",
+  ]) {
+    const handle = (await nativeCommand(adapter, {
+      command: "shared-map-get",
+      name: "history-root",
+      key: `history-${name}`,
+    })).value;
+    await nativeCommand(adapter, {
+      command: "open-map", name: `history-${name}`, handle,
+    });
+    const value = await adapter.client.sharedMapGet(`history-${name}`, "value");
+    const peer = await adapter.client.sharedMapGet(`history-${name}`, "peer");
+    observed.targets[name] = {
+      path: handle.url,
+      ...(value.present ? { value: value.value } : {}),
+      ...(peer.present ? { peer: peer.value } : {}),
+    };
+  }
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(observed.targets)
+      .map(([name, value]) => [name, value.path])),
+    Object.fromEntries([
+      "successful", "aborted", "nested", "branch", "dropped", "disposed", "undo",
+    ]
+      .map((name) => [name, targets[name].path])),
+    "History native peer resolved another target identity",
+  );
+  return observed;
+}
+
+async function activeTargetEvidence(config, context, writer) {
+  const environment = await createEnvironment(
+    config,
+    context.runId,
+    "handleTransactionBranch-active",
+    writer,
+    context.constructors,
+  );
+  let failure;
+  try {
+    const historyBefore = await serverHistory(environment.creator);
+    if (writer === "upstream") {
+      const parent = await createUpstreamTree(
+        environment.upstreamSession.data,
+        "active-parent",
+      );
+      environment.upstreamSession.data.bootstrap.set("history", parent.tree.handle);
+      await synchronize(environment);
+      const target = await createUpstreamTree(
+        environment.upstreamSession.data,
+        "active-target",
+      );
+      const parentBefore = visibleHandleRoot(parent.view);
+      const targetBefore = visibleHandleRoot(target.view);
+      let transactionEntered = false;
+      const error = failureOf(() => Tree.runTransaction(target.view, () => {
+        transactionEntered = true;
+        parent.view.root.link = target.tree.handle;
+      }));
+      await synchronize(environment);
+      const history = await serverHistory(environment.creator);
+      const evidence = {
+        documentId: environment.documentId,
+        exception: "pinned-upstream-invalidates-after-attachment-attempt",
+        error,
+        transactionEntered,
+        parent: {
+          before: parentBefore,
+          afterError: failureOf(() => visibleHandleRoot(parent.view)),
+        },
+        target: {
+          path: target.tree.handle.absolutePath,
+          attachedBefore: false,
+          attachedAfter: target.tree.isAttached(),
+          before: targetBefore,
+          afterError: failureOf(() => visibleHandleRoot(target.view)),
+        },
+        raw: {
+          submitted: submissionEvidence(writer, environment),
+          sequenced: deltaEvidence(history.slice(historyBefore.length)),
+        },
+      };
+      return evidence;
+    }
+
+    const adapter = environment.adapters[writer];
+    await nativeCommand(adapter, { command: "root-map", name: "active-root" });
+    const parent = await nativeCommand(adapter, {
+      command: "create-tree",
+      name: "active-parent",
+      schema: handleStoredSchema,
+      view: handleStoredSchema,
+      initialRoot: taggedHandleRoot("active-parent"),
+    });
+    await nativeCommand(adapter, {
+      command: "shared-map-set",
+      name: "active-root",
+      key: "history",
+      value: parent,
+    });
+    await synchronize(environment);
+    const target = await nativeCommand(adapter, {
+      command: "create-tree",
+      name: "active-target",
+      schema: handleStoredSchema,
+      view: handleStoredSchema,
+      initialRoot: taggedHandleRoot("active-target"),
+    });
+    const before = {
+      parent: await adapter.client.read(["link"], "active-parent"),
+      target: await adapter.client.read(["label"], "active-target"),
+      checkpoint: await adapter.client.checkpoint("active-parent"),
+      runtime: await nativeCommand(adapter, { command: "runtime-state-evidence" }),
+      submitted: submissionEvidence(writer, environment),
+      historyCount: (await serverHistory(environment.creator)).length,
+    };
+    const refusal = await adapter.client.request({
+      command: "active-target-preflight",
+      tree: "active-parent",
+      target: "active-target",
+    });
+    await synchronize(environment);
+    const after = {
+      parent: await adapter.client.read(["link"], "active-parent"),
+      target: await adapter.client.read(["label"], "active-target"),
+      checkpoint: await adapter.client.checkpoint("active-parent"),
+      runtime: await nativeCommand(adapter, { command: "runtime-state-evidence" }),
+      submitted: submissionEvidence(writer, environment),
+      historyCount: (await serverHistory(environment.creator)).length,
+    };
+    return {
+      documentId: environment.documentId,
+      exception: "native-atomic-preflight-refusal",
+      targetPath: target.url,
+      refusal: structuredClone(refusal.result ?? refusal),
+      before,
+      after,
+      raw: {
+        submitted: submissionEvidence(writer, environment),
+        sequenced: deltaEvidence(
+          (await serverHistory(environment.creator)).slice(historyBefore.length),
+        ),
+      },
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await closeEnvironment(environment, failure);
+  }
+}
+
 function expectedGraph(name, targets) {
   const main = {
     optional: targets.datastore?.path ?? targets.map.path,
@@ -1137,17 +1931,25 @@ async function runRow(config, context, section, writer) {
   try {
     const label = `${section}-${writer}-${context.runId.slice(0, 8)}`;
     const historyBefore = await serverHistory(environment.creator);
-    const authored = writer === "upstream"
-      ? await authorUpstream(section, environment, label)
-      : await authorNative(section, environment, writer, label);
+    const authored = section === "handleTransactionBranch"
+      ? writer === "upstream"
+        ? await authorTransactionBranchUpstream(environment, label)
+        : await authorTransactionBranchNative(environment, writer, label)
+      : writer === "upstream"
+        ? await authorUpstream(section, environment, label)
+        : await authorNative(section, environment, writer, label);
     for (const [name, target] of Object.entries(authored.targets)) {
       target.attributes = structuredClone(
-        name === "tree" ? channelAttributes.tree : channelAttributes.map,
+        name === "tree" || name === "document"
+          ? channelAttributes.tree
+          : channelAttributes.map,
       );
     }
     await synchronize(environment);
     const peers = {
-      upstream: await observeUpstreamPeer(environment.peerSession, section),
+      upstream: section === "handleTransactionBranch"
+        ? await observeHistoryUpstreamPeer(environment.peerSession, authored.targets)
+        : await observeUpstreamPeer(environment.peerSession, section),
     };
     const publication = writer === "upstream"
       ? await publishUpstreamSummary(
@@ -1171,14 +1973,23 @@ async function runRow(config, context, section, writer) {
           target,
           context.constructors,
         );
-        peers[target] = await observeNativePeer(peer, section);
+        peers[target] = section === "handleTransactionBranch"
+          ? await observeHistoryNativePeer(peer, authored.targets)
+          : await observeNativePeer(peer, section);
       } finally {
         await peer?.close();
       }
     }
     const submitted = submissionEvidence(writer, environment);
     const sequenced = deltaEvidence(history.slice(historyBefore.length));
-    const graph = expectedGraph(section, authored.targets);
+    const graph = section === "handleTransactionBranch"
+      ? {
+        document: authored.targets.document.path,
+        final: peers.upstream.tree,
+        targets: Object.fromEntries(Object.entries(authored.targets)
+          .map(([name, target]) => [name, target.path])),
+      }
+      : expectedGraph(section, authored.targets);
     const storedEvidence = snapshotEvidence(stored.raw, authored.targets);
     const publicationEvidence = writer === "upstream"
       ? {
@@ -1226,6 +2037,24 @@ async function runRow(config, context, section, writer) {
         evidence: storedEvidence,
       },
       graph,
+      ...(authored.history ? {
+        history: await (async () => {
+          const activeTarget = await activeTargetEvidence(
+            config,
+            context,
+            writer,
+          );
+          return {
+            ...authored.history,
+            activeTarget,
+            steps: [
+              ...authored.history.steps.slice(0, 3),
+              { id: "active-target", ...activeTarget },
+              ...authored.history.steps.slice(3),
+            ],
+          };
+        })(),
+      } : {}),
       writerClientIds: writer === "upstream"
         ? [environment.upstreamSession.container.clientId]
         : [...environment.adapters[writer].clientIds],
@@ -1243,6 +2072,7 @@ async function runRow(config, context, section, writer) {
       factory: row.factory,
       graph,
       peers,
+      ...(row.history ? { history: row.history } : {}),
       snapshot: stored.raw,
     };
     const relative = `${section}/${writer}.json`;
@@ -1394,10 +2224,7 @@ function validatePublication(name, row, artifactSnapshot) {
 }
 
 function validatePeerEvidence(name, row) {
-  const expectedImplementations = writers.filter(
-    (implementation) =>
-      implementation === "upstream" || implementation !== row.writer,
-  );
+  const expectedImplementations = requiredPeerImplementations(row.writer);
   assert.deepEqual(
     [...row.peer.expectedImplementations].sort(),
     [...expectedImplementations].sort(),
@@ -1421,6 +2248,7 @@ function validatePeerEvidence(name, row) {
           `${name} ${implementation} attributes differ for ${target}`,
         );
       }
+
     }
     assert.equal(observation.values.map, row.local.mapValue,
       `${name} ${implementation} map value differs`);
@@ -1440,6 +2268,32 @@ function validatePeerEvidence(name, row) {
       );
     }
   }
+}
+
+function requiredPeerImplementations(writer) {
+  assert(writers.includes(writer), `Unknown lifecycle writer: ${writer}`);
+  return writers.filter(
+    (implementation) =>
+      implementation === "upstream" || implementation !== writer,
+  );
+}
+
+function requiredSectionWriters(name, selection, diagnosticWriter) {
+  assert(selection && typeof selection === "object",
+    `${name} section lacks an intentional writer selection`);
+  if (diagnosticWriter === undefined) {
+    assert.equal(selection.kind, "all",
+      `${name} complete section writer selection changed`);
+    return writers;
+  }
+  assert(writers.includes(diagnosticWriter),
+    `${name} diagnostic selected an unknown writer`);
+  assert.deepEqual(
+    selection,
+    { kind: "writer", writer: diagnosticWriter },
+    `${name} diagnostic writer selection changed`,
+  );
+  return [diagnosticWriter];
 }
 
 function numericStableId(value) {
@@ -1623,7 +2477,359 @@ function validateStoredEvidence(name, row, artifactSnapshot) {
   }
 }
 
+async function validateTransactionBranchRow(name, row, artifacts) {
+  assert.equal(row.formatVersion, 1, `${name} row format changed`);
+  assert.equal(row.runId, artifacts.runId, `${name} row run identity changed`);
+  validateContract(row.contract, `${name} row`);
+  assert.equal(row.factory, handleServiceStore.type,
+    `${name} primary factory differs from the pinned contract`);
+  assert.deepEqual(
+    Object.keys(row.targets).sort(),
+    [
+      "aborted",
+      "branch",
+      "disposed",
+      "document",
+      "dropped",
+      "nested",
+      "successful",
+      "undo",
+    ],
+    `${name} attached target identity set changed`,
+  );
+  validateTransportBinding(name, row);
+  assert.equal(row.artifacts.length, 1, `${name} row lacks one raw artifact`);
+  const descriptor = row.artifacts[0];
+  const registered = artifacts.files[descriptor.path];
+  assert(registered, `${name} raw artifact is missing: ${descriptor.path}`);
+  assert.equal(registered.sha256, descriptor.sha256,
+    `${name} raw artifact digest changed`);
+  const bytes = await readFile(join(artifacts.root, descriptor.path));
+  assert.equal(hash(bytes), descriptor.sha256,
+    `${name} persisted artifact bytes changed`);
+  const artifact = JSON.parse(bytes.toString("utf8"));
+  assert.equal(artifact.runId, row.runId, `${name} artifact run identity changed`);
+  assert.equal(artifact.documentId, row.documentId,
+    `${name} artifact document identity changed`);
+  validateContract(artifact.contract, `${name} artifact`);
+  assert.deepEqual(artifact.raw, jsonClone(row.raw),
+    `${name} report raw evidence differs from its persisted artifact`);
+  assert.deepEqual(artifact.targets, row.targets,
+    `${name} artifact target identities differ`);
+  assert.deepEqual(artifact.graph, row.graph,
+    `${name} artifact graph contract differs`);
+  assert.deepEqual(artifact.peers, row.peer.observations,
+    `${name} artifact peer observations differ`);
+  assert.deepEqual(artifact.history, row.history,
+    `${name} artifact history evidence differs`);
+  validatePublication(name, row, artifact.snapshot);
+  validateCompressorAllocations(name, row, artifact.snapshot);
+  const metadata = snapshotMetadata(artifact.snapshot);
+  assert.equal(metadata.createContainerRuntimeVersion, reference.version,
+    `${name} persisted runtime metadata version differs`);
+  assert.equal(
+    metadata.documentSchema.info.minVersionForCollab,
+    oldestSupportedClient,
+    `${name} persisted minimum client differs`,
+  );
+  for (const [target, expected] of Object.entries(row.targets)) {
+    assert.deepEqual(
+      row.snapshot.evidence.targets[target]?.attributes,
+      expected.attributes,
+      `${name} persisted attributes differ for ${target}`,
+    );
+  }
+
+  const expectedSteps = [
+    "successful-transaction",
+    "aborted-transaction",
+    "nested-transaction",
+    "active-target",
+    "branch-before-merge",
+    "branch-after-merge",
+    "branch-dropped",
+    "branch-disposal",
+    "handle-undo-peer-edit",
+  ];
+  const active = row.history.activeTarget;
+  assert.deepEqual(row.history.steps.map(({ id }) => id), expectedSteps,
+    `${name} history step coverage changed`);
+  const byId = Object.fromEntries(row.history.steps.map((step) => [step.id, step]));
+  const successful = byId["successful-transaction"];
+  const aborted = byId["aborted-transaction"];
+  const nested = byId["nested-transaction"];
+  if (row.writer === "upstream") {
+    assert.equal(
+      successful.transaction?.callbackResult,
+      "successful-callback",
+      `${name} successful transaction callback result changed`,
+    );
+  } else {
+    assert.equal(successful.transaction?.outcome, "committed",
+      `${name} successful handle transaction did not commit`);
+  }
+  assert(
+    aborted.outcome === "aborted"
+      || aborted.transaction?.outcome === "aborted",
+    `${name} aborted handle transaction did not abort`,
+  );
+  assert.equal(aborted.targetValue, "survives-rollback",
+    `${name} aborted transaction lost its independent target edit`);
+  if (row.writer === "upstream") {
+    assert.deepEqual(nested.transaction, {
+      outerResult: "nested-outer-callback",
+      innerResult: "nested-inner-callback",
+    }, `${name} nested transaction callback result changed`);
+  } else {
+    assert.equal(nested.transaction?.outcome, "committed",
+      `${name} nested handle transaction did not commit`);
+  }
+  assert.equal(
+    row.raw.dependencies.commits.length > 0,
+    true,
+    `${name} actual tree revisions are missing`,
+  );
+  assert.equal(
+    new Set(row.raw.dependencies.commits.map(({ revision }) => revision)).size,
+    row.raw.dependencies.commits.length,
+    `${name} tree revision identities are not unique`,
+  );
+
+  const beforeMerge = byId["branch-before-merge"];
+  const afterMerge = byId["branch-after-merge"];
+  assert.equal(beforeMerge.target, row.targets.branch.path,
+    `${name} branch edit names another target`);
+  if (row.writer === "upstream") {
+    const validateUpstreamTransaction = (step, label) => {
+      assert(Array.isArray(step.revisions) && step.revisions.length > 0,
+        `${name} ${label} transaction lacks an actual revision`);
+      assert.equal(new Set(step.revisions).size, step.revisions.length,
+        `${name} ${label} transaction revisions are not unique`);
+      const knownRevisions = new Set(
+        row.raw.dependencies.commits.map(({ revision }) => revision),
+      );
+      assert.equal(step.revisions.every((revision) => knownRevisions.has(revision)),
+        true, `${name} ${label} transaction revision is absent from transport`);
+      assert.equal(step.settlements.length, step.revisions.length,
+        `${name} ${label} transaction lacks its actual settlement`);
+      assert.deepEqual(
+        step.settlements.map(({ revision }) => revision),
+        step.revisions,
+        `${name} ${label} transaction settlement names another revision`,
+      );
+      assert.equal(step.settlements.every((settlement) =>
+        Number.isSafeInteger(settlement.sequenceNumber)
+          && Number.isSafeInteger(settlement.clientSequenceNumber)
+          && Number.isSafeInteger(settlement.referenceSequenceNumber)),
+      true, `${name} ${label} transaction settlement lacks wire identity`);
+      const event = step.events.find(({ acquired }) => acquired);
+      assert(event, `${name} ${label} transaction lacks event acquisition`);
+      assert.match(event.duplicateError, /same revertible|more than once/i,
+        `${name} ${label} transaction allowed duplicate event acquisition`);
+      assert.equal(event.disposed, true,
+        `${name} ${label} transaction inverse disposal was not observed`);
+      assert.equal(event.status, "Disposed",
+        `${name} ${label} transaction inverse disposal left a valid handle`);
+    };
+    validateUpstreamTransaction(successful, "successful");
+    validateUpstreamTransaction(nested, "nested");
+    assert.equal(beforeMerge.transportDelta, 0,
+      `${name} branch-only edit reached document transport`);
+    assert.equal(beforeMerge.events.some(({ factoryAvailable, acquired }) =>
+      factoryAvailable === true && acquired === true), true,
+      `${name} branch edit lacks its actual inverse factory`);
+    assert.equal(afterMerge.main.link, row.targets.branch.path,
+      `${name} merged branch handle is absent from the document`);
+  } else {
+    const { compressor } = decodedSnapshotCompressor(artifact.snapshot);
+    const stableWireRevisions = row.raw.dependencies.commits
+      .map(({ revision }) => Number(revision))
+      .filter(Number.isSafeInteger)
+      .map((revision) => compressor.decompress(revision));
+    const successfulCommit = successful.checkpoint.commits.find(
+      ({ type }) => type === "commit",
+    );
+    assert(successfulCommit,
+      `${name} successful transaction lacks its actual commit event`);
+    assert.equal(successfulCommit.handleAcquired, true,
+      `${name} successful transaction lacks actual event acquisition`);
+    assert.equal(successful.inverse.factoryAvailable, true,
+      `${name} successful transaction lacks its actual inverse factory`);
+    assert.equal(typeof successful.inverse.revision, "string",
+      `${name} successful transaction lacks its actual revision`);
+    assert.equal(successfulCommit?.actionId, successful.inverse.actionId,
+      `${name} successful transaction event names another action`);
+    assert.equal(successfulCommit?.eventId, successful.inverse.eventId,
+      `${name} successful transaction event names another factory`);
+    assert.equal(stableWireRevisions.includes(successful.inverse.revision), true,
+      `${name} successful transaction revision is absent from transport`);
+    assert.equal(beforeMerge.edit.outboundCount, 0,
+      `${name} branch-only edit reached document transport`);
+    assert.equal(beforeMerge.inverse.factoryAvailable, true,
+      `${name} branch edit lacks its actual inverse factory`);
+    assert.equal(afterMerge.merge.disposed, true,
+      `${name} merged branch lifetime did not end`);
+    assert.equal(typeof afterMerge.inverse.revision, "string",
+      `${name} merged branch lacks an actual document revision`);
+    assert.equal(afterMerge.inverse.factoryAvailable, true,
+      `${name} merged branch lacks its actual inverse factory`);
+    const mergedCommit = afterMerge.checkpoint.commits.find(
+      ({ type }) => type === "commit",
+    );
+    assert.equal(mergedCommit?.actionId, afterMerge.inverse.actionId,
+      `${name} merged branch event names another action`);
+    assert.equal(mergedCommit?.eventId, afterMerge.inverse.eventId,
+      `${name} merged branch event names another factory`);
+    assert.equal(mergedCommit?.handleAcquired, true,
+      `${name} merged branch lacks actual event acquisition`);
+    assert.equal(stableWireRevisions.includes(afterMerge.inverse.revision), true,
+      `${name} merged branch revision is not owned by the document compressor`);
+    assert.equal(afterMerge.checkpoint.commits.some(({ type, outcome }) =>
+      type === "settlement" && outcome === "FullyApplied"),
+    true, `${name} merged branch lacks its actual settlement`);
+  }
+  assert.equal(beforeMerge.document, row.targets.document.path,
+    `${name} branch handle names another document`);
+  assert.equal(beforeMerge.marker.url ?? beforeMerge.marker.absolutePath,
+    row.targets.document.path,
+  `${name} branch marker does not serialize the owning document channel`);
+
+  for (const id of ["branch-dropped", "branch-disposal"]) {
+    const step = byId[id];
+    assert.equal(
+      step.target,
+      row.targets[id === "branch-dropped" ? "dropped" : "disposed"].path,
+      `${name} ${id} cleanup publication names another target`,
+    );
+    if (row.writer === "upstream") {
+      assert.equal(step.transportDelta, 0,
+        `${name} ${id} reached document transport`);
+      assert.equal(step.inverse.acquired, true,
+        `${name} ${id} lacks event-scoped inverse acquisition`);
+      if (id === "branch-dropped") {
+        assert.equal(step.discard.disposedSameHandle, true,
+          `${name} branch-dropped discard did not dispose its actual inverse`);
+        assert.equal(step.discard.afterStatus, "Disposed",
+          `${name} branch-dropped discard left its inverse valid`);
+        assert.notEqual(step.discard.branch.link, step.target,
+          `${name} branch-dropped discard retained the branch edit`);
+        assert.equal(step.discard.events.some(({ kind }) => kind === "Undo"), true,
+          `${name} branch-dropped discard lacks its actual Undo event`);
+      } else {
+        assert.equal("discard" in step, false,
+          `${name} branch-disposal was misclassified as an edit discard`);
+        assert.equal(step.branchBeforeCleanup.link, step.target,
+          `${name} branch-disposal did not retain its edit until disposal`);
+      }
+    } else {
+      assert.equal(step.edit.outboundCount, 0,
+        `${name} ${id} reached document transport`);
+      assert.equal(step.inverse.factoryAvailable, true,
+        `${name} ${id} lacks event-scoped inverse acquisition`);
+      assert.equal(step.disposed.status, "BranchDisposed",
+        `${name} ${id} lifetime did not end`);
+      if (id === "branch-dropped") {
+        assert.equal(step.discard.authoredKind, "Undo",
+          `${name} branch-dropped discard did not author an Undo commit`);
+        assert.equal(step.discard.status, "Disposed",
+          `${name} branch-dropped discard left its inverse valid`);
+      } else {
+        assert.equal("discard" in step, false,
+          `${name} branch-disposal was misclassified as an edit discard`);
+      }
+    }
+  }
+
+  const undo = byId["handle-undo-peer-edit"];
+  assert.equal(undo.target, row.targets.undo.path,
+    `${name} insertion inverse names another target`);
+  assert.equal(undo.peer.target, row.targets.undo.path,
+    `${name} independent peer edited another target`);
+  assert.equal(undo.peer.value, "survives-insertion-undo",
+    `${name} independent peer target edit was lost after insertion undo`);
+  if (row.writer === "upstream") {
+    assert.equal(undo.inverse.event.factoryAvailable, true,
+      `${name} insertion event lacks its actual inverse factory`);
+    assert.equal(undo.inverse.event.acquired, true,
+      `${name} insertion inverse was not acquired from its event`);
+    assert.equal(undo.inverse.disposedSameHandle, true,
+      `${name} insertion disposal callback received another inverse`);
+    assert.notEqual(undo.inverse.beforeStatus, undo.inverse.afterStatus,
+      `${name} insertion inverse lifetime did not change`);
+  } else {
+    assert.equal(undo.inverse.retained.factoryAvailable, true,
+      `${name} insertion inverse factory was not acquired`);
+    assert.equal(undo.inverse.reverted.authoredKind, "Undo",
+      `${name} insertion inverse did not author an Undo commit`);
+    assert.equal(undo.inverse.reverted.submittedRevisions.length, 1,
+      `${name} insertion inverse did not submit one actual revision`);
+  }
+  for (const [implementation, peer] of Object.entries(row.peer.observations)) {
+    assert.equal(peer.document, row.targets.document.path,
+      `${name} ${implementation} resolved another document`);
+    assert.equal(peer.targets.undo.path, row.targets.undo.path,
+      `${name} ${implementation} resolved another undo target`);
+    assert.equal(peer.targets.undo.peer, "survives-insertion-undo",
+      `${name} ${implementation} lost the peer target edit`);
+  }
+  const expectedPeers = requiredPeerImplementations(row.writer);
+  assert.deepEqual(
+    [...row.peer.expectedImplementations].sort(),
+    [...expectedPeers].sort(),
+    `${name} peer implementation policy differs`,
+  );
+  assert.deepEqual(
+    Object.keys(row.peer.observations).sort(),
+    [...expectedPeers].sort(),
+    `${name} peer implementation coverage differs`,
+  );
+
+  assert.notEqual(active.documentId, row.documentId,
+    `${name} active-target exception reused the history document`);
+  if (row.writer === "upstream") {
+    assert.equal(
+      active.exception,
+      "pinned-upstream-invalidates-after-attachment-attempt",
+      `${name} upstream active-target exception changed`,
+    );
+    assert.match(active.error, /transaction is in progress/i,
+      `${name} upstream active-target attempt did not refuse`);
+    assert.equal(active.transactionEntered, true,
+      `${name} upstream active-target transaction was not entered`);
+    assert.equal(active.target.attachedBefore, false,
+      `${name} upstream active target started attached`);
+    assert.equal(active.target.attachedAfter, true,
+      `${name} pinned upstream failure side effect was not measured`);
+    assert(active.raw.submitted.length > 0 && active.raw.sequenced.length > 0,
+      `${name} upstream active-target side effects lack raw transport`);
+  } else {
+    assert.equal(active.exception, "native-atomic-preflight-refusal",
+      `${name} native active-target exception changed`);
+    assert.equal(active.refusal.refused, true,
+      `${name} native active-target preflight did not refuse`);
+    assert.match(active.refusal.error, /transaction|another tree/i,
+      `${name} native active-target refusal lacks its measured reason`);
+    assert.equal(active.refusal.after, active.refusal.before,
+      `${name} native preflight mutated runtime state while the target was active`);
+    assert.deepEqual(active.after.runtime, active.before.runtime,
+      `${name} active callback runtime fingerprint changed`);
+    assert.deepEqual(active.after.parent, active.before.parent,
+      `${name} native refusal changed the parent checkout`);
+    assert.deepEqual(active.after.target, active.before.target,
+      `${name} native refusal changed the target checkout`);
+    assert.deepEqual(active.after.checkpoint, active.before.checkpoint,
+      `${name} native refusal changed event or commit queues`);
+    assert.deepEqual(active.after.submitted, active.before.submitted,
+      `${name} native refusal reached transport`);
+    assert.equal(active.after.historyCount, active.before.historyCount,
+      `${name} native refusal changed service history`);
+  }
+}
+
 async function validateRow(name, row, artifacts) {
+  if (name === "handleTransactionBranch") {
+    return validateTransactionBranchRow(name, row, artifacts);
+  }
   assert.equal(row.formatVersion, 1, `${name} row format changed`);
   assert.equal(row.runId, artifacts.runId, `${name} row run identity changed`);
   validateContract(row.contract, `${name} row`);
@@ -1680,19 +2886,34 @@ async function validateRow(name, row, artifacts) {
   validateStoredEvidence(name, row, artifact.snapshot);
 }
 
-export async function validateLifecycleSection(name, section, artifacts) {
+export async function validateLifecycleSection(
+  name,
+  section,
+  artifacts,
+  { diagnosticWriter } = {},
+) {
   assert(liveSections.includes(name), `Lifecycle section is not implemented: ${name}`);
   assert(section && typeof section === "object", `${name} section is missing`);
   assert.equal(section.name, name, `${name} section name changed`);
   assert.equal(section.runId, artifacts.runId, `${name} section run identity changed`);
   validateContract(section.contract, `${name} section`);
   assert.equal(section.skipped, false, `${name} section is skipped`);
-  assert(Array.isArray(section.expectedWriters) && section.expectedWriters.length > 0,
+  const requiredWriters = requiredSectionWriters(
+    name,
+    section.selection,
+    diagnosticWriter,
+  );
+  assert(Array.isArray(section.expectedWriters),
     `${name} section lacks declared writers`);
   assert.deepEqual(
-    section.rows.map(({ writer }) => writer).sort(),
     [...section.expectedWriters].sort(),
-    `${name} section writer coverage differs`,
+    [...requiredWriters].sort(),
+    `${name} section declared writers differ from its intentional selection`,
+  );
+  assert.deepEqual(
+    section.rows.map(({ writer }) => writer).sort(),
+    [...requiredWriters].sort(),
+    `${name} required writer coverage differs`,
   );
   for (const row of section.rows) {
     assert.equal(row.runId, section.runId, `${name} row run identity changed`);
@@ -1729,7 +2950,7 @@ export async function runLifecycleInterop({
   const runId = randomUUID();
   const selected = scenario === undefined
     ? null
-    : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment):(upstream|javascript|erlang)$/);
+    : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment|handleTransactionBranch):(upstream|javascript|erlang)$/);
   if (scenario !== undefined) {
     assert(selected, "Lifecycle scenario must be <section>:<writer>");
   }
@@ -1739,6 +2960,9 @@ export async function runLifecycleInterop({
   );
   const selectedSections = selected ? [selected[1]] : liveSections;
   const selectedWriters = selected ? [selected[2]] : writers;
+  const selection = selected
+    ? { kind: "writer", writer: selected[2] }
+    : { kind: "all" };
   const context = {
     artifacts: {
       formatVersion: 1,
@@ -1764,6 +2988,7 @@ export async function runLifecycleInterop({
       runId,
       contract,
       skipped: false,
+      selection,
       expectedWriters: selectedWriters,
       rows: [],
     };
@@ -1772,7 +2997,15 @@ export async function runLifecycleInterop({
       row.runId = runId;
       section.rows.push(row);
     }
-    await validateLifecycleSection(name, section, context.artifacts);
+    const validationContext = selected
+      ? { diagnosticWriter: selected[2] }
+      : {};
+    await validateLifecycleSection(
+      name,
+      section,
+      context.artifacts,
+      validationContext,
+    );
     report.sections[name] = section;
   }
   await writeFile(
@@ -1780,7 +3013,14 @@ export async function runLifecycleInterop({
     `${JSON.stringify(report, null, 2)}\n`,
     { mode: 0o600 },
   );
-  return { report, artifacts: context.artifacts, output: context.output };
+  return {
+    report,
+    artifacts: context.artifacts,
+    output: context.output,
+    validationContext: selected
+      ? { diagnosticWriter: selected[2] }
+      : {},
+  };
 }
 
 async function main(args) {

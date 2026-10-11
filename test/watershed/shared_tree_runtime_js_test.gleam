@@ -250,7 +250,7 @@ fn ready_scheduled_runtime_from(
   push: fn(String, json.Json) -> Nil,
 ) {
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
-  let assert [view] = input.tree_views
+  let assert [view, ..] = input.tree_views
   let callbacks = transport_js.new_cell(None)
   let scheduled = transport_js.new_cell([])
   let owner =
@@ -300,6 +300,40 @@ fn ready_scheduled_runtime_from(
       |> json.to_string,
   )
   #(owner, callbacks, view.view, scheduled)
+}
+
+@target(javascript)
+pub fn aborting_tree_transaction_preserves_other_tree_fork_test() {
+  let input = runtime_fixture.routed_two_tree_seed_input() |> expect.to_be_ok()
+  let #(owner, _, view, _) =
+    ready_scheduled_runtime_from(input, fn(_, _) { Nil })
+  runtime.begin_tree_transaction(owner, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    owner,
+    "A/_C",
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("discarded")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let branch =
+    runtime.tree_fork(owner, "B/_C", tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok()
+  runtime.abort_tree_transaction(owner, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_read(owner, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime.tree_edit_view_on(
+    owner,
+    "B/_C",
+    branch,
+    view,
+    tree_types.SetField(["title"], tree_types.StringValue("preserved")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_read_view_on(owner, "B/_C", branch, view, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("preserved"))))
+  runtime.close(owner)
 }
 
 @target(javascript)

@@ -19,6 +19,8 @@ import watershed
 @target(javascript)
 import watershed/canonical_json
 @target(javascript)
+import watershed/handle
+@target(javascript)
 import watershed/runtime
 @target(javascript)
 import watershed/runtime_core
@@ -31,7 +33,7 @@ import watershed/tree/client_retained_evidence
 @target(javascript)
 import watershed/tree/types.{
   type TreeCommitKind, type TreeCommitOutcome, DefaultCommit, FullyApplied,
-  FullyDropped, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
+  FullyDropped, HandleValue, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
 }
 @target(javascript)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
@@ -885,6 +887,76 @@ fn execute(
             }
           protocol.Transaction(scope) ->
             run_transaction(document, tree, owner, events, scope)
+          protocol.ActiveTargetPreflight(target_name) -> {
+            use target <- result.try(selected_tree(
+              transport_js.get_cell(active_tree),
+              trees,
+              Some(target_name),
+              "active-target-preflight",
+            ))
+            use target_reference <- result.try(
+              handle.reference_from_json(watershed.tree_handle_of(target), "")
+              |> result.map_error(fn(_) {
+                facade("active-target-preflight", "invalid target handle")
+              }),
+            )
+            case
+              watershed.tree_transaction(target, [], fn(_) {
+                let before =
+                  runtime_state_evidence(watershed.runtime_of(document))
+                case
+                  watershed.tree_set(
+                    tree,
+                    ["link"],
+                    HandleValue(target_reference),
+                  )
+                {
+                  Error(reason) ->
+                    Error(
+                      Ok(
+                        json.object([
+                          #("refused", json.bool(True)),
+                          #("error", json.string(reason)),
+                          #("before", json.string(before)),
+                          #(
+                            "after",
+                            json.string(
+                              runtime_state_evidence(watershed.runtime_of(
+                                document,
+                              )),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    )
+                  Ok(_) ->
+                    Error(
+                      Error(
+                        EditFailed(facade(
+                          "active-target-preflight",
+                          "active target attachment unexpectedly succeeded",
+                        )),
+                      ),
+                    )
+                }
+              })
+            {
+              Error(watershed.Aborted(Ok(evidence))) -> Ok(evidence)
+              Error(watershed.Aborted(Error(EditFailed(error)))) -> Error(error)
+              Error(watershed.Aborted(Error(RequestedAbort(_)))) ->
+                Error(facade(
+                  "active-target-preflight",
+                  "active target attachment returned another abort",
+                ))
+              Ok(_) ->
+                Error(facade(
+                  "active-target-preflight",
+                  "active target attachment committed without its refusal",
+                ))
+              Error(watershed.TransactionFailed(reason)) ->
+                Error(facade("active-target-preflight", reason))
+            }
+          }
           protocol.Fork(source, name) -> {
             let branch_owner = protocol.local_branch_owner(owner, name)
             use _ <- result.try(
