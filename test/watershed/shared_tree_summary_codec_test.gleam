@@ -516,8 +516,14 @@ pub fn shared_tree_summary_reencodes_initial_bootstrap_with_schema_history_test(
       session,
       codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
     )
-  summary.decode(encoded, None, session, decode_context)
-  |> expect.to_equal(Ok(decoded))
+  let assert Ok(reloaded) =
+    summary.decode(encoded, None, session, decode_context)
+  summary.encode(
+    reloaded,
+    session,
+    codec.EncodeContext(codec.Fluid310, compressor, Some(reloaded.schema)),
+  )
+  |> expect.to_equal(Ok(encoded))
 }
 
 pub fn shared_tree_summary_decodes_dynamic_map_forest_test() {
@@ -766,8 +772,13 @@ pub fn shared_tree_summary_decodes_settled_history_and_repairs_test() {
     Ok(value) -> value
     Error(error) -> panic as { string.inspect(error) }
   }
-  summary.decode(encoded, None, session, context)
-  |> expect.to_equal(Ok(decoded))
+  let assert Ok(reloaded) = summary.decode(encoded, None, session, context)
+  summary.encode(
+    reloaded,
+    session,
+    codec.EncodeContext(codec.Fluid310, compressor, Some(reloaded.schema)),
+  )
+  |> expect.to_equal(Ok(encoded))
 }
 
 pub fn shared_tree_summary_decodes_grouped_detached_ranges_test() {

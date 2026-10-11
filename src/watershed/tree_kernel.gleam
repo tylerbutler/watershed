@@ -232,6 +232,7 @@ pub fn snapshot_for_attach(
   state: TreeState,
 ) -> Result(TreeSnapshot, TreeError) {
   use data <- result.try(forest.export_data(state.visible))
+  let data = forest.ForestData(..data, detached: [])
   let history.HistoryView(sequenced:, ..) = history.inspect(state.history)
   Ok(TreeSnapshot(
     forest.stored_schema(state.visible),

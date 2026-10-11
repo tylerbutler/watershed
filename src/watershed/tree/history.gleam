@@ -2043,8 +2043,13 @@ fn current_branch_for_record(
   record: RevertibleRecord,
 ) -> Result(List(Commit), TreeError) {
   case record.checkout {
-    None -> Ok(current_branch(state, record.revision))
-    Some(DocumentCheckout) -> Ok(current_branch(state, record.revision))
+    None | Some(DocumentCheckout) -> {
+      let current = current_branch(state, record.revision)
+      case contains_revision(current, record.revision) {
+        True -> Ok(current)
+        False -> Ok(list.map(record.commits, fn(commit) { commit.commit }))
+      }
+    }
     Some(LocalCheckout(id)) -> {
       use local <- result.try(require_local_checkout(state.local_checkouts, id))
       local_ancestry(state, local)

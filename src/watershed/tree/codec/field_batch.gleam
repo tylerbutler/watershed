@@ -285,6 +285,22 @@ pub fn encode_with_context(
   }
 }
 
+pub fn encode_summary_with_context(
+  fields: List(List(TreeValue)),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+) -> Result(Json, TreeError) {
+  use _ <- result.try(
+    list.try_each(fields, fn(field) {
+      list.try_each(field, fn(value) { schema.validate_subtree(stored, value) })
+    }),
+  )
+  case encode_compressed_fields(fields, stored, ids) {
+    Ok(encoded) -> Ok(encoded)
+    Error(Nil) -> encode_with_context_generic(fields, stored, ids)
+  }
+}
+
 fn contains_handle(value: TreeValue) -> Bool {
   case value {
     HandleValue(_) -> True
@@ -453,6 +469,65 @@ fn encode_compressed_tree(
   }
 }
 
+fn shape_for_field(
+  stored: schema.StoredSchema,
+  definition: schema.FieldSchema,
+) -> Result(EncodeShape, Nil) {
+  let schema.FieldSchema(cardinality, allowed_types) = definition
+  use type_id <- result.try(single(allowed_types))
+  use shape <- result.try(shape_for_node(stored, type_id, cardinality))
+  case cardinality {
+    schema.Optional | schema.Sequence -> Ok(EncodeNestedArray(shape))
+    schema.Required | schema.Identifier -> Ok(shape)
+  }
+}
+
+fn shape_for_node(
+  stored: schema.StoredSchema,
+  type_id: String,
+  cardinality: schema.Cardinality,
+) -> Result(EncodeShape, Nil) {
+  use node <- result.try(
+    schema.node_schema(stored, type_id) |> result.map_error(fn(_) { Nil }),
+  )
+  case node {
+    schema.Leaf(schema.NullLeaf) ->
+      Ok(EncodeNode(type_id, EncodeNullValue, [], None))
+    schema.Leaf(_) ->
+      Ok(EncodeNode(
+        type_id,
+        case cardinality {
+          schema.Identifier -> EncodeIdentifierValue
+          _ -> EncodePresentValue
+        },
+        [],
+        None,
+      ))
+    schema.Object(definitions) -> {
+      use fields <- result.try(
+        list.try_map(definitions, fn(definition) {
+          use shape <- result.try(shape_for_field(stored, definition.1))
+          Ok(#(definition.0, shape))
+        }),
+      )
+      Ok(EncodeNode(type_id, EncodeAbsentValue, fields, None))
+    }
+    schema.Map(entries) -> {
+      use shape <- result.try(shape_for_field(stored, entries))
+      Ok(EncodeNode(type_id, EncodeAbsentValue, [], Some(shape)))
+    }
+    schema.Array(elements) -> {
+      use shape <- result.try(shape_for_field(stored, elements))
+      Ok(EncodeNode(
+        type_id,
+        EncodeAbsentValue,
+        [#("", EncodeNestedArray(shape))],
+        None,
+      ))
+    }
+  }
+}
+
 fn encode_compressed_node(
   value: TreeValue,
   stored: schema.StoredSchema,
@@ -514,16 +589,21 @@ fn encode_compressed_node(
     -> {
       use encoded <- result.try(
         list.try_map(definitions, fn(definition) {
-          use field_value <- result.try(
-            list.key_find(fields, definition.0)
-            |> result.map_error(fn(_) { Nil }),
-          )
-          use tree <- result.try(encode_compressed_tree(
-            field_value,
-            stored,
-            definition.1,
-            ids,
-          ))
+          let attempt = case list.key_find(fields, definition.0) {
+            Ok(field_value) ->
+              encode_compressed_tree(field_value, stored, definition.1, ids)
+            Error(Nil) -> {
+              let schema.FieldSchema(cardinality, _) = definition.1
+              case cardinality {
+                schema.Optional | schema.Sequence -> {
+                  use shape <- result.try(shape_for_field(stored, definition.1))
+                  Ok(EncodedTree(shape, [VNumber(NInt(0))]))
+                }
+                schema.Required | schema.Identifier -> Error(Nil)
+              }
+            }
+          }
+          use tree <- result.try(attempt)
           Ok(#(definition.0, tree))
         }),
       )
@@ -538,17 +618,18 @@ fn encode_compressed_node(
       ))
     }
     schema.Map(entries), MapValue(value_type, fields) if value_type == type_id -> {
+      use empty_shape <- result.try(shape_for_field(stored, entries))
       use encoded <- result.try(
         list.try_map(fields, fn(field) {
           encode_compressed_tree(field.1, stored, entries, ids)
           |> result.map(fn(tree) { #(field.0, tree) })
         }),
       )
-      use shape <- result.try(
+      let shape =
         encoded
         |> list.first
-        |> result.map(fn(entry) { entry.1.shape }),
-      )
+        |> result.map(fn(entry) { entry.1.shape })
+        |> result.unwrap(empty_shape)
       use _ <- result.try(
         case list.all(encoded, fn(entry) { entry.1.shape == shape }) {
           True -> Ok(Nil)
@@ -568,16 +649,23 @@ fn encode_compressed_node(
     schema.Array(elements), ArrayValue(value_type, values)
       if value_type == type_id
     -> {
+      let schema.FieldSchema(_, allowed_types) = elements
+      use element_type <- result.try(single(allowed_types))
+      use empty_shape <- result.try(shape_for_node(
+        stored,
+        element_type,
+        schema.Required,
+      ))
       use encoded <- result.try(
         list.try_map(values, fn(value) {
           encode_compressed_node(value, stored, elements, ids)
         }),
       )
-      use shape <- result.try(
+      let shape =
         encoded
         |> list.first
-        |> result.map(fn(tree) { tree.shape }),
-      )
+        |> result.map(fn(tree) { tree.shape })
+        |> result.unwrap(empty_shape)
       use _ <- result.try(
         case list.all(encoded, fn(tree) { tree.shape == shape }) {
           True -> Ok(Nil)
@@ -593,10 +681,14 @@ fn encode_compressed_node(
             None,
           ),
           [
-            encode_nested_data(
-              list.flat_map(encoded, fn(tree) { tree.data }),
-              list.length(encoded),
-            ),
+            case encoded {
+              [] -> VNumber(NInt(0))
+              _ ->
+                encode_nested_data(
+                  list.flat_map(encoded, fn(tree) { tree.data }),
+                  list.length(encoded),
+                )
+            },
           ],
         ),
       )

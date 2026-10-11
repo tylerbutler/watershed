@@ -1892,7 +1892,7 @@ fn resubmit_tree_batch(
     None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
   })
   use _ <- result.try(case grouped, batch_id {
-    True, Some(_) -> Ok(Nil)
+    True, _ -> Ok(Nil)
     False, None -> Ok(Nil)
     _, _ ->
       Error(AckMismatch("pending tree submission has an invalid batch identity"))
@@ -1976,18 +1976,21 @@ fn resubmit_tree_batch(
   let grouped = list.length(rebuilt) > 1
   let batch_id = case grouped, batch_id {
     True, Some(batch_id) -> Some(batch_id)
-    True, None -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+    True, None -> None
     False, _ -> None
   }
-  let metadata = case batch_id {
-    Some(batch_id) ->
+  let metadata = case grouped {
+    True ->
       Some(
-        json.object([
-          #("batchId", json.string(batch_id)),
-          #("groupedOpCount", json.int(list.length(rebuilt))),
-        ]),
+        json.object(case batch_id {
+          Some(batch_id) -> [
+            #("batchId", json.string(batch_id)),
+            #("groupedOpCount", json.int(list.length(rebuilt))),
+          ]
+          None -> [#("groupedOpCount", json.int(list.length(rebuilt)))]
+        }),
       )
-    None -> None
+    False -> None
   }
   let last = list.length(rebuilt) - 1
   use contents <- result.try(
@@ -1999,10 +2002,13 @@ fn resubmit_tree_batch(
           False, _ -> None
           True, 0 ->
             Some(
-              json.object([
-                #("batch", json.bool(True)),
-                #("batchId", json.string(option.unwrap(batch_id, ""))),
-              ]),
+              json.object(case batch_id {
+                Some(batch_id) -> [
+                  #("batch", json.bool(True)),
+                  #("batchId", json.string(batch_id)),
+                ]
+                None -> [#("batch", json.bool(True))]
+              }),
             )
           True, index if index == last ->
             Some(json.object([#("batch", json.bool(False))]))
@@ -5613,7 +5619,7 @@ pub fn retain_tree_revertible(
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
   use core <- result.try(
-    put_attached_channel(core, address, channel.TreeState(state))
+    put_tree_channel(core, address, state)
     |> sync_tree_checkouts,
   )
   Ok(#(core, id))
@@ -5676,7 +5682,7 @@ pub fn dispose_tree_revertible(
     tree_kernel.dispose_revertible(state, id)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  put_attached_channel(core, address, channel.TreeState(state))
+  put_tree_channel(core, address, state)
   |> sync_tree_checkouts
 }
 
@@ -5876,10 +5882,21 @@ fn submit_tree_commits(
       }),
       events,
     )
-  use <- bool.guard(
-    dict.has_key(core.detached, address),
-    Ok(#(core, applied_events, [])),
-  )
+  use <- bool.guard(dict.has_key(core.detached, address), {
+    use forest <- result.try(checkout_forest(core, address))
+    use forest <- result.try(
+      tree_branch.update_document(forest, fn(_) { Ok(#(state, Nil)) })
+      |> result.map(fn(value) { value.0 })
+      |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+    )
+    use core <- result.try(install_checkout_forest(
+      core,
+      address,
+      forest,
+      compressor,
+    ))
+    Ok(#(core, applied_events, []))
+  })
   let core = Core(..core, compressor: Some(compressor))
   use references <- result.try(references_for(core, address))
   use #(core, prepared) <- result.try(prepare_attachments(
@@ -5921,20 +5938,36 @@ fn submit_tree_commits(
       },
       list.append(prepared, encoded),
     )
-  let batch_id =
-    core.client_id
-    <> "_["
-    <> int.to_string(core.next_client_sequence_number)
-    <> "]"
+  let batch_id = case has_datastore_attach(prepared), kinds {
+    True,
+      [
+        fluid_container.IdAllocation(fluid_ids.CreationRange(
+          ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+          ..,
+        )),
+        ..
+      ]
+    ->
+      Some(
+        core.client_id
+        <> "_["
+        <> int.to_string(core.next_client_sequence_number)
+        <> "]",
+      )
+    _, _ -> None
+  }
   let count = list.length(kinds)
   let grouped = count > 1
   let outer_metadata = case grouped {
     True ->
       Some(
-        json.object([
-          #("batchId", json.string(batch_id)),
-          #("groupedOpCount", json.int(count)),
-        ]),
+        json.object(case batch_id {
+          Some(batch_id) -> [
+            #("batchId", json.string(batch_id)),
+            #("groupedOpCount", json.int(count)),
+          ]
+          None -> [#("groupedOpCount", json.int(count))]
+        }),
       )
     False -> None
   }
@@ -5947,10 +5980,13 @@ fn submit_tree_commits(
           False, _ -> None
           True, 0 ->
             Some(
-              json.object([
-                #("batch", json.bool(True)),
-                #("batchId", json.string(batch_id)),
-              ]),
+              json.object(case batch_id {
+                Some(batch_id) -> [
+                  #("batch", json.bool(True)),
+                  #("batchId", json.string(batch_id)),
+                ]
+                None -> [#("batch", json.bool(True))]
+              }),
             )
           True, index if index == count - 1 ->
             Some(json.object([#("batch", json.bool(False))]))
@@ -5986,10 +6022,7 @@ fn submit_tree_commits(
           csn,
           core.last_seen_sequence_number,
           grouped,
-          case grouped {
-            True -> Some(batch_id)
-            False -> None
-          },
+          batch_id,
           kinds,
           pending_items,
         ),
@@ -6030,6 +6063,224 @@ fn pending_tree_batch_item(
           [],
         ),
       )
+  }
+}
+
+pub fn coalesce_outbound_operations(
+  core: Core,
+  outbound: List(wire.OutboundOperation),
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  case outbound {
+    [] | [_] -> Ok(#(core, outbound))
+    [first, ..] -> {
+      use batches <- result.try(
+        list.try_map(outbound, fn(operation) {
+          use _ <- result.try(seed_requirement(
+            operation.operation_type == first.operation_type
+              && operation.reference_sequence_number
+              == first.reference_sequence_number,
+            "cannot group different outbound operation contexts",
+          ))
+          fluid_container.decode(operation.contents, operation.metadata)
+          |> result.map_error(ContainerOperationFailed)
+        }),
+      )
+      let kinds =
+        batches
+        |> list.flat_map(fn(batch) {
+          list.map(batch.messages, fn(message) { message.kind })
+        })
+        |> deduplicate_allocations
+      let count = list.length(kinds)
+      let batch_id = case kinds {
+        [
+          fluid_container.IdAllocation(fluid_ids.CreationRange(
+            ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+            ..,
+          )),
+          ..
+        ] ->
+          Some(
+            core.client_id
+            <> "_["
+            <> int.to_string(first.client_sequence_number)
+            <> "]",
+          )
+        _ -> None
+      }
+      let metadata =
+        Some(
+          json.object(case batch_id {
+            Some(batch_id) -> [
+              #("batchId", json.string(batch_id)),
+              #("groupedOpCount", json.int(count)),
+            ]
+            None -> [#("groupedOpCount", json.int(count))]
+          }),
+        )
+      use contents <- result.try(
+        fluid_container.encode_batch(fluid_container.DecodedBatch(
+          True,
+          metadata,
+          list.index_map(kinds, fn(kind, index) {
+            let boundary = case index {
+              0 ->
+                Some(
+                  json.object(case batch_id {
+                    Some(batch_id) -> [
+                      #("batch", json.bool(True)),
+                      #("batchId", json.string(batch_id)),
+                    ]
+                    None -> [#("batch", json.bool(True))]
+                  }),
+                )
+              index if index == count - 1 ->
+                Some(json.object([#("batch", json.bool(False))]))
+              _ -> None
+            }
+            fluid_container.ContainerMessage(kind, index, boundary)
+          }),
+        ))
+        |> result.map_error(ContainerOperationFailed),
+      )
+      let selected_count = list.length(outbound)
+      let prefix_count = list.length(core.in_flight) - selected_count
+      let prefix = list.take(core.in_flight, prefix_count)
+      let selected = list.drop(core.in_flight, prefix_count)
+      use pending <- result.try(
+        selected
+        |> list.try_fold([], fn(pending, entry) {
+          case entry {
+            InFlightBatch(pending: children, ..) ->
+              Ok(list.append(
+                pending,
+                list.map(children, restamp_coalesced_in_flight(
+                  _,
+                  first.client_sequence_number,
+                )),
+              ))
+            _ ->
+              Error(AckMismatch("outbound operation has no batch pending state"))
+          }
+        }),
+      )
+      let combined =
+        InFlightBatch(
+          core.client_id,
+          first.client_sequence_number,
+          first.reference_sequence_number,
+          True,
+          batch_id,
+          kinds,
+          pending,
+        )
+      Ok(
+        #(
+          Core(
+            ..core,
+            next_client_sequence_number: first.client_sequence_number + 1,
+            in_flight: list.append(prefix, [combined]),
+          ),
+          [
+            wire.OutboundOperation(
+              first.client_sequence_number,
+              first.reference_sequence_number,
+              first.operation_type,
+              contents,
+              metadata,
+            ),
+          ],
+        ),
+      )
+    }
+  }
+}
+
+fn deduplicate_allocations(
+  kinds: List(fluid_container.MessageKind),
+) -> List(fluid_container.MessageKind) {
+  let #(allocations, operations) =
+    list.partition(kinds, fn(kind) {
+      case kind {
+        fluid_container.IdAllocation(_) -> True
+        _ -> False
+      }
+    })
+  let has_channel_attachment =
+    list.any(operations, fn(kind) {
+      case kind {
+        fluid_container.ChannelAttach(_, _, _) -> True
+        _ -> False
+      }
+    })
+  let has_datastore_attachment = has_datastore_attach(operations)
+  case allocations {
+    [] -> operations
+    [fluid_container.IdAllocation(first), ..] if has_datastore_attachment -> [
+      fluid_container.IdAllocation(first),
+      ..operations
+    ]
+    [fluid_container.IdAllocation(first), ..rest] if has_channel_attachment -> {
+      let merged =
+        list.fold(rest, first, fn(merged, item) {
+          let assert fluid_container.IdAllocation(next) = item
+          merge_creation_ranges(merged, next)
+        })
+      [fluid_container.IdAllocation(merged), ..operations]
+    }
+    _ -> kinds
+  }
+}
+
+fn merge_creation_ranges(
+  first: fluid_ids.CreationRange,
+  second: fluid_ids.CreationRange,
+) -> fluid_ids.CreationRange {
+  case first, second {
+    fluid_ids.CreationRange(session_id, Some(first_ids)),
+      fluid_ids.CreationRange(session_id: next_session, ids: Some(second_ids))
+      if session_id == next_session
+      && second_ids.first_gen_count
+      == first_ids.first_gen_count + first_ids.count
+      && first_ids.requested_cluster_size == second_ids.requested_cluster_size
+    ->
+      fluid_ids.CreationRange(
+        session_id,
+        Some(fluid_ids.RangeIds(
+          first_ids.first_gen_count,
+          first_ids.count + second_ids.count,
+          first_ids.requested_cluster_size,
+          list.append(first_ids.local_id_ranges, second_ids.local_id_ranges),
+        )),
+      )
+    _, _ -> first
+  }
+}
+
+fn restamp_coalesced_in_flight(entry: InFlight, csn: Int) -> InFlight {
+  case entry {
+    InFlightBatch(
+      client_id,
+      _,
+      reference_sequence_number,
+      grouped,
+      batch_id,
+      items,
+      pending,
+    ) ->
+      InFlightBatch(
+        client_id,
+        csn,
+        reference_sequence_number,
+        grouped,
+        batch_id,
+        items,
+        list.map(pending, restamp_coalesced_in_flight(_, csn)),
+      )
+    InFlightOperation(client_id, _, address, operation, meta) ->
+      InFlightOperation(client_id, csn, address, operation, meta)
+    InFlightAttach(client_id, _, address, snapshot) ->
+      InFlightAttach(client_id, csn, address, snapshot)
   }
 }
 
@@ -8958,6 +9209,19 @@ fn has_datastore_attach(messages: List(fluid_container.MessageKind)) -> Bool {
   })
 }
 
+fn has_tree_attach(messages: List(fluid_container.MessageKind)) -> Bool {
+  list.any(messages, fn(message) {
+    case message {
+      fluid_container.ChannelAttach(
+        _,
+        "https://graph.microsoft.com/types/tree",
+        _,
+      ) -> True
+      _ -> False
+    }
+  })
+}
+
 fn stamp_attached(
   core: Core,
   address: String,
@@ -8973,8 +9237,20 @@ fn stamp_attached(
     [] ->
       stamp_attached_operation(core, address, state, events, operation, meta)
     prepared -> {
-      case has_datastore_attach(prepared) {
-        True ->
+      let datastore_attach = has_datastore_attach(prepared)
+      case datastore_attach || has_tree_attach(prepared) {
+        True -> {
+          let #(core, prepared) = case datastore_attach, core.compressor {
+            False, Some(compressor) -> {
+              let #(compressor, range) =
+                fluid_ids.take_creation_range(compressor)
+              #(Core(..core, compressor: Some(compressor)), case range {
+                Some(range) -> [fluid_container.IdAllocation(range), ..prepared]
+                None -> prepared
+              })
+            }
+            _, _ -> #(core, prepared)
+          }
           stamp_attachment_batch(
             core,
             prepared,
@@ -8983,7 +9259,9 @@ fn stamp_attached(
             events,
             operation,
             meta,
+            datastore_attach,
           )
+        }
         False -> {
           use #(core, attachments) <- result.try(
             stamp_prepared_channel_attaches(
@@ -9223,6 +9501,7 @@ fn stamp_attachment_batch(
   events: List(#(String, ChannelEvent)),
   operation: channel.ChannelOperation,
   meta: channel.LocalOperationMeta,
+  datastore_attach: Bool,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
@@ -9240,15 +9519,17 @@ fn stamp_attachment_batch(
       fluid_container.ChannelOperation(route, encoded_operation),
     ])
   let csn = core.next_client_sequence_number
-  let batch_id = case prepared {
-    [
-      fluid_container.IdAllocation(fluid_ids.CreationRange(
-        ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
-        ..,
-      )),
-      ..
-    ] -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
-    _ -> None
+  let batch_id = case datastore_attach, prepared {
+    True,
+      [
+        fluid_container.IdAllocation(fluid_ids.CreationRange(
+          ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+          ..,
+        )),
+        ..
+      ]
+    -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+    _, _ -> None
   }
   let metadata =
     Some(
@@ -9294,18 +9575,9 @@ fn stamp_attachment_batch(
       contents,
       metadata,
     )
-  let placeholders =
-    list.map(prepared, fn(kind) {
-      InFlightBatch(
-        core.client_id,
-        csn,
-        core.last_seen_sequence_number,
-        False,
-        None,
-        [kind],
-        [],
-      )
-    })
+  use placeholders <- result.try(
+    list.try_map(prepared, pending_tree_batch_item(core, csn, _)),
+  )
   let pending =
     InFlightBatch(
       core.client_id,
@@ -10044,6 +10316,17 @@ fn put_attached_channel(
   state: ChannelState,
 ) -> Core {
   Core(..core, channels: dict.insert(core.channels, address, state))
+}
+
+fn put_tree_channel(
+  core: Core,
+  address: String,
+  state: tree_kernel.TreeState,
+) -> Core {
+  case dict.has_key(core.detached, address) {
+    True -> put_detached_channel(core, address, channel.TreeState(state))
+    False -> put_attached_channel(core, address, channel.TreeState(state))
+  }
 }
 
 fn put_detached_channel(

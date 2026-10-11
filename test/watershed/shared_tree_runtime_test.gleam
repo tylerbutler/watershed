@@ -97,7 +97,11 @@ fn upgraded_view(
   address: String,
   field_kind: String,
 ) -> tree_schema.ViewSchema {
-  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  let located = case dict.get(core.channels, address) {
+    Ok(state) -> Ok(state)
+    Error(Nil) -> dict.get(core.detached, address)
+  }
+  let assert Ok(channel.TreeState(state)) = located
   let current =
     tree_kernel.stored_schema(state)
     |> tree_schema.stored_to_json
@@ -118,7 +122,11 @@ fn optional_title_view(
   core: runtime_core.Core,
   address: String,
 ) -> tree_schema.ViewSchema {
-  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  let located = case dict.get(core.channels, address) {
+    Ok(state) -> Ok(state)
+    Error(Nil) -> dict.get(core.detached, address)
+  }
+  let assert Ok(channel.TreeState(state)) = located
   tree_kernel.stored_schema(state)
   |> tree_schema.stored_to_json
   |> json.to_string
@@ -138,6 +146,33 @@ fn transaction_core() -> #(runtime_core.Core, String, tree_schema.ViewSchema) {
     tree_kernel.stored_schema(state)
     |> tree_schema.stored_to_json
     |> tree_schema.view_from_json
+    |> expect.to_be_ok
+  #(core, address, view)
+}
+
+fn detached_map_core() -> #(runtime_core.Core, String, tree_schema.ViewSchema) {
+  let core = map_core()
+  let assert Ok(channel.TreeState(source)) = dict.get(core.channels, "A/_C")
+  let stored = tree_kernel.stored_schema(source)
+  let view =
+    stored
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+    |> expect.to_be_ok
+  let assert Ok(Some(initial)) = tree_kernel.read(source, [])
+  let assert Some(compressor) = core.compressor
+  let assert Ok(#(compressor, generated)) = fluid_ids.generate(compressor)
+  let assert Ok(view_id) = fluid_ids.decompress(compressor, generated)
+  let core = runtime_core.Core(..core, compressor: Some(compressor))
+  let address = "A/_D"
+  let core =
+    runtime_core.create_detached_tree(
+      core,
+      address,
+      stored,
+      Some(initial),
+      view_id,
+    )
     |> expect.to_be_ok
   #(core, address, view)
 }
@@ -317,6 +352,88 @@ pub fn shared_tree_runtime_retain_and_revert_commit_test() {
   let disposed =
     runtime_core.dispose_tree_revertible(reverted, address, id)
     |> expect.to_be_ok
+  runtime_core.tree_revertible_is_valid(disposed, address, id)
+  |> expect.to_be_false
+}
+
+pub fn shared_tree_runtime_detached_upgrade_installs_authored_state_test() {
+  let #(core, address, _) = detached_map_core()
+  let assert Ok(channel.TreeState(before)) = dict.get(core.detached, address)
+  let optional =
+    tree_kernel.stored_schema(before)
+    |> tree_schema.stored_to_json
+    |> json.to_string
+    |> string.replace(
+      "\"items\":{\"kind\":\"Value\"",
+      "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"items\":{\"kind\":\"Value\"",
+    )
+    |> tree_schema.view_from_string
+    |> expect.to_be_ok
+  let before_compressor = core.compressor
+  tree_schema.can_view(tree_kernel.stored_schema(before), optional)
+  |> expect.to_be_error
+
+  let assert Ok(#(upgraded, events, [])) =
+    runtime_core.submit_tree_upgrade(core, address, optional)
+
+  events |> list.length |> expect.to_equal(2)
+  upgraded.compressor |> expect.to_not_equal(before_compressor)
+  dict.has_key(upgraded.channels, address) |> expect.to_be_false
+  let assert Ok(channel.TreeState(state)) = dict.get(upgraded.detached, address)
+  tree_schema.can_view(tree_kernel.stored_schema(state), optional)
+  |> expect.to_be_ok
+  runtime_core.tree_read_view(upgraded, address, optional, ["score"])
+  |> expect.to_equal(Ok(None))
+}
+
+pub fn shared_tree_runtime_detached_revertible_uses_one_authoritative_state_test() {
+  let #(core, address, _) = detached_map_core()
+  let assert Ok(#(first, first_events, [])) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "title", tree_types.StringValue("first")),
+    ])
+  let _ = applied_revision(first_events)
+  let assert Ok(#(second, second_events, [])) =
+    runtime_core.submit_tree_edits(first, address, [
+      tree_types.MapSet(["items"], "title", tree_types.StringValue("second")),
+    ])
+  let revision = applied_revision(second_events)
+  let assert Ok(#(retained, id)) =
+    runtime_core.retain_tree_revertible(
+      second,
+      address,
+      revision,
+      tree_types.DefaultCommit,
+    )
+  dict.has_key(retained.channels, address) |> expect.to_be_false
+  dict.has_key(retained.detached, address) |> expect.to_be_true
+  runtime_core.tree_map_get(retained, address, ["items"], "title")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("second"))))
+
+  let assert Ok(reference) = handle.reference_from_path("/" <> address)
+  let assert Ok(#(attached, _, [_])) =
+    runtime_core.set(
+      retained,
+      "A/root",
+      "tree",
+      handle.reference_to_json(reference),
+    )
+  dict.has_key(attached.channels, address) |> expect.to_be_true
+  dict.has_key(attached.detached, address) |> expect.to_be_false
+  runtime_core.tree_map_get(attached, address, ["items"], "title")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("second"))))
+
+  let #(reverted, _, _) = case runtime_core.revert_tree(attached, address, id) {
+    Ok(value) -> value
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  runtime_core.tree_map_get(reverted, address, ["items"], "title")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("first"))))
+  let disposed =
+    runtime_core.dispose_tree_revertible(reverted, address, id)
+    |> expect.to_be_ok
+  dict.has_key(disposed.channels, address) |> expect.to_be_true
+  dict.has_key(disposed.detached, address) |> expect.to_be_false
   runtime_core.tree_revertible_is_valid(disposed, address, id)
   |> expect.to_be_false
 }
@@ -1918,7 +2035,8 @@ pub fn shared_tree_runtime_alias_dependencies_attach_actual_route_test() -> Nil 
       "child",
       handle.encode_handle("root/child"),
     )
-  let assert Ok(batch) = fluid_container.decode(attach.contents, None)
+  let assert Ok(batch) =
+    fluid_container.decode(attach.contents, attach.metadata)
   let assert [
     fluid_container.ContainerMessage(
       fluid_container.ChannelAttach(fluid_container.Route("A", "child"), _, _),
@@ -2248,7 +2366,8 @@ pub fn shared_tree_runtime_relative_dependencies_stay_in_datastore_test() -> Nil
     ])
   let assert Ok(#(core, _, [attach, write])) =
     runtime_core.set(core, "B/root", "child", marker)
-  let assert Ok(batch) = fluid_container.decode(attach.contents, None)
+  let assert Ok(batch) =
+    fluid_container.decode(attach.contents, attach.metadata)
   let assert [
     fluid_container.ContainerMessage(
       fluid_container.ChannelAttach(fluid_container.Route("B", "child"), _, _),
@@ -2264,7 +2383,8 @@ pub fn shared_tree_runtime_relative_dependencies_stay_in_datastore_test() -> Nil
       seed,
     )
   let assert runtime_core.Complete(peer) = peer
-  let assert Ok(write_batch) = fluid_container.decode(write.contents, None)
+  let assert Ok(write_batch) =
+    fluid_container.decode(write.contents, write.metadata)
   let assert [write_message] = write_batch.messages
   let assert Ok(group) =
     fluid_container.encode_batch(fluid_container.DecodedBatch(
@@ -4057,13 +4177,12 @@ pub fn shared_tree_runtime_second_merge_publishes_without_allocation_test() {
     |> expect.to_be_ok
   let assert Ok(second_batch) =
     fluid_container.decode(second.contents, second.metadata)
-  let assert [
-    fluid_container.ContainerMessage(
-      fluid_container.ChannelOperation(_, _),
-      0,
-      _,
-    ),
-  ] = second_batch.messages
+  second_batch.messages |> list.length |> expect.to_equal(1)
+  let assert Ok(message) = list.first(second_batch.messages)
+  case message.kind {
+    fluid_container.ChannelOperation(_, _) -> Nil
+    other -> panic as { "second merge sent " <> string.inspect(other) }
+  }
   let assert [
     #(
       _,
@@ -4146,12 +4265,7 @@ pub fn shared_tree_runtime_second_merge_publishes_without_allocation_test() {
     ),
   ] = regrouped_batch.messages
   let assert [
-    runtime_core.InFlightBatch(
-      grouped: True,
-      batch_id: Some(_),
-      items: [_, _],
-      ..,
-    ),
+    runtime_core.InFlightBatch(grouped: True, batch_id: None, items: [_, _], ..),
   ] = regrouped.in_flight
   let #(regrouped, _) =
     runtime_core.handle_sequenced(

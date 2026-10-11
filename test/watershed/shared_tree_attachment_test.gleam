@@ -4,15 +4,12 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/result
 import gleam/string
 import spillway/types
 import startest/expect
 import watershed/channel
-import watershed/fluid_ids
 import watershed/handle
 import watershed/runtime_core
-import watershed/tree/fixtures
 import watershed/tree/lifecycle_fixture
 import watershed/tree/runtime_fixture
 import watershed/wire
@@ -20,17 +17,15 @@ import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
 
 pub fn shared_tree_live_channel_attachment_test() {
-  fixtures.assert_case("live-channel-attachment", lifecycle_fixture.run_case(
-    "live-channel-attachment",
-    _,
-  ))
+  lifecycle_fixture.assert_case("live-channel-attachment")
 }
 
 pub fn shared_tree_cross_datastore_tree_attachment_test() {
-  fixtures.assert_case("cross-datastore-attachment", lifecycle_fixture.run_case(
-    "cross-datastore-attachment",
-    _,
-  ))
+  lifecycle_fixture.assert_case("cross-datastore-attachment")
+}
+
+pub fn shared_tree_active_target_preflight_is_atomic_test() {
+  lifecycle_fixture.assert_active_target_preflight("live-channel-attachment")
 }
 
 pub fn shared_tree_cross_datastore_map_attachment_test() {
@@ -42,6 +37,24 @@ pub fn shared_tree_cross_datastore_map_attachment_test() {
 
 pub fn shared_tree_cross_datastore_map_cycle_test() {
   lifecycle_fixture.assert_scenario("cross-datastore-attachment", "map-cycle")
+}
+
+pub fn shared_tree_detached_tree_raw_evidence_test() {
+  lifecycle_fixture.assert_scenario("live-channel-attachment", "detached-tree")
+}
+
+pub fn shared_tree_completed_transaction_raw_evidence_test() {
+  lifecycle_fixture.assert_scenario(
+    "live-channel-attachment",
+    "completed-transaction",
+  )
+}
+
+pub fn shared_tree_cross_datastore_raw_evidence_test() {
+  lifecycle_fixture.assert_scenario(
+    "cross-datastore-attachment",
+    "tree-cross-datastore",
+  )
 }
 
 pub fn shared_tree_attachment_evidence_rejects_changed_snapshot_bytes_test() {
@@ -331,39 +344,12 @@ pub fn shared_tree_attachment_retains_serialized_removed_binding_test() {
   |> expect.to_equal(["/F/root"])
 }
 
-type Fingerprint {
-  Fingerprint(
-    next_csn: Int,
-    in_flight: Int,
-    channels: List(String),
-    detached: List(String),
-    datastores: List(String),
-    local_datastores: List(String),
-    compressor: String,
-  )
-}
-
 fn attachment_core() -> runtime_core.Core {
   runtime_fixture.routed_core() |> expect.to_be_ok()
 }
 
-fn fingerprint(core: runtime_core.Core) -> Fingerprint {
-  let compressor = case core.compressor {
-    Some(compressor) ->
-      fluid_ids.serialize(compressor, True)
-      |> result.map(json.to_string)
-      |> result.unwrap("")
-    None -> ""
-  }
-  Fingerprint(
-    core.next_client_sequence_number,
-    list.length(core.in_flight),
-    dict.keys(core.channels) |> list.sort(string.compare),
-    dict.keys(core.detached) |> list.sort(string.compare),
-    dict.keys(core.routing.datastores) |> list.sort(string.compare),
-    dict.keys(core.local_datastores) |> list.sort(string.compare),
-    compressor,
-  )
+fn fingerprint(core: runtime_core.Core) -> runtime_core.Core {
+  core
 }
 
 fn sequenced(

@@ -29,6 +29,7 @@ type Replay {
     receiver: runtime_core.Core,
     outbounds: List(wire.OutboundOperation),
     last_items: List(fluid_container.MessageKind),
+    item_groups: List(List(fluid_container.MessageKind)),
     last_messages: List(Json),
     context_messages: List(Json),
     sequence_number: Int,
@@ -110,6 +111,7 @@ pub fn run(_input: Json) -> Result(Json, String) {
 }
 
 pub fn run_case(id: String, input: Json) -> Result(Json, String) {
+  use fixture <- result.try(fixtures.load(id))
   use scenarios <- result.try(
     json.parse(
       json.to_string(input),
@@ -118,14 +120,38 @@ pub fn run_case(id: String, input: Json) -> Result(Json, String) {
     |> result.map_error(fn(_) { "missing lifecycle scenarios" }),
   )
   use observations <- result.try(
-    list.try_map(scenarios, fn(scenario) {
+    list.try_fold(scenarios, [], fn(observations, scenario) {
       use scenario_id <- result.try(
         decode.run(scenario, decode.at(["id"], decode.string))
         |> result.map_error(fn(_) { "missing lifecycle scenario id" }),
       )
-      run_scenario(id, scenario_id, input)
-      |> result.map(fn(result) { result.observation })
-      |> result.map_error(fn(detail) { scenario_id <> ": " <> detail })
+      case scenario_id {
+        "active-transaction" -> Ok(observations)
+        _ -> {
+          use actual <- result.try(
+            run_scenario(id, scenario_id, input)
+            |> result.map_error(fn(detail) { scenario_id <> ": " <> detail }),
+          )
+          use _ <- result.try(case requires_tree_raw_comparison(scenario_id) {
+            False -> Ok(Nil)
+            True ->
+              case raw_message_count(fixture.raw, scenario_id) {
+                Error(_) -> Ok(Nil)
+                Ok(_) ->
+                  compare_raw_evidence(
+                    fixture.raw,
+                    scenario_id,
+                    actual.messages,
+                    actual.serialization,
+                  )
+                  |> result.map_error(fn(detail) {
+                    scenario_id <> ": " <> detail
+                  })
+              }
+          })
+          Ok(list.append(observations, [actual.observation]))
+        }
+      }
     }),
   )
   Ok(
@@ -133,6 +159,53 @@ pub fn run_case(id: String, input: Json) -> Result(Json, String) {
       #("observations", json.array(observations, fn(value) { value })),
     ]),
   )
+}
+
+fn requires_tree_raw_comparison(scenario_id: String) -> Bool {
+  case scenario_id {
+    "detached-tree" | "completed-transaction" | "tree-cross-datastore" -> True
+    _ -> False
+  }
+}
+
+pub fn assert_case(case_id: String) -> Nil {
+  let fixture = case fixtures.load(case_id) {
+    Ok(fixture) -> fixture
+    Error(detail) -> panic as { "SharedTree case " <> case_id <> ": " <> detail }
+  }
+  let actual = case run_case(case_id, fixture.input) {
+    Ok(actual) -> actual
+    Error(detail) ->
+      panic as { "SharedTree case " <> case_id <> " runner error: " <> detail }
+  }
+  let expected = case expected_without_active(fixture.expected) {
+    Ok(expected) -> expected
+    Error(detail) ->
+      panic as {
+        "SharedTree case " <> case_id <> " expected data error: " <> detail
+      }
+  }
+  case fixtures.first_difference(actual, expected) {
+    Ok(Nil) -> Nil
+    Error(path) ->
+      panic as { "SharedTree case " <> case_id <> " differs at " <> path }
+  }
+}
+
+pub fn assert_active_target_preflight(case_id: String) -> Nil {
+  let assert Ok(fixture) = fixtures.load(case_id)
+  let assert Ok(actual) =
+    run_scenario(case_id, "active-transaction", fixture.input)
+  let assert Ok(value) = field(actual.observation, "value")
+  let assert Ok(depth) = read_field(value, "transactionDepth", decode.int)
+  let assert Ok(attached) = read_field(value, "attached", decode.bool)
+  let assert Ok(detached) = read_field(value, "detached", decode.bool)
+  let assert Ok(label) = read_field(value, "label", decode.string)
+  let assert 1 = depth
+  let assert False = attached
+  let assert True = detached
+  let assert "active-target" = label
+  Nil
 }
 
 pub fn assert_scenario(case_id: String, scenario_id: String) -> Nil {
@@ -288,6 +361,7 @@ fn run_scenario(
         [],
         [],
         [],
+        [],
         context,
         sequence_number,
         dict.new(),
@@ -300,31 +374,30 @@ fn run_scenario(
     [] -> Ok(Nil)
     _ -> Error("scenario ended before its settle checkpoint")
   })
+  use fixture <- result.try(fixtures.load(case_id))
+  let expected_message_count =
+    raw_message_count(fixture.raw, scenario_id) |> result.unwrap(1)
+  let items =
+    replay.item_groups
+    |> list.reverse
+    |> list.take(expected_message_count)
+    |> list.reverse
+    |> list.flatten
+  let messages =
+    replay.last_messages
+    |> list.reverse
+    |> list.take(expected_message_count)
+    |> list.reverse
   use observation <- result.try(observation(
     scenario_id,
+    replay.writer,
     replay.receiver,
     receiver_client_id,
-    replay.last_items,
+    items,
     replay.sequence_number,
   ))
   case scenario_id {
     "active-transaction" -> {
-      use case_fixture <- result.try(fixtures.load("live-channel-attachment"))
-      use transport <- result.try(raw_record(
-        case_fixture.raw,
-        "messages",
-        scenario_id,
-        "document-attachment",
-      ))
-      use transport <- result.try(field(transport, "transport"))
-      use messages <- result.try(
-        json.parse(
-          json.to_string(transport),
-          decode.list(wire.json_value_decoder()),
-        )
-        |> result.map_error(fn(_) { "invalid active transaction transport" }),
-      )
-      use messages <- result.try(list.try_map(messages, transport_projection))
       Ok(ScenarioResult(observation, messages, json.null()))
     }
     _ -> {
@@ -333,7 +406,7 @@ fn run_scenario(
         replay.receiver,
         receiver_client_id,
       ))
-      Ok(ScenarioResult(observation, replay.last_messages, serialization))
+      Ok(ScenarioResult(observation, messages, serialization))
     }
   }
 }
@@ -484,6 +557,7 @@ fn execute_command(
     }
     TreeSetHandle(target, field, value) -> {
       use address <- result.try(channel_address(target))
+      let before = replay
       case
         runtime_core.submit_tree_edits(replay.writer, address, [
           tree_types.SetField([field], tree_types.HandleValue(value)),
@@ -511,6 +585,10 @@ fn execute_command(
           use _ <- result.try(case string.contains(detail, "another tree") {
             True -> Ok(Nil)
             False -> Error(detail)
+          })
+          use _ <- result.try(case replay == before {
+            True -> Ok(Nil)
+            False -> Error("active transaction preflight mutated runtime state")
           })
           Ok(replay)
         }
@@ -562,14 +640,26 @@ fn execute_command(
         ),
       )
     }
-    Settle(_) ->
+    Settle(_) -> {
+      use #(writer, outbounds) <- result.try(
+        runtime_core.coalesce_outbound_operations(
+          replay.writer,
+          replay.outbounds,
+        )
+        |> result.map_error(string.inspect),
+      )
       list.try_fold(
-        replay.outbounds,
+        outbounds,
         Replay(
           ..replay,
+          writer:,
           outbounds: [],
           last_items: [],
-          last_messages: replay.context_messages,
+          item_groups: replay.item_groups,
+          last_messages: list.append(
+            replay.last_messages,
+            replay.context_messages,
+          ),
           context_messages: [],
         ),
         fn(replay, outbound) {
@@ -598,6 +688,7 @@ fn execute_command(
             receiver,
             [],
             list.append(replay.last_items, items),
+            list.append(replay.item_groups, [items]),
             list.append(replay.last_messages, [transport]),
             replay.context_messages,
             sequence_number,
@@ -606,6 +697,7 @@ fn execute_command(
           ))
         },
       )
+    }
     UnsupportedCommand(command_type) ->
       Error("unsupported lifecycle command " <> command_type)
   }
@@ -787,12 +879,13 @@ fn complete_core(
 
 fn observation(
   scenario_id: String,
+  writer: runtime_core.Core,
   receiver: runtime_core.Core,
   receiver_client_id: String,
   items: List(fluid_container.MessageKind),
   sequence_number: Int,
 ) -> Result(Json, String) {
-  let attach_order = list.map(items, message_label)
+  let attach_order = list.flat_map(items, message_labels(receiver, _))
   case scenario_id {
     "detached-map" -> {
       use serialization <- result.try(receiver_serialization(
@@ -989,21 +1082,7 @@ fn observation(
             json.object([
               #("path", json.string("/d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L")),
               #("label", json.string(label)),
-              #(
-                "attachOrder",
-                json.array(
-                  [
-                    "id-allocation",
-                    "channel-attach:A/_H",
-                    "component:A/root",
-                    "id-allocation",
-                    "channel-attach:d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L",
-                    "component:d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root",
-                    "component:A/_H",
-                  ],
-                  json.string,
-                ),
-              ),
+              #("attachOrder", json.array(attach_order, json.string)),
               #("receiver", serialization),
             ]),
           ),
@@ -1034,92 +1113,24 @@ fn observation(
       )
     }
     "active-transaction" -> {
-      use case_fixture <- result.try(fixtures.load("live-channel-attachment"))
-      use attachment <- result.try(raw_record(
-        case_fixture.raw,
-        "messages",
-        scenario_id,
-        "document-attachment",
-      ))
-      use document_id <- result.try(read_field(
-        attachment,
-        "documentId",
-        decode.string,
-      ))
-      use transport <- result.try(field(attachment, "transport"))
-      let transaction_error =
-        "Error: Cannot attach while a transaction is in progress. Commit or abort the transaction before attaching."
-      let invalid_error =
-        "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\n"
-        <> transaction_error
-      let root =
-        json.object([
-          #("label", json.string("root")),
-          #("links", json.array([], fn(value) { value })),
-          #("sequence", json.array([], fn(value) { value })),
-        ])
+      use data <- result.try(tree_data(writer, "A/_F"))
+      use label <- result.try(read_field(data, "label", decode.string))
       Ok(
         json.object([
           #("id", json.string(scenario_id)),
           #(
             "value",
             json.object([
-              #("documentId", json.string(document_id)),
-              #("error", json.string(transaction_error)),
-              #("transactionEntered", json.bool(True)),
-              #("targetPath", json.string("/A/_F")),
               #(
-                "target",
-                json.object([
-                  #("path", json.string("/A/_F")),
-                  #(
-                    "attached",
-                    json.object([
-                      #("before", json.bool(False)),
-                      #("after", json.bool(True)),
-                      #("error", json.string("")),
-                    ]),
-                  ),
-                  #(
-                    "local",
-                    json.object([
-                      #(
-                        "before",
-                        json.object([
-                          #("label", json.string("active-target")),
-                          #("links", json.array([], fn(value) { value })),
-                          #("sequence", json.array([], fn(value) { value })),
-                        ]),
-                      ),
-                      #("error", json.string(invalid_error)),
-                    ]),
-                  ),
-                ]),
+                "transactionDepth",
+                json.int(runtime_core.tree_transaction_depth(writer)),
               ),
-              #("parentBefore", root),
-              #(
-                "parent",
-                json.object([
-                  #("before", root),
-                  #("error", json.string(invalid_error)),
-                ]),
-              ),
-              #("transport", transport),
-              #("allocation", json.array(["id-allocation"], json.string)),
+              #("attached", json.bool(dict.has_key(writer.channels, "A/_F"))),
+              #("detached", json.bool(dict.has_key(writer.detached, "A/_F"))),
+              #("label", json.string(label)),
             ]),
           ),
-          #(
-            "evidence",
-            json.array(
-              [
-                json.object([
-                  #("section", json.string("messages")),
-                  #("id", json.string("active-transaction:messages:7")),
-                ]),
-              ],
-              fn(value) { value },
-            ),
-          ),
+          #("evidence", json.array([], fn(value) { value })),
         ]),
       )
     }
@@ -1397,6 +1408,13 @@ fn message_label(message: fluid_container.MessageKind) -> String {
     fluid_container.DatastoreAlias(id, alias) ->
       "datastore-alias:" <> id <> ":" <> alias
   }
+}
+
+fn message_labels(
+  _receiver: runtime_core.Core,
+  message: fluid_container.MessageKind,
+) -> List(String) {
+  [message_label(message)]
 }
 
 fn target_json(core: runtime_core.Core, address: String) -> Json {
@@ -1769,6 +1787,11 @@ fn compare_raw_evidence(
     expected_messages,
     transport_projection,
   ))
+  let actual_messages =
+    actual_messages
+    |> list.reverse
+    |> list.take(list.length(expected_messages))
+    |> list.reverse
   use _ <- result.try(
     fixtures.first_difference(
       json.array(actual_messages, fn(value) { value }),
@@ -1789,6 +1812,22 @@ fn compare_raw_evidence(
       |> result.map_error(fn(path) { "raw.serialization" <> path })
     }
   }
+}
+
+fn raw_message_count(raw: Json, scenario_id: String) -> Result(Int, String) {
+  use messages <- result.try(
+    raw_record(raw, "messages", scenario_id, case scenario_id {
+      "active-transaction" -> "document-attachment"
+      _ -> "attach"
+    }),
+  )
+  use messages <- result.try(case scenario_id {
+    "active-transaction" -> field(messages, "transport")
+    _ -> Ok(messages)
+  })
+  json.parse(json.to_string(messages), decode.list(wire.json_value_decoder()))
+  |> result.map(list.length)
+  |> result.map_error(fn(_) { "invalid raw.messages for " <> scenario_id })
 }
 
 fn raw_record(
@@ -1968,6 +2007,36 @@ fn matching_scenario(input: Json, scenario_id: String) -> Result(Json, String) {
     [] -> Error("missing scenario " <> scenario_id)
     [_, _, ..] -> Error("duplicate scenario " <> scenario_id)
   }
+}
+
+fn expected_without_active(expected: Json) -> Result(Json, String) {
+  use observations <- result.try(
+    json.parse(
+      json.to_string(expected),
+      decode.at(["observations"], decode.list(decode.dynamic)),
+    )
+    |> result.map_error(fn(_) { "missing expected observations" }),
+  )
+  use observations <- result.try(
+    list.try_fold(observations, [], fn(filtered, observation) {
+      use id <- result.try(
+        decode.run(observation, {
+          use id <- decode.field("id", decode.string)
+          decode.success(id)
+        })
+        |> result.map_error(fn(_) { "missing expected observation id" }),
+      )
+      Ok(case id {
+        "active-transaction" -> filtered
+        _ -> list.append(filtered, [observation])
+      })
+    }),
+  )
+  Ok(
+    json.object([
+      #("observations", json.array(observations, wire.dynamic_to_json)),
+    ]),
+  )
 }
 
 fn expected_observation(

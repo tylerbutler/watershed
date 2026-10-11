@@ -179,7 +179,23 @@ pub fn shared_tree_creation_round_trip_and_first_edit_test() {
     )
   runtime_core.root_channel_address(core) |> expect.to_equal(Ok("A/root"))
   runtime_core.tree_read(core, "A/_C", [])
-  |> expect.to_equal(Ok(Some(root())))
+  |> expect.to_equal(
+    Ok(
+      Some(
+        types.ObjectValue("creation.Root", [
+          #("enabled", types.BooleanValue(True)),
+          #("marker", types.NullValue),
+          #(
+            "point",
+            types.ObjectValue("creation.Point", [
+              #("x", types.NumberValue(42.0)),
+            ]),
+          ),
+          #("title", types.StringValue("Native")),
+        ]),
+      ),
+    ),
+  )
   runtime_core.tree_read(core, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(types.StringValue("Native"))))
   runtime_core.tree_read(core, "A/_C", ["note"])

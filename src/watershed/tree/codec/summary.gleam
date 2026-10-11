@@ -10,7 +10,7 @@ import gleam/result
 import gleam/string
 import watershed/fluid_ids
 import watershed/json_ot.{
-  type JsonValue, NInt, VArray, VNumber, VObject, VString,
+  type JsonValue, NInt, VArray, VNumber, VObject, VString, decoder, to_json,
 }
 import watershed/tree/codec
 import watershed/tree/codec/field_batch
@@ -151,6 +151,7 @@ pub fn decode(
     "SchemaString",
     "summary.indexes.Schema.SchemaString",
   ))
+  use schema_raw <- result.try(canonical_schema_string(schema_raw))
   use stored <- result.try(schema.stored_from_string(schema_raw))
   use forest_tree <- result.try(required_tree(
     indexes,
@@ -230,6 +231,7 @@ pub fn encode(
   ))
   use detached_json <- result.try(encode_detached(detached, session, context))
   use history_json <- result.try(encode_edit_manager(history, context))
+  use schema_string <- result.try(schema_summary_string(stored))
   Ok(
     fluid_summary.SummaryTree([
       #(".metadata", blob("{\"version\":2}")),
@@ -240,14 +242,7 @@ pub fn encode(
             "EditManager",
             codec_tree(2, "String", json.to_string(history_json)),
           ),
-          #(
-            "Schema",
-            codec_tree(
-              2,
-              "SchemaString",
-              schema.stored_to_json(stored) |> json.to_string,
-            ),
-          ),
+          #("Schema", codec_tree(2, "SchemaString", schema_string)),
           #("Forest", codec_tree(3, "contents", json.to_string(forest_json))),
           #(
             "DetachedFieldIndex",
@@ -261,6 +256,52 @@ pub fn encode(
       ),
     ]),
   )
+}
+
+fn schema_summary_string(
+  stored: schema.StoredSchema,
+) -> Result(String, TreeError) {
+  schema.stored_to_json(stored)
+  |> json.to_string
+  |> canonical_schema_string
+}
+
+fn canonical_schema_string(raw: String) -> Result(String, TreeError) {
+  use parsed <- result.try(
+    raw
+    |> json.parse(decoder())
+    |> result.map_error(fn(_) {
+      CorruptData("summary.indexes.Schema.SchemaString", "invalid schema JSON")
+    }),
+  )
+  use members <- result.try(case parsed {
+    VObject(members) -> Ok(members)
+    _ ->
+      Error(CorruptData(
+        "summary.indexes.Schema.SchemaString",
+        "schema JSON is not an object",
+      ))
+  })
+  use version <- result.try(schema_member(members, "version"))
+  use nodes <- result.try(schema_member(members, "nodes"))
+  use root <- result.try(schema_member(members, "root"))
+  VObject([version, nodes, root])
+  |> to_json
+  |> json.to_string
+  |> Ok
+}
+
+fn schema_member(
+  members: List(#(String, JsonValue)),
+  name: String,
+) -> Result(#(String, JsonValue), TreeError) {
+  list.find(members, fn(member) { member.0 == name })
+  |> result.map_error(fn(_) {
+    CorruptData(
+      "summary.indexes.Schema.SchemaString",
+      "schema JSON has no " <> name,
+    )
+  })
 }
 
 /// Decode Forest V2 content from JSON.
@@ -360,9 +401,9 @@ pub fn encode_forest_with_context(
     list.map(fields, fn(field) { field.0 }),
     "forest.keys",
   ))
-  use encoded <- result.try(field_batch.encode_with_context(
+  use encoded <- result.try(field_batch.encode_summary_with_context(
     list.map(fields, fn(field) { field.1 }),
-    Some(stored),
+    stored,
     field_batch.SummaryIds(compressor),
   ))
   Ok(
