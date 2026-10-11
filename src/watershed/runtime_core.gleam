@@ -59,6 +59,7 @@ import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/tree/branch as tree_branch
 import watershed/tree/change as tree_change
+import watershed/tree/codec as tree_codec
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
@@ -2082,12 +2083,11 @@ fn rebuild_pending_tree_item(
         |> result.map_error(ContainerOperationFailed),
       )
       case dict.get(core.channels, address) {
-        Ok(channel.TreeState(state)) -> {
-          use #(original, _) <- result.try(
-            tree_runtime.decode_message(
+        Ok(channel.TreeState(_)) -> {
+          use #(_, original_revision) <- result.try(
+            tree_codec.decode_message_identity(
               json.to_string(contents),
-              state,
-              compressor,
+              tree_codec.DecodeContext(tree_codec.Fluid310, compressor),
             )
             |> result.map_error(fn(error) {
               TreeOperationFailed(address, error)
@@ -2095,7 +2095,7 @@ fn rebuild_pending_tree_item(
           )
           use current <- result.try(
             list.find(remaining, fn(entry) {
-              entry.0 == address && entry.1.revision == original.revision
+              entry.0 == address && entry.1.revision == original_revision
             })
             |> result.map_error(fn(_) {
               AckMismatch("pending tree revision is missing after catch-up")
@@ -2113,7 +2113,7 @@ fn rebuild_pending_tree_item(
           )
           Ok(#(
             list.filter(remaining, fn(entry) {
-              entry.0 != address || entry.1.revision != original.revision
+              entry.0 != address || entry.1.revision != original_revision
             }),
             fluid_container.ChannelOperation(route, encoded),
             True,
@@ -2192,12 +2192,11 @@ fn resubmit_tree_batch(
             fluid_container.route_key(route)
             |> result.map_error(ContainerOperationFailed),
           )
-          use state <- result.try(tree_channel(core, address))
-          use #(original, _) <- result.try(
-            tree_runtime.decode_message(
+          use _ <- result.try(tree_channel(core, address))
+          use #(_, original_revision) <- result.try(
+            tree_codec.decode_message_identity(
               json.to_string(contents),
-              state,
-              compressor,
+              tree_codec.DecodeContext(tree_codec.Fluid310, compressor),
             )
             |> result.map_error(fn(error) {
               TreeOperationFailed(address, error)
@@ -2205,7 +2204,7 @@ fn resubmit_tree_batch(
           )
           use current <- result.try(
             list.find(remaining, fn(entry) {
-              entry.0 == address && entry.1.revision == original.revision
+              entry.0 == address && entry.1.revision == original_revision
             })
             |> result.map_error(fn(_) {
               AckMismatch("pending tree revision is missing after catch-up")
@@ -2223,7 +2222,7 @@ fn resubmit_tree_batch(
           )
           Ok(#(
             list.filter(remaining, fn(entry) {
-              entry.0 != address || entry.1.revision != original.revision
+              entry.0 != address || entry.1.revision != original_revision
             }),
             list.append(rebuilt, [
               fluid_container.ChannelOperation(route, encoded),

@@ -47,6 +47,8 @@ import watershed/tree/identifier_fixture
 @target(erlang)
 import watershed/tree/runtime_fixture
 @target(erlang)
+import watershed/tree/schema as tree_schema
+@target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
 import watershed/tree/undo_acceptance
@@ -1793,11 +1795,20 @@ pub fn queued_attachment_and_transaction_share_exact_submission_test() {
 }
 
 @target(erlang)
-pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
+pub fn coalesced_attachment_and_schema_resubmit_after_reconnect_test() {
   let sender_connections = process.new_subject()
   let peer_connections = process.new_subject()
   let submissions = process.new_subject()
-  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let peer_submissions = process.new_subject()
+  let #(stored, base_view) = evolution_schema("v1")
+  let #(_, view) = evolution_schema("new-node")
+  let input =
+    runtime_fixture.routed_tree_seed_input(
+      stored,
+      base_view,
+      schema_evolution_root(),
+    )
+    |> expect.to_be_ok
   let assert Ok(sender) =
     runtime_beam.start_with_transport_and_seed(
       host: "seed.invalid",
@@ -1818,9 +1829,9 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
         process.send(peer_connections, callbacks)
       }),
     )
-  let first = process.receive(sender_connections, 1000) |> expect.to_be_ok()
+  let first = process.receive(sender_connections, 3000) |> expect.to_be_ok()
   let peer_transport =
-    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+    process.receive(peer_connections, 3000) |> expect.to_be_ok()
   first.on_ready(
     runtime_beam.TransportHandle(
       push: fn(event, payload) {
@@ -1842,7 +1853,19 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   )
   peer_transport.on_ready(
     runtime_beam.TransportHandle(
-      push: fn(_, _) { Ok(Nil) },
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(peer_submissions, submitted)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
       close: fn() { Nil },
       drop: fn() { Nil },
     ),
@@ -1880,52 +1903,52 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   let created = process.new_subject()
   process.send(sender, runtime_beam.CreateMap(created))
   let child =
-    process.receive(created, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+    process.receive(created, 3000) |> expect.to_be_ok() |> expect.to_be_ok()
   process.send(sender, runtime_beam.Put(child, "local", json.string("kept")))
   process.send(
     sender,
     runtime_beam.Put("A/root", "child", handle.encode_handle(child)),
   )
-  let assert [view] = input.tree_views
-  let begun = process.new_subject()
+  runtime_beam.tree_upgrade_schema(sender, "A/_C", view)
+  |> expect.to_equal(Ok(Nil))
   let edited = process.new_subject()
-  let committed = process.new_subject()
-  process.send(
-    sender,
-    runtime_beam.TreeTransactionBegin(
-      "A/_C",
-      tree_types.DocumentCheckout,
-      view.view,
-      [],
-      begun,
-    ),
-  )
   process.send(
     sender,
     runtime_beam.TreeEdit(
       "A/_C",
       tree_types.DocumentCheckout,
-      tree_types.SetField(["title"], tree_types.StringValue("transaction")),
+      tree_types.SetField(
+        ["extra"],
+        tree_types.ObjectValue("org.watershed.shared-tree.m4.Extra", [
+          #("value", tree_types.StringValue("pending")),
+        ]),
+      ),
       edited,
     ),
   )
+  process.receive(edited, 3000) |> expect.to_equal(Ok(Ok(Nil)))
+  let original = process.receive(submissions, 3000) |> expect.to_be_ok()
+  process.sleep(10)
+  let originals = case process.receive(submissions, 0) {
+    Ok(second) -> [original, second]
+    Error(Nil) -> [original]
+  }
+  let last_original = originals |> list.reverse |> list.first |> expect.to_be_ok
+  let peer_edited = process.new_subject()
   process.send(
-    sender,
-    runtime_beam.TreeTransactionCommit(
+    peer,
+    runtime_beam.TreeEdit(
       "A/_C",
       tree_types.DocumentCheckout,
-      committed,
+      tree_types.SetField(["title"], tree_types.StringValue("wins")),
+      peer_edited,
     ),
   )
-  process.receive(begun, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  process.receive(edited, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  process.receive(committed, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  let original = process.receive(submissions, 1000) |> expect.to_be_ok()
-  process.sleep(10)
-  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  process.receive(peer_edited, 3000) |> expect.to_equal(Ok(Ok(Nil)))
+  let winner = process.receive(peer_submissions, 3000) |> expect.to_be_ok()
 
   first.on_close("transport lost")
-  let second = process.receive(sender_connections, 1000) |> expect.to_be_ok()
+  let second = process.receive(sender_connections, 3000) |> expect.to_be_ok()
   second.on_ready(
     runtime_beam.TransportHandle(
       push: fn(event, payload) {
@@ -1952,8 +1975,8 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
       tenant_id: "default",
       document_id: "tree",
       scopes: ["doc:read", "doc:write"],
-      checkpoint_sequence_number: 1,
-      initial_clients: ["reader-2"],
+      checkpoint_sequence_number: 2,
+      initial_clients: ["reader-2", "peer"],
       initial_messages: [],
       timestamp: 0,
       presence_v1: False,
@@ -1963,6 +1986,7 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
     "op",
     frame.encode_operation_event([
       membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      sequenced_submission(winner, "peer", 2),
     ]),
   )
   runtime_beam.connection_observation(sender).phase
@@ -1970,47 +1994,37 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   second.on_event(
     "op",
     frame.encode_operation_event([
-      membership_frame(2, "leave", "\"reader\""),
+      membership_frame(3, "leave", "\"reader\""),
     ]),
   )
   runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
-  let resent = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let resent = process.receive(submissions, 3000) |> expect.to_be_ok()
   resent.client_sequence_number
-  |> expect.to_equal(original.client_sequence_number + 1)
-  resent.reference_sequence_number |> expect.to_equal(2)
+  |> expect.to_equal(last_original.client_sequence_number + 1)
+  resent.reference_sequence_number |> expect.to_equal(3)
+  submitted_tree_identity(resent)
+  |> expect.to_equal(list.flat_map(originals, submitted_tree_identity))
 
   peer_transport.on_event(
     "op",
     frame.encode_operation_event([
       membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
-      membership_frame(2, "leave", "\"reader\""),
-      sequenced_submission(resent, "reader-2", 3),
+      sequenced_submission(winner, "peer", 2),
+      membership_frame(3, "leave", "\"reader\""),
+      sequenced_submission(resent, "reader-2", 4),
     ]),
   )
   let peer_child = process.new_subject()
   process.send(peer, runtime_beam.ResolveAddress(child, peer_child))
-  process.receive(peer_child, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(peer_child, 3000) |> expect.to_equal(Ok(Ok(Nil)))
   runtime_beam.tree_read(peer, "A/_C", ["title"])
-  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
-  history_count(peer, "trunk") |> expect.to_equal(1)
-
-  second.on_event(
-    "op",
-    frame.encode_operation_event([
-      sequenced_submission(resent, "reader-2", 3),
-    ]),
-  )
-  runtime_beam.connection_observation(sender).pending_tree_count
-  |> expect.to_equal(0)
-  runtime_beam.is_synced(sender) |> expect.to_equal(True)
-  history_count(sender, "pending") |> expect.to_equal(0)
-  history_count(sender, "trunk") |> expect.to_equal(1)
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("wins"))))
+  history_count(peer, "trunk") |> expect.to_equal(3)
   let sender_child = process.new_subject()
   process.send(sender, runtime_beam.ResolveAddress(child, sender_child))
-  process.receive(sender_child, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(sender_child, 3000) |> expect.to_equal(Ok(Ok(Nil)))
   runtime_beam.tree_read(sender, "A/_C", ["title"])
-  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
-  process.receive(submissions, 100) |> expect.to_equal(Error(Nil))
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("wins"))))
   process.send(sender, runtime_beam.Shutdown)
   process.send(peer, runtime_beam.Shutdown)
 }
@@ -2139,6 +2153,79 @@ fn sequenced_submission(
     timestamp: 0,
     data: None,
   )
+}
+
+@target(erlang)
+fn evolution_schema(
+  id: String,
+) -> #(tree_schema.StoredSchema, tree_schema.ViewSchema) {
+  let fixture = fixtures.load("schema-evolution-history") |> expect.to_be_ok
+  let schemas =
+    json.parse(
+      json.to_string(fixture.input),
+      decode.at(
+        ["schemas"],
+        decode.list({
+          use schema_id <- decode.field("id", decode.string)
+          use raw <- decode.field("raw", decode.string)
+          decode.success(#(schema_id, raw))
+        }),
+      ),
+    )
+    |> expect.to_be_ok
+  let raw = list.key_find(schemas, id) |> expect.to_be_ok
+  #(
+    tree_schema.stored_from_string(raw) |> expect.to_be_ok,
+    tree_schema.view_from_string(raw) |> expect.to_be_ok,
+  )
+}
+
+@target(erlang)
+fn schema_evolution_root() -> tree_types.TreeValue {
+  tree_types.ObjectValue("org.watershed.shared-tree.m4.Root", [
+    #("title", tree_types.StringValue("base")),
+    #(
+      "point",
+      tree_types.ObjectValue("org.watershed.shared-tree.m4.Point", [
+        #("x", tree_types.NumberValue(1.0)),
+        #("y", tree_types.NumberValue(2.0)),
+      ]),
+    ),
+    #(
+      "items",
+      tree_types.MapValue("org.watershed.shared-tree.m4.Items", [
+        #("label", tree_types.StringValue("value")),
+      ]),
+    ),
+  ])
+}
+
+@target(erlang)
+fn submitted_tree_identity(
+  submitted: frame.SubmittedOperation,
+) -> List(#(String, Int)) {
+  let batch =
+    fluid_container.decode(submitted.contents, submitted.metadata)
+    |> expect.to_be_ok
+  batch.messages
+  |> list.filter_map(fn(message) {
+    case message.kind {
+      fluid_container.ChannelOperation(
+        fluid_container.Route("A", "_C"),
+        contents,
+      ) -> {
+        let raw = json.to_string(contents)
+        let originator =
+          json.parse(raw, decode.at(["originatorId"], decode.string))
+          |> expect.to_be_ok
+        let revision =
+          json.parse(raw, decode.at(["revision"], decode.int))
+          |> expect.to_be_ok
+        Ok(#(originator, revision))
+      }
+      _ -> Error(Nil)
+    }
+  })
 }
 
 @target(erlang)

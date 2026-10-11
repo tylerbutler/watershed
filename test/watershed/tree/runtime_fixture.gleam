@@ -286,6 +286,14 @@ fn routed_schema_seed_input(
   use view <- result.try(
     schema.view_from_string(raw) |> result.map_error(string.inspect),
   )
+  routed_tree_seed_input(stored, view, root)
+}
+
+pub fn routed_tree_seed_input(
+  stored: schema.StoredSchema,
+  view: schema.ViewSchema,
+  root: tree_types.TreeValue,
+) -> Result(runtime_core.BootstrapSeedInput, String) {
   use #(input, _) <- result.try(routed_seed_input())
   use _ <- result.try(case input.compressor {
     Some(compressor) -> Ok(compressor)

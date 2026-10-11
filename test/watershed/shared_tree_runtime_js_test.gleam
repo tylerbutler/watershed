@@ -51,6 +51,8 @@ import watershed/tree/identifier_fixture
 @target(javascript)
 import watershed/tree/runtime_fixture
 @target(javascript)
+import watershed/tree/schema as tree_schema
+@target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
 import watershed/tree/undo_acceptance
@@ -164,8 +166,89 @@ fn sequenced_submission(
 }
 
 @target(javascript)
+fn evolution_schema(
+  id: String,
+) -> #(tree_schema.StoredSchema, tree_schema.ViewSchema) {
+  let fixture = fixtures.load("schema-evolution-history") |> expect.to_be_ok
+  let schemas =
+    json.parse(
+      json.to_string(fixture.input),
+      decode.at(
+        ["schemas"],
+        decode.list({
+          use schema_id <- decode.field("id", decode.string)
+          use raw <- decode.field("raw", decode.string)
+          decode.success(#(schema_id, raw))
+        }),
+      ),
+    )
+    |> expect.to_be_ok
+  let raw = list.key_find(schemas, id) |> expect.to_be_ok
+  #(
+    tree_schema.stored_from_string(raw) |> expect.to_be_ok,
+    tree_schema.view_from_string(raw) |> expect.to_be_ok,
+  )
+}
+
+@target(javascript)
+fn schema_evolution_root() -> tree_types.TreeValue {
+  tree_types.ObjectValue("org.watershed.shared-tree.m4.Root", [
+    #("title", tree_types.StringValue("base")),
+    #(
+      "point",
+      tree_types.ObjectValue("org.watershed.shared-tree.m4.Point", [
+        #("x", tree_types.NumberValue(1.0)),
+        #("y", tree_types.NumberValue(2.0)),
+      ]),
+    ),
+    #(
+      "items",
+      tree_types.MapValue("org.watershed.shared-tree.m4.Items", [
+        #("label", tree_types.StringValue("value")),
+      ]),
+    ),
+  ])
+}
+
+@target(javascript)
+fn submitted_tree_identity(
+  submitted: frame.SubmittedOperation,
+) -> List(#(String, Int)) {
+  let batch =
+    fluid_container.decode(submitted.contents, submitted.metadata)
+    |> expect.to_be_ok
+  batch.messages
+  |> list.filter_map(fn(message) {
+    case message.kind {
+      fluid_container.ChannelOperation(
+        fluid_container.Route("A", "_C"),
+        contents,
+      ) -> {
+        let raw = json.to_string(contents)
+        let originator =
+          json.parse(raw, decode.at(["originatorId"], decode.string))
+          |> expect.to_be_ok
+        let revision =
+          json.parse(raw, decode.at(["revision"], decode.int))
+          |> expect.to_be_ok
+        Ok(#(originator, revision))
+      }
+      _ -> Error(Nil)
+    }
+  })
+}
+
+@target(javascript)
 fn ready_scheduled_runtime(push: fn(String, json.Json) -> Nil) {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  ready_scheduled_runtime_from(input, push)
+}
+
+@target(javascript)
+fn ready_scheduled_runtime_from(
+  input: runtime_core.BootstrapSeedInput,
+  push: fn(String, json.Json) -> Nil,
+) {
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
   let assert [view] = input.tree_views
   let callbacks = transport_js.new_cell(None)
@@ -2914,10 +2997,20 @@ pub fn queued_attachment_and_transaction_share_exact_submission_test() {
 }
 
 @target(javascript)
-pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
+pub fn coalesced_attachment_and_schema_resubmit_after_reconnect_test() {
   let submissions = transport_js.new_cell([])
-  let #(owner, callbacks, view, scheduled) =
-    ready_scheduled_runtime(fn(event, payload) {
+  let peer_submissions = transport_js.new_cell([])
+  let #(stored, base_view) = evolution_schema("v1")
+  let #(_, new_node_view) = evolution_schema("new-node")
+  let input =
+    runtime_fixture.routed_tree_seed_input(
+      stored,
+      base_view,
+      schema_evolution_root(),
+    )
+    |> expect.to_be_ok
+  let #(owner, callbacks, _, scheduled) =
+    ready_scheduled_runtime_from(input, fn(event, payload) {
       case event {
         "submitOp" -> {
           let assert Ok(dynamic) =
@@ -2933,7 +3026,6 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
       }
     })
   let peer_callbacks = transport_js.new_cell(None)
-  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let peer =
     runtime.start_with_transport_and_seed(
       http_base_url: "https://seed.invalid",
@@ -2942,7 +3034,21 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
       transport: runtime.Transport(connect: fn(handlers) {
         transport_js.set_cell(peer_callbacks, Some(handlers))
         runtime.TransportHandle(
-          push: fn(_, _) { Nil },
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(peer_submissions, [
+                  submitted,
+                  ..transport_js.get_cell(peer_submissions)
+                ])
+              }
+              _ -> Nil
+            }
+          },
           close: fn() { Nil },
           drop: fn() { Nil },
           hold: fn() { Nil },
@@ -2967,21 +3073,32 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
     )
       |> json.to_string,
   )
+  let view = new_node_view
   let child = runtime.create_map(owner) |> expect.to_be_ok()
   runtime.set(owner, child, "local", json.string("kept"))
   runtime.set(owner, "A/root", "child", handle.encode_handle(child))
-  runtime.begin_tree_transaction(owner, "A/_C", view, [])
+  runtime.tree_upgrade_schema(owner, "A/_C", view)
   |> expect.to_equal(Ok(Nil))
   runtime.tree_edit(
     owner,
     "A/_C",
-    tree_types.SetField(["title"], tree_types.StringValue("transaction")),
+    tree_types.SetField(
+      ["extra"],
+      tree_types.ObjectValue("org.watershed.shared-tree.m4.Extra", [
+        #("value", tree_types.StringValue("pending")),
+      ]),
+    ),
   )
-  |> expect.to_equal(Ok(Nil))
-  runtime.commit_tree_transaction(owner, "A/_C")
   |> expect.to_equal(Ok(Nil))
   run_scheduled(scheduled)
   let assert [original] = transport_js.get_cell(submissions)
+  runtime.tree_edit(
+    peer,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("wins")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert [winner] = transport_js.get_cell(peer_submissions)
 
   callbacks.on_close()
   callbacks.on_join()
@@ -2992,8 +3109,8 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
       tenant_id: "default",
       document_id: "tree",
       scopes: ["doc:read", "doc:write"],
-      checkpoint_sequence_number: 1,
-      initial_clients: ["reader-2"],
+      checkpoint_sequence_number: 2,
+      initial_clients: ["reader-2", "peer"],
       initial_messages: [],
       timestamp: 0,
       presence_v1: False,
@@ -3004,6 +3121,7 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
     "op",
     frame.encode_operation_event([
       membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      sequenced_submission(winner, "peer", 2),
     ])
       |> json.to_string,
   )
@@ -3012,7 +3130,7 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   callbacks.on_event(
     "op",
     frame.encode_operation_event([
-      membership_frame(2, "leave", "\"reader\""),
+      membership_frame(3, "leave", "\"reader\""),
     ])
       |> json.to_string,
   )
@@ -3021,14 +3139,17 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   let assert [resent, _] = transport_js.get_cell(submissions)
   resent.client_sequence_number
   |> expect.to_equal(original.client_sequence_number + 1)
-  resent.reference_sequence_number |> expect.to_equal(2)
+  resent.reference_sequence_number |> expect.to_equal(3)
+  submitted_tree_identity(resent)
+  |> expect.to_equal(submitted_tree_identity(original))
 
   peer_transport.on_event(
     "op",
     frame.encode_operation_event([
       membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
-      membership_frame(2, "leave", "\"reader\""),
-      sequenced_submission(resent, "reader-2", 3),
+      sequenced_submission(winner, "peer", 2),
+      membership_frame(3, "leave", "\"reader\""),
+      sequenced_submission(resent, "reader-2", 4),
     ])
       |> json.to_string,
   )
@@ -3036,23 +3157,11 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   |> expect.to_equal(Ok(handle.encode_handle(child)))
   runtime.get(peer, child, "local") |> expect.to_equal(Ok(json.string("kept")))
   runtime.tree_read(peer, "A/_C", ["title"])
-  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
-  history_count(peer, "trunk") |> expect.to_equal(1)
-
-  callbacks.on_event(
-    "op",
-    frame.encode_operation_event([
-      sequenced_submission(resent, "reader-2", 3),
-    ])
-      |> json.to_string,
-  )
-  runtime.diagnostics(owner).in_flight_count |> expect.to_equal(0)
-  history_count(owner, "pending") |> expect.to_equal(0)
-  history_count(owner, "trunk") |> expect.to_equal(1)
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("wins"))))
+  history_count(peer, "trunk") |> expect.to_equal(3)
   runtime.get(owner, child, "local") |> expect.to_equal(Ok(json.string("kept")))
   runtime.tree_read(owner, "A/_C", ["title"])
-  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
-  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("wins"))))
   runtime.close(owner)
   runtime.close(peer)
 }
