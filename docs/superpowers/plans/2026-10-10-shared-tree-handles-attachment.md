@@ -667,7 +667,7 @@ return `Result`; neither creates a new HTTP container. Keep
 Preserve existing handle and resolver functions rather than adding another
 handle wrapper.
 
-- [ ] Add lifecycle API names to the tree/datastore parity inventory and make
+- [x] Add lifecycle API names to the tree/datastore parity inventory and make
   both runtimes fail at the missing behavior. Extend existing real-runtime
   tests with this operation sequence:
 
@@ -685,20 +685,20 @@ handle wrapper.
 
   Use the actual API wrappers and existing transport/actor test fixtures.
   Record submit counts at each step; a name-only parity test is not acceptance.
-- [ ] Implement runtime calls with checked writable/ready state and typed core
+- [x] Implement runtime calls with checked writable/ready state and typed core
   errors mapped through existing facade conventions. Require
   `schema.can_view(stored, view)` before returning a locally created tree view.
   Preserve existing resolution retry behavior for references awaiting attach.
-- [ ] Reject foreign-runtime datastore objects, stores from closed documents,
+- [x] Reject foreign-runtime datastore objects, stores from closed documents,
   duplicate identities, incompatible views and invalid initial content.
   Assert unchanged runtime, compressor and submission count on each refusal.
   Do not claim copied marker JSON has verifiable foreign-container provenance.
-- [ ] Verify subscriptions, commit factories, disposal and close for newly
+- [x] Verify subscriptions, commit factories, disposal and close for newly
   attached channels on both targets. BEAM actor calls must not bypass
   transaction ownership; JS must not run attachment work in callback delivery.
-- [ ] Document detached creation, implicit graph attachment, source context,
+- [x] Document detached creation, implicit graph attachment, source context,
   ready/writable requirements, and profile limits beside the API inventory.
-- [ ] Run:
+- [x] Run:
 
   ```sh
   gleam test --target erlang -- shared_tree_runtime facade_parity
@@ -706,7 +706,21 @@ handle wrapper.
   cd watershed_lustre && gleam test
   ```
 
-- [ ] Commit as `feat(api): expose detached tree and datastore lifecycle`.
+- [x] Commit as `feat(api): expose detached tree and datastore lifecycle`.
+
+Task 6 accepted after four scoped correction rounds. Both facades expose the
+checked detached lifecycle and backward-compatible
+`tree_get_revertible(event, on_disposed)` acquisition. Actual callbacks receive
+the original opaque inverse once, after disposed state and triggering outbound
+ordering are installed. BEAM closed-runtime calls and callback-time status
+queries tolerate actor termination. The shutdown regression observes the real
+status request in the blocked actor's mailbox, then actor exit before reply;
+it fails with the prior implementation and passes ten repeated runs.
+Focused runtime/parity gates passed 185 Erlang and 159 JavaScript tests;
+Lustre passed 104. The final integrated SharedTree gates and native smokes above
+also passed; the test-only barrier correction passed its exact parent-run
+filter, covering Erlang gate, lint and whitespace checks. Duplicate IDs are
+tested at the typed core boundary because facade IDs are generated internally.
 
 ### Task 7: Persist graph metadata and upstream-retained GC routes
 

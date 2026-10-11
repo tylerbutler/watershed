@@ -155,6 +155,11 @@ pub opaque type Document(root) {
 }
 
 @target(erlang)
+pub opaque type DataStore {
+  DataStore(runtime: Subject(runtime_beam.Msg), id: String)
+}
+
+@target(erlang)
 pub opaque type SharedMap {
   SharedMap(runtime: Subject(runtime_beam.Msg), address: String)
 }
@@ -691,6 +696,94 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(erlang)
+/// Create a detached datastore in a ready writable document.
+pub fn create_data_store(
+  document: Document(root),
+) -> Result(DataStore, String) {
+  runtime_beam.create_data_store(document.runtime)
+  |> result.map(fn(id) { DataStore(runtime: document.runtime, id: id) })
+}
+
+@target(erlang)
+/// Return the detached datastore entry-point map.
+pub fn data_store_root(store: DataStore) -> Result(SharedMap, String) {
+  runtime_beam.data_store_root(store.runtime, store.id)
+  |> result.map(fn(address) {
+    SharedMap(runtime: store.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// Create a detached map in `store`.
+pub fn create_map_in(
+  document: Document(root),
+  store: DataStore,
+) -> Result(SharedMap, String) {
+  use _ <- result.try(require_data_store_runtime(document.runtime, store))
+  runtime_beam.create_map_in(document.runtime, store.id)
+  |> result.map(fn(address) {
+    SharedMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// Create a detached tree in the bootstrap datastore.
+pub fn create_tree(
+  document: Document(root),
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(SharedTree, String) {
+  runtime_beam.create_tree(document.runtime, stored, initial_root, view)
+  |> result.map(fn(address) {
+    SharedTree(
+      runtime: document.runtime,
+      address: address,
+      selector: tree_types.DocumentCheckout,
+      view: view,
+    )
+  })
+}
+
+@target(erlang)
+/// Create a detached tree in `store`.
+pub fn create_tree_in(
+  document: Document(root),
+  store: DataStore,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(SharedTree, String) {
+  use _ <- result.try(require_data_store_runtime(document.runtime, store))
+  runtime_beam.create_tree_in(
+    document.runtime,
+    store.id,
+    stored,
+    initial_root,
+    view,
+  )
+  |> result.map(fn(address) {
+    SharedTree(
+      runtime: document.runtime,
+      address: address,
+      selector: tree_types.DocumentCheckout,
+      view: view,
+    )
+  })
+}
+
+@target(erlang)
+fn require_data_store_runtime(
+  owner: Subject(runtime_beam.Msg),
+  store: DataStore,
+) -> Result(Nil, String) {
+  case owner == store.runtime {
+    True -> Ok(Nil)
+    False -> Error("data store belongs to another document runtime")
+  }
+}
+
+@target(erlang)
 /// Resolve an existing tree with a compatible fixed view.
 /// This API supports the declared Fluid 3.1.0 object and dynamic-map profiles.
 /// An incompatible stored schema returns an error.
@@ -878,6 +971,18 @@ pub fn tree_revertible_status(
     runtime_beam.RevertibleValid -> RevertibleValid
     runtime_beam.RevertibleDisposed -> RevertibleDisposed
   }
+}
+
+@target(erlang)
+pub fn tree_get_revertible(
+  event: TreeCommitEvent,
+  on_disposed: fn(TreeRevertible) -> Nil,
+) -> Result(TreeRevertible, String) {
+  let TreeCommitEvent(kind, local, get_revertible, on_settled) = event
+  runtime_beam.tree_get_revertible(
+    runtime_beam.TreeCommitEvent(kind, local, get_revertible, on_settled),
+    on_disposed,
+  )
 }
 
 @target(erlang)

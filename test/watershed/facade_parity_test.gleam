@@ -49,6 +49,8 @@ fn kinds() -> List(Kind) {
     Kind(
       "tree",
       [
+        "create_tree",
+        "create_tree_in",
         "open_tree",
         "resolve_tree",
         "tree_compatibility",
@@ -64,6 +66,12 @@ fn kinds() -> List(Kind) {
         "tree_array_move", "tree_transaction",
       ],
       ["subscribe_tree"],
+    ),
+    Kind(
+      "data_store",
+      ["create_data_store", "data_store_root", "create_map_in"],
+      [],
+      [],
     ),
     Kind(
       "map",
@@ -463,10 +471,10 @@ pub fn extraction_actually_finds_exports_test() -> Nil {
   |> expect.to_be_true()
 }
 
-pub fn tree_creation_is_not_a_public_facade_test() -> Nil {
+pub fn tree_creation_has_public_facade_parity_test() -> Nil {
   let beam = exports_of("src/watershed_beam.gleam")
   let js = exports_of("src/watershed.gleam")
-  { !set.contains(beam, "create_tree") && !set.contains(js, "create_tree") }
+  { set.contains(beam, "create_tree") && set.contains(js, "create_tree") }
   |> expect.to_be_true()
   { !set.contains(beam, "ensure_tree") && !set.contains(js, "ensure_tree") }
   |> expect.to_be_true()

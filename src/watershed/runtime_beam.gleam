@@ -71,10 +71,83 @@ import aquamarine/phoenix
 import spillway/message.{
   type ConnectMessage, type SignalMessage, type SummaryContext,
 }
+
+@target(erlang)
+pub fn create_data_store(runtime: Subject(Msg)) -> Result(String, String) {
+  call_runtime(runtime, CreateDataStore)
+}
+
+@target(erlang)
+pub fn data_store_root(
+  runtime: Subject(Msg),
+  store_id: String,
+) -> Result(String, String) {
+  call_runtime(runtime, fn(reply) { DataStoreRoot(store_id, reply) })
+}
+
+@target(erlang)
+pub fn create_map_in(
+  runtime: Subject(Msg),
+  store_id: String,
+) -> Result(String, String) {
+  call_runtime(runtime, fn(reply) { CreateMapIn(store_id, reply) })
+}
+
+@target(erlang)
+pub fn create_tree(
+  runtime: Subject(Msg),
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  call_runtime(runtime, fn(reply) {
+    CreateTree(stored, initial_root, view, reply)
+  })
+}
+
+@target(erlang)
+pub fn create_tree_in(
+  runtime: Subject(Msg),
+  store_id: String,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  call_runtime(runtime, fn(reply) {
+    CreateTreeIn(store_id, stored, initial_root, view, reply)
+  })
+}
+
+@target(erlang)
+fn call_runtime(
+  runtime: Subject(Msg),
+  sending: fn(Subject(Result(value, String))) -> Msg,
+) -> Result(value, String) {
+  use owner <- result.try(
+    process.subject_owner(runtime)
+    |> result.map_error(fn(_) { "document runtime is closed" }),
+  )
+  let monitor = process.monitor(owner)
+  let reply = process.new_subject()
+  let selector =
+    process.new_selector()
+    |> process.select(reply)
+    |> process.select_specific_monitor(monitor, fn(_) {
+      Error("document runtime is closed")
+    })
+  process.send(runtime, sending(reply))
+  let outcome = process.selector_receive(selector, connect_timeout_milliseconds)
+  process.demonitor_process(monitor)
+  case outcome {
+    Ok(result) -> result
+    Error(Nil) -> Error("document runtime request timed out")
+  }
+}
+
 @target(erlang)
 import spillway/nack.{type Nack}
 @target(erlang)
-import spillway/types.{type SequencedDocumentMessage}
+import spillway/types.{type SequencedDocumentMessage, WriteMode}
 
 @target(erlang)
 import watershed/channel.{
@@ -83,7 +156,7 @@ import watershed/channel.{
   InitJsonOt, InitLwwMap, InitLwwRegister, InitMap, InitMvRegister, InitOrMap,
   InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
   InitRegisterCollection, InitRichText, InitSequence, InitTaskManager, InitText,
-  InitTwoPSet, SequenceChannel, TextChannel, TreeCommitApplied,
+  InitTwoPSet, MapChannel, SequenceChannel, TextChannel, TreeCommitApplied,
   TreeCommitSettled,
 } as _watershed_channel
 @target(erlang)
@@ -222,6 +295,14 @@ pub opaque type TreeRevertible {
     address: String,
     selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
+  )
+}
+
+@target(erlang)
+type TreeRevertibleDisposal {
+  TreeRevertibleDisposal(
+    revertible: TreeRevertible,
+    handler: fn(TreeRevertible) -> Nil,
   )
 }
 
@@ -449,6 +530,22 @@ pub type Msg {
   CreateJsonOt(reply: Subject(Result(String, String)))
   CreateRichText(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
+  CreateDataStore(reply: Subject(Result(String, String)))
+  DataStoreRoot(store_id: String, reply: Subject(Result(String, String)))
+  CreateMapIn(store_id: String, reply: Subject(Result(String, String)))
+  CreateTree(
+    stored: tree_schema.StoredSchema,
+    initial_root: Option(tree_types.TreeValue),
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(String, String)),
+  )
+  CreateTreeIn(
+    store_id: String,
+    stored: tree_schema.StoredSchema,
+    initial_root: Option(tree_types.TreeValue),
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(String, String)),
+  )
   /// Whether a channel exists at `address`, attached or detached. A caller
   /// can retry after an error, because an attach from another client can
   /// still be in flight.
@@ -633,6 +730,11 @@ pub type Msg {
     kind: tree_types.TreeCommitKind,
     event_id: Int,
     reply: Subject(Result(tree_types.RevertibleId, String)),
+  )
+  RegisterTreeRevertibleDisposal(
+    revertible: TreeRevertible,
+    handler: fn(TreeRevertible) -> Nil,
+    reply: Subject(Result(Nil, String)),
   )
   RegisterTreeSettlement(
     address: String,
@@ -998,6 +1100,7 @@ type State {
       #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
       List(fn(tree_types.TreeCommitOutcome) -> Nil),
     ),
+    tree_revertible_disposals: List(TreeRevertibleDisposal),
     active_tree_commit_delivery: Option(ActiveTreeCommitDelivery),
     closing: Bool,
     next_tree_commit_subscription_id: Int,
@@ -1014,6 +1117,7 @@ type State {
     /// the connection that negotiated it, and it could claim support on a
     /// server that does not have it.
     supported_features: Dict(String, Dynamic),
+    writable: Bool,
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     /// The pending acquires on an ordered collection, which wait for their
     /// sequenced outcome, keyed by `#(address, acquire_id)`.
@@ -1195,6 +1299,7 @@ fn start_with_optional_seed(
         subscribers: [],
         tree_commit_subscribers: [],
         tree_commit_settlements: dict.new(),
+        tree_revertible_disposals: [],
         active_tree_commit_delivery: None,
         closing: False,
         next_tree_commit_subscription_id: 0,
@@ -1204,6 +1309,7 @@ fn start_with_optional_seed(
         ripple_subscribers: [],
         presence_subscribers: [],
         supported_features: dict.new(),
+        writable: False,
         claim_waiters: dict.new(),
         acquire_waiters: dict.new(),
         auto_summary: case seed {
@@ -1863,24 +1969,32 @@ pub fn tree_revertible_status(
   revertible: TreeRevertible,
 ) -> TreeRevertibleStatus {
   case process.subject_owner(revertible.runtime) {
-    Ok(owner) ->
-      case process.is_alive(owner) {
-        True ->
-          process.call(
-            revertible.runtime,
-            waiting: connect_timeout_milliseconds,
-            sending: fn(reply) {
-              TreeRevertibleStatusRequested(
-                revertible.address,
-                revertible.selector,
-                revertible.id,
-                reply,
-              )
-            },
-          )
-        False -> RevertibleDisposed
-      }
     Error(_) -> RevertibleDisposed
+    Ok(owner) -> {
+      let monitor = process.monitor(owner)
+      let reply = process.new_subject()
+      let selector =
+        process.new_selector()
+        |> process.select(reply)
+        |> process.select_specific_monitor(monitor, fn(_) { RevertibleDisposed })
+      process.send(
+        revertible.runtime,
+        TreeRevertibleStatusRequested(
+          revertible.address,
+          revertible.selector,
+          revertible.id,
+          reply,
+        ),
+      )
+      let status = case
+        process.selector_receive(selector, connect_timeout_milliseconds)
+      {
+        Ok(status) -> status
+        Error(_) -> RevertibleDisposed
+      }
+      process.demonitor_process(monitor)
+      status
+    }
   }
 }
 
@@ -1908,6 +2022,28 @@ pub fn tree_dispose_revertible(
       }
     Error(_) -> Error("tree revertible is disposed")
   }
+}
+
+@target(erlang)
+pub fn tree_get_revertible(
+  event: TreeCommitEvent,
+  on_disposed: fn(TreeRevertible) -> Nil,
+) -> Result(TreeRevertible, String) {
+  use factory <- result.try(
+    event.get_revertible
+    |> option.to_result("tree commit does not provide a revertible"),
+  )
+  use revertible <- result.try(factory())
+  use _ <- result.try(
+    process.call(
+      revertible.runtime,
+      waiting: connect_timeout_milliseconds,
+      sending: fn(reply) {
+        RegisterTreeRevertibleDisposal(revertible, on_disposed, reply)
+      },
+    ),
+  )
+  Ok(revertible)
 }
 
 @target(erlang)
@@ -2397,6 +2533,7 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
           actor.continue(state)
         }
         RetainTreeRevertible(_, _, _, _, _, _)
+        | RegisterTreeRevertibleDisposal(_, _, _)
         | RegisterTreeSettlement(_, _, _, _, _, _)
         | UnsubscribeTreeCommits(_, _) -> reject_closing_message(state, msg)
         TreeRevertibleStatusRequested(_, _, _, reply) -> {
@@ -2541,6 +2678,14 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(reply, Error("runtime is closing"))
       actor.continue(state)
     }
+    CreateDataStore(reply)
+    | DataStoreRoot(_, reply)
+    | CreateMapIn(_, reply)
+    | CreateTree(_, _, _, reply)
+    | CreateTreeIn(_, _, _, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
     IncrementGCounter(_, _, reply)
     | SetLwwRegister(_, _, reply)
     | SetLwwMap(_, _, _, reply)
@@ -2659,6 +2804,10 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
+    RegisterTreeRevertibleDisposal(_, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
     _ -> actor.continue(state)
   }
 }
@@ -2679,6 +2828,7 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
             ),
           )
         RetainTreeRevertible(_, _, _, _, _, _)
+        | RegisterTreeRevertibleDisposal(_, _, _)
         | RegisterTreeSettlement(_, _, _, _, _, _)
         | UnsubscribeTreeCommits(_, _)
         | TreeCommitSubscriberActive(_, _, _, _)
@@ -3543,6 +3693,13 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         event_id,
         reply,
       )
+    RegisterTreeRevertibleDisposal(revertible, handler, reply) ->
+      handle_register_tree_revertible_disposal(
+        state,
+        revertible,
+        handler,
+        reply,
+      )
     RegisterTreeSettlement(
       address,
       selector,
@@ -3928,6 +4085,49 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitRichText, "create_rich_text")
     CreateTaskManager(reply) ->
       create_channel(state, reply, InitTaskManager, "create_task_manager")
+    CreateDataStore(reply) -> create_data_store_in_actor(state, reply)
+    DataStoreRoot(store_id, reply) -> {
+      let address = store_id <> "/root"
+      process.send(
+        reply,
+        read(
+          state,
+          Error("data_store_root requires a ready document connection"),
+          fn(core) {
+            use _ <- result.try(
+              runtime_core.require_channel_type(core, address, MapChannel)
+              |> result.map_error(string.inspect),
+            )
+            Ok(address)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    CreateMapIn(store_id, reply) ->
+      create_channel_in_actor(state, reply, store_id, InitMap, "create_map_in")
+    CreateTree(stored, initial_root, view, reply) ->
+      create_tree_in_actor(
+        state,
+        reply,
+        stored,
+        initial_root,
+        view,
+        fn(core) { runtime_core.new_channel_address(core, id.uuid_v4()) },
+        "create_tree",
+      )
+    CreateTreeIn(store_id, stored, initial_root, view, reply) ->
+      create_tree_in_actor(
+        state,
+        reply,
+        stored,
+        initial_root,
+        view,
+        fn(core) {
+          runtime_core.new_channel_address_in(core, store_id, id.uuid_v4())
+        },
+        "create_tree_in",
+      )
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -4474,6 +4674,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       let state = abort_outcome_waiters(state)
       let state = abort_pending_summary(state)
       let _ = release_tree_transaction_caller(state)
+      notify_tree_revertible_disposals(state.tree_revertible_disposals)
       case state.channel {
         Some(channel) -> channel.close()
         None -> Nil
@@ -4972,22 +5173,31 @@ fn cleanup_tree_scope(
   address: String,
   selector: tree_types.CheckoutSelector,
 ) -> State {
-  State(
-    ..state,
-    subscribers: list.filter(state.subscribers, fn(subscriber) {
-      subscriber.0 != address || subscriber.1 != selector
-    }),
-    tree_commit_subscribers: list.filter(
-      state.tree_commit_subscribers,
-      fn(subscriber) {
-        subscriber.address != address || subscriber.selector != selector
-      },
-    ),
-    tree_commit_settlements: dict.filter(
-      state.tree_commit_settlements,
-      fn(key, _) { key.0 != address || key.1 != selector },
-    ),
-  )
+  let #(retained_disposals, removed_disposals) =
+    list.partition(state.tree_revertible_disposals, fn(disposal) {
+      let revertible = disposal.revertible
+      revertible.address != address || revertible.selector != selector
+    })
+  let state =
+    State(
+      ..state,
+      subscribers: list.filter(state.subscribers, fn(subscriber) {
+        subscriber.0 != address || subscriber.1 != selector
+      }),
+      tree_commit_subscribers: list.filter(
+        state.tree_commit_subscribers,
+        fn(subscriber) {
+          subscriber.address != address || subscriber.selector != selector
+        },
+      ),
+      tree_commit_settlements: dict.filter(
+        state.tree_commit_settlements,
+        fn(key, _) { key.0 != address || key.1 != selector },
+      ),
+      tree_revertible_disposals: retained_disposals,
+    )
+  notify_tree_revertible_disposals(removed_disposals)
+  state
 }
 
 @target(erlang)
@@ -5052,6 +5262,195 @@ fn new_detached(
 }
 
 @target(erlang)
+fn create_data_store_in_actor(
+  state: State,
+  reply: Subject(Result(String, String)),
+) -> actor.Next(State, Msg) {
+  case lifecycle_caller(state, reply), state.phase, state.writable {
+    Error(error), _, _ -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_), Ready(core, resubmit_at), True -> {
+      let store_id = id.uuid_v4()
+      case runtime_core.create_detached_data_store(core, store_id) {
+        Ok(core) -> {
+          process.send(reply, Ok(store_id))
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Error(error) -> {
+          process.send(reply, Error(string.inspect(error)))
+          actor.continue(state)
+        }
+      }
+    }
+    Ok(_), Ready(_, _), False -> {
+      process.send(
+        reply,
+        Error("create_data_store requires a writable document connection"),
+      )
+      actor.continue(state)
+    }
+    Ok(_), _, _ -> {
+      process.send(
+        reply,
+        Error("create_data_store requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn create_channel_in_actor(
+  state: State,
+  reply: Subject(Result(String, String)),
+  store_id: String,
+  init: ChannelInit,
+  verb: String,
+) -> actor.Next(State, Msg) {
+  case lifecycle_caller(state, reply), state.phase, state.writable {
+    Error(error), _, _ -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_), Ready(core, resubmit_at), True -> {
+      let created = {
+        use address <- result.try(
+          runtime_core.new_channel_address_in(core, store_id, id.uuid_v4())
+          |> result.map_error(string.inspect),
+        )
+        use core <- result.try(
+          runtime_core.create_detached(core, address, init)
+          |> result.map_error(string.inspect),
+        )
+        Ok(#(core, address))
+      }
+      case created {
+        Ok(#(core, address)) -> {
+          process.send(reply, Ok(address))
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+      }
+    }
+    Ok(_), Ready(_, _), False -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a writable document connection"),
+      )
+      actor.continue(state)
+    }
+    Ok(_), _, _ -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn create_tree_in_actor(
+  state: State,
+  reply: Subject(Result(String, String)),
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+  address: fn(runtime_core.Core) -> Result(String, runtime_core.CoreError),
+  verb: String,
+) -> actor.Next(State, Msg) {
+  let compatible =
+    tree_schema.can_view(stored, view) |> result.map_error(string.inspect)
+  case lifecycle_caller(state, reply), compatible, state.phase, state.writable {
+    Error(error), _, _, _ | _, Error(error), _, _ -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_), Ok(Nil), Ready(core, resubmit_at), True -> {
+      let created = {
+        use address <- result.try(
+          address(core) |> result.map_error(string.inspect),
+        )
+        use compressor <- result.try(
+          core.compressor
+          |> option.to_result(verb <> " requires a document compressor"),
+        )
+        use #(compressor, generated) <- result.try(
+          fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+        )
+        use view_id <- result.try(
+          fluid_ids.decompress(compressor, generated)
+          |> result.map_error(string.inspect),
+        )
+        use #(core, events) <- result.try(
+          runtime_core.create_detached_tree_with_events(
+            runtime_core.Core(..core, compressor: Some(compressor)),
+            address,
+            stored,
+            initial_root,
+            view_id,
+          )
+          |> result.map_error(string.inspect),
+        )
+        Ok(#(core, address, events))
+      }
+      case created {
+        Ok(#(core, address, events)) -> {
+          process.send(reply, Ok(address))
+          actor.continue(fan_out(
+            State(..state, phase: Ready(core, resubmit_at)),
+            events,
+          ))
+        }
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+      }
+    }
+    Ok(_), Ok(Nil), Ready(_, _), False -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a writable document connection"),
+      )
+      actor.continue(state)
+    }
+    Ok(_), Ok(Nil), _, _ -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn lifecycle_caller(
+  state: State,
+  reply: Subject(Result(String, String)),
+) -> Result(Nil, String) {
+  case state.active_tree_transaction {
+    None -> Ok(Nil)
+    Some(active) -> {
+      use caller <- result.try(
+        process.subject_owner(reply)
+        |> result.map_error(fn(_) { "tree transaction caller is unavailable" }),
+      )
+      case caller == active.caller {
+        True -> Ok(Nil)
+        False -> Error("tree transaction uses another caller")
+      }
+    }
+  }
+}
+
+@target(erlang)
 fn resolve_sequence_address(
   state: State,
   address: String,
@@ -5096,7 +5495,11 @@ fn handle_inbound(
       // on both paths — a reconnect may land on a different node with a
       // different answer.
       let state =
-        State(..state, supported_features: connected.supported_features)
+        State(
+          ..state,
+          supported_features: connected.supported_features,
+          writable: connected.mode == WriteMode,
+        )
       case state.phase {
         Connecting(_) -> {
           case state.seed, connected.summary_context {
@@ -7111,6 +7514,44 @@ fn handle_retain_tree_revertible(
 }
 
 @target(erlang)
+fn handle_register_tree_revertible_disposal(
+  state: State,
+  revertible: TreeRevertible,
+  handler: fn(TreeRevertible) -> Nil,
+  reply: Subject(Result(Nil, String)),
+) -> actor.Next(State, Msg) {
+  case phase_core(state.phase) {
+    Some(core) ->
+      case
+        runtime_core.tree_revertible_is_valid_on(
+          core,
+          revertible.address,
+          revertible.selector,
+          revertible.id,
+        )
+      {
+        True -> {
+          process.send(reply, Ok(Nil))
+          actor.continue(
+            State(..state, tree_revertible_disposals: [
+              TreeRevertibleDisposal(revertible, handler),
+              ..state.tree_revertible_disposals
+            ]),
+          )
+        }
+        False -> {
+          process.send(reply, Error("tree revertible is disposed"))
+          actor.continue(state)
+        }
+      }
+    None -> {
+      process.send(reply, Error("tree revertible is disposed"))
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
 fn handle_register_tree_settlement(
   state: State,
   address: String,
@@ -7269,8 +7710,16 @@ fn handle_dispose_tree_revertible(
           actor.continue(state)
         }
         Ok(core) -> {
+          let #(next, disposals) =
+            take_tree_revertible_disposals(
+              install_phase_core(state, core),
+              address,
+              selector,
+              id,
+            )
           process.send(reply, Ok(Nil))
-          actor.continue(install_phase_core(state, core))
+          notify_tree_revertible_disposals(disposals)
+          actor.continue(next)
         }
       }
   }
@@ -7311,6 +7760,12 @@ fn handle_revert_tree(
             }
             Ok(core) -> {
               let #(next, outcome) = queue_or_send(state, core, None, outbound)
+              let #(next, disposals) = case dispose {
+                False -> #(next, [])
+                True ->
+                  take_tree_revertible_disposals(next, address, selector, id)
+              }
+              notify_tree_revertible_disposals(disposals)
               case outcome {
                 Error(error) -> {
                   process.send(reply, Error(error))
@@ -7336,6 +7791,34 @@ fn handle_revert_tree(
       actor.continue(state)
     }
   }
+}
+
+@target(erlang)
+fn take_tree_revertible_disposals(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  id: tree_types.RevertibleId,
+) -> #(State, List(TreeRevertibleDisposal)) {
+  let #(retained, removed) =
+    list.partition(state.tree_revertible_disposals, fn(disposal) {
+      let revertible = disposal.revertible
+      revertible.address != address
+      || revertible.selector != selector
+      || revertible.id != id
+    })
+  #(State(..state, tree_revertible_disposals: retained), removed)
+}
+
+@target(erlang)
+fn notify_tree_revertible_disposals(
+  disposals: List(TreeRevertibleDisposal),
+) -> Nil {
+  list.each(disposals, fn(disposal) {
+    let _ =
+      process.spawn_unlinked(fn() { disposal.handler(disposal.revertible) })
+    Nil
+  })
 }
 
 @target(erlang)

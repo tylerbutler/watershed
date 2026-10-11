@@ -1,5 +1,11 @@
 -module(settlement_trace).
--export([start/2, seal/2, await_idle/2, stop/2]).
+-export([
+    start/2,
+    seal/2,
+    await_idle/2,
+    await_revertible_status_request/2,
+    stop/2
+]).
 
 start({subject, Runtime, _Selector}, Timeout) ->
     Caller = self(),
@@ -26,6 +32,10 @@ seal(Tracer, Timeout) ->
 
 await_idle(Tracer, Timeout) ->
     request(Tracer, await_idle, Timeout).
+
+await_revertible_status_request({subject, Runtime, _Selector}, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    await_revertible_status_request_until(Runtime, Deadline).
 
 stop(Tracer, Timeout) ->
     Monitor = erlang:monitor(process, Tracer),
@@ -148,6 +158,39 @@ sealed(Runtime, Live, Waiter) ->
             sealed(Runtime, Live, {From, RequestRef});
         {stop, _From, _RequestRef} ->
             finish(Runtime, Live)
+    end.
+
+await_revertible_status_request_until(Runtime, Deadline) ->
+    case erlang:process_info(Runtime, messages) of
+        {messages, Messages} ->
+            case lists:any(
+                fun
+                    ({_Tag,
+                        {tree_revertible_status_requested, _, _, _, _}}) ->
+                        true;
+                    (_) -> false
+                end,
+                Messages
+            ) of
+                true ->
+                    {ok, nil};
+                false ->
+                    case erlang:monotonic_time(millisecond) >= Deadline of
+                        true ->
+                            {error,
+                                <<"revertible status request timed out">>};
+                        false ->
+                            receive
+                            after 1 ->
+                                await_revertible_status_request_until(
+                                    Runtime,
+                                    Deadline
+                                )
+                            end
+                    end
+            end;
+        undefined ->
+            {error, <<"revertible status runtime is not alive">>}
     end.
 
 finish(Runtime, Live) ->

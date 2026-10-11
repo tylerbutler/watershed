@@ -51,12 +51,11 @@ import spillway/message.{
   type ConnectMessage, type ConnectedMessage, type SignalMessage,
   type SummaryContext,
 }
+@target(javascript)
+import spillway/types.{type SequencedDocumentMessage, WriteMode}
 
 @target(javascript)
 import spillway/nack.{type Nack}
-@target(javascript)
-import spillway/types.{type SequencedDocumentMessage}
-
 @target(javascript)
 import watershed/callback_js
 @target(javascript)
@@ -266,6 +265,14 @@ type TreeCommitDelivery {
 }
 
 @target(javascript)
+type TreeRevertibleDisposal {
+  TreeRevertibleDisposal(
+    revertible: TreeRevertible,
+    handler: fn(TreeRevertible) -> Nil,
+  )
+}
+
+@target(javascript)
 type State {
   State(
     connect_message: ConnectMessage,
@@ -286,6 +293,7 @@ type State {
       #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
       TreeCommitDelivery,
     ),
+    tree_revertible_disposals: List(TreeRevertibleDisposal),
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
     /// document and does not sequence, so the fan-out is separate from the
     /// operation event stream.
@@ -299,6 +307,7 @@ type State {
     /// the connection that negotiated it, and it could claim support on a
     /// server that does not have it.
     supported_features: Dict(String, Dynamic),
+    writable: Bool,
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -554,9 +563,11 @@ fn start_with_optional_seed(
       tree_commit_subscribers: [],
       tree_commit_settlements: dict.new(),
       tree_commit_deliveries: dict.new(),
+      tree_revertible_disposals: [],
       ripple_subscribers: [],
       presence_subscribers: [],
       supported_features: dict.new(),
+      writable: False,
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
       on_ready: on_ready,
@@ -1912,6 +1923,89 @@ pub fn create_map(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
+pub fn create_data_store(runtime: Runtime) -> Result(String, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.writable {
+    Ready(core, resubmit_at), True -> {
+      let store_id = id.uuid_v4()
+      use core <- result.try(
+        runtime_core.create_detached_data_store(core, store_id)
+        |> result.map_error(string.inspect),
+      )
+      cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
+      Ok(store_id)
+    }
+    Ready(_, _), False ->
+      Error("create_data_store requires a writable document connection")
+    _, _ -> Error("create_data_store requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn data_store_root(
+  runtime: Runtime,
+  store_id: String,
+) -> Result(String, String) {
+  let address = store_id <> "/root"
+  read(
+    runtime.cell,
+    Error("data_store_root requires a ready document connection"),
+    fn(core) {
+      use _ <- result.try(
+        runtime_core.require_channel_type(core, address, channel.MapChannel)
+        |> result.map_error(string.inspect),
+      )
+      Ok(address)
+    },
+  )
+}
+
+@target(javascript)
+pub fn create_map_in(
+  runtime: Runtime,
+  store_id: String,
+) -> Result(String, String) {
+  create_channel_in(runtime, store_id, channel.InitMap, "create_map_in")
+}
+
+@target(javascript)
+pub fn create_tree(
+  runtime: Runtime,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  create_tree_with_address(
+    runtime,
+    stored,
+    initial_root,
+    view,
+    fn(core) { runtime_core.new_channel_address(core, id.uuid_v4()) },
+    "create_tree",
+  )
+}
+
+@target(javascript)
+pub fn create_tree_in(
+  runtime: Runtime,
+  store_id: String,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  create_tree_with_address(
+    runtime,
+    stored,
+    initial_root,
+    view,
+    fn(core) {
+      runtime_core.new_channel_address_in(core, store_id, id.uuid_v4())
+    },
+    "create_tree_in",
+  )
+}
+
+@target(javascript)
 /// Create a new detached counter channel. The lifecycle is the same as for
 /// `create_map`.
 pub fn create_counter(runtime: Runtime) -> Result(String, String) {
@@ -2107,6 +2201,7 @@ fn create_channel(
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
+
     Reconnecting(core) -> {
       use address <- result.try(
         runtime_core.new_channel_address(core, id.uuid_v4())
@@ -2121,6 +2216,87 @@ fn create_channel(
     }
     Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       Error(verb <> " requires a ready document connection")
+  }
+}
+
+@target(javascript)
+fn create_channel_in(
+  runtime: Runtime,
+  store_id: String,
+  init: channel.ChannelInit,
+  verb: String,
+) -> Result(String, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.writable {
+    Ready(core, resubmit_at), True -> {
+      use address <- result.try(
+        runtime_core.new_channel_address_in(core, store_id, id.uuid_v4())
+        |> result.map_error(string.inspect),
+      )
+      use core <- result.try(
+        runtime_core.create_detached(core, address, init)
+        |> result.map_error(string.inspect),
+      )
+      cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
+      Ok(address)
+    }
+    Ready(_, _), False ->
+      Error(verb <> " requires a writable document connection")
+    _, _ -> Error(verb <> " requires a ready document connection")
+  }
+}
+
+@target(javascript)
+fn create_tree_with_address(
+  runtime: Runtime,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+  address: fn(runtime_core.Core) -> Result(String, runtime_core.CoreError),
+  verb: String,
+) -> Result(String, String) {
+  use _ <- result.try(
+    tree_schema.can_view(stored, view) |> result.map_error(string.inspect),
+  )
+  let state = cell_get(runtime.cell)
+  case state.phase, state.writable {
+    Ready(core, resubmit_at), True -> {
+      use address <- result.try(
+        address(core) |> result.map_error(string.inspect),
+      )
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(verb <> " requires a document compressor"),
+      )
+      use #(compressor, generated) <- result.try(
+        fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+      )
+      use view_id <- result.try(
+        fluid_ids.decompress(compressor, generated)
+        |> result.map_error(string.inspect),
+      )
+      use #(core, events) <- result.try(
+        runtime_core.create_detached_tree_with_events(
+          runtime_core.Core(..core, compressor: Some(compressor)),
+          address,
+          stored,
+          initial_root,
+          view_id,
+        )
+        |> result.map_error(string.inspect),
+      )
+      cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
+      fan_out(
+        runtime.cell,
+        state.subscribers,
+        state.tree_commit_subscribers,
+        events,
+      )
+      Ok(address)
+    }
+    Ready(_, _), False ->
+      Error(verb <> " requires a writable document connection")
+    _, _ -> Error(verb <> " requires a ready document connection")
   }
 }
 
@@ -2609,14 +2785,15 @@ pub fn tree_merge(
         |> result.map_error(string.inspect),
       )
       let state = State(..state, phase: Ready(core, None))
-      let state = case dispose_source {
-        False -> state
+      let #(state, disposals) = case dispose_source {
+        False -> #(state, [])
         True -> remove_tree_scope(state, address, source)
       }
       cell_set(runtime.cell, state)
       prime_scoped_tree_commit_deliveries(runtime.cell, events)
       prime_selector_deliveries(runtime.cell, events, source)
       queue_outbound(runtime.cell, outbound)
+      notify_tree_revertible_disposals(disposals)
       use _ <- result.try(case cell_get(runtime.cell).phase {
         Ready(_, _) | Reconnecting(_) -> Ok(Nil)
         Failed(reason) | SuspendedPendingTree(_, reason) -> Error(reason)
@@ -2672,7 +2849,8 @@ pub fn tree_dispose_branch(
   let state =
     State(..state, phase: phase_with_core(state.phase, core))
     |> remove_tree_scope(address, selector)
-  cell_set(runtime.cell, state)
+  cell_set(runtime.cell, state.0)
+  notify_tree_revertible_disposals(state.1)
   Ok(Nil)
 }
 
@@ -2681,26 +2859,35 @@ fn remove_tree_scope(
   state: State,
   address: String,
   selector: tree_types.CheckoutSelector,
-) -> State {
-  State(
-    ..state,
-    subscribers: list.filter(state.subscribers, fn(subscriber) {
-      subscriber.address != address || subscriber.selector != selector
-    }),
-    tree_commit_subscribers: list.filter(
-      state.tree_commit_subscribers,
-      fn(subscriber) {
+) -> #(State, List(TreeRevertibleDisposal)) {
+  let #(retained_disposals, removed_disposals) =
+    list.partition(state.tree_revertible_disposals, fn(disposal) {
+      let revertible = disposal.revertible
+      revertible.address != address || revertible.selector != selector
+    })
+  #(
+    State(
+      ..state,
+      subscribers: list.filter(state.subscribers, fn(subscriber) {
         subscriber.address != address || subscriber.selector != selector
-      },
+      }),
+      tree_commit_subscribers: list.filter(
+        state.tree_commit_subscribers,
+        fn(subscriber) {
+          subscriber.address != address || subscriber.selector != selector
+        },
+      ),
+      tree_commit_settlements: dict.filter(
+        state.tree_commit_settlements,
+        fn(key, _) { key.0 != address || key.1 != selector },
+      ),
+      tree_commit_deliveries: dict.filter(
+        state.tree_commit_deliveries,
+        fn(key, _) { key.0 != address || key.1 != selector },
+      ),
+      tree_revertible_disposals: retained_disposals,
     ),
-    tree_commit_settlements: dict.filter(
-      state.tree_commit_settlements,
-      fn(key, _) { key.0 != address || key.1 != selector },
-    ),
-    tree_commit_deliveries: dict.filter(
-      state.tree_commit_deliveries,
-      fn(key, _) { key.0 != address || key.1 != selector },
-    ),
+    removed_disposals,
   )
 }
 
@@ -3240,11 +3427,42 @@ pub fn tree_dispose_revertible(
     )
     |> result.map_error(string.inspect),
   )
+  let #(state, disposals) =
+    take_tree_revertible_disposals(
+      State(..state, phase: phase_with_core(state.phase, core)),
+      revertible.address,
+      revertible.selector,
+      revertible.id,
+    )
+  cell_set(runtime.cell, state)
+  notify_tree_revertible_disposals(disposals)
+  Ok(Nil)
+}
+
+@target(javascript)
+pub fn tree_get_revertible(
+  event: TreeCommitEvent,
+  on_disposed: fn(TreeRevertible) -> Nil,
+) -> Result(TreeRevertible, String) {
+  use factory <- result.try(
+    event.get_revertible
+    |> option.to_result("tree commit does not provide a revertible"),
+  )
+  use revertible <- result.try(factory())
+  let runtime = revertible.runtime
+  let state = cell_get(runtime.cell)
+  use _ <- result.try(
+    core_from_phase(state.phase)
+    |> option.to_result("tree revertible is disposed"),
+  )
   cell_set(
     runtime.cell,
-    State(..state, phase: phase_with_core(state.phase, core)),
+    State(..state, tree_revertible_disposals: [
+      TreeRevertibleDisposal(revertible, on_disposed),
+      ..state.tree_revertible_disposals
+    ]),
   )
-  Ok(Nil)
+  Ok(revertible)
 }
 
 @target(javascript)
@@ -3278,9 +3496,21 @@ pub fn tree_revert(
           )
           |> result.map_error(string.inspect)
       })
-      cell_set(cell, State(..state, phase: Ready(core, None)))
+      let state = State(..state, phase: Ready(core, None))
+      let #(state, disposals) = case dispose {
+        False -> #(state, [])
+        True ->
+          take_tree_revertible_disposals(
+            state,
+            revertible.address,
+            revertible.selector,
+            revertible.id,
+          )
+      }
+      cell_set(cell, state)
       prime_scoped_tree_commit_deliveries(cell, events)
       queue_outbound(cell, outbound)
+      notify_tree_revertible_disposals(disposals)
       case cell_get(cell).phase {
         Ready(_, _) | Reconnecting(_) -> {
           fan_out_scoped(
@@ -3506,12 +3736,14 @@ pub fn close(runtime: Runtime) -> Nil {
       tree_commit_subscribers: [],
       tree_commit_settlements: dict.new(),
       tree_commit_deliveries: dict.new(),
+      tree_revertible_disposals: [],
       pending_summary: None,
       next_summary_attempt_id: 0,
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
   )
+  notify_tree_revertible_disposals(state.tree_revertible_disposals)
   abort_outcome_waiters(state)
   abort_pending_summary(state)
   notify_session_lost(runtime.cell, state.phase)
@@ -3519,6 +3751,34 @@ pub fn close(runtime: Runtime) -> Nil {
     Some(channel) -> channel.close()
     None -> Nil
   }
+}
+
+@target(javascript)
+fn take_tree_revertible_disposals(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  id: tree_types.RevertibleId,
+) -> #(State, List(TreeRevertibleDisposal)) {
+  let #(retained, removed) =
+    list.partition(state.tree_revertible_disposals, fn(disposal) {
+      let revertible = disposal.revertible
+      revertible.address != address
+      || revertible.selector != selector
+      || revertible.id != id
+    })
+  #(State(..state, tree_revertible_disposals: retained), removed)
+}
+
+@target(javascript)
+fn notify_tree_revertible_disposals(
+  disposals: List(TreeRevertibleDisposal),
+) -> Nil {
+  list.each(disposals, fn(disposal) {
+    observe("tree revertible disposal", fn() {
+      disposal.handler(disposal.revertible)
+    })
+  })
 }
 
 @target(javascript)
@@ -4105,6 +4365,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
         State(
           ..cell_get(cell),
           supported_features: connected.supported_features,
+          writable: connected.mode == WriteMode,
         ),
       )
       let state = cell_get(cell)

@@ -111,9 +111,9 @@ range. Summaries resolve finalized IDs from their stored compressor state and
 have no author session. Loading, reading, moving, and validating nodes never
 generate replacement IDs.
 
-The Identifier profile does not add handles, incremental FieldBatch chunks,
-arbitrary container layouts, `Tree.shortId`, an identifier index, global
-uniqueness checks, a detached JavaScript-style node builder, or UUIDv5 healing.
+The Identifier profile does not add incremental FieldBatch chunks, arbitrary
+container layouts, `Tree.shortId`, an identifier index, global uniqueness
+checks, a detached JavaScript-style node builder, or UUIDv5 healing.
 Transactions are synchronous and limited to one tree. Undo and redo use
 application-owned, runtime-local revertible handles; Watershed does not provide
 or persist an undo stack.
@@ -306,6 +306,14 @@ not supported.
 facades. An eligible local commit supplies a one-shot factory during the
 callback. Call that factory before the callback returns, then store the handle
 in application state. Remote and schema commits do not supply a factory.
+
+Use `tree_get_revertible(event, on_disposed)` when the application must release
+state associated with a revertible. It performs the same one-shot acquisition
+and calls `on_disposed` once with the exact acquired handle after disposal is
+installed. Disposal includes `tree_revert(handle, True)`, explicit disposal,
+disposing or merging away the handle's local branch, and closing the document.
+The original zero-argument factory remains available for callers that do not
+need a disposal notification.
 
 The following pattern uses one subscription. The application routes
 `UndoMessage` values through its existing state owner, such as an actor or an
@@ -580,6 +588,38 @@ SharedTree has no P2P mode; P2P tree creation and snapshot import return an
 unsupported-channel error. A compatible service transport alone does not
 establish SharedTree operation or persistence compatibility.
 
+### Build a graph in an open document
+
+A ready, writable service document can grow beyond its bootstrap layout.
+`create_data_store(document)` creates a detached datastore, and
+`data_store_root(store)` returns its entry-point map. Use
+`create_map_in(document, store)` and `create_tree_in(document, store, stored,
+initial_root, view)` to add detached channels there. `create_tree` adds a
+detached tree to the bootstrap datastore. The JavaScript and BEAM facades expose
+the same calls.
+
+Detached creation is local. It sends no transport message, but tree
+initialization still emits the ordinary local commit, schema, tree, and
+settlement events. You can edit the new channels, subscribe to them, and use
+revertibles before publication.
+
+Publication is implicit. Store a handle to any detached channel in an attached
+map, and Watershed attaches that channel and every detached datastore or
+channel reachable from it before the referencing map operation. A handle keeps
+its source route, so relative handles resolve in the source channel's datastore
+rather than the map that happens to carry them.
+
+Datastores belong to the runtime that created them. The APIs reject a datastore
+from another document, a closed document, an incompatible tree view, or an
+invalid schema or root without installing a partial graph or advancing
+submission and compressor state. Creation is unavailable while the document is
+disconnected, reconnecting, read-only, or still replaying history.
+
+This is the supported native SharedTree profile, not arbitrary Fluid dynamic
+object authoring. It does not add custom datastore factories, caller-selected
+channel IDs, detached graph persistence across runtime close, offline
+publication, cross-runtime handles, or broader DDS and schema support.
+
 ### Limits
 
 Native writers produce full summaries, not incremental summaries. Memory use
@@ -588,14 +628,14 @@ collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
 Map-wide clear, array schema evolution, staged upgrades,
-unknown-field adapters, data migration, handle-valued tree leaves, shared or
-persisted branching, persisted undo stacks, and incremental summaries remain
-deferred. Transaction, undo/redo, and runtime-local branch support is limited
-as described above.
+unknown-field adapters, data migration, shared or persisted branching,
+persisted undo stacks, and incremental summaries remain deferred. Transaction,
+undo/redo, handle-valued leaves, and runtime-local branch support are limited as
+described above.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
-attachment, richer SharedTree Lustre bindings, and disk recovery of pending
-edits are not.
+container reconfiguration, richer SharedTree Lustre bindings, and disk recovery
+of pending edits are not.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -624,8 +664,8 @@ The initial layout uses alias `root` -> datastore `A`, a bootstrap map at
 `/A/root`, and a tree at `/A/_C`. The logical code package is
 `watershed-shared-tree`; an upstream reader must provide a matching application
 loader and view schema. The library has no Fluid SDK runtime dependency.
-Creation does not add `create_tree` or `ensure_tree` to an open document, and it
-does not add dynamic datastore attachment.
+Service-side creation remains fixed-layout. Use the open-document APIs above to
+add runtime-owned detached datastores and channels after connecting.
 
 The [standalone CLI example](examples/shared_tree_cli) creates a document on
 JavaScript, edits it on BEAM, and reopens it without an SDK seed. Local token

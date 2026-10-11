@@ -85,6 +85,13 @@ fn await_settlement_trace(
 ) -> Result(Nil, String)
 
 @target(erlang)
+@external(erlang, "settlement_trace", "await_revertible_status_request")
+fn await_revertible_status_request(
+  runtime: process.Subject(runtime_beam.Msg),
+  timeout_milliseconds: Int,
+) -> Result(Nil, String)
+
+@target(erlang)
 @external(erlang, "settlement_trace", "stop")
 fn stop_settlement_trace(
   trace: process.Pid,
@@ -109,6 +116,43 @@ pub fn settlement_trace_dead_runtime_returns_error_test() {
   process.demonitor_process(owner_monitor)
   start_settlement_trace(dead_runtime, 100)
   |> expect.to_equal(Error("settlement trace runtime is not alive"))
+}
+
+@target(erlang)
+pub fn lifecycle_calls_return_error_when_runtime_dies_before_reply_test() {
+  let schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}"
+  let stored = tree_schema.stored_from_string(schema) |> expect.to_be_ok()
+  let view = tree_schema.view_from_string(schema) |> expect.to_be_ok()
+  runtime_beam.create_data_store(runtime_that_dies_on_request())
+  |> expect.to_equal(Error("document runtime is closed"))
+  runtime_beam.data_store_root(runtime_that_dies_on_request(), "store")
+  |> expect.to_equal(Error("document runtime is closed"))
+  runtime_beam.create_map_in(runtime_that_dies_on_request(), "store")
+  |> expect.to_equal(Error("document runtime is closed"))
+  runtime_beam.create_tree(runtime_that_dies_on_request(), stored, None, view)
+  |> expect.to_equal(Error("document runtime is closed"))
+  runtime_beam.create_tree_in(
+    runtime_that_dies_on_request(),
+    "store",
+    stored,
+    None,
+    view,
+  )
+  |> expect.to_equal(Error("document runtime is closed"))
+}
+
+@target(erlang)
+fn runtime_that_dies_on_request() -> process.Subject(runtime_beam.Msg) {
+  let started = process.new_subject()
+  let _ =
+    process.spawn_unlinked(fn() {
+      let runtime = process.new_subject()
+      process.send(started, runtime)
+      let _ = process.receive_forever(runtime)
+      Nil
+    })
+  process.receive(started, 1000) |> expect.to_be_ok()
 }
 
 @target(erlang)
@@ -245,6 +289,494 @@ pub fn beam_branch_actor_fork_edit_isolation_test() {
   runtime_beam.tree_read_view_on(actor, "A/_C", selector, view, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
   process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn detached_graph_lifecycle_beam_facade_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let runtime_close_entered = process.new_subject()
+  let assert Ok(document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "writer",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let callbacks = case process.receive(connections, 1000) {
+    Ok(value) -> value
+    Error(_) -> panic as "lifecycle transport did not connect"
+  }
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() {
+        let release = process.new_subject()
+        process.send(runtime_close_entered, release)
+        let _ = process.receive(release, 1000)
+        Nil
+      },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["writer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let actor = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let assert Ok(root) = watershed_beam.resolve_root(document)
+  let assert Ok(store) = watershed_beam.create_data_store(document)
+  let assert Ok(store_root) = watershed_beam.data_store_root(store)
+  let foreign_connections = process.new_subject()
+  let assert Ok(foreign) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "foreign",
+      user_id: "foreign",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(foreign_connections, callbacks)
+      }),
+    )
+  watershed_beam.create_map_in(foreign, store) |> expect.to_be_error()
+  watershed_beam.close(foreign)
+  let assert Ok(_) = watershed_beam.create_map_in(document, store)
+  let stored = identifier_fixture.full_stored()
+  let view = identifier_fixture.full_view()
+  let initial =
+    identifier_fixture.full_root(
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("local")),
+      ]),
+      [],
+      [],
+      [],
+    )
+  let assert Ok(tree) =
+    watershed_beam.create_tree_in(document, store, stored, Some(initial), view)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  let branch = watershed_beam.tree_fork(tree) |> expect.to_be_ok()
+  let branch_revertibles = process.new_subject()
+  let disposed_branch_revertibles = process.new_subject()
+  let _branch_token =
+    watershed_beam.subscribe_tree_commits(branch, fn(event) {
+      process.send(
+        branch_revertibles,
+        watershed_beam.tree_get_revertible(event, fn(disposed) {
+          process.send(disposed_branch_revertibles, disposed)
+        }),
+      )
+    })
+  watershed_beam.tree_set(
+    branch,
+    ["child", "label"],
+    tree_types.StringValue("branch-only"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let branch_marker = watershed_beam.tree_handle_of(branch)
+  branch_marker |> expect.to_equal(watershed_beam.tree_handle_of(tree))
+  let resolved_main =
+    watershed_beam.resolve_tree(document, branch_marker, view)
+    |> expect.to_be_ok()
+  watershed_beam.tree_get(resolved_main, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  watershed_beam.tree_dispose_branch(branch) |> expect.to_equal(Ok(Nil))
+  let assert Ok(Ok(branch_revertible)) =
+    process.receive(branch_revertibles, 1000)
+  process.receive(disposed_branch_revertibles, 1000)
+  |> expect.to_equal(Ok(branch_revertible))
+  process.receive(disposed_branch_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+  let assert Ok(generated) = watershed_beam.tree_get(tree, ["child", "id"])
+  let commit_handles = process.new_subject()
+  let late_factories = process.new_subject()
+  let token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert Some(factory) = event.get_revertible
+      process.send(late_factories, factory)
+      process.send(commit_handles, #(factory(), factory()))
+    })
+  watershed_beam.tree_set(
+    tree,
+    ["child", "label"],
+    tree_types.StringValue("changed"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["child", "id"])
+  |> expect.to_equal(Ok(generated))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  let assert #(Ok(revertible), Error(_)) = case
+    process.receive(commit_handles, 1000)
+  {
+    Ok(value) -> value
+    Error(_) -> panic as "detached tree commit callback did not run"
+  }
+  let late_factory = process.receive(late_factories, 1000) |> expect.to_be_ok()
+  late_factory() |> expect.to_be_error()
+  watershed_beam.unsubscribe(token)
+  watershed_beam.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
+
+  let before = runtime_beam.connection_observation(actor)
+  let #(_, incompatible) = evolution_schema("v1")
+  watershed_beam.create_tree_in(
+    document,
+    store,
+    stored,
+    Some(initial),
+    incompatible,
+  )
+  |> expect.to_be_error()
+  runtime_beam.connection_observation(actor) |> expect.to_equal(before)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  let assert Ok(target) = watershed_beam.create_map_in(document, store)
+  let handle_schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.handle\"]}}"
+  let handle_stored =
+    tree_schema.stored_from_string(handle_schema) |> expect.to_be_ok()
+  let handle_view =
+    tree_schema.view_from_string(handle_schema) |> expect.to_be_ok()
+  let assert Ok(handle_tree) =
+    watershed_beam.create_tree_in(
+      document,
+      store,
+      handle_stored,
+      None,
+      handle_view,
+    )
+  let target_marker = watershed_beam.handle_of(target)
+  let target_reference =
+    handle.reference_from_json(target_marker, "/") |> expect.to_be_ok()
+  let lifetime_handles = process.new_subject()
+  let disposed_lifetime_revertibles = process.new_subject()
+  let late_lifetime_factories = process.new_subject()
+  let lifetime_token =
+    watershed_beam.subscribe_tree_commits(handle_tree, fn(event) {
+      let assert Some(factory) = event.get_revertible
+      process.send(late_lifetime_factories, factory)
+      process.send(lifetime_handles, #(
+        watershed_beam.tree_get_revertible(event, fn(disposed) {
+          process.send(disposed_lifetime_revertibles, #(
+            disposed,
+            watershed_beam.tree_revertible_status(disposed),
+          ))
+        }),
+        factory(),
+      ))
+    })
+  watershed_beam.tree_set(
+    handle_tree,
+    [],
+    tree_types.HandleValue(target_reference),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(Ok(lifetime_revertible), Error(_))) =
+    process.receive(lifetime_handles, 1000)
+  let late_lifetime_factory =
+    process.receive(late_lifetime_factories, 1000) |> expect.to_be_ok()
+  late_lifetime_factory() |> expect.to_be_error()
+  watershed_beam.unsubscribe(lifetime_token)
+  watershed_beam.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+
+  watershed_beam.set(root, "secondary", watershed_beam.handle_of(store_root))
+  watershed_beam.set(store_root, "tree", watershed_beam.tree_handle_of(tree))
+  watershed_beam.set(
+    store_root,
+    "handle-tree",
+    watershed_beam.tree_handle_of(handle_tree),
+  )
+  let payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let dynamic =
+    json.parse(json.to_string(payload), decode.dynamic) |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[published]])) =
+    frame.decode_submit_operation(dynamic)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  let peer_connections = process.new_subject()
+  let peer_submissions = process.new_subject()
+  let assert Ok(peer) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "peer",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(peer_callbacks) {
+        process.send(peer_connections, peer_callbacks)
+      }),
+    )
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  peer_callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(peer_submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  peer_callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "peer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["peer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let publication =
+    frame.encode_operation_event([
+      sequenced_submission(published, "writer", 1),
+    ])
+  callbacks.on_event("op", publication)
+  peer_callbacks.on_event("op", publication)
+  let peer_root = watershed_beam.resolve_root(peer) |> expect.to_be_ok()
+  let peer_store_marker =
+    watershed_beam.get(peer_root, "secondary") |> expect.to_be_ok()
+  let peer_store =
+    watershed_beam.resolve(peer, peer_store_marker) |> expect.to_be_ok()
+  let peer_tree_marker =
+    watershed_beam.get(peer_store, "tree") |> expect.to_be_ok()
+  let peer_tree =
+    watershed_beam.resolve_tree(peer, peer_tree_marker, view)
+    |> expect.to_be_ok()
+  watershed_beam.tree_get(peer_tree, ["child", "id"])
+  |> expect.to_equal(Ok(generated))
+  watershed_beam.tree_get(peer_tree, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
+  watershed_beam.tree_set(
+    peer_tree,
+    ["child", "label"],
+    tree_types.StringValue("peer"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let peer_payload =
+    process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+  let peer_dynamic =
+    json.parse(json.to_string(peer_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[peer_edit]])) =
+    frame.decode_submit_operation(peer_dynamic)
+  let peer_event =
+    frame.encode_operation_event([sequenced_submission(peer_edit, "peer", 2)])
+  callbacks.on_event("op", peer_event)
+  peer_callbacks.on_event("op", peer_event)
+  watershed_beam.tree_get(tree, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
+  watershed_beam.tree_get(peer_tree, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
+
+  let peer_handle_tree_marker =
+    watershed_beam.get(peer_store, "handle-tree") |> expect.to_be_ok()
+  let peer_handle_tree =
+    watershed_beam.resolve_tree(peer, peer_handle_tree_marker, handle_view)
+    |> expect.to_be_ok()
+  let assert Ok(Some(tree_types.HandleValue(peer_target_reference))) =
+    watershed_beam.tree_get(peer_handle_tree, [])
+  let peer_target_marker = handle.reference_to_json(peer_target_reference)
+  let writer_target_before =
+    watershed_beam.resolve(document, target_marker) |> expect.to_be_ok()
+  writer_target_before |> expect.to_equal(target)
+  let peer_target_before =
+    watershed_beam.resolve(peer, peer_target_marker) |> expect.to_be_ok()
+  watershed_beam.set(peer_target_before, "peer", json.string("survives"))
+  let target_payload =
+    process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+  let target_dynamic =
+    json.parse(json.to_string(target_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[target_edit]])) =
+    frame.decode_submit_operation(target_dynamic)
+  let target_event =
+    frame.encode_operation_event([sequenced_submission(target_edit, "peer", 3)])
+  callbacks.on_event("op", target_event)
+  peer_callbacks.on_event("op", target_event)
+  watershed_beam.get(writer_target_before, "peer")
+  |> expect.to_equal(Ok(json.string("survives")))
+
+  watershed_beam.tree_revert(lifetime_revertible, True)
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(watershed_beam.RevertibleDisposed)
+  process.receive(disposed_lifetime_revertibles, 1000)
+  |> expect.to_equal(
+    Ok(#(lifetime_revertible, watershed_beam.RevertibleDisposed)),
+  )
+  process.receive(disposed_lifetime_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+  let undo_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let undo_dynamic =
+    json.parse(json.to_string(undo_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[undo]])) =
+    frame.decode_submit_operation(undo_dynamic)
+  let undo_event =
+    frame.encode_operation_event([sequenced_submission(undo, "writer", 4)])
+  callbacks.on_event("op", undo_event)
+  peer_callbacks.on_event("op", undo_event)
+  watershed_beam.tree_get(handle_tree, []) |> expect.to_equal(Ok(None))
+  watershed_beam.tree_get(peer_handle_tree, []) |> expect.to_equal(Ok(None))
+  let writer_target_after =
+    watershed_beam.resolve(document, target_marker) |> expect.to_be_ok()
+  writer_target_after |> expect.to_equal(writer_target_before)
+  let peer_target_after =
+    watershed_beam.resolve(peer, peer_target_marker) |> expect.to_be_ok()
+  peer_target_after |> expect.to_equal(peer_target_before)
+  watershed_beam.get(writer_target_after, "peer")
+  |> expect.to_equal(Ok(json.string("survives")))
+  watershed_beam.get(peer_target_after, "peer")
+  |> expect.to_equal(Ok(json.string("survives")))
+
+  let merged_branch = watershed_beam.tree_fork(tree) |> expect.to_be_ok()
+  let merged_revertibles = process.new_subject()
+  let disposed_merged_revertibles = process.new_subject()
+  let _merged_token =
+    watershed_beam.subscribe_tree_commits(merged_branch, fn(event) {
+      process.send(
+        merged_revertibles,
+        watershed_beam.tree_get_revertible(event, fn(disposed) {
+          process.send(disposed_merged_revertibles, disposed)
+        }),
+      )
+    })
+  watershed_beam.tree_set(
+    merged_branch,
+    ["child", "label"],
+    tree_types.StringValue("merged"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(Ok(merged_revertible)) =
+    process.receive(merged_revertibles, 1000)
+  watershed_beam.tree_merge(tree, merged_branch, True)
+  |> expect.to_equal(Ok(Nil))
+  process.receive(disposed_merged_revertibles, 1000)
+  |> expect.to_equal(Ok(merged_revertible))
+  process.receive(disposed_merged_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+
+  let explicitly_disposed = process.new_subject()
+  let explicit_notifications = process.new_subject()
+  let explicit_token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      process.send(
+        explicitly_disposed,
+        watershed_beam.tree_get_revertible(event, fn(disposed) {
+          process.send(explicit_notifications, disposed)
+        }),
+      )
+    })
+  watershed_beam.tree_set(
+    tree,
+    ["child", "label"],
+    tree_types.StringValue("explicit-dispose"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(Ok(explicitly_disposed)) =
+    process.receive(explicitly_disposed, 1000)
+  watershed_beam.unsubscribe(explicit_token)
+  watershed_beam.tree_dispose_revertible(explicitly_disposed)
+  |> expect.to_equal(Ok(Nil))
+  process.receive(explicit_notifications, 1000)
+  |> expect.to_equal(Ok(explicitly_disposed))
+  process.receive(explicit_notifications, 0)
+  |> expect.to_equal(Error(Nil))
+
+  let close_revertibles = process.new_subject()
+  let close_notifications = process.new_subject()
+  let close_token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      process.send(
+        close_revertibles,
+        watershed_beam.tree_get_revertible(event, fn(disposed) {
+          process.send(close_notifications, #(
+            disposed,
+            watershed_beam.tree_revertible_status(disposed),
+          ))
+        }),
+      )
+    })
+  watershed_beam.tree_set(
+    tree,
+    ["child", "label"],
+    tree_types.StringValue("close"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(Ok(close_revertible)) = process.receive(close_revertibles, 1000)
+  watershed_beam.unsubscribe(close_token)
+  watershed_beam.close(peer)
+  watershed_beam.close(document)
+  let close_release =
+    process.receive(runtime_close_entered, 1000)
+    |> expect.to_be_ok()
+  let runtime_owner = process.subject_owner(close_release) |> expect.to_be_ok()
+  let runtime_monitor = process.monitor(runtime_owner)
+  await_revertible_status_request(actor, 1000)
+  |> expect.to_equal(Ok(Nil))
+  process.is_alive(runtime_owner) |> expect.to_be_true()
+  process.send(close_release, Nil)
+  process.new_selector()
+  |> process.select_specific_monitor(runtime_monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(runtime_monitor)
+  process.receive(close_notifications, 1000)
+  |> expect.to_equal(Ok(#(close_revertible, watershed_beam.RevertibleDisposed)))
+  process.receive(close_notifications, 0) |> expect.to_equal(Error(Nil))
+  process.receive(disposed_lifetime_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+  process.receive(disposed_branch_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+  process.receive(disposed_merged_revertibles, 0)
+  |> expect.to_equal(Error(Nil))
+  process.receive(explicit_notifications, 0)
+  |> expect.to_equal(Error(Nil))
+  process.sleep(10)
+  watershed_beam.data_store_root(store)
+  |> expect.to_equal(Error("document runtime is closed"))
+  watershed_beam.create_data_store(document)
+  |> expect.to_equal(Error("document runtime is closed"))
+  watershed_beam.create_map_in(document, store)
+  |> expect.to_equal(Error("document runtime is closed"))
+  watershed_beam.create_tree(document, stored, Some(initial), view)
+  |> expect.to_equal(Error("document runtime is closed"))
+  watershed_beam.create_tree_in(document, store, stored, Some(initial), view)
+  |> expect.to_equal(Error("document runtime is closed"))
+  Nil
 }
 
 @target(erlang)
@@ -1632,9 +2164,7 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
     frame.decode_submit_operation(resent_dynamic)
     |> expect.to_be_ok()
   resent_client |> expect.to_equal("reader-2")
-  resent.client_sequence_number
-  |> expect.to_equal(original.client_sequence_number + 1)
-  resent.client_sequence_number |> expect.to_equal(2)
+  resent.client_sequence_number |> expect.to_equal(1)
   resent.reference_sequence_number |> expect.to_equal(2)
   resent.contents |> expect.to_equal(original.contents)
   resent.metadata |> expect.to_equal(original.metadata)
@@ -1977,9 +2507,9 @@ pub fn coalesced_attachment_and_transaction_resubmit_after_reconnect_test() {
   )
   runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
   let resent = process.receive(submissions, 1000) |> expect.to_be_ok()
-  resent.client_sequence_number
-  |> expect.to_equal(original.client_sequence_number + 1)
+  resent.client_sequence_number |> expect.to_equal(1)
   resent.reference_sequence_number |> expect.to_equal(2)
+  resent.metadata |> expect.to_equal(original.metadata)
   submitted_tree_identity(resent)
   |> expect.to_equal(submitted_tree_identity(original))
 
@@ -2158,7 +2688,6 @@ pub fn coalesced_attachment_and_schema_resubmit_after_reconnect_test() {
     Ok(second) -> [original, second]
     Error(Nil) -> [original]
   }
-  let last_original = originals |> list.reverse |> list.first |> expect.to_be_ok
   let peer_edited = process.new_subject()
   process.send(
     peer,
@@ -2224,8 +2753,7 @@ pub fn coalesced_attachment_and_schema_resubmit_after_reconnect_test() {
   )
   runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
   let resent = process.receive(submissions, 3000) |> expect.to_be_ok()
-  resent.client_sequence_number
-  |> expect.to_equal(last_original.client_sequence_number + 1)
+  resent.client_sequence_number |> expect.to_equal(1)
   resent.reference_sequence_number |> expect.to_equal(3)
   submitted_tree_identity(resent)
   |> expect.to_equal(list.flat_map(originals, submitted_tree_identity))
@@ -2672,8 +3200,8 @@ pub fn assert_pending_multi_edit_transaction_resubmit() {
   )
   let assert Ok(resent) = process.receive(submissions, 1000)
   runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
-  resent.client_sequence_number
-  |> expect.to_equal(original.client_sequence_number + 1)
+  resent.client_sequence_number |> expect.to_equal(1)
+  resent.metadata |> expect.to_equal(original.metadata)
   let assert Ok(batch) =
     fluid_container.decode(resent.contents, resent.metadata)
   batch.messages
