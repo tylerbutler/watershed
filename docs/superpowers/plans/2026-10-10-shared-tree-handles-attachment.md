@@ -5,7 +5,8 @@
 > task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > Execution started on 2026-10-10 with user authorization to work on `main`
 > and make task commits. Task 1 discovery and Task 2 native handle leaves
-> are complete; Tasks 3-9 remain pending. The dated execution record below separates source proof
+> and Task 3 map-only datastore graphs are complete; Tasks 4-9 remain pending.
+> The dated execution record below separates source proof
 > from native acceptance.
 > Do not restart completed M0-M6 or Lustre tasks.
 
@@ -387,7 +388,7 @@ Create `test/watershed/shared_tree_attachment_test.gleam` and
   Missing/duplicate scenario IDs fail; it does not copy expected fields into
   actual output.
 
-- [ ] Add a failing map-only lifecycle replay with exact raw message/order
+- [x] Add a failing map-only lifecycle replay with exact raw message/order
   comparison:
 
   ```gleam
@@ -411,28 +412,28 @@ Create `test/watershed/shared_tree_attachment_test.gleam` and
   Before Task 4, compare only these complete map scenarios. A full-case runner
   rejects unsupported tree scenarios; do not register a partial runner as
   accepting the full case. Task 4 enables the complete attachment cases.
-- [ ] Run both targets with `-- shared_tree_attachment`; confirm the production
+- [x] Run both targets with `-- shared_tree_attachment`; confirm the production
   failure is unpublished-store creation/attachment, not fixture dispatch.
-- [ ] Add only missing detached datastore metadata and binding state to `Core`.
+- [x] Add only missing detached datastore metadata and binding state to `Core`.
   Preserve published routing and the original root alias. Track binding edges
   at measured serialization boundaries, including removed-but-retained edges.
   Extend `has_channel`/route lookup to local datastores without making them
   visible or persistent on creation.
-- [ ] Extend the existing visited traversal for channel/datastore graphs.
+- [x] Extend the existing visited traversal for channel/datastore graphs.
   Mark candidate local visibility before recursion to terminate cycles.
   Generate datastore snapshots for newly visible stores, channel attaches for
   visible stores, and no duplicate attach for repeated references. Preserve the
   entry-point and package requirements captured in Task 1.
-- [ ] Wire map handle serialization and the existing `attach_dependencies`
+- [x] Wire map handle serialization and the existing `attach_dependencies`
   callers through the shared candidate preparation, then the existing
   submission stamping. Keep non-tree DDS errors and event behavior intact.
   Apply contextual serialized-handle binding before decoding an incoming
   channel payload; later tree/summary tasks reuse that boundary.
-- [ ] Keep error preparation pure. Test malformed last dependencies, unknown
+- [x] Keep error preparation pure. Test malformed last dependencies, unknown
   targets, duplicate store/channel IDs, and unsupported package identities with
   snapshots of core state, CSN, compressor and in-flight counts before/after.
   Existing non-tree DDS attachment tests must keep their measured behavior.
-- [ ] Add source-backed tests for bound-then-removed references, root-to-map
+- [x] Add source-backed tests for bound-then-removed references, root-to-map
   graphs, two-way/cyclic datastore references and resolving an unloaded channel
   after an incoming datastore attach. Preserve the package/attribute bytes.
 - [ ] Run:
@@ -443,7 +444,21 @@ Create `test/watershed/shared_tree_attachment_test.gleam` and
   node --test tools/shared-tree-oracle/container-foundations.test.mjs
   ```
 
-- [ ] Commit as `feat(runtime): prepare bound datastore attachment graphs`.
+- [x] Commit as `feat(runtime): prepare bound datastore attachment graphs`.
+
+**Task 3 acceptance, 2026-10-10:** Implemented at `b022cee3` and corrected at
+`a9a5756e`. Map-only replay executes production cores from the captured
+document, compressor and command inputs, and compares complete raw transport,
+snapshot bytes, ordering and receiver serialization. Mixed tree cases still
+refuse until Task 4.
+
+Review identified swallowed nested-reference errors, missing later channel
+attaches in published local stores, and incomplete raw comparison. All three
+were corrected and the scoped re-review found no significant issues.
+Final attachment suites passed 17 tests per target, the Task 3 selections
+passed 68 per target, runtime-core regressions passed 116 per target, and
+the container-foundations Node suite passed three tests. Reconnect checks
+compare preserved identities and consume the resubmission acknowledgement.
 
 ### Task 4: Create and attach trees with document context
 
