@@ -606,7 +606,7 @@ pub fn revert(
     }
     LocalCheckout(_) -> {
       use #(checkout_state, changes) <- result.try(
-        tree_kernel.apply_local_preview(
+        tree_kernel.apply_inverse_preview(
           checkout_state,
           revision,
           order,

@@ -14,7 +14,10 @@ import {
   restoreArrayReader,
   runMapReloadMatrix,
   runLocalBranchReloadMatrix,
+  runRetainedGraphArtifactInterop,
   runReloadMatrix,
+  validateRetainedGraphArtifact,
+  validateRetainedGraphConsumer,
   runSchemaReloadMatrix,
   validateArrayResults,
   validateIdentifierReloadResults,
@@ -24,6 +27,179 @@ import {
   validateSummaryArtifact,
   validateTransactionReloadResults,
 } from "./summary-interop.mjs";
+
+const retentionScenarios = [
+  "before-removal",
+  "after-removal",
+  "after-undo",
+  "retained-repair",
+  "branch-disposal",
+  "revertible-disposal",
+  "unreferenced-datastore",
+  "fresh-load",
+];
+
+function retainedGraphArtifact() {
+  const blob = (value) => ({
+    type: "blob",
+    base64: Buffer.from(JSON.stringify(value)).toString("base64"),
+  });
+  const tree = (entries) => ({ type: "tree", entries });
+  const gc = {
+    gcNodes: {
+      "/": { outboundRoutes: ["/A"] },
+      "/A": {
+        outboundRoutes: [
+          "/A/9a787e70-ea41-4479-9649-c81c9b74fe58",
+          "/A/_F",
+          "/A/root",
+        ],
+      },
+      "/A/_F": { outboundRoutes: ["/A"] },
+      "/A/9a787e70-ea41-4479-9649-c81c9b74fe58": {
+        outboundRoutes: ["/A", "/A/_F"],
+      },
+      "/A/root": {
+        outboundRoutes: ["/A", "/A/9a787e70-ea41-4479-9649-c81c9b74fe58"],
+      },
+    },
+  };
+  const schema = tree([["SchemaString", blob({
+    nodes: {
+      "org.watershed.shared-tree.handles.Root": {},
+      "org.watershed.shared-tree.handles.Links": {},
+      "org.watershed.shared-tree.handles.Sequence": {},
+    },
+  })]]);
+  const sharedTree = tree([
+    ["attributes", blob({ type: "https://graph.microsoft.com/types/tree" })],
+    ["indexes", tree([
+      ["Schema", schema],
+      ["Forest", tree([["contents", blob({
+        fields: {
+          data: [[
+            1,
+            "root",
+            [{
+              type: "__fluid_handle__",
+              url: "/A/_F",
+            }],
+            [],
+            0,
+          ]],
+        },
+        keys: ["rootFieldKey"],
+      })]])],
+    ])],
+  ]);
+  const target = tree([
+    ["attributes", blob({ type: "https://graph.microsoft.com/types/map" })],
+    ["header", blob([{ key: "value", value: { type: "Plain", value: "before" } }])],
+  ]);
+  const root = tree([
+    ["attributes", blob({ type: "https://graph.microsoft.com/types/map" })],
+    ["header", blob([])],
+  ]);
+  const store = tree([
+    [".component", blob({
+      pkg: "[\"org.watershed.shared-tree.m7.graph\"]",
+      summaryFormatVersion: 2,
+      isRootDataStore: true,
+    })],
+    [".channels", tree([
+      ["9a787e70-ea41-4479-9649-c81c9b74fe58", sharedTree],
+      ["_F", target],
+      ["root", root],
+    ])],
+  ]);
+  const summary = tree([
+    [".protocol", tree([["attributes", blob({ sequenceNumber: 38 })]])],
+    ["gc", tree([["__gc_root", blob(gc)]])],
+    [".channels", tree([["A", store]])],
+  ]);
+  const cases = retentionScenarios.map((id, index) => {
+    const value = structuredClone(summary);
+    if (index >= 6) {
+      const retainedGc = structuredClone(gc);
+      retainedGc.gcNodes["/P"] = {
+        outboundRoutes: ["/P/root"],
+        unreferencedTimestampMs: 1700000000000,
+      };
+      retainedGc.gcNodes["/P/root"] = {
+        outboundRoutes: ["/P"],
+        unreferencedTimestampMs: 1700000000000,
+      };
+      value.entries[1][1].entries[0][1] = blob(retainedGc);
+    }
+    return { id, tree: value };
+  });
+  const output = {
+    formatVersion: 1,
+    target: "javascript",
+    reference,
+    source: {
+      fixture: "test/fixtures/shared_tree/cases/handle-retention.json",
+      caseId: "handle-retention",
+      publication: {
+        id: "fresh-load",
+        version: "7dd98d1e-0f8d-4406-aa1e-e25e030ab485",
+      },
+    },
+    factory: {
+      type: "org.watershed.shared-tree.m7.graph",
+      packagePath: ["org.watershed.shared-tree.m7.graph"],
+      schema: {
+        scope: "org.watershed.shared-tree.handles",
+        root: "org.watershed.shared-tree.handles.Root",
+        fields: ["label", "link", "links", "sequence"],
+      },
+    },
+    cases,
+  };
+  return validateRetainedGraphArtifact(output, "javascript");
+}
+
+function artifactBlobDigests(entry) {
+  if (entry.type === "blob") {
+    return [createHash("sha256")
+      .update(Buffer.from(entry.base64, "base64"))
+      .digest("hex")];
+  }
+  return entry.entries.flatMap(([, child]) => artifactBlobDigests(child)).sort();
+}
+
+function retainedArtifactBlobDigests(entry, path = [], hashes = {}) {
+  if (entry.type === "blob") {
+    hashes[`/${path.join("/")}`] = createHash("sha256")
+      .update(Buffer.from(entry.base64, "base64"))
+      .digest("hex");
+    return hashes;
+  }
+  for (const [name, child] of entry.entries) {
+    if (path.length === 0 && name === ".protocol") continue;
+    retainedArtifactBlobDigests(child, [...path, name], hashes);
+  }
+  return Object.fromEntries(Object.entries(hashes)
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function mutateFreshForestHandle(artifact) {
+  const copy = structuredClone(artifact);
+  const fresh = copy.cases.find(({ id }) => id === "fresh-load");
+  const forest = fresh.tree.entries
+    .find(([name]) => name === ".channels")[1].entries
+    .find(([name]) => name === "A")[1].entries
+    .find(([name]) => name === ".channels")[1].entries
+    .find(([name]) => name === "9a787e70-ea41-4479-9649-c81c9b74fe58")[1]
+    .entries.find(([name]) => name === "indexes")[1].entries
+    .find(([name]) => name === "Forest")[1].entries
+    .find(([name]) => name === "contents")[1];
+  const decoded = Buffer.from(forest.base64, "base64").toString("utf8");
+  forest.base64 = Buffer.from(
+    decoded.replace('"url":"/A/_F"', '"url":"/A/root"'),
+  ).toString("base64");
+  return copy;
+}
 
 test("local branch reload evidence preserves exact merge attribution", () => {
   const mergeAttribution = {
@@ -1119,6 +1295,183 @@ test("artifact coordinator rejects missing and stale target output", async () =>
       cases: ["summary-tail"],
     }),
     /Missing .* artifact/,
+  );
+});
+
+test("retained graph artifact binds native trees to the pinned graph contract", () => {
+  const artifact = retainedGraphArtifact();
+  assert.equal(artifact.cases.length, 8);
+  assert.deepEqual(artifact.cases.map(({ id }) => id), retentionScenarios);
+  assert.match(artifact.cases[0].treeSha256, /^[0-9a-f]{64}$/);
+  assert.deepEqual(
+    artifact.cases[0].gc.gcNodes["/A/9a787e70-ea41-4479-9649-c81c9b74fe58"]
+      .outboundRoutes,
+    ["/A", "/A/_F"],
+  );
+});
+
+test("retained graph artifact rejects mutated bytes, factories, references, and routes", () => {
+  const artifact = retainedGraphArtifact();
+  for (const [label, mutation] of [
+    ["tree bytes", (copy) => {
+      copy.cases[0].tree.entries[0][1].entries[0][1].base64 =
+        Buffer.from('{"sequenceNumber":39}').toString("base64");
+    }],
+    ["blob bytes", (copy) => {
+      copy.cases[0].tree.entries[1][1].entries[0][1].base64 =
+        Buffer.from('{"gcNodes":{}}').toString("base64");
+    }],
+    ["factory package", (copy) => {
+      copy.factory.packagePath = ["org.watershed.shared-tree.m1.bootstrap"];
+    }],
+    ["factory type", (copy) => {
+      copy.factory.type = "org.watershed.shared-tree.m1.bootstrap";
+    }],
+    ["reference version", (copy) => { copy.reference.version = "3.2.0"; }],
+    ["reference commit", (copy) => { copy.reference.commit = "different"; }],
+    ["publication id", (copy) => { copy.source.publication.id = "another"; }],
+    ["publication version", (copy) => {
+      copy.source.publication.version = "00000000-0000-0000-0000-000000000000";
+    }],
+    ["GC route", (copy) => {
+      copy.cases[0].gc.gcNodes["/A/9a787e70-ea41-4479-9649-c81c9b74fe58"]
+        .outboundRoutes = ["/A"];
+    }],
+  ]) {
+    const copy = structuredClone(artifact);
+    mutation(copy);
+    assert.throws(
+      () => validateRetainedGraphArtifact(copy, "javascript"),
+      undefined,
+      label,
+    );
+  }
+});
+
+test("retained graph consumer evidence is bound to loaded bytes and continuation", () => {
+  const artifact = retainedGraphArtifact();
+  const cells = artifact.cases.map(({ id, treeSha256 }) => ({
+    id,
+    treeSha256,
+    sourceBlobSha256: retainedArtifactBlobDigests(
+      artifact.cases.find((item) => item.id === id).tree,
+    ),
+    storedBlobSha256: retainedArtifactBlobDigests(
+      artifact.cases.find((item) => item.id === id).tree,
+    ),
+    loaded: true,
+    storedHandlePaths: {
+      tree: "/A/9a787e70-ea41-4479-9649-c81c9b74fe58",
+      link: "/A/_F",
+      links: {},
+      sequence: [],
+    },
+    targetBefore: { value: "before" },
+    continuedKey: `continued-${id}`,
+    continuedValue: true,
+    peerObserved: true,
+  }));
+  validateRetainedGraphConsumer({
+    target: "javascript",
+    reference,
+    sourcePublication: artifact.source.publication,
+    factory: artifact.factory,
+    cells,
+  }, artifact);
+  for (const mutation of [
+    (copy) => { copy.cells[0].treeSha256 = "0".repeat(64); },
+    (copy) => { copy.cells[0].loaded = false; },
+    (copy) => { copy.cells[0].storedHandlePaths.link = "/A/root"; },
+    (copy) => {
+      delete copy.cells[0].storedBlobSha256[
+        Object.keys(copy.cells[0].storedBlobSha256)[0]
+      ];
+    },
+    (copy) => { copy.cells[0].peerObserved = false; },
+    (copy) => { copy.sourcePublication.version = "different"; },
+  ]) {
+    const copy = {
+      target: "javascript",
+      reference: structuredClone(reference),
+      sourcePublication: structuredClone(artifact.source.publication),
+      factory: structuredClone(artifact.factory),
+      cells: structuredClone(cells),
+    };
+    mutation(copy);
+    assert.throws(() => validateRetainedGraphConsumer(copy, artifact));
+  }
+});
+
+test("retained graph coordinator produces and consumes both native targets", async () => {
+  const javascript = retainedGraphArtifact();
+  const erlang = structuredClone(javascript);
+  erlang.target = "erlang";
+  const produced = [];
+  const consumed = [];
+  const result = await runRetainedGraphArtifactInterop({
+    artifactDirectory: ".superpowers/sdd/2026-10-10-shared-tree-handles-attachment/test-artifacts",
+    produce: async (target) => {
+      produced.push(target);
+      return structuredClone(target === "javascript" ? javascript : erlang);
+    },
+    consume: async (artifact) => {
+      consumed.push(artifact.target);
+      return {
+        target: artifact.target,
+        reference: artifact.reference,
+        sourcePublication: artifact.source.publication,
+        factory: artifact.factory,
+        cells: artifact.cases.map(({ id, treeSha256 }) => ({
+          id,
+          treeSha256,
+          sourceBlobSha256: retainedArtifactBlobDigests(
+            artifact.cases.find((item) => item.id === id).tree,
+          ),
+          storedBlobSha256: retainedArtifactBlobDigests(
+            artifact.cases.find((item) => item.id === id).tree,
+          ),
+          loaded: true,
+          storedHandlePaths: {
+            tree: "/A/9a787e70-ea41-4479-9649-c81c9b74fe58",
+            link: "/A/_F",
+            links: {},
+            sequence: [],
+          },
+          targetBefore: { value: "before" },
+          continuedKey: `continued-${id}`,
+          continuedValue: true,
+          peerObserved: true,
+        })),
+      };
+    },
+    validateSource: () => {},
+    writeArtifacts: false,
+  });
+  assert.deepEqual(produced, ["javascript", "erlang"]);
+  assert.deepEqual(consumed, ["javascript", "erlang"]);
+  assert.equal(result.artifacts.length, 2);
+  assert.equal(result.consumers.length, 2);
+});
+
+test("retained graph real loader rejects a mutated stored tree handle", async () => {
+  await assert.rejects(
+    runRetainedGraphArtifactInterop({
+      targets: ["javascript"],
+      writeArtifacts: false,
+      afterValidate: mutateFreshForestHandle,
+    }),
+    /stored tree handles differ|another retained target/,
+  );
+});
+
+test("retained graph producer bytes are bound to each source publication", async () => {
+  await assert.rejects(
+    runRetainedGraphArtifactInterop({
+      targets: ["javascript"],
+      writeArtifacts: false,
+      afterProduce: mutateFreshForestHandle,
+    }),
+    /generated application bytes differ from the source publication/,
   );
 });
 

@@ -832,6 +832,53 @@ pub fn local_branch_undo_is_checkout_scoped_test() -> Nil {
   |> expect.to_equal(Ok(Some(NumberValue(1.0))))
 }
 
+pub fn local_branch_inverse_keeps_regular_editor_cursor_test() -> Nil {
+  list.each([False, True], fn(local) {
+    let forest =
+      branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+    let document = branch.document(forest)
+    let #(forest, checkout) = case local {
+      False -> #(forest, document)
+      True -> {
+        let assert Ok(forked) = branch.fork(forest, document)
+        forked
+      }
+    }
+    let compressor = fluid_ids.new(session())
+    let assert Ok(branch.AuthorResult(forest, Some(commit), _, compressor)) =
+      branch.author(
+        forest,
+        checkout,
+        SetField(["point", "x"], NumberValue(7.0)),
+        compressor,
+      )
+    let assert Ok(#(forest, inverse)) =
+      branch.retain_revertible(
+        forest,
+        checkout,
+        commit.revision,
+        types.DefaultCommit,
+      )
+    let assert Ok(branch.RevertResult(
+      forest,
+      _,
+      types.UndoCommit,
+      _,
+      _,
+      compressor,
+    )) = branch.revert(forest, inverse, compressor)
+    let assert Ok(branch.AuthorResult(_, Some(next), _, _)) =
+      branch.author(
+        forest,
+        checkout,
+        SetField(["point", "x"], NumberValue(9.0)),
+        compressor,
+      )
+    shared_change.max_local_id(next.change)
+    |> expect.to_equal(shared_change.max_local_id(commit.change) + 4)
+  })
+}
+
 pub fn local_branch_source_revertible_survives_merged_ack_and_rebase_test() -> Nil {
   let forest =
     branch.new(branch.origin("runtime", "document", "tree"), branch_state())

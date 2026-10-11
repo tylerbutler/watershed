@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,7 +9,18 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual, parseArgs, promisify } from "node:util";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
+import { SharedMap } from "@fluidframework/map/internal";
 import { rootDataStoreId } from "@fluidframework/runtime-utils/internal";
+import {
+  defineDataStore,
+  sharedObjectRegistryFromIterable,
+} from "@fluidframework/shared-object-base/internal";
+import {
+  configuredSharedTreeAlpha,
+  FluidClientVersion,
+  SchemaFactory,
+  TreeViewConfiguration,
+} from "fluid-framework/alpha";
 
 import {
   DeliveryGate,
@@ -61,6 +72,61 @@ const nativeTargets = ["javascript", "erlang"];
 const persistenceStates = [
   "initial", "concurrent-detached", "after-peer-leave", "after-nontree-tail",
 ];
+const retentionScenarios = [
+  "before-removal",
+  "after-removal",
+  "after-undo",
+  "retained-repair",
+  "branch-disposal",
+  "revertible-disposal",
+  "unreferenced-datastore",
+  "fresh-load",
+];
+const graphFactory = {
+  type: "org.watershed.shared-tree.m7.graph",
+  packagePath: ["org.watershed.shared-tree.m7.graph"],
+  schema: {
+    scope: "org.watershed.shared-tree.handles",
+    root: "org.watershed.shared-tree.handles.Root",
+    fields: ["label", "link", "links", "sequence"],
+  },
+};
+const retentionPublication = {
+  id: "fresh-load",
+  version: "7dd98d1e-0f8d-4406-aa1e-e25e030ab485",
+};
+const retentionTreePath = "/A/9a787e70-ea41-4479-9649-c81c9b74fe58";
+const retentionTargetPath = "/A/_F";
+const handleSchema = new SchemaFactory(graphFactory.schema.scope);
+class HandleLinks extends handleSchema.map("Links", handleSchema.handle) {}
+class HandleSequence extends handleSchema.array("Sequence", handleSchema.handle) {}
+class HandleRoot extends handleSchema.object("Root", {
+  label: handleSchema.string,
+  link: handleSchema.optional(handleSchema.handle),
+  links: HandleLinks,
+  sequence: HandleSequence,
+}) {}
+const handleTreeConfig = new TreeViewConfiguration({
+  schema: HandleRoot,
+  enableSchemaValidation: true,
+});
+const PinnedTree = configuredSharedTreeAlpha({
+  minVersionForCollab: FluidClientVersion.v2_117,
+});
+const retainedGraphStore = defineDataStore({
+  type: graphFactory.type,
+  registry: sharedObjectRegistryFromIterable([SharedMap, PinnedTree]),
+  instantiateFirstTime: async (creator) => creator.createSharedObject(SharedMap),
+  view: async (root, context) => ({
+    get IFluidLoadable() {
+      return root.IFluidLoadable;
+    },
+    handle: root.handle,
+    root,
+    createMap: async () => context.createSharedObject(SharedMap),
+    createTree: async () => context.createSharedObject(PinnedTree),
+  }),
+});
 
 function summaryBlobs(entry, path = []) {
   if (entry?.type === "blob") {
@@ -72,6 +138,123 @@ function summaryBlobs(entry, path = []) {
   if (entry?.type !== "tree" || !Array.isArray(entry.entries)) return [];
   return entry.entries.flatMap(([name, child]) =>
     summaryBlobs(child, [...path, name]));
+}
+
+function summaryEntry(entry, path) {
+  let current = entry;
+  for (const name of path) {
+    assert.equal(current?.type, "tree", `Summary path is not a tree: ${path.join("/")}`);
+    current = current.entries.find(([child]) => child === name)?.[1];
+    assert(current, `Summary path is missing: ${path.join("/")}`);
+  }
+  return current;
+}
+
+function decodedSummaryBlob(entry, path) {
+  const blob = summaryEntry(entry, path);
+  assert.equal(blob.type, "blob", `Summary path is not a blob: ${path.join("/")}`);
+  return JSON.parse(Buffer.from(blob.base64, "base64").toString("utf8"));
+}
+
+function summarySha256(entry) {
+  return createHash("sha256").update(JSON.stringify(entry)).digest("hex");
+}
+
+function summaryBlobSha256(entry, path = [], hashes = {}) {
+  if (entry.type === "blob") {
+    hashes[`/${path.join("/")}`] = createHash("sha256")
+      .update(Buffer.from(entry.base64, "base64"))
+      .digest("hex");
+    return hashes;
+  }
+  for (const [name, child] of entry.entries) {
+    summaryBlobSha256(child, [...path, name], hashes);
+  }
+  return hashes;
+}
+
+function retainedSourceBlobSha256(entry) {
+  assert.equal(entry.type, "tree", "Retained source summary is not a tree");
+  return Object.fromEntries(Object.entries(summaryBlobSha256(entry))
+    .filter(([path]) => !path.startsWith("/.protocol/"))
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function retainedApplicationBlobSha256(entry) {
+  return Object.fromEntries(Object.entries(summaryBlobSha256(entry))
+    .filter(([path]) =>
+      path.includes("/.channels/")
+        && (path.includes("/indexes/") || path.endsWith("/header"))
+        && !path.endsWith("/indexes/EditManager/String"))
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function sourceSnapshotBlobSha256(snapshot) {
+  const hashes = {};
+  function visit(tree, path = []) {
+    for (const [name, id] of Object.entries(tree.blobs ?? {})) {
+      hashes[`/${[...path, name].join("/")}`] = createHash("sha256")
+        .update(Buffer.from(snapshot.blobs[id], "base64"))
+        .digest("hex");
+    }
+    for (const [name, child] of Object.entries(tree.trees ?? {})) {
+      visit(child, [...path, name]);
+    }
+  }
+  visit(snapshot.tree);
+  return Object.fromEntries(Object.entries(hashes)
+    .filter(([path]) =>
+      path.includes("/.channels/")
+        && (path.includes("/indexes/") || path.endsWith("/header"))
+        && !path.endsWith("/indexes/EditManager/String"))
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function retainedFixtureSourceBindings() {
+  const fixture = JSON.parse(readFileSync(join(
+    repository,
+    "test/fixtures/shared_tree/cases/handle-retention.json",
+  ), "utf8"));
+  return Object.fromEntries(retentionScenarios.map((id) => {
+    const record = fixture.raw.summaries.find((item) =>
+      item.kind === "published-document" && item.scenarioId === id);
+    assert(record, `Missing retained source publication: ${id}`);
+    return [id, sourceSnapshotBlobSha256(record.value.snapshot)];
+  }));
+}
+
+function validateRetainedGraphSourceBindings(artifact) {
+  const source = retainedFixtureSourceBindings();
+  for (const item of artifact.cases) {
+    assert.deepEqual(
+      retainedApplicationBlobSha256(item.tree),
+      source[item.id],
+      `${item.id}: generated application bytes differ from the source publication`,
+    );
+  }
+}
+
+function expectedRetentionGc(includeSecondary) {
+  const gcNodes = {
+    "/": { outboundRoutes: ["/A"] },
+    "/A": {
+      outboundRoutes: [retentionTreePath, retentionTargetPath, "/A/root"],
+    },
+    [retentionTargetPath]: { outboundRoutes: ["/A"] },
+    [retentionTreePath]: { outboundRoutes: ["/A", retentionTargetPath] },
+    "/A/root": { outboundRoutes: ["/A", retentionTreePath] },
+  };
+  if (includeSecondary) {
+    gcNodes["/P"] = {
+      outboundRoutes: ["/P/root"],
+      unreferencedTimestampMs: 1700000000000,
+    };
+    gcNodes["/P/root"] = {
+      outboundRoutes: ["/P"],
+      unreferencedTimestampMs: 1700000000000,
+    };
+  }
+  return { gcNodes };
 }
 
 function pendingSummaryCapture(evidence) {
@@ -1048,6 +1231,134 @@ export function validateSummaryArtifact(output, target, cases = persistenceState
   return output;
 }
 
+function containsGraphSchema(entry) {
+  return summaryBlobs(entry).some(({ content }) =>
+    content.includes("org.watershed.shared-tree.handles.Root")
+      && content.includes("org.watershed.shared-tree.handles.Links")
+      && content.includes("org.watershed.shared-tree.handles.Sequence"));
+}
+
+function retainedStoredHandlePaths(entry) {
+  const forest = decodedSummaryBlob(entry, [
+    ".channels",
+    "A",
+    ".channels",
+    retentionTreePath.slice("/A/".length),
+    "indexes",
+    "Forest",
+    "contents",
+  ]);
+  assert.equal(forest.keys?.[0], "rootFieldKey",
+    "Retained Forest lacks the root field");
+  const root = forest.fields?.data?.[0];
+  assert(Array.isArray(root), "Retained Forest lacks the root node");
+  const link = Array.isArray(root[2]) ? root[2][0]?.url : undefined;
+  assert(root[3]?.length === 0, "Retained Forest has unsupported map handles");
+  assert.equal(root[4], 0, "Retained Forest has unsupported sequence handles");
+  return {
+    tree: retentionTreePath,
+    link,
+    links: {},
+    sequence: [],
+  };
+}
+
+export function validateRetainedGraphArtifact(output, target) {
+  assert.equal(output?.formatVersion, 1, "Wrong retained graph artifact format");
+  assert.equal(output.target, target, "Wrong retained graph artifact target");
+  assert.deepEqual(output.reference, identity, "Stale retained graph reference");
+  assert.deepEqual(output.factory, graphFactory, "Wrong retained graph factory");
+  assert.deepEqual(output.source, {
+    fixture: "test/fixtures/shared_tree/cases/handle-retention.json",
+    caseId: "handle-retention",
+    publication: retentionPublication,
+  }, "Wrong retained graph source");
+  assert(Array.isArray(output.cases), "Missing retained graph cases");
+  assert.deepEqual(output.cases.map(({ id }) => id), retentionScenarios,
+    "Missing, repeated, or reordered retained graph scenarios");
+  for (const [index, item] of output.cases.entries()) {
+    validateEntry(item.tree);
+    assert(containsGraphSchema(item.tree),
+      `${item.id}: retained graph summary lacks the handle schema`);
+    const component = decodedSummaryBlob(
+      item.tree, [".channels", "A", ".component"],
+    );
+    assert.equal(component.pkg, JSON.stringify(graphFactory.packagePath),
+      `${item.id}: retained graph summary names another factory package`);
+    assert.equal(component.summaryFormatVersion, 2,
+      `${item.id}: retained graph summary has another component version`);
+    assert.equal(component.isRootDataStore, true,
+      `${item.id}: retained graph root datastore is not pinned`);
+    const gc = decodedSummaryBlob(item.tree, ["gc", "__gc_root"]);
+    assert.deepEqual(gc, expectedRetentionGc(index >= 6),
+      `${item.id}: retained graph summary has incorrect GC routes`);
+    const digest = summarySha256(item.tree);
+    if (item.treeSha256 === undefined) item.treeSha256 = digest;
+    assert.equal(item.treeSha256, digest,
+      `${item.id}: retained graph tree bytes changed`);
+    if (item.gc === undefined) item.gc = gc;
+    assert.deepEqual(item.gc, gc,
+      `${item.id}: retained graph GC evidence differs from stored bytes`);
+    const storedHandlePaths = retainedStoredHandlePaths(item.tree);
+    if (item.storedHandlePaths === undefined) {
+      item.storedHandlePaths = storedHandlePaths;
+    }
+    assert.deepEqual(item.storedHandlePaths, storedHandlePaths,
+      `${item.id}: retained graph handle paths differ from stored bytes`);
+  }
+  return output;
+}
+
+export function validateRetainedGraphConsumer(result, artifact) {
+  assert.equal(result?.target, artifact.target, "Wrong retained graph consumer target");
+  assert.deepEqual(result.reference, artifact.reference,
+    "Retained graph consumer used another Fluid reference");
+  assert.deepEqual(result.factory, artifact.factory,
+    "Retained graph consumer used another factory");
+  assert.deepEqual(result.sourcePublication, artifact.source.publication,
+    "Retained graph consumer selected another publication");
+  assert(Array.isArray(result.cells), "Missing retained graph consumer cells");
+  assert.deepEqual(result.cells.map(({ id }) => id), retentionScenarios,
+    "Retained graph consumer omitted a checkpoint");
+  for (const [index, cell] of result.cells.entries()) {
+    const source = artifact.cases[index];
+    assert.equal(cell.treeSha256, source.treeSha256,
+      `${cell.id}: consumer loaded different summary bytes`);
+    const sourceBlobs = retainedSourceBlobSha256(source.tree);
+    assert.deepEqual(cell.sourceBlobSha256, sourceBlobs,
+      `${cell.id}: consumer selected different source blobs`);
+    assert(cell.storedBlobSha256 && typeof cell.storedBlobSha256 === "object",
+      `${cell.id}: consumer lacks fetched stored blobs`);
+    const expectedStored = {};
+    for (const [path, digest] of Object.entries(sourceBlobs)) {
+      const storedPath = Object.hasOwn(cell.storedBlobSha256, `/.app${path}`)
+        ? `/.app${path}`
+        : path;
+      assert.equal(cell.storedBlobSha256[storedPath], digest,
+        `${cell.id}: stored summary changed source blob ${path}`);
+      expectedStored[storedPath] = digest;
+    }
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(cell.storedBlobSha256)
+        .filter(([path]) => Object.hasOwn(expectedStored, path))),
+      expectedStored,
+      `${cell.id}: stored summary omitted expected blob paths`,
+    );
+    assert.equal(cell.loaded, true, `${cell.id}: pinned loader did not load`);
+    assert.deepEqual(cell.storedHandlePaths, source.storedHandlePaths,
+      `${cell.id}: pinned loader resolved another stored handle path`);
+    assert.deepEqual(cell.targetBefore, { value: "before" },
+      `${cell.id}: pinned loader restored another target`);
+    assert.equal(cell.continuedKey, `continued-${cell.id}`,
+      `${cell.id}: pinned loader authored another map key`);
+    assert.equal(cell.continuedValue, true,
+      `${cell.id}: pinned loader authored another map value`);
+    assert.equal(cell.peerObserved, true,
+      `${cell.id}: independent peer did not observe the continuing edit`);
+  }
+  return result;
+}
+
 async function produceSummary(target, path, inputPath) {
   await execute("gleam", ["run", "--target", target, "-m", "watershed/tree/summary_export"], {
     cwd: repository,
@@ -1059,6 +1370,23 @@ async function produceSummary(target, path, inputPath) {
       WATERSHED_TREE_SUMMARY_TARGET: target,
     },
   });
+}
+
+async function produceRetainedGraphSummary(target, path, inputPath) {
+  await execute("gleam", [
+    "run", "--target", target, "-m", "watershed/tree/summary_export",
+  ], {
+    cwd: repository,
+    timeout: 120_000,
+    env: {
+      ...process.env,
+      WATERSHED_TREE_SUMMARY_INPUT: inputPath,
+      WATERSHED_TREE_SUMMARY_OUTPUT: path,
+      WATERSHED_TREE_SUMMARY_TARGET: target,
+      WATERSHED_TREE_SUMMARY_MODE: "retained-graph",
+    },
+  });
+  return JSON.parse(await readFile(path, "utf8"));
 }
 
 async function checkSplitMap(owned) {
@@ -1164,6 +1492,208 @@ async function consumeRetainedArtifact(environment, output, target) {
     }
   }
   return results;
+}
+
+async function resolveGraphObject(session, path) {
+  const runtime = Reflect.get(session.data.root, "runtime");
+  assert.equal(typeof runtime?.resolveHandle, "function",
+    "Pinned graph root lacks handle resolution");
+  const response = await runtime.resolveHandle({
+    url: path.startsWith("/A/") ? path.slice(2) : path,
+  });
+  assert.equal(response.status, 200, `Cannot resolve retained graph path: ${path}`);
+  return response.value;
+}
+
+async function storedBlobSha256(environment, resolvedUrl) {
+  const service =
+    await environment.documentServiceFactory.createDocumentService(resolvedUrl);
+  try {
+    const storage = await service.connectToStorage();
+    const tree = await storage.getSnapshotTree();
+    assert(tree, "Retained graph stored snapshot is missing");
+    const digests = {};
+    async function visit(node, path = []) {
+      for (const [name, id] of Object.entries(node.blobs)) {
+        const bytes = Buffer.from(await storage.readBlob(id));
+        digests[`/${[...path, name].join("/")}`] =
+          createHash("sha256").update(bytes).digest("hex");
+      }
+      for (const [name, child] of Object.entries(node.trees)) {
+        await visit(child, [...path, name]);
+      }
+    }
+    await visit(tree);
+    return Object.fromEntries(Object.entries(digests)
+      .sort(([left], [right]) => left.localeCompare(right)));
+  } finally {
+    service.dispose();
+  }
+}
+
+async function consumeRetainedGraphArtifact(artifact) {
+  const environment = makeEnvironment(retainedGraphStore);
+  const cells = [];
+  let consumerError;
+  try {
+    for (const item of artifact.cases) {
+      const document = `native-retained-${artifact.target}-${item.id}-${randomUUID()}`;
+      const url = await environment.urlResolver.resolve({
+        url: `http://localhost:3000/${document}`,
+      });
+      const snapshot = upstreamSummary(item.tree);
+      const protocol = snapshot.tree[".protocol"];
+      assert(protocol, `${item.id}: native retained summary omitted protocol`);
+      delete snapshot.tree[".protocol"];
+      const service = await environment.documentServiceFactory.createContainer(
+        { type: SummaryType.Tree, tree: { ".protocol": protocol, ".app": snapshot } },
+        url,
+      );
+      service.dispose();
+      const sessions = [];
+      const views = [];
+      let cellError;
+      try {
+        const reader = await environment.open(document);
+        sessions.push(reader);
+        const storedBlobs =
+          await storedBlobSha256(environment, reader.container.resolvedUrl);
+        const treeHandle = reader.data.root.get("tree");
+        assert.equal(treeHandle?.absolutePath, retentionTreePath,
+          `${item.id}: graph root points at another tree`);
+        const tree = await treeHandle.get();
+        const view = tree.viewWith(handleTreeConfig);
+        views.push(view);
+        assert.equal(view.root.label, "root",
+          `${item.id}: pinned loader restored another tree root`);
+        const storedHandlePaths = {
+          tree: treeHandle.absolutePath,
+          link: view.root.link?.absolutePath,
+          links: Object.fromEntries(
+            [...view.root.links].map(([key, handle]) => [key, handle.absolutePath]),
+          ),
+          sequence: [...view.root.sequence].map((handle) => handle.absolutePath),
+        };
+        assert.deepEqual(storedHandlePaths, item.storedHandlePaths,
+          `${item.id}: stored tree handles differ from the expected paths`);
+        const target = view.root.link === undefined
+          ? await resolveGraphObject(reader, retentionTargetPath)
+          : await view.root.link.get();
+        assert.deepEqual(Object.fromEntries(target.entries()), { value: "before" },
+          `${item.id}: pinned loader restored another retained target`);
+        const continuedKey = `continued-${item.id}`;
+        target.set(continuedKey, true);
+        await observed(() => !reader.container.isDirty,
+          `${item.id} retained graph continuation acknowledgement`);
+        const peer = await environment.open(document);
+        sessions.push(peer);
+        const peerTarget = await resolveGraphObject(
+          peer,
+          storedHandlePaths.link ?? retentionTargetPath,
+        );
+        await observed(() => peerTarget.get(continuedKey) === true,
+          `${item.id} retained graph peer continuation`);
+        cells.push({
+          id: item.id,
+          treeSha256: item.treeSha256,
+          sourceBlobSha256: retainedSourceBlobSha256(item.tree),
+          storedBlobSha256: storedBlobs,
+          loaded: true,
+          storedHandlePaths,
+          targetBefore: { value: "before" },
+          continuedKey,
+          continuedValue: target.get(continuedKey),
+          peerObserved: peerTarget.get(continuedKey) === true,
+        });
+      } catch (error) {
+        cellError = error;
+        throw error;
+      } finally {
+        for (const view of views.toReversed()) view.dispose();
+        await cleanupAll(cellError, `${item.id} retained graph cleanup failed`,
+          sessions.toReversed().map((session) => () => environment.dispose(session)));
+      }
+    }
+  } catch (error) {
+    consumerError = error;
+    throw error;
+  } finally {
+    await cleanupAll(consumerError, "Retained graph environment cleanup failed",
+      [() => environment.close()]);
+  }
+  return validateRetainedGraphConsumer({
+    target: artifact.target,
+    reference: artifact.reference,
+    sourcePublication: artifact.source.publication,
+    factory: artifact.factory,
+    cells,
+  }, artifact);
+}
+
+export async function runRetainedGraphArtifactInterop({
+  produce = produceRetainedGraphSummary,
+  consume = consumeRetainedGraphArtifact,
+  targets = nativeTargets,
+  afterProduce = (artifact) => artifact,
+  afterValidate = (artifact) => artifact,
+  validateSource = validateRetainedGraphSourceBindings,
+  artifactDirectory = join(
+    repository,
+    ".superpowers/sdd/2026-10-10-shared-tree-handles-attachment/artifacts/retained-graph",
+  ),
+  writeArtifacts = true,
+} = {}) {
+  const directory = resolve(repository, artifactDirectory);
+  const input = join(
+    repository,
+    "test/fixtures/shared_tree/cases/handle-retention.json",
+  );
+  if (writeArtifacts) await mkdir(directory, { recursive: true });
+  const artifacts = [];
+  const consumers = [];
+  for (const target of targets) {
+    const path = join(directory, `native-${target}.json`);
+    const output = afterProduce(await produce(target, path, input), target);
+    let artifact = validateRetainedGraphArtifact(output, target);
+    validateSource(artifact);
+    artifact = afterValidate(artifact, target);
+    const consumer = await consume(artifact);
+    validateRetainedGraphConsumer(consumer, artifact);
+    artifacts.push(artifact);
+    consumers.push(consumer);
+    if (writeArtifacts) {
+      await writeFile(path, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
+      await writeFile(
+        join(directory, `consumer-${target}.json`),
+        `${JSON.stringify(consumer, null, 2)}\n`,
+        { mode: 0o600 },
+      );
+    }
+  }
+  const result = {
+    reference: identity,
+    sourcePublication: retentionPublication,
+    factory: graphFactory,
+    artifacts: artifacts.map(({ target, cases }) => ({
+      target,
+      path: writeArtifacts ? join(directory, `native-${target}.json`) : undefined,
+      caseCount: cases.length,
+    })),
+    consumers: consumers.map(({ target, cells }) => ({
+      target,
+      path: writeArtifacts ? join(directory, `consumer-${target}.json`) : undefined,
+      cellCount: cells.length,
+      peerObservedCount: cells.filter(({ peerObserved }) => peerObserved).length,
+    })),
+  };
+  if (writeArtifacts) {
+    await writeFile(
+      join(directory, "result.json"),
+      `${JSON.stringify(result, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+  }
+  return result;
 }
 
 export async function runArtifactInterop({
@@ -5388,13 +5918,23 @@ async function main() {
     options: {
       service: { type: "string" },
       local: { type: "boolean", default: false },
+      "retained-graph": { type: "boolean", default: false },
+      output: { type: "string" },
     },
   });
   assert(!values.local || values.service === "floodgate",
     "--local requires --service floodgate");
   assert(!values.service || values.service === "floodgate",
     "Unsupported summary interop service");
-  const result = values.service
+  assert(!values["retained-graph"] || !values.service,
+    "--retained-graph cannot use a service");
+  assert(!values.output || values["retained-graph"],
+    "--output requires --retained-graph");
+  const result = values["retained-graph"]
+    ? await runRetainedGraphArtifactInterop({
+      ...(values.output === undefined ? {} : { artifactDirectory: values.output }),
+    })
+    : values.service
     ? values.local ? await withLocalFloodgate(runService) : await runService(serviceConfig())
     : await runArtifactInterop();
   console.log(JSON.stringify(result));

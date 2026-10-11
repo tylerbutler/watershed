@@ -10,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import spillway/types.{type SequencedDocumentMessage}
+import watershed/canonical_json
 import watershed/channel
 import watershed/client_id
 import watershed/fluid_ids
@@ -24,10 +25,13 @@ import watershed/tree/summary as tree_summary
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/fluid_summary.{
   type SummaryEntry, type SummaryError, SummaryBlob, SummaryTree,
 }
 import watershed/wire/op as wire_op
+import watershed/wire/socket
+import watershed/wire/summary as summary_message
 import watershed/wire/summary_blob as inspection
 
 /// Build the supported initial container. No edit has been sequenced.
@@ -179,6 +183,8 @@ pub fn initial_tree(
       view_id,
       json.object([#("gcNodes", json.object([]))]),
       None,
+      0,
+      [],
     )
   use gc <- result.try(refresh_gc(summary))
   Ok(DocumentSummary(..summary, gc:))
@@ -422,6 +428,8 @@ pub fn native(
       view_id,
       gc,
       None,
+      sequence_number,
+      [],
     )
   use gc <- result.try(refresh_gc(summary))
   Ok(DocumentSummary(..summary, gc:))
@@ -463,6 +471,8 @@ pub opaque type DocumentSummary {
     view_id: fluid_ids.StableId,
     gc: Json,
     recent_batches: Option(Json),
+    last_acknowledged_summary: Int,
+    intervening_gc_edges: List(#(String, String)),
   )
 }
 
@@ -502,6 +512,7 @@ pub fn decode(
   ))
   use values <- result.try(json_blob(protocol, ["quorumValues"], "/.protocol"))
   use metadata <- result.try(json_blob(resolved, [".metadata"], "/"))
+  use _ <- result.try(validate_last_message(metadata))
   use _ <- result.try(version(
     metadata,
     ["summaryFormatVersion"],
@@ -567,7 +578,16 @@ pub fn decode(
   })
   use aliases_blob <- result.try(json_blob(resolved, [".aliases"], "/"))
   use aliases <- result.try(alias_pairs(aliases_blob))
-  use gc <- result.try(json_blob(resolved, ["gc", "__gc_root"], "/gc"))
+  use gc <- result.try(case find(resolved, ["gc", "__gc_root"]) {
+    Ok(_) -> json_blob(resolved, ["gc", "__gc_root"], "/gc")
+    Error(fluid_summary.MissingEntry(_)) ->
+      case sequence_number, minimum_sequence_number, find(resolved, ["gc"]) {
+        0, 0, Error(fluid_summary.MissingEntry(_)) ->
+          Ok(json.object([#("gcNodes", json.object([]))]))
+        _, _, _ -> Error(fluid_summary.MissingEntry("/gc/__gc_root"))
+      }
+    Error(error) -> Error(error)
+  })
   use _ <- result.try(
     json.parse(json.to_string(gc), decode.at(["gcNodes"], decode.dynamic))
     |> result.map_error(fn(_) {
@@ -619,21 +639,25 @@ pub fn decode(
     "/.channels/" <> root_store,
     "root datastore has no map",
   ))
-  Ok(DocumentSummary(
-    sequence_number,
-    minimum_sequence_number,
-    metadata,
-    members,
-    ids,
-    proposals,
-    values,
-    aliases,
-    datastores,
-    compressor,
-    view_id,
-    gc,
-    recent_batches,
-  ))
+  Ok(
+    DocumentSummary(
+      sequence_number,
+      minimum_sequence_number,
+      metadata,
+      members,
+      ids,
+      proposals,
+      values,
+      aliases,
+      datastores,
+      compressor,
+      view_id,
+      gc,
+      recent_batches,
+      sequence_number,
+      [],
+    ),
+  )
 }
 
 fn application_root(tree: SummaryEntry) -> Result(SummaryEntry, SummaryError) {
@@ -729,6 +753,11 @@ fn decode_datastore(
             SummaryTree(
               list.filter(entries, fn(item) { item.0 != ".attributes" }),
             )
+          use entry <- result.try(bind_summary_references(
+            entry,
+            "/" <> store.0,
+            channel_path,
+          ))
           // ponytail: Fragmented modules. To decode one tree summary, this
           // caller uses tree/codec/summary, tree/codec, and tree/summary. Add
           // one tree function that decodes a summary.
@@ -757,6 +786,11 @@ fn decode_datastore(
         }
         "https://graph.microsoft.com/types/map" -> {
           use raw <- result.try(blob(entry.1, ["header"]))
+          use raw <- result.try(bind_json_string_references(
+            raw,
+            "/" <> store.0,
+            channel_path <> "/header",
+          ))
           use entries <- result.try(tree_entries(entry.1, channel_path))
           use external <- result.try(
             list.try_map(
@@ -772,14 +806,21 @@ fn decode_datastore(
                       fluid_summary.BlobHandle,
                     ))
                 })
-                bit_array.to_string(bytes)
+                use raw <- result.try(
+                  bit_array.to_string(bytes)
+                  |> result.map_error(fn(_) {
+                    fluid_summary.MalformedEntry(
+                      channel_path <> "/" <> entry.0,
+                      "invalid UTF-8",
+                    )
+                  }),
+                )
+                bind_json_string_references(
+                  raw,
+                  "/" <> store.0,
+                  channel_path <> "/" <> entry.0,
+                )
                 |> result.map(fn(raw) { #(entry.0, raw) })
-                |> result.map_error(fn(_) {
-                  fluid_summary.MalformedEntry(
-                    channel_path <> "/" <> entry.0,
-                    "invalid UTF-8",
-                  )
-                })
               },
             ),
           )
@@ -829,6 +870,33 @@ fn decode_datastore(
   Ok(Datastore(store.0, component, package_path, channels))
 }
 
+fn bind_summary_references(
+  entry: SummaryEntry,
+  context: String,
+  path: String,
+) -> Result(SummaryEntry, SummaryError) {
+  fluid_summary.map_utf8_blobs(entry, fn(raw) {
+    bind_json_string_references(raw, context, path)
+  })
+}
+
+fn bind_json_string_references(
+  raw: String,
+  context: String,
+  path: String,
+) -> Result(String, SummaryError) {
+  case json.parse(raw, wire.json_value_decoder()) {
+    Error(_) ->
+      Error(fluid_summary.MalformedEntry(path, "invalid JSON summary blob"))
+    Ok(value) ->
+      handle.bind_serialized_references(value, context)
+      |> result.map(json.to_string)
+      |> result.map_error(fn(error) {
+        fluid_summary.MalformedEntry(path, string.inspect(error))
+      })
+  }
+}
+
 fn validate_attributes(
   attributes: Json,
   snapshot: channel.Snapshot,
@@ -866,6 +934,8 @@ pub fn encode(summary: DocumentSummary) -> Result(SummaryEntry, SummaryError) {
     _view_id,
     gc,
     recent_batches,
+    _last_acknowledged_summary,
+    _intervening_gc_edges,
   ) = summary
   use compressor_entry <- result.try(case compressor {
     Some(compressor) ->
@@ -1082,7 +1152,43 @@ pub fn advance(
     last_message,
     "/.metadata",
   ))
+  use last_acknowledged_summary <- result.try(case message.message_type {
+    "summaryAck" -> {
+      use response <- result.try(
+        summary_message.decode_message(message.message_type, message.contents)
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/.metadata",
+            "invalid summary acknowledgement",
+          )
+        }),
+      )
+      use proposal <- result.try(case response {
+        summary_message.Ack(proposal, _) -> Ok(proposal)
+        summary_message.Nack(_, _) ->
+          Error(fluid_summary.MalformedEntry(
+            "/.metadata",
+            "unexpected summary rejection",
+          ))
+      })
+      use _ <- result.try(require(
+        proposal >= 0 && proposal < message.sequence_number,
+        "/.metadata",
+        "invalid summary proposal sequence",
+      ))
+      case proposal > summary.last_acknowledged_summary {
+        True -> Ok(proposal)
+        False -> Ok(summary.last_acknowledged_summary)
+      }
+    }
+    _ -> Ok(summary.last_acknowledged_summary)
+  })
   use batches <- result.try(advance_batches(summary.recent_batches, message))
+  use #(gc, intervening_gc_edges) <- result.try(advance_gc_references(
+    summary.gc,
+    summary.intervening_gc_edges,
+    message,
+  ))
   Ok(
     DocumentSummary(
       ..summary,
@@ -1092,6 +1198,9 @@ pub fn advance(
       protocol_members:,
       member_ids:,
       recent_batches: batches,
+      last_acknowledged_summary:,
+      gc:,
+      intervening_gc_edges:,
     ),
   )
 }
@@ -1132,17 +1241,6 @@ pub fn capture(
     list.key_find(aliases, "root") != Error(Nil),
     "/.aliases/root",
     "root alias is missing",
-  ))
-  use count <- result.try(integer(
-    summary.metadata,
-    ["summaryNumber"],
-    "/.metadata",
-  ))
-  use metadata <- result.try(replace_member(
-    summary.metadata,
-    "summaryNumber",
-    json.int(count + 1),
-    "/.metadata",
   ))
   use newly_attached <- result.try(
     list.try_map(
@@ -1234,14 +1332,30 @@ pub fn capture(
     "/.channels",
     "unregistered channel snapshot",
   ))
-  let next =
-    DocumentSummary(..summary, aliases:, datastores:, compressor:, metadata:)
+  let next = DocumentSummary(..summary, aliases:, datastores:, compressor:)
   use gc <- result.try(refresh_gc(next))
-  Ok(DocumentSummary(..next, gc:))
+  Ok(DocumentSummary(..next, gc:, intervening_gc_edges: []))
+}
+
+pub fn generated(
+  summary: DocumentSummary,
+) -> Result(DocumentSummary, SummaryError) {
+  use count <- result.try(integer(
+    summary.metadata,
+    ["summaryNumber"],
+    "/.metadata",
+  ))
+  use metadata <- result.try(replace_member(
+    summary.metadata,
+    "summaryNumber",
+    json.int(count + 1),
+    "/.metadata",
+  ))
+  Ok(DocumentSummary(..summary, metadata:))
 }
 
 fn refresh_gc(summary: DocumentSummary) -> Result(Json, SummaryError) {
-  use nodes <- result.try(
+  use previous_nodes <- result.try(
     json.parse(
       json.to_string(summary.gc),
       decode.at(
@@ -1254,8 +1368,8 @@ fn refresh_gc(summary: DocumentSummary) -> Result(Json, SummaryError) {
     }),
   )
   let stores = summary.datastores
-  use nodes <- result.try(
-    list.try_fold(stores, nodes, fn(nodes, store) {
+  use current_nodes <- result.try(
+    list.try_fold(stores, previous_nodes, fn(nodes, store) {
       use nodes <- result.try(update_routes(
         nodes,
         "/" <> store.id,
@@ -1267,7 +1381,7 @@ fn refresh_gc(summary: DocumentSummary) -> Result(Json, SummaryError) {
           channel.MapSnapshot(entries) ->
             list.try_fold(entries, [], fn(links, entry) {
               use addresses <- result.try(
-                handle.collect_routed_addresses(entry.1, path)
+                handle.collect_routed_addresses(entry.1, "/" <> store.id)
                 |> result.map_error(fn(error) {
                   fluid_summary.MalformedEntry(
                     "/.channels" <> path,
@@ -1280,23 +1394,410 @@ fn refresh_gc(summary: DocumentSummary) -> Result(Json, SummaryError) {
                 list.map(addresses, fn(address) { "/" <> address }),
               ))
             })
+          channel.TreeSnapshot(snapshot) ->
+            tree_kernel.snapshot_handle_references(snapshot)
+            |> list.map(handle.reference_path)
+            |> Ok
           _ -> Ok([])
         })
         update_routes(nodes, path, ["/" <> store.id, ..list.unique(links)])
       })
     }),
   )
-  use nodes <- result.try(update_routes(
-    nodes,
-    "/",
-    list.map(stores, fn(store) { "/" <> store.id }),
-  ))
-  replace_member(
-    summary.gc,
-    "gcNodes",
-    json.object(dict.to_list(nodes)),
-    "/gc/__gc_root",
+  use roots <- result.try(
+    list.try_map(stores, fn(store) {
+      json.parse(
+        json.to_string(store.component),
+        decode.at(["isRootDataStore"], decode.bool),
+      )
+      |> result.map(fn(is_root) {
+        case is_root {
+          True -> ["/" <> store.id]
+          False -> []
+        }
+      })
+      |> result.map_error(fn(_) {
+        fluid_summary.MalformedEntry(
+          "/.channels/" <> store.id <> "/.component",
+          "invalid datastore root status",
+        )
+      })
+    }),
   )
+  use current_nodes <- result.try(update_routes(
+    current_nodes,
+    "/",
+    list.append(
+      list.flatten(roots),
+      list.map(summary.aliases, fn(alias) { "/" <> alias.1 }),
+    ),
+  ))
+  use current_reachable <- result.try(reachable_gc_nodes(
+    current_nodes,
+    ["/"],
+    dict.new(),
+  ))
+  use combined_nodes <- result.try(union_gc_nodes(previous_nodes, current_nodes))
+  use combined_nodes <- result.try(
+    list.try_fold(summary.intervening_gc_edges, combined_nodes, fn(nodes, edge) {
+      append_route(nodes, edge.0, edge.1)
+    }),
+  )
+  use intervening_reachable <- result.try(case summary.intervening_gc_edges {
+    [] -> Ok(dict.new())
+    edges ->
+      reachable_gc_nodes(
+        combined_nodes,
+        ["/", ..list.map(edges, fn(edge) { edge.1 })],
+        dict.new(),
+      )
+  })
+  use nodes <- result.try(
+    list.try_map(dict.to_list(current_nodes), fn(entry) {
+      let #(path, node) = entry
+      use fields <- result.try(
+        json.parse(
+          json.to_string(node),
+          decode.dict(decode.string, wire.json_value_decoder()),
+        )
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/gc/__gc_root" <> path,
+            "invalid GC node",
+          )
+        }),
+      )
+      use fields <- result.try(case dict.has_key(current_reachable, path) {
+        True -> Ok(dict.delete(fields, "unreferencedTimestampMs"))
+        False ->
+          case dict.has_key(intervening_reachable, path) {
+            True -> {
+              use timestamp <- result.try(reference_timestamp(summary.metadata))
+              Ok(dict.insert(
+                fields,
+                "unreferencedTimestampMs",
+                json.int(timestamp),
+              ))
+            }
+            False ->
+              case dict.get(fields, "unreferencedTimestampMs") {
+                Ok(value) -> {
+                  use _ <- result.try(
+                    json.parse(json.to_string(value), decode.int)
+                    |> result.map_error(fn(_) {
+                      fluid_summary.MalformedEntry(
+                        "/gc/__gc_root" <> path,
+                        "invalid unreferenced timestamp",
+                      )
+                    }),
+                  )
+                  Ok(fields)
+                }
+                Error(_) -> {
+                  use timestamp <- result.try(reference_timestamp(
+                    summary.metadata,
+                  ))
+                  Ok(dict.insert(
+                    fields,
+                    "unreferencedTimestampMs",
+                    json.int(timestamp),
+                  ))
+                }
+              }
+          }
+      })
+      Ok(#(path, json.object(dict.to_list(fields))))
+    }),
+  )
+  replace_member(summary.gc, "gcNodes", json.object(nodes), "/gc/__gc_root")
+}
+
+fn union_gc_nodes(
+  previous: Dict(String, Json),
+  current: Dict(String, Json),
+) -> Result(Dict(String, Json), SummaryError) {
+  list.try_fold(dict.to_list(previous), current, fn(nodes, entry) {
+    use previous_routes <- result.try(gc_routes(entry.1, entry.0))
+    use current_routes <- result.try(case dict.get(nodes, entry.0) {
+      Ok(node) -> gc_routes(node, entry.0)
+      Error(_) -> Ok([])
+    })
+    update_routes(nodes, entry.0, list.append(previous_routes, current_routes))
+  })
+}
+
+fn append_route(
+  nodes: Dict(String, Json),
+  source: String,
+  target: String,
+) -> Result(Dict(String, Json), SummaryError) {
+  use routes <- result.try(case dict.get(nodes, source) {
+    Ok(node) -> gc_routes(node, source)
+    Error(_) -> Ok([])
+  })
+  update_routes(nodes, source, [target, ..routes])
+}
+
+fn gc_routes(node: Json, path: String) -> Result(List(String), SummaryError) {
+  json.parse(
+    json.to_string(node),
+    decode.at(["outboundRoutes"], decode.list(decode.string)),
+  )
+  |> result.map_error(fn(_) {
+    fluid_summary.MalformedEntry(
+      "/gc/__gc_root" <> path,
+      "invalid outbound routes",
+    )
+  })
+}
+
+fn reachable_gc_nodes(
+  nodes: Dict(String, Json),
+  pending: List(String),
+  visited: Dict(String, Bool),
+) -> Result(Dict(String, Bool), SummaryError) {
+  case pending {
+    [] -> Ok(visited)
+    [path, ..rest] ->
+      case dict.has_key(visited, path) {
+        True -> reachable_gc_nodes(nodes, rest, visited)
+        False -> {
+          use routes <- result.try(case dict.get(nodes, path) {
+            Error(_) -> Ok([])
+            Ok(node) ->
+              json.parse(
+                json.to_string(node),
+                decode.at(["outboundRoutes"], decode.list(decode.string)),
+              )
+              |> result.map_error(fn(_) {
+                fluid_summary.MalformedEntry(
+                  "/gc/__gc_root" <> path,
+                  "invalid outbound routes",
+                )
+              })
+          })
+          reachable_gc_nodes(
+            nodes,
+            list.append(routes, rest),
+            dict.insert(visited, path, True),
+          )
+        }
+      }
+  }
+}
+
+fn metadata_fields(metadata: Json) -> Result(Dict(String, Json), SummaryError) {
+  json.parse(
+    json.to_string(metadata),
+    decode.dict(decode.string, wire.json_value_decoder()),
+  )
+  |> result.map_error(fn(_) {
+    fluid_summary.MalformedEntry("/.metadata", "invalid metadata object")
+  })
+}
+
+fn validate_last_message(metadata: Json) -> Result(Nil, SummaryError) {
+  use fields <- result.try(metadata_fields(metadata))
+  case dict.get(fields, "lastMessage") {
+    Error(_) -> Ok(Nil)
+    Ok(message) ->
+      case message == json.null() {
+        True -> Ok(Nil)
+        False -> {
+          use fields <- result.try(
+            metadata_fields(message)
+            |> result.map_error(fn(_) {
+              fluid_summary.MalformedEntry(
+                "/.metadata/lastMessage",
+                "invalid last message object",
+              )
+            }),
+          )
+          case dict.has_key(fields, "timestamp") {
+            False -> Ok(Nil)
+            True ->
+              integer(message, ["timestamp"], "/.metadata/lastMessage")
+              |> result.replace(Nil)
+          }
+        }
+      }
+  }
+}
+
+fn reference_timestamp(metadata: Json) -> Result(Int, SummaryError) {
+  use fields <- result.try(metadata_fields(metadata))
+  case dict.get(fields, "lastMessage") {
+    Ok(message) ->
+      case message == json.null() {
+        True -> integer(metadata, ["message", "timestamp"], "/.metadata")
+        False -> integer(message, ["timestamp"], "/.metadata/lastMessage")
+      }
+    Error(_) -> integer(metadata, ["message", "timestamp"], "/.metadata")
+  }
+}
+
+fn advance_gc_references(
+  gc: Json,
+  intervening: List(#(String, String)),
+  message: SequencedDocumentMessage,
+) -> Result(#(Json, List(#(String, String))), SummaryError) {
+  case message.message_type {
+    "op" -> {
+      let metadata = option.map(message.metadata, wire.dynamic_to_json)
+      use contents <- result.try(
+        socket.container_contents(message.contents)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry("/gc/__gc_root", error)
+        }),
+      )
+      use batch <- result.try(
+        fluid_container.decode(contents, metadata)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry("/gc/__gc_root", string.inspect(error))
+        }),
+      )
+      use edges <- result.try(
+        list.try_map(batch.messages, fn(item) {
+          case item.kind {
+            fluid_container.ChannelOperation(route, contents) ->
+              handle.collect_routed_addresses(
+                contents,
+                "/" <> fluid_summary.encode_component(route.data_store_id),
+              )
+              |> result.map(fn(paths) {
+                let source = route_path(route)
+                list.map(paths, fn(path) { #(source, "/" <> path) })
+              })
+              |> result.map_error(fn(error) {
+                fluid_summary.MalformedEntry(
+                  "/gc/__gc_root",
+                  string.inspect(error),
+                )
+              })
+            fluid_container.ChannelAttach(route, _, snapshot) -> {
+              use references <- result.try(attach_snapshot_references(
+                snapshot,
+                "/" <> fluid_summary.encode_component(route.data_store_id),
+              ))
+              let datastore =
+                "/" <> fluid_summary.encode_component(route.data_store_id)
+              let channel = route_path(route)
+              Ok([
+                #(datastore, channel),
+                #(channel, datastore),
+                ..list.map(references, fn(target) { #(channel, target) })
+              ])
+            }
+            fluid_container.DatastoreAttach(store, contents) -> {
+              use snapshot <- result.try(
+                json.parse(
+                  json.to_string(contents),
+                  decode.at(["snapshot"], wire.json_value_decoder()),
+                )
+                |> result.map_error(fn(_) {
+                  fluid_summary.MalformedEntry(
+                    "/gc/__gc_root",
+                    "invalid datastore attach snapshot",
+                  )
+                }),
+              )
+              use references <- result.try(attach_snapshot_references(
+                snapshot,
+                "/" <> fluid_summary.encode_component(store),
+              ))
+              let source = "/" <> fluid_summary.encode_component(store)
+              Ok(list.map(references, fn(target) { #(source, target) }))
+            }
+            fluid_container.IdAllocation(_)
+            | fluid_container.DatastoreAlias(_, _) -> Ok([])
+          }
+        }),
+      )
+      Ok(#(gc, list.unique(list.append(intervening, list.flatten(edges)))))
+    }
+    _ -> Ok(#(gc, intervening))
+  }
+}
+
+fn route_path(route: fluid_container.Route) -> String {
+  "/"
+  <> fluid_summary.encode_component(route.data_store_id)
+  <> "/"
+  <> fluid_summary.encode_component(route.channel_id)
+}
+
+fn attach_snapshot_references(
+  snapshot: Json,
+  context: String,
+) -> Result(List(String), SummaryError) {
+  use entries <- result.try(
+    json.parse(
+      json.to_string(snapshot),
+      decode.at(["entries"], decode.list(wire.json_value_decoder())),
+    )
+    |> result.map_error(fn(_) {
+      fluid_summary.MalformedEntry("/gc/__gc_root", "invalid attach entries")
+    }),
+  )
+  use references <- result.try(
+    list.try_map(entries, fn(entry) {
+      use kind <- result.try(text(entry, ["type"], "/gc/__gc_root"))
+      case kind {
+        "Tree" -> {
+          use child <- result.try(
+            json.parse(
+              json.to_string(entry),
+              decode.at(["value"], wire.json_value_decoder()),
+            )
+            |> result.map_error(fn(_) {
+              fluid_summary.MalformedEntry(
+                "/gc/__gc_root",
+                "invalid attach subtree",
+              )
+            }),
+          )
+          attach_snapshot_references(child, context)
+        }
+        "Blob" -> {
+          use encoding <- result.try(text(
+            entry,
+            ["value", "encoding"],
+            "/gc/__gc_root",
+          ))
+          use _ <- result.try(require(
+            encoding == "utf-8",
+            "/gc/__gc_root",
+            "unsupported attach blob encoding",
+          ))
+          use raw <- result.try(text(
+            entry,
+            ["value", "contents"],
+            "/gc/__gc_root",
+          ))
+          use value <- result.try(
+            json.parse(raw, wire.json_value_decoder())
+            |> result.map_error(fn(_) {
+              fluid_summary.MalformedEntry(
+                "/gc/__gc_root",
+                "invalid attach blob JSON",
+              )
+            }),
+          )
+          handle.collect_routed_addresses(value, context)
+          |> result.map(fn(paths) { list.map(paths, fn(path) { "/" <> path }) })
+          |> result.map_error(fn(error) {
+            fluid_summary.MalformedEntry("/gc/__gc_root", string.inspect(error))
+          })
+        }
+        _ ->
+          Error(fluid_summary.UnsupportedEntry(
+            "/gc/__gc_root",
+            "unsupported attach entry",
+          ))
+      }
+    }),
+  )
+  Ok(list.flatten(references))
 }
 
 fn update_routes(
@@ -1311,7 +1812,10 @@ fn update_routes(
   use node <- result.try(replace_member(
     original,
     "outboundRoutes",
-    json.array(routes, json.string),
+    json.array(
+      list.sort(list.unique(routes), canonical_json.compare),
+      json.string,
+    ),
     "/gc/__gc_root" <> path,
   ))
   Ok(dict.insert(nodes, path, node))

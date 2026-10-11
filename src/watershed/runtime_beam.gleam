@@ -2997,7 +2997,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
               case do_summarize(state, core, channel, None) {
                 Ok(#(core, pending)) ->
                   actor.continue(track_pending_summary(state, core, pending))
-                Error(_reason) -> actor.continue(state)
+                Error(#(core, _reason)) ->
+                  actor.continue(State(..state, phase: Ready(core, None)))
               }
           }
         Ready(_, None), Some(_), None, _
@@ -6870,9 +6871,9 @@ fn handle_native_summarize(
       case do_summarize(state, core, channel, Some(reply)) {
         Ok(#(core, pending)) ->
           actor.continue(track_pending_summary(state, core, pending))
-        Error(reason) -> {
+        Error(#(core, reason)) -> {
           process.send(reply, Error(reason))
-          actor.continue(state)
+          actor.continue(State(..state, phase: Ready(core, None)))
         }
       }
     Ready(_, None), Some(_), Some(_) -> {
@@ -6903,30 +6904,39 @@ fn do_summarize(
   core: runtime_core.Core,
   channel: TransportHandle,
   reply: Option(Subject(Result(String, String))),
-) -> Result(#(runtime_core.Core, PendingSummary), String) {
+) -> Result(#(runtime_core.Core, PendingSummary), #(runtime_core.Core, String)) {
   use _ <- result.try(
     case runtime_core.has_tree(core) && core.persistence == None {
       True -> Error("tree summary publication is not supported")
       False -> Ok(Nil)
-    },
+    }
+    |> result.map_error(fn(error) { #(core, error) }),
   )
-  use token <- result.try(option.to_result(
-    state.connect_message.token,
-    "summarize requires an auth token",
-  ))
-  use _ <- result.try(case runtime_core.is_synced(core) {
-    True -> Ok(Nil)
-    False ->
-      Error(
-        "summarize requires the client to be caught up; retry once "
-        <> "in-flight edits have been acknowledged",
-      )
-  })
-  use captured <- result.try(
-    runtime_core.capture_summary(core) |> result.map_error(string.inspect),
+  use token <- result.try(
+    option.to_result(
+      state.connect_message.token,
+      "summarize requires an auth token",
+    )
+    |> result.map_error(fn(error) { #(core, error) }),
+  )
+  use _ <- result.try(
+    case runtime_core.is_synced(core) {
+      True -> Ok(Nil)
+      False ->
+        Error(
+          "summarize requires the client to be caught up; retry once "
+          <> "in-flight edits have been acknowledged",
+        )
+    }
+    |> result.map_error(fn(error) { #(core, error) }),
+  )
+  use #(core, captured) <- result.try(
+    runtime_core.generate_summary(core)
+    |> result.map_error(fn(error) { #(core, string.inspect(error)) }),
   )
   use hierarchy <- result.try(
-    fluid_document.encode(captured) |> result.map_error(string.inspect),
+    fluid_document.encode(captured)
+    |> result.map_error(fn(error) { #(core, string.inspect(error)) }),
   )
   use tree_sha <- result.try(
     git_storage.stage_hierarchy(
@@ -6935,7 +6945,9 @@ fn do_summarize(
       token: token,
       tree: hierarchy,
     )
-    |> result.map_error(git_storage.error_to_string),
+    |> result.map_error(fn(error) {
+      #(core, git_storage.error_to_string(error))
+    }),
   )
   let #(core, outbound) =
     runtime_core.build_summarize(

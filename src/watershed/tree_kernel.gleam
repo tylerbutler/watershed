@@ -297,18 +297,91 @@ pub fn handle_references(
   state: TreeState,
 ) -> Result(List(handle.Reference), TreeError) {
   use data <- result.try(visible_data(state))
+  Ok(forest_data_handle_references(data))
+}
+
+/// Collect references retained by a sequenced tree snapshot.
+pub fn snapshot_handle_references(
+  snapshot: TreeSnapshot,
+) -> List(handle.Reference) {
+  [
+    forest_data_handle_references(snapshot.forest_data),
+    history_snapshot_handle_references(snapshot.history_snapshot),
+    edit_manager_handle_references(snapshot.retained_wire),
+  ]
+  |> list.flatten
+  |> list.unique
+}
+
+fn forest_data_handle_references(
+  data: forest.ForestData,
+) -> List(handle.Reference) {
   let roots = case data.root {
     None -> []
     Some(root) -> [root]
   }
-  Ok(
-    list.append(roots, list.map(data.detached, fn(entry) { entry.value }))
-    |> list.flat_map(value_handle_references)
-    |> list.unique,
-  )
+  list.append(roots, list.map(data.detached, fn(entry) { entry.value }))
+  |> list.flat_map(value_handle_references)
 }
 
-fn value_handle_references(value: TreeValue) -> List(handle.Reference) {
+fn history_snapshot_handle_references(
+  snapshot: history.HistorySnapshot,
+) -> List(handle.Reference) {
+  let trunk =
+    list.flat_map(snapshot.trunk, fn(item) {
+      changeset_handle_references(item.commit.change)
+    })
+  snapshot.peers
+  |> list.flat_map(fn(peer) {
+    list.flat_map(peer.commits, fn(commit) {
+      changeset_handle_references(commit.change)
+    })
+  })
+  |> list.append(trunk)
+}
+
+fn edit_manager_handle_references(
+  summary: summary_codec.EditManagerSummary,
+) -> List(handle.Reference) {
+  let trunk =
+    list.flat_map(summary.trunk, fn(item) {
+      tree_changes_handle_references(item.commit.changes)
+    })
+  summary.branches
+  |> list.flat_map(fn(branch) {
+    list.flat_map(branch.commits, fn(item) {
+      tree_changes_handle_references(item.commit.changes)
+    })
+  })
+  |> list.append(trunk)
+}
+
+fn changeset_handle_references(
+  changeset: shared_change.Changeset,
+) -> List(handle.Reference) {
+  shared_change.to_changes(changeset)
+  |> tree_changes_handle_references
+}
+
+fn tree_changes_handle_references(
+  changes: List(shared_change.TreeChange),
+) -> List(handle.Reference) {
+  changes
+  |> list.flat_map(fn(item) {
+    case item {
+      shared_change.DataChange(data_change) -> {
+        let data = change.to_data(data_change)
+        list.append(data.builds, data.refreshers)
+        |> list.flat_map(fn(build) {
+          list.flat_map(build.trees, value_handle_references)
+        })
+      }
+      shared_change.SchemaChange(_, _, _) -> []
+    }
+  })
+}
+
+pub fn value_handle_references(value: TreeValue) -> List(handle.Reference) {
   case value {
     types.HandleValue(reference) -> [reference]
     types.ObjectValue(_, fields) | types.MapValue(_, fields) ->
@@ -427,6 +500,7 @@ pub fn revert(
   ))
   let history.RevertAuthoring(_, inverse, kind) = authored
   use #(_, repair) <- result.try(replay_pending_commit(state.visible, inverse))
+  let next_local_id = state.next_local_id
   use #(state, commit, events) <- result.try(apply_local_change(
     state,
     revision,
@@ -434,7 +508,7 @@ pub fn revert(
     inverse.change,
   ))
   use commit <- result.try(history.repair_commit(commit, repair))
-  Ok(#(state, commit, kind, events))
+  Ok(#(TreeState(..state, next_local_id:), commit, kind, events))
 }
 
 /// Rebuild repair content from the forest before each pending commit.
@@ -798,6 +872,23 @@ pub fn apply_local_preview(
 ) -> Result(#(TreeState, ChangeEvents), TreeError) {
   use outer <- result.try(bind_local_change(outer, revision, order))
   apply_bound_local_preview(state, revision, outer)
+}
+
+/// Apply an inverse without advancing the regular editor cursor.
+pub fn apply_inverse_preview(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  let next_local_id = state.next_local_id
+  use #(state, events) <- result.try(apply_local_preview(
+    state,
+    revision,
+    order,
+    outer,
+  ))
+  Ok(#(TreeState(..state, next_local_id:), events))
 }
 
 pub fn apply_local_change(

@@ -735,7 +735,7 @@ and retained snapshot/history data. Attachment consumes binding edges;
 GC consumes measured retained state. They must not conflate those lifetimes.
 Produce the full `handle-retention` runner.
 
-- [ ] Add a source-backed failing retention/GC test:
+- [x] Add a source-backed failing retention/GC test:
 
   ```gleam
   import watershed/tree/fixtures
@@ -749,29 +749,29 @@ Produce the full `handle-retention` runner.
   }
   ```
 
-- [ ] Run both targets and inspect the first missing exact route/blob/property.
+- [x] Run both targets and inspect the first missing exact route/blob/property.
   Extend metadata capture for sequenced secondary datastores and trees.
   Keep local unpublished stores out of document publication.
-- [ ] Replace map-only GC reference extraction with the shared supported
+- [x] Replace map-only GC reference extraction with the shared supported
   traversal. Use source-datastore context for relative markers in map/tree
   content. Include the forest, detached repair data and edit-manager retained
   sources required by Task 1; preserve upstream root status and timestamps.
   Do not turn all secondary stores or local branches into persisted roots.
-- [ ] Apply `bind_serialized_references` to parsed summary blobs with their
+- [x] Apply `bind_serialized_references` to parsed summary blobs with their
   source datastore context before tree decoding. Test legacy relative handles
   in two datastores; re-encoding must preserve the captured upstream absolute
   paths without guessing the context from the reader's bootstrap map.
-- [ ] Test routes before removal, after removal with retained history, undo,
+- [x] Test routes before removal, after removal with retained history, undo,
   branch disposal and handle disposal. Check the exact outgoing route sets and
   reference paths, not whether `gcNodes` exists.
-- [ ] Add actual hierarchical summary round-trip/reload tests for two trees,
+- [x] Add actual hierarchical summary round-trip/reload tests for two trees,
   two datastores and a cyclic handle graph. Preserve components, channel
   attributes, alias immutability, compressor session/final IDs and retained
   values. Load from fetched bytes and perform a continuing edit.
-- [ ] Extend upstream summary consumers so native attach/summary bytes pass
+- [x] Extend upstream summary consumers so native attach/summary bytes pass
   the pinned loader. Reject publication descriptors pointing at different
   trees/blobs, wrong factory packages and wrong routes.
-- [ ] Run:
+- [x] Run:
 
   ```sh
   gleam test --target erlang -- shared_tree_summary shared_tree_document_summary shared_tree_attachment
@@ -781,7 +781,31 @@ Produce the full `handle-retention` runner.
   node smoke/shared_tree_bootstrap.mjs
   ```
 
-- [ ] Commit as `feat(storage): persist handle graphs and retained routes`.
+- [x] Commit as `feat(storage): persist handle graphs and retained routes`.
+
+Task 7 local acceptance: the genuine retention runner measures all eight
+source checkpoints and summaries, including retained routes and fetched-byte
+continuation. The two-store/two-tree cyclic graph preserves legacy relative
+marker contexts, packages, aliases and compressor identity. Both document and
+local-checkout inverses preserve the regular editor cursor. GC combines
+previous/current/intervening edges; summary generation advances metadata
+before acceptance without changing inspection captures.
+
+The pinned consumer loaded sixteen native summaries (eight per target),
+resolved the loaded handles and observed sixteen peer writes. Mutation gates
+reject wrong stored targets and independently bind source/fetched bytes by
+path. Only the fixture's recorded fresh-load publication handle is claimed;
+the other native summary byte trees are installed independently in the local
+pinned loader, not represented as additional source-service publications.
+
+The correction round closed three material findings: transient new-channel
+GC ancestry, wrong-target consumer acceptance, and acknowledgement-based
+summary numbering. Scoped spec/quality review passed. Final local gates:
+399 Erlang / 373 JavaScript coupled tests; 52 Node consumer tests with zero
+skips; 16 pinned loader cells; storage/bootstrap smokes. The final
+`just shared-tree-test` passed 1165 Erlang / 1137 JavaScript tests plus
+storage/bootstrap/creation smokes; lint and whitespace passed. No hosted run,
+push or publication. Tasks 8–9 remain unaccepted.
 
 ### Task 8: Prove live lifecycle through real upstream/JS/BEAM clients
 

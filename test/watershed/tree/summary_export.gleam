@@ -13,6 +13,7 @@ import simplifile
 import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core
+import watershed/tree/lifecycle_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/types.{NumberValue}
 import watershed/wire
@@ -27,12 +28,97 @@ pub fn main() {
   let assert True = target == "javascript" || target == "erlang"
   let assert Ok(raw) = simplifile.read(input_path)
   let assert Ok(input) = json.parse(raw, wire.json_value_decoder())
-  let artifact = case export(input, target) {
+  let artifact = case envoy.get("WATERSHED_TREE_SUMMARY_MODE") {
+    Ok("retained-graph") -> export_retained_graph(input, target)
+    _ -> export(input, target)
+  }
+  let artifact = case artifact {
     Ok(value) -> value
     Error(detail) -> panic as { detail }
   }
   let assert Ok(Nil) =
     simplifile.write(output_path, json.to_string(artifact) <> "\n")
+}
+
+pub fn export_retained_graph(
+  fixture: Json,
+  target: String,
+) -> Result(Json, String) {
+  use input <- result.try(
+    json.parse(
+      json.to_string(fixture),
+      decode.at(["input"], wire.json_value_decoder()),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use summaries <- result.try(lifecycle_fixture.retention_summaries(input))
+  use cases <- result.try(
+    list.try_map(summaries, fn(summary) {
+      use tree <- result.try(entry_json(summary.1))
+      Ok(
+        json.object([
+          #("id", json.string(summary.0)),
+          #("tree", tree),
+        ]),
+      )
+    }),
+  )
+  Ok(
+    json.object([
+      #("formatVersion", json.int(1)),
+      #("target", json.string(target)),
+      #(
+        "reference",
+        json.object([
+          #("package", json.string("@fluidframework/tree")),
+          #("version", json.string("3.1.0")),
+          #("commit", json.string("c3c5bf0ecd313362e83fe8a02b7d39e7e0736960")),
+        ]),
+      ),
+      #(
+        "source",
+        json.object([
+          #(
+            "fixture",
+            json.string("test/fixtures/shared_tree/cases/handle-retention.json"),
+          ),
+          #("caseId", json.string("handle-retention")),
+          #(
+            "publication",
+            json.object([
+              #("id", json.string("fresh-load")),
+              #("version", json.string("7dd98d1e-0f8d-4406-aa1e-e25e030ab485")),
+            ]),
+          ),
+        ]),
+      ),
+      #(
+        "factory",
+        json.object([
+          #("type", json.string("org.watershed.shared-tree.m7.graph")),
+          #(
+            "packagePath",
+            json.array(
+              [json.string("org.watershed.shared-tree.m7.graph")],
+              fn(value) { value },
+            ),
+          ),
+          #(
+            "schema",
+            json.object([
+              #("scope", json.string("org.watershed.shared-tree.handles")),
+              #("root", json.string("org.watershed.shared-tree.handles.Root")),
+              #(
+                "fields",
+                json.array(["label", "link", "links", "sequence"], json.string),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+      #("cases", json.array(cases, fn(value) { value })),
+    ]),
+  )
 }
 
 pub fn export(input: Json, target: String) -> Result(Json, String) {

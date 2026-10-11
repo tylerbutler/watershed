@@ -8,13 +8,16 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import spillway/types
+import watershed/canonical_json
 import watershed/channel
 import watershed/fluid_ids
 import watershed/handle
+import watershed/json_ot
 import watershed/runtime_core
 import watershed/tree/branch as tree_branch
 import watershed/tree/change as tree_change
 import watershed/tree/codec
+import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary as tree_summary_codec
 import watershed/tree/fixtures
 import watershed/tree/forest as tree_forest
@@ -28,6 +31,7 @@ import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/op as wire_op
 import watershed/wire/socket
@@ -117,6 +121,30 @@ type PublicationReplay {
   )
 }
 
+type RetentionReplay {
+  RetentionReplay(
+    publication: PublicationReplay,
+    summaries: dict.Dict(String, fluid_document.DocumentSummary),
+    watch: Option(String),
+    observations: List(Json),
+    observer: Option(runtime_core.Core),
+    loaded: Option(RetentionLoad),
+  )
+}
+
+type RetentionLoad {
+  RetentionLoad(
+    version: String,
+    snapshot_sequence: Int,
+    acknowledgement_sequence: Int,
+    tree: String,
+    target: String,
+    receiver_before: Json,
+    writer_before: Json,
+    fresh_before: runtime_core.Core,
+  )
+}
+
 pub type EvidenceMutation {
   SnapshotBytes
   Route
@@ -159,6 +187,17 @@ pub fn run(_input: Json) -> Result(Json, String) {
 
 pub fn run_case(id: String, input: Json) -> Result(Json, String) {
   use fixture <- result.try(fixtures.load(id))
+  case id {
+    "handle-retention" -> run_retention_case(fixture, input)
+    _ -> run_lifecycle_cases(id, input, fixture)
+  }
+}
+
+fn run_lifecycle_cases(
+  id: String,
+  input: Json,
+  fixture: fixtures.Case,
+) -> Result(Json, String) {
   use scenarios <- result.try(
     json.parse(
       json.to_string(input),
@@ -611,6 +650,1729 @@ pub fn assert_publication_corrupt_last_dependency(case_id: String) -> Nil {
   let assert True = dict.has_key(core.channels, "A/good")
   let assert False = dict.has_key(core.channels, "A/bad")
   Nil
+}
+
+fn run_retention_case(
+  fixture: fixtures.Case,
+  input: Json,
+) -> Result(Json, String) {
+  use replay <- result.try(replay_retention_case(fixture, input))
+  Ok(
+    json.object([
+      #("observations", json.preprocessed_array(replay.observations)),
+    ]),
+  )
+}
+
+pub fn retention_summaries(
+  input: Json,
+) -> Result(List(#(String, fluid_summary.SummaryEntry)), String) {
+  use fixture <- result.try(fixtures.load("handle-retention"))
+  use replay <- result.try(replay_retention_case(fixture, input))
+  use scenarios <- result.try(read_field(
+    input,
+    "scenarios",
+    decode.list(wire.json_value_decoder()),
+  ))
+  list.try_map(scenarios, fn(scenario) {
+    use id <- result.try(read_field(scenario, "id", decode.string))
+    use summary <- result.try(
+      dict.get(replay.summaries, id)
+      |> result.map_error(fn(_) {
+        "native retention summary is missing for " <> id
+      }),
+    )
+    use encoded <- result.try(
+      fluid_document.encode(summary) |> result.map_error(string.inspect),
+    )
+    Ok(#(id, encoded))
+  })
+}
+
+fn replay_retention_case(
+  fixture: fixtures.Case,
+  input: Json,
+) -> Result(RetentionReplay, String) {
+  use scenario <- result.try(matching_scenario(input, "fresh-load"))
+  use commands <- result.try(read_field(
+    scenario,
+    "commands",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use decoder_input <- result.try(field(input, "decoderInput"))
+  use #(writer, receiver, writer_id, _) <- result.try(retention_cores(input))
+  use writer <- result.try(deliver_retention_envelope(writer, decoder_input, 1))
+  use receiver <- result.try(deliver_retention_envelope(
+    receiver,
+    decoder_input,
+    1,
+  ))
+  let replay =
+    RetentionReplay(
+      PublicationReplay(
+        Replay(writer, receiver, [], [], [], [], [], 1, dict.new(), dict.new()),
+        "",
+        None,
+        dict.new(),
+        None,
+        dict.new(),
+        [],
+        [],
+        [],
+        [],
+        [],
+        "",
+      ),
+      dict.new(),
+      None,
+      [],
+      None,
+      None,
+    )
+  use replay <- result.try(
+    list.try_fold(commands, replay, fn(replay, command) {
+      use kind <- result.try(read_field(command, "type", decode.string))
+      let replay = case replay.watch, kind {
+        Some(id), "tree-set-handle"
+        | Some(id), "tree-clear-handle"
+        | Some(id), "revert"
+        ->
+          RetentionReplay(
+            ..replay,
+            publication: PublicationReplay(
+              ..replay.publication,
+              capture: Some(#(
+                id
+                  <> ":"
+                  <> int.to_string(dict.size(replay.publication.inverses)),
+                tree_types.DocumentCheckout,
+              )),
+            ),
+          )
+        _, _ -> replay
+      }
+      retention_command(
+        replay,
+        command,
+        kind,
+        writer_id,
+        decoder_input,
+        fixture.raw,
+      )
+      |> result.map_error(fn(detail) { kind <> ": " <> detail })
+    }),
+  )
+  use _ <- result.try(case dict.size(replay.summaries) {
+    8 -> Ok(Nil)
+    count ->
+      Error(
+        "retention replay captured " <> int.to_string(count) <> " publications",
+      )
+  })
+  use continued <- result.try(
+    runtime_core.get(replay.publication.replay.receiver, "A/_F", "continued")
+    |> result.map_error(string.inspect),
+  )
+  case json.to_string(continued) == "true" {
+    True -> Ok(replay)
+    False -> Error("fresh fetched summary did not continue editing")
+  }
+}
+
+fn retention_cores(
+  input: Json,
+) -> Result(#(runtime_core.Core, runtime_core.Core, String, String), String) {
+  use decoder_input <- result.try(field(input, "decoderInput"))
+  use sessions <- result.try(field(decoder_input, "sessions"))
+  use writer_id <- result.try(read_field(
+    sessions,
+    "writerClientId",
+    decode.string,
+  ))
+  use initial_messages <- result.try(retention_prefix(decoder_input, 2, 2))
+  use initial_message <- result.try(item_at(
+    initial_messages,
+    0,
+    "initial tree attachment is missing",
+  ))
+  use metadata <- result.try(
+    initial_message.metadata
+    |> option.to_result("initial tree attachment metadata is missing"),
+  )
+  use original_batch <- result.try(
+    decode.run(metadata, decode.at(["batchId"], decode.string))
+    |> result.map_error(string.inspect),
+  )
+  use original_client <- result.try(case string.split(original_batch, "_[") {
+    [client, "1]"] -> Ok(client)
+    _ -> Error("unsupported initial tree attachment batch identity")
+  })
+  use receiver_id <- result.try(read_field(
+    sessions,
+    "receiverClientId",
+    decode.string,
+  ))
+  use writer <- result.try(field(sessions, "writer"))
+  use session_raw <- result.try(read_field(writer, "sessionId", decode.string))
+  use session <- result.try(
+    fluid_ids.session_id(session_raw) |> result.map_error(string.inspect),
+  )
+  use snapshot <- result.try(field(decoder_input, "initialSnapshot"))
+  use hierarchy <- result.try(runtime_fixture.read_snapshot(snapshot))
+  use view <- result.try(
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+    |> result.map_error(string.inspect),
+  )
+  use summary <- result.try(
+    fluid_document.decode(hierarchy, None, session, view)
+    |> result.map_error(string.inspect),
+  )
+  use receiver_session <- result.try(
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  use receiver_summary <- result.try(
+    fluid_document.decode(hierarchy, None, receiver_session, view)
+    |> result.map_error(string.inspect),
+  )
+  use writer <- result.try(
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(original_client, [], 0),
+      summary,
+    )
+    |> complete_core,
+  )
+  use receiver <- result.try(
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(receiver_id, [], 0),
+      receiver_summary,
+    )
+    |> complete_core,
+  )
+  Ok(#(writer, receiver, writer_id, receiver_id))
+}
+
+fn retention_command(
+  replay: RetentionReplay,
+  command: Json,
+  kind: String,
+  writer_id: String,
+  decoder_input: Json,
+  raw: Json,
+) -> Result(RetentionReplay, String) {
+  let publication = replay.publication
+  case kind {
+    "create-channel"
+    | "initialize-tree"
+    | "tree-set-handle"
+    | "fork"
+    | "dispose-checkout"
+    | "revert" -> {
+      use publication <- result.try(publication_command(
+        publication,
+        command,
+        kind,
+        writer_id,
+        decoder_input,
+        json.object([]),
+      ))
+      Ok(RetentionReplay(..replay, publication:))
+    }
+    "map-set" -> {
+      use client <- result.try(
+        json.parse(json.to_string(command), {
+          use client <- decode.optional_field("client", "writer", decode.string)
+          decode.success(client)
+        })
+        |> result.map_error(string.inspect),
+      )
+      case client {
+        "writer" -> {
+          use publication <- result.try(publication_command(
+            publication,
+            command,
+            kind,
+            writer_id,
+            decoder_input,
+            json.object([]),
+          ))
+          Ok(RetentionReplay(..replay, publication:))
+        }
+        "fresh" -> {
+          use decoded <- result.try(
+            json.parse(json.to_string(command), command_decoder())
+            |> result.map_error(string.inspect),
+          )
+          let assert MapSet(target, key, value) = decoded
+          use address <- result.try(channel_address(target))
+          use #(receiver, _, outbound) <- result.try(
+            runtime_core.set(publication.replay.receiver, address, key, value)
+            |> result.map_error(string.inspect),
+          )
+          use #(receiver, _) <- result.try(
+            runtime_core.coalesce_outbound_operations(receiver, outbound)
+            |> result.map_error(string.inspect),
+          )
+          use next <- result.try(retention_prefix(
+            decoder_input,
+            publication.replay.sequence_number + 1,
+            publication.replay.sequence_number + 1,
+          ))
+          use next <- result.try(
+            list.first(next) |> result.map_error(string.inspect),
+          )
+          use client_id <- result.try(
+            next.client_id |> option.to_result("fresh operation has no client"),
+          )
+          use receiver <- result.try(
+            runtime_core.adopt_reconnect(
+              receiver,
+              runtime_fixture.connected(
+                client_id,
+                [],
+                receiver.last_seen_sequence_number,
+              ),
+            )
+            |> result.map_error(string.inspect),
+          )
+          use #(receiver, outbounds) <- result.try(
+            runtime_core.resubmit(receiver) |> result.map_error(string.inspect),
+          )
+          Ok(
+            RetentionReplay(
+              ..replay,
+              publication: PublicationReplay(
+                ..publication,
+                replay: Replay(..publication.replay, receiver:),
+                receiver_outbounds: list.append(
+                  publication.receiver_outbounds,
+                  outbounds,
+                ),
+              ),
+            ),
+          )
+        }
+        _ -> Error("unsupported retention client " <> client)
+      }
+    }
+    "settle" -> {
+      use checkpoint <- result.try(read_field(
+        command,
+        "checkpoint",
+        decode.string,
+      ))
+      use publication <- result.try(case checkpoint {
+        "initial-tree" -> {
+          use #(writer, _) <- result.try(
+            runtime_core.coalesce_outbound_operations(
+              publication.replay.writer,
+              publication.replay.outbounds,
+            )
+            |> result.map_error(string.inspect),
+          )
+          use writer <- result.try(
+            runtime_core.adopt_reconnect(
+              writer,
+              runtime_fixture.connected(
+                writer_id,
+                [],
+                writer.last_seen_sequence_number,
+              ),
+            )
+            |> result.map_error(string.inspect),
+          )
+          use #(writer, outbounds) <- result.try(
+            runtime_core.resubmit(writer) |> result.map_error(string.inspect),
+          )
+          Ok(
+            PublicationReplay(
+              ..publication,
+              replay: Replay(..publication.replay, writer:, outbounds:),
+            ),
+          )
+        }
+        _ -> Ok(publication)
+      })
+      use publication <- result.try(publication_settle(
+        publication,
+        decoder_input,
+        writer_id,
+      ))
+      use observer <- result.try(case replay.observer {
+        None -> Ok(None)
+        Some(observer) ->
+          deliver_retention_envelope(
+            observer,
+            decoder_input,
+            publication.replay.sequence_number,
+          )
+          |> result.map(Some)
+      })
+      let replay = RetentionReplay(..replay, publication:, observer:)
+      case checkpoint {
+        "fresh-load" -> retention_finish_load(replay, raw)
+        _ -> Ok(replay)
+      }
+    }
+    "subscribe-revertibles" -> {
+      use id <- result.try(read_field(command, "id", decode.string))
+      Ok(RetentionReplay(..replay, watch: Some(id)))
+    }
+    "tree-clear-handle" -> {
+      use name <- result.try(
+        json.parse(
+          json.to_string(command),
+          decode.at(["field", "name"], decode.string),
+        )
+        |> result.map_error(string.inspect),
+      )
+      use #(writer, events, outbound) <- result.try(
+        runtime_core.submit_tree_edits_on(
+          publication.replay.writer,
+          publication.tree,
+          tree_types.DocumentCheckout,
+          [tree_types.ClearField([name])],
+        )
+        |> result.map_error(string.inspect),
+      )
+      use publication <- result.try(publication_emission(
+        publication,
+        writer,
+        tree_types.DocumentCheckout,
+        events,
+        outbound,
+      ))
+      Ok(RetentionReplay(..replay, publication:))
+    }
+    "dispose-revertibles" -> {
+      use id <- result.try(read_field(command, "id", decode.string))
+      use writer <- result.try(
+        dict.to_list(publication.inverses)
+        |> list.filter(fn(entry) { string.starts_with(entry.0, id <> ":") })
+        |> list.try_fold(publication.replay.writer, fn(writer, entry) {
+          case
+            runtime_core.tree_revertible_is_valid_on(
+              writer,
+              publication.tree,
+              entry.1.0,
+              entry.1.1,
+            )
+          {
+            False -> Ok(writer)
+            True ->
+              runtime_core.dispose_tree_revertible_on(
+                writer,
+                publication.tree,
+                entry.1.0,
+                entry.1.1,
+              )
+              |> result.map_error(string.inspect)
+          }
+        }),
+      )
+      Ok(
+        RetentionReplay(
+          ..replay,
+          publication: PublicationReplay(
+            ..publication,
+            replay: Replay(..publication.replay, writer:),
+          ),
+        ),
+      )
+    }
+    "create-datastore" | "map-delete" -> {
+      use decoded <- result.try(
+        json.parse(json.to_string(command), command_decoder())
+        |> result.map_error(string.inspect),
+      )
+      use next <- result.try(execute_command(
+        publication.replay,
+        decoded,
+        writer_id,
+      ))
+      Ok(
+        RetentionReplay(
+          ..replay,
+          publication: PublicationReplay(..publication, replay: next),
+        ),
+      )
+    }
+    "publish-summary" -> {
+      use id <- result.try(read_field(command, "id", decode.string))
+      use record <- result.try(raw_record(
+        raw,
+        "summaries",
+        id,
+        "published-document",
+      ))
+      use details <- result.try(field(record, "publication"))
+      use reference <- result.try(read_field(
+        details,
+        "referenceSequenceNumber",
+        decode.int,
+      ))
+      use publication <- result.try(retention_deliver_range(
+        publication,
+        decoder_input,
+        publication.replay.sequence_number + 1,
+        reference,
+      ))
+      use #(receiver, summary) <- result.try(
+        runtime_core.generate_summary(publication.replay.receiver)
+        |> result.map_error(string.inspect),
+      )
+      let publication =
+        PublicationReplay(
+          ..publication,
+          replay: Replay(..publication.replay, receiver:),
+        )
+      use source <- result.try(retention_source_summary(raw, id, summary))
+      use encoded <- result.try(
+        fluid_document.encode(summary) |> result.map_error(string.inspect),
+      )
+      use source_encoded <- result.try(
+        fluid_document.encode(source) |> result.map_error(string.inspect),
+      )
+      use actual <- result.try(retention_summary_json(encoded))
+      use expected <- result.try(retention_summary_json(source_encoded))
+      use _ <- result.try(
+        fixtures.first_difference(actual, expected)
+        |> result.map_error(fn(path) {
+          id
+          <> ": native summary differs from fetched bytes at "
+          <> path
+          <> "\nactual "
+          <> json.to_string(actual)
+          <> "\nexpected "
+          <> json.to_string(expected)
+        }),
+      )
+      use compressor <- result.try(
+        fluid_document.compressor(summary)
+        |> option.to_result(id <> ": native summary has no compressor"),
+      )
+      use decoded <- result.try(
+        fluid_document.decode(
+          encoded,
+          None,
+          fluid_ids.local_session(compressor),
+          fluid_document.view_id(summary),
+        )
+        |> result.map_error(string.inspect),
+      )
+      use round_trip <- result.try(
+        fluid_document.encode(decoded) |> result.map_error(string.inspect),
+      )
+      use round_trip <- result.try(retention_summary_json(round_trip))
+      use _ <- result.try(
+        fixtures.first_difference(round_trip, actual)
+        |> result.map_error(fn(path) {
+          id <> ": native summary round trip differs at " <> path
+        }),
+      )
+      use observation <- result.try(retention_observation(
+        publication,
+        summary,
+        id,
+        raw,
+      ))
+      use publication <- result.try(retention_deliver_publication(
+        publication,
+        decoder_input,
+        id,
+        raw,
+      ))
+      Ok(
+        RetentionReplay(
+          ..replay,
+          publication:,
+          summaries: dict.insert(replay.summaries, id, summary),
+          observations: list.append(replay.observations, [observation]),
+        ),
+      )
+    }
+    "load-publication" -> {
+      use id <- result.try(read_field(command, "publicationId", decode.string))
+      use version <- result.try(read_field(command, "version", decode.string))
+      use summary <- result.try(
+        dict.get(replay.summaries, id)
+        |> result.map_error(fn(_) { "fresh publication was not captured" }),
+      )
+      use record <- result.try(raw_record(
+        raw,
+        "summaries",
+        id,
+        "published-document",
+      ))
+      use details <- result.try(field(record, "publication"))
+      use handle <- result.try(read_field(details, "handle", decode.string))
+      use _ <- result.try(case version == handle {
+        True -> Ok(Nil)
+        False -> Error("requested version differs from fetched publication")
+      })
+      use snapshot <- result.try(field(record, "snapshot"))
+      use hierarchy <- result.try(runtime_fixture.read_snapshot(snapshot))
+      use session <- result.try(
+        fluid_ids.session_id("80000000-0000-4000-8000-000000000008")
+        |> result.map_error(string.inspect),
+      )
+      use fetched <- result.try(
+        fluid_document.decode(
+          hierarchy,
+          None,
+          session,
+          fluid_document.view_id(summary),
+        )
+        |> result.map_error(string.inspect),
+      )
+      let joined_sequence = publication.replay.sequence_number + 1
+      use messages <- result.try(retention_prefix(
+        decoder_input,
+        fluid_document.sequence_number(fetched) + 1,
+        joined_sequence,
+      ))
+      use continuation <- result.try(retention_prefix(
+        decoder_input,
+        joined_sequence + 1,
+        joined_sequence + 1,
+      ))
+      use continuation <- result.try(
+        list.first(continuation) |> result.map_error(string.inspect),
+      )
+      use original_client <- result.try(retention_original_client(continuation))
+      use fresh <- result.try(
+        runtime_core.bootstrap_document(
+          runtime_fixture.connected(original_client, messages, joined_sequence),
+          fetched,
+        )
+        |> complete_core,
+      )
+      use writer <- result.try(
+        [joined_sequence]
+        |> list.try_fold(publication.replay.writer, fn(writer, sequence) {
+          deliver_retention_envelope(writer, decoder_input, sequence)
+        }),
+      )
+      use observer <- result.try(deliver_retention_envelope(
+        publication.replay.receiver,
+        decoder_input,
+        joined_sequence,
+      ))
+      use link <- result.try(
+        runtime_core.tree_read(fresh, publication.tree, ["link"])
+        |> result.map_error(string.inspect),
+      )
+      use target <- result.try(case link {
+        Some(tree_types.HandleValue(reference)) ->
+          runtime_core.resolve_handle_address(
+            fresh,
+            handle.reference_to_json(reference),
+          )
+          |> result.map_error(string.inspect)
+        _ -> Error("fetched tree has no target handle")
+      })
+      use acknowledgement <- result.try(read_field(
+        details,
+        "acknowledgementSequenceNumber",
+        decode.int,
+      ))
+      Ok(
+        RetentionReplay(
+          ..replay,
+          observer: Some(observer),
+          loaded: Some(RetentionLoad(
+            version,
+            fluid_document.sequence_number(fetched),
+            acknowledgement,
+            publication.tree,
+            target,
+            map_data(fresh, target),
+            map_data(writer, target),
+            fresh,
+          )),
+          publication: PublicationReplay(
+            ..publication,
+            replay: Replay(
+              ..publication.replay,
+              writer:,
+              receiver: fresh,
+              sequence_number: joined_sequence,
+            ),
+          ),
+        ),
+      )
+    }
+    _ -> Error("unsupported retention command " <> kind)
+  }
+}
+
+fn retention_original_client(
+  message: types.SequencedDocumentMessage,
+) -> Result(String, String) {
+  use metadata <- result.try(
+    message.metadata |> option.to_result("operation metadata is missing"),
+  )
+  use batch <- result.try(
+    decode.run(metadata, decode.at(["batchId"], decode.string))
+    |> result.map_error(string.inspect),
+  )
+  case string.split(batch, "_[") {
+    [client, "1]"] -> Ok(client)
+    _ -> Error("unsupported original batch identity")
+  }
+}
+
+fn retention_observation(
+  publication: PublicationReplay,
+  summary: fluid_document.DocumentSummary,
+  id: String,
+  raw: Json,
+) -> Result(Json, String) {
+  use checkpoint <- result.try(retention_checkpoint(publication, id))
+  use reference <- result.try(
+    runtime_core.tree_read(publication.replay.writer, publication.tree, ["link"])
+    |> result.map_error(string.inspect),
+  )
+  let target = case reference {
+    Some(tree_types.HandleValue(reference)) -> handle.reference_path(reference)
+    _ -> ""
+  }
+  use channel_snapshot <- result.try(
+    list.find_map(fluid_document.datastores(summary), fn(store) {
+      list.find_map(store.channels, fn(item) {
+        let path = store.id <> "/" <> item.id
+        let target = publication.tree
+        case item.snapshot {
+          channel.TreeSnapshot(snapshot) if path == target -> Ok(snapshot)
+          _ -> Error(Nil)
+        }
+      })
+    })
+    |> result.map_error(fn(_) { "retained tree snapshot is missing" }),
+  )
+  let routes =
+    json.object([
+      #(
+        "/",
+        json.array(
+          tree_kernel.snapshot_handle_references(channel_snapshot)
+            |> list.map(handle.reference_path)
+            |> list.unique
+            |> list.sort(canonical_json.compare),
+          json.string,
+        ),
+      ),
+    ])
+  let gc =
+    json.preprocessed_array([
+      json.object([
+        #("path", json.string("/gc/__gc_root")),
+        #("value", fluid_document.gc(summary)),
+      ]),
+    ])
+  use fields <- result.try(case id {
+    "before-removal" ->
+      Ok([#("routes", routes), #("path", json.string(target))])
+    "after-removal" -> {
+      let addresses =
+        tree_kernel.snapshot_handle_references(channel_snapshot)
+        |> list.map(handle.reference_path)
+      use target <- result.try(
+        list.first(addresses) |> result.map_error(string.inspect),
+      )
+      use address <- result.try(channel_address(target))
+      Ok([
+        #("routes", routes),
+        #(
+          "attached",
+          json.bool(dict.has_key(publication.replay.writer.channels, address)),
+        ),
+      ])
+    }
+    "after-undo" -> {
+      use address <- result.try(channel_address(target))
+      use value <- result.try(
+        runtime_core.get(publication.replay.writer, address, "value")
+        |> result.map_error(string.inspect),
+      )
+      Ok([#("path", json.string(target)), #("targetValue", value)])
+    }
+    "retained-repair" -> {
+      use branch <- result.try(
+        dict.get(publication.branches, "retaining")
+        |> result.map_error(string.inspect),
+      )
+      use branch_reference <- result.try(
+        runtime_core.tree_read_on(
+          publication.replay.writer,
+          publication.tree,
+          tree_types.LocalCheckout(branch),
+          ["link"],
+        )
+        |> result.map_error(string.inspect),
+      )
+      use branch_path <- result.try(case branch_reference {
+        Some(tree_types.HandleValue(value)) -> Ok(handle.reference_path(value))
+        _ -> Error("retaining branch lost its handle")
+      })
+      Ok([
+        #("routes", routes),
+        #("mainHasReference", json.bool(reference != None)),
+        #("branchPath", json.string(branch_path)),
+      ])
+    }
+    "branch-disposal" | "revertible-disposal" -> Ok([#("routes", routes)])
+    "unreferenced-datastore" -> {
+      use store <- result.try(
+        list.find(fluid_document.datastores(summary), fn(store) {
+          store.id != "A"
+        })
+        |> result.map_error(string.inspect),
+      )
+      use root <- result.try(
+        runtime_core.root_channel_address(publication.replay.writer)
+        |> result.map_error(string.inspect),
+      )
+      use store_id <- result.try(
+        string.split(root, "/")
+        |> list.first
+        |> result.map_error(string.inspect),
+      )
+      use root_routes <- result.try(
+        handle.collect_routed_addresses(
+          map_data(publication.replay.writer, root),
+          "/" <> store_id,
+        )
+        |> result.map_error(string.inspect),
+      )
+      Ok([
+        #("path", json.string("/" <> store.id <> "/root")),
+        #(
+          "attached",
+          json.bool(dict.has_key(
+            publication.replay.writer.channels,
+            store.id <> "/root",
+          )),
+        ),
+        #(
+          "rootGc",
+          json.object([
+            #(
+              "/",
+              json.array(
+                list.map(root_routes, fn(route) { "/" <> route }),
+                json.string,
+              ),
+            ),
+          ]),
+        ),
+        #(
+          "components",
+          json.array(fluid_document.datastores(summary), fn(store) {
+            json.object([
+              #("path", json.string("/.channels/" <> store.id <> "/.component")),
+              #("value", store.component),
+            ])
+          }),
+        ),
+      ])
+    }
+    "fresh-load" -> Ok([])
+    _ -> Error("unsupported retention observation " <> id)
+  })
+  use evidence <- result.try(retention_evidence(raw, id))
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #(
+        "value",
+        json.object(
+          list.append(fields, [
+            #("documentGc", gc),
+            #(
+              "snapshotSequenceNumber",
+              json.int(fluid_document.sequence_number(summary)),
+            ),
+            #("checkpoint", checkpoint),
+          ]),
+        ),
+      ),
+      #("evidence", evidence),
+    ]),
+  )
+}
+
+fn retention_evidence(raw: Json, id: String) -> Result(Json, String) {
+  let kinds = case id {
+    "after-undo" -> [
+      #("messages", "undo"),
+      #("summaries", "published-document"),
+      #("messages", "replay-transport"),
+      #("serialization", "history-checkpoint"),
+      #("summaries", "checkpoint-tree"),
+    ]
+    "unreferenced-datastore" -> [
+      #("messages", "remove"),
+      #("summaries", "published-document"),
+      #("messages", "replay-transport"),
+      #("serialization", "history-checkpoint"),
+      #("summaries", "checkpoint-tree"),
+    ]
+    "fresh-load" -> [
+      #("summaries", "loaded-tree"),
+      #("summaries", "published-document"),
+      #("serialization", "stored-summary-blobs"),
+      #("messages", "continuation"),
+      #("messages", "replay-transport"),
+      #("serialization", "history-checkpoint"),
+      #("summaries", "checkpoint-tree"),
+    ]
+    "retained-repair" | "branch-disposal" | "revertible-disposal" -> [
+      #("summaries", "gc"),
+      #("summaries", "published-document"),
+      #("messages", "replay-transport"),
+      #("serialization", "history-checkpoint"),
+      #("summaries", "checkpoint-tree"),
+    ]
+    _ -> [
+      #("summaries", "tree-summary"),
+      #("summaries", "published-document"),
+      #("messages", "replay-transport"),
+      #("serialization", "history-checkpoint"),
+      #("summaries", "checkpoint-tree"),
+    ]
+  }
+  use evidence <- result.try(
+    list.try_map(kinds, fn(kind) {
+      use records <- result.try(read_field(
+        raw,
+        kind.0,
+        decode.list(wire.json_value_decoder()),
+      ))
+      use record <- result.try(
+        list.find(records, fn(record) {
+          read_field(record, "scenarioId", decode.string) == Ok(id)
+          && read_field(record, "kind", decode.string) == Ok(kind.1)
+        })
+        |> result.map_error(fn(_) {
+          id <> ": retention evidence is missing for " <> kind.1
+        }),
+      )
+      use record_id <- result.try(read_field(record, "id", decode.string))
+      Ok(
+        json.object([
+          #("section", json.string(kind.0)),
+          #("id", json.string(record_id)),
+        ]),
+      )
+    }),
+  )
+  Ok(json.preprocessed_array(evidence))
+}
+
+fn retention_checkpoint(
+  replay: PublicationReplay,
+  id: String,
+) -> Result(Json, String) {
+  use writer_data <- result.try(tree_data(replay.replay.writer, replay.tree))
+  use receiver_data <- result.try(tree_data(replay.replay.receiver, replay.tree))
+  use compressor <- result.try(
+    replay.replay.writer.compressor
+    |> option.to_result("retention compressor is missing"),
+  )
+  use bytes <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  use token <- result.try(identity_token(replay.replay.writer, replay.tree))
+  let same_identity = replay.token == Some(token)
+  use branches <- result.try(
+    list.try_map(dict.to_list(replay.branches), fn(entry) {
+      let selector = tree_types.LocalCheckout(entry.1)
+      let disposed =
+        runtime_core.tree_branch_status(
+          replay.replay.writer,
+          replay.tree,
+          selector,
+        )
+        == runtime_core.BranchDisposed
+      use data <- result.try(case disposed {
+        True -> Ok([])
+        False ->
+          tree_data_on(replay.replay.writer, replay.tree, selector)
+          |> result.map(fn(data) { [#("data", data)] })
+      })
+      Ok(
+        json.object([
+          #("id", json.string(entry.0)),
+          #("disposed", json.bool(disposed)),
+          ..data
+        ]),
+      )
+    }),
+  )
+  let selected_branches = case id {
+    "retained-repair" | "branch-disposal" -> branches
+    _ -> []
+  }
+  let targets =
+    dict.to_list(replay.replay.writer.channels)
+    |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+    |> list.filter_map(fn(entry) {
+      case entry.1 {
+        channel.MapState(_) if entry.0 != "A/root" ->
+          Ok(
+            json.object([
+              #("path", json.string("/" <> entry.0)),
+              #(
+                "channelType",
+                json.string(channel.fluid_type_to_string(channel.MapChannel)),
+              ),
+              #("data", map_data(replay.replay.writer, entry.0)),
+              #("attached", json.bool(True)),
+              #("receiver", target_json(replay.replay.receiver, entry.0)),
+            ]),
+          )
+        _ -> Error(Nil)
+      }
+    })
+  use events <- result.try(retention_events(replay))
+  Ok(
+    json.object([
+      #("tree", tree_target(replay.tree, writer_data)),
+      #(
+        "receiver",
+        json.object([
+          #("clientId", json.string(replay.replay.receiver.client_id)),
+          #("tree", tree_target(replay.tree, receiver_data)),
+        ]),
+      ),
+      #("targets", json.preprocessed_array(targets)),
+      #("branches", json.preprocessed_array(selected_branches)),
+      #(
+        "compressor",
+        json.object([
+          #(
+            "sessionId",
+            json.string(
+              fluid_ids.session_id_to_string(fluid_ids.local_session(compressor)),
+            ),
+          ),
+          #("compressor", bytes),
+        ]),
+      ),
+      #("stages", json.preprocessed_array(replay.stages)),
+      #("events", events),
+      #(
+        "identity",
+        json.object([
+          #("channel", json.string("/" <> replay.tree)),
+          #("sameRoot", json.bool(same_identity)),
+          #("sameCheckout", json.bool(same_identity)),
+          #("sameAnchor", json.bool(same_identity)),
+          #(
+            "rootAnchor",
+            json.object([
+              #("field", json.string("rootFieldKey")),
+              #("index", json.int(0)),
+            ]),
+          ),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn retention_events(replay: PublicationReplay) -> Result(Json, String) {
+  use writer <- result.try(retention_watch(replay, tree_types.DocumentCheckout))
+  use branches <- result.try(
+    list.try_map(dict.to_list(replay.branches), fn(entry) {
+      use watch <- result.try(retention_watch(
+        replay,
+        tree_types.LocalCheckout(entry.1),
+      ))
+      use fields <- result.try(
+        json.parse(
+          json.to_string(watch),
+          decode.dict(decode.string, wire.json_value_decoder()),
+        )
+        |> result.map_error(string.inspect),
+      )
+      Ok(json.object([#("id", json.string(entry.0)), ..dict.to_list(fields)]))
+    }),
+  )
+  use receiver_events <- result.try(
+    replay.receiver_events
+    |> list.filter(fn(event) {
+      case event {
+        #(address, channel.TreeCommitApplied(_, _, _, _)) ->
+          address == replay.tree
+        _ -> False
+      }
+    })
+    |> list.index_map(fn(event, index) { #(event, index) })
+    |> list.try_map(fn(indexed) {
+      retention_emission(
+        replay.replay.receiver,
+        tree_types.DocumentCheckout,
+        [indexed.0],
+        replay.tree,
+        indexed.1,
+      )
+    }),
+  )
+  Ok(
+    json.object([
+      #("writer", writer),
+      #(
+        "receiver",
+        json.object([
+          #("events", json.preprocessed_array(receiver_events)),
+          #("settlements", json.preprocessed_array([])),
+          #("handles", json.preprocessed_array([])),
+        ]),
+      ),
+      #("branches", json.preprocessed_array(branches)),
+    ]),
+  )
+}
+
+fn retention_watch(
+  replay: PublicationReplay,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Json, String) {
+  let emissions =
+    list.filter(replay.emissions, fn(emission) { emission.selector == selector })
+  use events <- result.try(
+    emissions
+    |> list.index_map(fn(emission, index) { #(emission, index) })
+    |> list.try_map(fn(indexed) {
+      retention_emission(
+        indexed.0.core,
+        selector,
+        indexed.0.events,
+        replay.tree,
+        indexed.1,
+      )
+    }),
+  )
+  let revisions =
+    list.filter_map(emissions, fn(emission) {
+      identity_revision(emission.events)
+    })
+  let settlements =
+    list.filter_map(replay.settlements, fn(event) {
+      case event {
+        #(address, scope, channel.TreeCommitSettled(revision, outcome))
+          if address == replay.tree && scope == selector
+        -> {
+          use index <- result.try(
+            revisions
+            |> list.index_map(fn(value, index) { #(value, index) })
+            |> list.find(fn(value) { value.0 == revision })
+            |> result.map(fn(value) { value.1 }),
+          )
+          let outcome = case outcome {
+            tree_types.FullyApplied -> "FullyApplied"
+            tree_types.NewContentOnly -> "NewContentOnly"
+            tree_types.FullyDropped -> "FullyDropped"
+          }
+          Ok(
+            json.object([
+              #("index", json.int(index)),
+              #("outcome", json.string(outcome)),
+            ]),
+          )
+        }
+        _ -> Error(Nil)
+      }
+    })
+  Ok(
+    json.object([
+      #("events", json.preprocessed_array(events)),
+      #("settlements", json.preprocessed_array(settlements)),
+      #("handles", json.preprocessed_array([])),
+    ]),
+  )
+}
+
+fn retention_emission(
+  core: runtime_core.Core,
+  selector: tree_types.CheckoutSelector,
+  events: List(#(String, channel.ChannelEvent)),
+  address: String,
+  index: Int,
+) -> Result(Json, String) {
+  use #(revision, kind, local, factory) <- result.try(
+    list.find_map(events, fn(event) {
+      case event {
+        #(target, channel.TreeCommitApplied(revision, kind, local, factory))
+          if target == address
+        -> Ok(#(revision, kind, local, factory))
+        _ -> Error(Nil)
+      }
+    })
+    |> result.map_error(fn(_) { "retention changed event is missing" }),
+  )
+  let kind = case kind {
+    tree_types.DefaultCommit -> "Default"
+    tree_types.UndoCommit -> "Undo"
+    tree_types.RedoCommit -> "Redo"
+  }
+  use change <- result.try(case local {
+    False -> Ok([#("change", json.null())])
+    True -> {
+      use registry <- result.try(
+        dict.get(core.tree_checkouts, address)
+        |> result.map_error(string.inspect),
+      )
+      use checkout <- result.try(
+        tree_branch.checkout(registry, selector)
+        |> result.map_error(string.inspect),
+      )
+      use state <- result.try(
+        tree_branch.checkout_state(registry, checkout)
+        |> result.map_error(string.inspect),
+      )
+      let view = tree_kernel.history_view(state)
+      use commits <- result.try(case selector {
+        tree_types.DocumentCheckout ->
+          Ok(list.append(
+            view.pending,
+            list.map(view.sequenced.trunk, fn(entry) { entry.commit }),
+          ))
+        tree_types.LocalCheckout(id) ->
+          tree_history.inspect_local(tree_kernel.branch_history(state), id)
+          |> result.map(fn(branch) { branch.commits })
+          |> result.map_error(string.inspect)
+      })
+      use commit <- result.try(
+        list.find(commits, fn(commit) { commit.revision == revision })
+        |> result.map_error(string.inspect),
+      )
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result("retention event compressor is missing"),
+      )
+      let context = codec.EncodeContext(codec.Fluid310, compressor, None)
+      use encoded <- result.try(
+        codec.encode_changes(
+          shared_change.to_changes(commit.change),
+          context,
+          codec.ChangeContext(commit.originator, None, codec.Message),
+        )
+        |> result.map_error(string.inspect),
+      )
+      use encoded <- result.try(
+        json_ot.parse_json(json.to_string(encoded))
+        |> result.map_error(string.inspect),
+      )
+      use encoded <- result.try(uncompressed_event_batches(
+        encoded,
+        tree_kernel.stored_schema(state),
+        field_batch.MessageIds(compressor, commit.originator),
+      ))
+      use encoded_revision <- result.try(
+        codec.encode_stable_revision(revision, context, "retention event")
+        |> result.map_error(string.inspect),
+      )
+      Ok([
+        #(
+          "change",
+          json.object([
+            #("version", json.int(1)),
+            #("revision", json.int(encoded_revision)),
+            #(
+              "originatorId",
+              json.string(fluid_ids.session_id_to_string(commit.originator)),
+            ),
+            #("change", json_ot.to_json(encoded)),
+          ]),
+        ),
+        #(
+          "stableRevision",
+          json.string(fluid_ids.stable_id_to_string(revision)),
+        ),
+      ])
+    }
+  })
+  Ok(
+    json.object([
+      #("index", json.int(index)),
+      #("target", json.string("/" <> address)),
+      #("kind", json.string(kind)),
+      #("local", json.bool(local)),
+      #("factory", json.bool(factory)),
+      ..change
+    ]),
+  )
+}
+
+fn uncompressed_event_batches(
+  value: json_ot.JsonValue,
+  schema: tree_schema.StoredSchema,
+  ids: field_batch.IdContext,
+) -> Result(json_ot.JsonValue, String) {
+  case value {
+    json_ot.VArray(values) ->
+      list.try_map(values, uncompressed_event_batches(_, schema, ids))
+      |> result.map(json_ot.VArray)
+    json_ot.VObject(fields) -> {
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          use value <- result.try(case field.0 {
+            "trees" -> {
+              use decoded <- result.try(
+                field_batch.decode_with_context(
+                  json_ot.to_json(field.1),
+                  Some(schema),
+                  ids,
+                )
+                |> result.map_error(string.inspect),
+              )
+              use encoded <- result.try(
+                field_batch.encode(decoded) |> result.map_error(string.inspect),
+              )
+              use streams <- result.try(read_field(
+                encoded,
+                "data",
+                decode.list(wire.json_value_decoder()),
+              ))
+              use streams <- result.try(
+                list.try_map(streams, fn(stream) {
+                  use raw <- result.try(
+                    json_ot.parse_json(json.to_string(stream))
+                    |> result.map_error(string.inspect),
+                  )
+                  case raw {
+                    json_ot.VArray([shape, json_ot.VArray(nodes)]) -> {
+                      use nodes <- result.try(plain_event_nodes(nodes))
+                      Ok(json_ot.VArray([shape, json_ot.VArray(nodes)]))
+                    }
+                    _ -> Error("uncompressed event batch has an invalid stream")
+                  }
+                }),
+              )
+              Ok(
+                json_ot.VObject([
+                  #("version", json_ot.VNumber(json_ot.NInt(2))),
+                  #("identifiers", json_ot.VArray([])),
+                  #(
+                    "shapes",
+                    json_ot.VArray([
+                      json_ot.VObject([
+                        #(
+                          "c",
+                          json_ot.VObject([
+                            #("extraFields", json_ot.VNumber(json_ot.NInt(1))),
+                          ]),
+                        ),
+                      ]),
+                      json_ot.VObject([#("a", json_ot.VNumber(json_ot.NInt(0)))]),
+                    ]),
+                  ),
+                  #("data", json_ot.VArray(streams)),
+                ]),
+              )
+            }
+            _ -> uncompressed_event_batches(field.1, schema, ids)
+          })
+          Ok(#(field.0, value))
+        }),
+      )
+      Ok(json_ot.VObject(fields))
+    }
+    _ -> Ok(value)
+  }
+}
+
+fn plain_event_nodes(
+  nodes: List(json_ot.JsonValue),
+) -> Result(List(json_ot.JsonValue), String) {
+  case nodes {
+    [] -> Ok([])
+    [
+      json_ot.VNumber(json_ot.NInt(0)),
+      type_id,
+      json_ot.VBool(True),
+      value,
+      fields,
+      ..rest
+    ] -> {
+      use fields <- result.try(plain_event_fields(fields))
+      use rest <- result.try(plain_event_nodes(rest))
+      Ok([type_id, json_ot.VBool(True), value, fields, ..rest])
+    }
+    [
+      json_ot.VNumber(json_ot.NInt(0)),
+      type_id,
+      json_ot.VBool(False),
+      fields,
+      ..rest
+    ] -> {
+      use fields <- result.try(plain_event_fields(fields))
+      use rest <- result.try(plain_event_nodes(rest))
+      Ok([type_id, json_ot.VBool(False), fields, ..rest])
+    }
+    [json_ot.VNumber(json_ot.NInt(3)), ..rest] -> {
+      use rest <- result.try(plain_event_nodes(rest))
+      Ok([
+        json_ot.VString("com.fluidframework.leaf.null"),
+        json_ot.VBool(True),
+        json_ot.VNull,
+        json_ot.VArray([]),
+        ..rest
+      ])
+    }
+    _ -> Error("uncompressed event batch has an unsupported node")
+  }
+}
+
+fn plain_event_fields(
+  value: json_ot.JsonValue,
+) -> Result(json_ot.JsonValue, String) {
+  use fields <- result.try(case value {
+    json_ot.VArray(fields) -> Ok(fields)
+    _ -> Error("uncompressed event node has invalid fields")
+  })
+  plain_event_field_entries(fields) |> result.map(json_ot.VArray)
+}
+
+fn plain_event_field_entries(
+  fields: List(json_ot.JsonValue),
+) -> Result(List(json_ot.JsonValue), String) {
+  case fields {
+    [] -> Ok([])
+    [key, json_ot.VArray(children), ..rest] -> {
+      use children <- result.try(plain_event_nodes(children))
+      use rest <- result.try(plain_event_field_entries(rest))
+      Ok([key, json_ot.VArray(children), ..rest])
+    }
+    _ -> Error("uncompressed event node has an invalid field entry")
+  }
+}
+
+fn retention_finish_load(
+  replay: RetentionReplay,
+  raw: Json,
+) -> Result(RetentionReplay, String) {
+  use loaded <- result.try(
+    replay.loaded |> option.to_result("fresh reader was not loaded"),
+  )
+  use observer <- result.try(
+    replay.observer |> option.to_result("fresh reader observer is missing"),
+  )
+  let publication = replay.publication
+  use checkpoint <- result.try(retention_checkpoint(
+    PublicationReplay(
+      ..publication,
+      replay: Replay(..publication.replay, receiver: observer),
+    ),
+    "fresh-load",
+  ))
+  use fresh <- result.try(
+    list.find(replay.observations, fn(observation) {
+      read_field(observation, "id", decode.string) == Ok("fresh-load")
+    })
+    |> result.map_error(string.inspect),
+  )
+  use value <- result.try(field(fresh, "value"))
+  use gc <- result.try(field(value, "documentGc"))
+  use continued <- result.try(
+    runtime_core.get(publication.replay.receiver, loaded.target, "continued")
+    |> result.map_error(string.inspect),
+  )
+  use evidence <- result.try(retention_evidence(raw, "fresh-load"))
+  let valid_revertibles =
+    dict.values(publication.inverses)
+    |> list.count(fn(inverse) {
+      runtime_core.tree_revertible_is_valid_on(
+        loaded.fresh_before,
+        loaded.tree,
+        inverse.0,
+        inverse.1,
+      )
+    })
+  let valid_branches =
+    dict.values(publication.branches)
+    |> list.count(fn(branch) {
+      runtime_core.tree_branch_status(
+        loaded.fresh_before,
+        loaded.tree,
+        tree_types.LocalCheckout(branch),
+      )
+      == runtime_core.BranchValid
+    })
+  let record =
+    json.object([
+      #("id", json.string("fresh-load")),
+      #("evidence", evidence),
+      #(
+        "value",
+        json.object([
+          #("path", json.string("/" <> loaded.target)),
+          #("continued", continued),
+          #("loadedVersion", json.string(loaded.version)),
+          #("snapshotSequenceNumber", json.int(loaded.snapshot_sequence)),
+          #("documentGc", gc),
+          #(
+            "publication",
+            json.object([
+              #("handle", json.string(loaded.version)),
+              #("snapshotSequenceNumber", json.int(loaded.snapshot_sequence)),
+              #(
+                "acknowledgementSequenceNumber",
+                json.int(loaded.acknowledgement_sequence),
+              ),
+            ]),
+          ),
+          #(
+            "loadedTree",
+            json.object([#("path", json.string("/" <> loaded.tree))]),
+          ),
+          #(
+            "loadedTarget",
+            json.object([
+              #("path", json.string("/" <> loaded.target)),
+              #("before", loaded.receiver_before),
+              #("after", map_data(publication.replay.receiver, loaded.target)),
+            ]),
+          ),
+          #(
+            "writerTarget",
+            json.object([
+              #("path", json.string("/" <> loaded.target)),
+              #("before", loaded.writer_before),
+              #("after", map_data(publication.replay.writer, loaded.target)),
+            ]),
+          ),
+          #(
+            "continuation",
+            json.object([
+              #("route", json.string("/" <> loaded.target)),
+              #("key", json.string("continued")),
+              #("value", continued),
+              #("clientId", json.string(publication.replay.receiver.client_id)),
+              #("sequenceNumber", json.int(publication.replay.sequence_number)),
+              #(
+                "referenceSequenceNumber",
+                json.int(loaded.fresh_before.last_seen_sequence_number),
+              ),
+              #("publicationHandle", json.string(loaded.version)),
+            ]),
+          ),
+          #(
+            "freshLocalLifetime",
+            json.object([
+              #(
+                "events",
+                json.object([
+                  #("events", json.preprocessed_array([])),
+                  #("settlements", json.preprocessed_array([])),
+                  #("handles", json.preprocessed_array([])),
+                ]),
+              ),
+              #("revertibles", json.int(valid_revertibles)),
+              #("revertibleBranches", json.int(valid_branches)),
+            ]),
+          ),
+          #("checkpoint", checkpoint),
+        ]),
+      ),
+    ])
+  Ok(
+    RetentionReplay(
+      ..replay,
+      observations: list.map(replay.observations, fn(observation) {
+        case read_field(observation, "id", decode.string) == Ok("fresh-load") {
+          True -> record
+          False -> observation
+        }
+      }),
+    ),
+  )
+}
+
+fn retention_source_summary(
+  raw: Json,
+  id: String,
+  authored: fluid_document.DocumentSummary,
+) -> Result(fluid_document.DocumentSummary, String) {
+  use record <- result.try(raw_record(
+    raw,
+    "summaries",
+    id,
+    "published-document",
+  ))
+  use snapshot <- result.try(field(record, "snapshot"))
+  use hierarchy <- result.try(runtime_fixture.read_snapshot(snapshot))
+  use session <- result.try(
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  fluid_document.decode(
+    hierarchy,
+    None,
+    session,
+    fluid_document.view_id(authored),
+  )
+  |> result.map_error(string.inspect)
+}
+
+fn retention_summary_json(
+  entry: fluid_summary.SummaryEntry,
+) -> Result(Json, String) {
+  use entry <- result.try(
+    fluid_summary.map_utf8_blobs(entry, fn(raw) {
+      case json.parse(raw, json_ot.decoder()) {
+        Ok(value) -> Ok(canonical_json.to_string(value))
+        Error(_) -> Ok(raw)
+      }
+    })
+    |> result.map_error(string.inspect),
+  )
+  identity_summary_json(entry)
+}
+
+fn retention_deliver_publication(
+  publication: PublicationReplay,
+  decoder_input: Json,
+  id: String,
+  raw: Json,
+) -> Result(PublicationReplay, String) {
+  use record <- result.try(raw_record(
+    raw,
+    "summaries",
+    id,
+    "published-document",
+  ))
+  use details <- result.try(field(record, "publication"))
+  use reference <- result.try(read_field(
+    details,
+    "referenceSequenceNumber",
+    decode.int,
+  ))
+  use _ <- result.try(case reference == publication.replay.sequence_number {
+    True -> Ok(Nil)
+    False ->
+      Error(
+        id
+        <> ": publication reference "
+        <> int.to_string(reference)
+        <> " differs from native sequence "
+        <> int.to_string(publication.replay.sequence_number),
+      )
+  })
+  use acknowledgement <- result.try(read_field(
+    details,
+    "acknowledgementSequenceNumber",
+    decode.int,
+  ))
+  retention_deliver_range(
+    publication,
+    decoder_input,
+    reference + 1,
+    acknowledgement + 1,
+  )
+}
+
+fn retention_deliver_range(
+  publication: PublicationReplay,
+  decoder_input: Json,
+  first: Int,
+  last: Int,
+) -> Result(PublicationReplay, String) {
+  use messages <- result.try(retention_prefix(decoder_input, first, last))
+  list.try_fold(messages, publication, fn(publication, message) {
+    use #(writer, writer_events) <- result.try(
+      runtime_core.handle_sequenced(publication.replay.writer, message)
+      |> result.map_error(string.inspect),
+    )
+    use #(receiver, receiver_events) <- result.try(
+      runtime_core.handle_sequenced(publication.replay.receiver, message)
+      |> result.map_error(string.inspect),
+    )
+    let projected = sequenced_message_json(message)
+    Ok(
+      PublicationReplay(
+        ..publication,
+        replay: Replay(
+          ..publication.replay,
+          writer:,
+          receiver:,
+          sequence_number: message.sequence_number,
+          last_messages: list.append(publication.replay.last_messages, [
+            projected,
+          ]),
+        ),
+        settlements: list.append(
+          publication.settlements,
+          runtime_core.scope_tree_events(writer, writer_events.events),
+        ),
+        receiver_events: list.append(
+          publication.receiver_events,
+          receiver_events.events,
+        ),
+      ),
+    )
+  })
+}
+
+fn retention_prefix(
+  decoder_input: Json,
+  first: Int,
+  last: Int,
+) -> Result(List(types.SequencedDocumentMessage), String) {
+  use prefix <- result.try(read_field(
+    decoder_input,
+    "deliveryPrefix",
+    decode.list(wire.json_value_decoder()),
+  ))
+  prefix
+  |> list.filter(fn(message) {
+    case read_field(message, "sequenceNumber", decode.int) {
+      Ok(sequence) -> sequence >= first && sequence <= last
+      Error(_) -> False
+    }
+  })
+  |> list.try_map(fn(message) {
+    json.parse(
+      json.to_string(message),
+      socket.sequenced_document_message_decoder(),
+    )
+    |> result.map_error(string.inspect)
+  })
+}
+
+fn deliver_retention_envelope(
+  core: runtime_core.Core,
+  decoder_input: Json,
+  sequence: Int,
+) -> Result(runtime_core.Core, String) {
+  use messages <- result.try(retention_prefix(decoder_input, sequence, sequence))
+  use message <- result.try(item_at(
+    messages,
+    0,
+    "retention envelope is missing at " <> int.to_string(sequence),
+  ))
+  runtime_core.handle_sequenced(core, message)
+  |> result.map(fn(value) { value.0 })
+  |> result.map_error(string.inspect)
+}
+
+fn sequenced_message_json(message: types.SequencedDocumentMessage) -> Json {
+  json.object([
+    #("clientId", case message.client_id {
+      Some(value) -> json.string(value)
+      None -> json.null()
+    }),
+    #("clientSequenceNumber", json.int(message.client_sequence_number)),
+    #("contents", wire.dynamic_to_json(message.contents)),
+    #("minimumSequenceNumber", json.int(message.minimum_sequence_number)),
+    #("referenceSequenceNumber", json.int(message.reference_sequence_number)),
+    #("sequenceNumber", json.int(message.sequence_number)),
+    #("timestamp", json.int(message.timestamp)),
+    #("type", json.string(message.message_type)),
+  ])
 }
 
 fn run_publication_replay(case_id: String) -> Result(Nil, String) {
@@ -1095,13 +2857,24 @@ fn publication_emission(
     None -> Ok(#(writer, None, replay.inverses))
     Some(#(id, captured_selector)) -> {
       use revision <- result.try(identity_revision(events))
+      use kind <- result.try(
+        list.find_map(events, fn(event) {
+          case event.1 {
+            channel.TreeCommitApplied(_, kind, True, True) -> Ok(kind)
+            _ -> Error(Nil)
+          }
+        })
+        |> result.map_error(fn(_) {
+          "captured local event has no inverse factory"
+        }),
+      )
       use #(writer, inverse) <- result.try(
         runtime_core.retain_tree_revertible_on(
           writer,
           replay.tree,
           captured_selector,
           revision,
-          tree_types.DefaultCommit,
+          kind,
         )
         |> result.map_error(string.inspect),
       )
@@ -5082,6 +6855,9 @@ fn command_decoder() -> decode.Decoder(Command) {
           "string" ->
             decode.at(["value"], decode.string)
             |> decode.map(json.string)
+          "boolean" ->
+            decode.at(["value"], decode.bool)
+            |> decode.map(json.bool)
           _ -> decode.failure(json.null(), "map value kind")
         }
       })

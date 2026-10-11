@@ -3,6 +3,7 @@
 //// A summary handle is a logical path in the supplied previous summary. It is
 //// not a Git object ID. Resolution returns a tree with no handles.
 
+import gleam/bit_array
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -48,6 +49,31 @@ pub fn resolve(
   previous: Option(SummaryEntry),
 ) -> Result(SummaryEntry, SummaryError) {
   resolve_entry(entry, previous, [], "/")
+}
+
+/// Transform every UTF-8 blob in a resolved summary tree.
+pub fn map_utf8_blobs(
+  entry: SummaryEntry,
+  transform: fn(String) -> Result(String, SummaryError),
+) -> Result(SummaryEntry, SummaryError) {
+  case entry {
+    SummaryBlob(bytes) -> {
+      use raw <- result.try(
+        bit_array.to_string(bytes)
+        |> result.replace_error(MalformedEntry("/", "invalid UTF-8")),
+      )
+      transform(raw)
+      |> result.map(fn(raw) { SummaryBlob(<<raw:utf8>>) })
+    }
+    SummaryTree(entries) ->
+      entries
+      |> list.try_map(fn(item) {
+        map_utf8_blobs(item.1, transform)
+        |> result.map(fn(value) { #(item.0, value) })
+      })
+      |> result.map(SummaryTree)
+    SummaryHandle(path, kind) -> Ok(SummaryHandle(path, kind))
+  }
 }
 
 fn resolve_entry(

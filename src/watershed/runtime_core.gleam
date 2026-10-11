@@ -1220,6 +1220,19 @@ pub fn capture_summary(
   capture_summary_state(core, True)
 }
 
+pub fn generate_summary(
+  core: Core,
+) -> Result(#(Core, fluid_document.DocumentSummary), CoreError) {
+  use captured <- result.try(capture_summary_state(core, True))
+  use generated <- result.try(case core.persistence {
+    Some(_) ->
+      fluid_document.generated(captured)
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+    None -> Ok(captured)
+  })
+  Ok(#(Core(..core, persistence: Some(generated)), generated))
+}
+
 fn capture_summary_state(
   core: Core,
   require_synced: Bool,

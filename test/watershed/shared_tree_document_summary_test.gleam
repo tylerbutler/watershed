@@ -1,13 +1,17 @@
+import gleam/bit_array
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import spillway/types as spillway_types
 import startest/expect
+import watershed/canonical_json
 import watershed/channel
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{VArray, VObject, VString}
 import watershed/runtime_core
 import watershed/tree/document_summary_fixture
@@ -16,6 +20,7 @@ import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/summary_export
+import watershed/tree/types as tree_types
 import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
@@ -73,6 +78,778 @@ pub fn shared_tree_document_summary_decodes_captured_hierarchy_test() {
   let assert Ok(again) = fluid_document.decode(encoded, None, session, view)
   fluid_document.inspect(again)
   |> expect.to_equal(fluid_document.inspect(summary))
+}
+
+pub fn shared_tree_retained_handle_graph_gc_round_trip_test() {
+  let assert Ok(fixture) = fixtures.load("handle-retention")
+  let assert Ok(records) =
+    json.parse(
+      json.to_string(fixture.raw),
+      decode.at(["summaries"], decode.list(wire.json_value_decoder())),
+    )
+  let records =
+    list.filter(records, fn(record) {
+      json.parse(json.to_string(record), decode.at(["kind"], decode.string))
+      == Ok("published-document")
+    })
+  list.length(records) |> expect.to_equal(8)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  list.each(records, fn(record) {
+    let assert Ok(id) =
+      json.parse(
+        json.to_string(record),
+        decode.at(["scenarioId"], decode.string),
+      )
+    let assert Ok(snapshot) =
+      json.parse(
+        json.to_string(record),
+        decode.at(["value", "snapshot"], wire.json_value_decoder()),
+      )
+    let assert Ok(hierarchy) = runtime_fixture.read_snapshot(snapshot)
+    let summary = case fluid_document.decode(hierarchy, None, session, view) {
+      Ok(summary) -> summary
+      Error(error) -> panic as { id <> ": " <> string.inspect(error) }
+    }
+    let stores = fluid_document.datastores(summary)
+    let channels =
+      list.flat_map(stores, fn(store) {
+        list.map(store.channels, fn(item) {
+          #(store.id <> "/" <> item.id, item.snapshot)
+        })
+      })
+    let routing =
+      fluid_document.CaptureRouting(
+        fluid_document.aliases(summary),
+        list.map(stores, fn(store) { #(store.id, store.package_path) }),
+        list.flat_map(stores, fn(store) {
+          list.map(store.channels, fn(item) {
+            #(store.id <> "/" <> item.id, item.attributes)
+          })
+        }),
+      )
+    let refreshed = case
+      fluid_document.capture(
+        summary,
+        channels,
+        fluid_document.compressor(summary),
+        routing,
+      )
+    {
+      Ok(summary) -> summary
+      Error(error) -> panic as { id <> ": " <> string.inspect(error) }
+    }
+    case
+      fixtures.first_difference(
+        fluid_document.gc(refreshed),
+        fluid_document.gc(summary),
+      )
+    {
+      Ok(Nil) -> Nil
+      Error(path) -> panic as { id <> ": retained graph GC differs at " <> path }
+    }
+  })
+}
+
+pub fn shared_tree_document_summary_read_only_capture_does_not_generate_test() {
+  let summary = retained_publication("fresh-load")
+  let initial = stored_summary_number(summary)
+  captured_summary_number(summary) |> expect.to_equal(initial)
+  captured_summary_number(summary) |> expect.to_equal(initial)
+}
+
+pub fn shared_tree_document_summary_generation_rejection_retry_advances_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "summary-writer",
+        [],
+        fluid_document.sequence_number(summary),
+      ),
+      summary,
+    )
+  let initial = stored_summary_number(summary)
+  let assert Ok(#(core, generated)) = runtime_core.generate_summary(core)
+  stored_summary_number(generated) |> expect.to_equal(initial + 1)
+  let proposal_sequence = fluid_document.sequence_number(generated) + 1
+  let proposal =
+    json.object([
+      #("handle", json.string("rejected")),
+      #(
+        "summaryProposal",
+        json.object([
+          #("summarySequenceNumber", json.int(proposal_sequence)),
+        ]),
+      ),
+      #("message", json.string("rejected")),
+    ])
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      document_message(
+        proposal_sequence,
+        1_700_000_000_001,
+        "summarize",
+        proposal,
+      ),
+    )
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      document_message(
+        proposal_sequence + 1,
+        1_700_000_000_002,
+        "summaryNack",
+        proposal,
+      ),
+    )
+  let assert Ok(#(_, retried)) = runtime_core.generate_summary(core)
+  stored_summary_number(retried) |> expect.to_equal(initial + 2)
+}
+
+pub fn shared_tree_document_summary_transient_reference_resets_gc_timestamp_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "gc-writer",
+        [],
+        fluid_document.sequence_number(summary),
+      ),
+      summary,
+    )
+  let assert Ok(root) = runtime_core.root_channel_address(core)
+  let assert Ok(reference) = handle.reference_from_path("/P/root")
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.set(
+      core,
+      root,
+      "transient",
+      handle.reference_to_json(reference),
+    )
+  let assert Ok(#(referenced, _)) =
+    runtime_core.handle_sequenced(
+      pending,
+      document_message(
+        39,
+        1_700_000_000_001,
+        outbound.operation_type,
+        outbound.contents,
+      ),
+    )
+  let assert Ok(captured) = runtime_core.capture_summary(referenced)
+  gc_timestamp(captured, "/P") |> expect.to_equal(Error(Nil))
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.delete(referenced, root, "transient")
+  let assert Ok(#(removed, _)) =
+    runtime_core.handle_sequenced(
+      pending,
+      document_message(
+        40,
+        1_700_000_000_002,
+        outbound.operation_type,
+        outbound.contents,
+      ),
+    )
+  let assert Ok(captured) = runtime_core.capture_summary(removed)
+  gc_timestamp(captured, "/P") |> expect.to_equal(Ok(1_700_000_000_002))
+  gc_timestamp(captured, "/P/root") |> expect.to_equal(Ok(1_700_000_000_002))
+}
+
+pub fn shared_tree_document_summary_attach_reference_resets_gc_timestamp_test() {
+  list.each([False, True], fn(secondary) {
+    let summary = retained_publication("fresh-load")
+    let assert Ok(runtime_core.Complete(core)) =
+      runtime_core.bootstrap_document(
+        runtime_fixture.connected("gc-writer", [], 38),
+        summary,
+      )
+    let #(core, address) = case secondary {
+      False -> #(core, "A/transient-child")
+      True -> {
+        let assert Ok(core) = runtime_core.create_detached_data_store(core, "Q")
+        #(core, "Q/transient-child")
+      }
+    }
+    let assert Ok(core) =
+      runtime_core.create_detached(core, address, channel.InitMap)
+    let assert Ok(reference) = handle.reference_from_path("/P/root")
+    let assert Ok(#(core, _, [])) =
+      runtime_core.set(
+        core,
+        address,
+        "target",
+        handle.reference_to_json(reference),
+      )
+    let assert Ok(child) = handle.reference_from_path("/" <> address)
+    let assert Ok(#(pending, _, outbounds)) =
+      runtime_core.set(core, "A/root", "child", handle.reference_to_json(child))
+    let referenced =
+      list.fold(outbounds, pending, fn(core, outbound) {
+        let message = summary_outbound_message(core, outbound)
+        let assert Ok(#(core, _)) =
+          runtime_core.handle_sequenced(
+            core,
+            spillway_types.SequencedDocumentMessage(
+              ..message,
+              timestamp: 1_700_000_000_001,
+            ),
+          )
+        core
+      })
+    let assert Ok(#(pending, _, [outbound])) =
+      runtime_core.delete(referenced, address, "target")
+    let message = summary_outbound_message(pending, outbound)
+    let assert Ok(#(removed, _)) =
+      runtime_core.handle_sequenced(
+        pending,
+        spillway_types.SequencedDocumentMessage(
+          ..message,
+          timestamp: 1_700_000_000_002,
+        ),
+      )
+    let assert Ok(captured) = runtime_core.capture_summary(removed)
+    gc_timestamp(captured, "/P/root") |> expect.to_equal(Ok(1_700_000_000_002))
+  })
+}
+
+pub fn shared_tree_document_summary_new_channel_intervening_graph_resets_gc_timestamp_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("gc-writer", [], 38),
+      summary,
+    )
+  let assert Ok(core) =
+    runtime_core.create_detached(core, "P/new", channel.InitMap)
+  let assert Ok(child) = handle.reference_from_path("/P/new")
+  let assert Ok(#(pending, _, outbounds)) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "transient",
+      handle.reference_to_json(child),
+    )
+  let referenced =
+    settle_summary_outbounds_at(pending, outbounds, 1_700_000_000_001)
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.delete(referenced, "A/root", "transient")
+  let removed =
+    settle_summary_outbounds_at(pending, [outbound], 1_700_000_000_002)
+  let assert Ok(captured) = runtime_core.capture_summary(removed)
+  list.each(["/P", "/P/root", "/P/new"], fn(path) {
+    gc_timestamp(captured, path) |> expect.to_equal(Ok(1_700_000_000_002))
+  })
+}
+
+pub fn shared_tree_document_summary_transitive_intervening_graph_resets_gc_timestamp_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("gc-writer", [], 38),
+      summary,
+    )
+  let assert Ok(core) =
+    runtime_core.create_detached(core, "P/middle", channel.InitMap)
+  let assert Ok(core) =
+    runtime_core.create_detached(core, "P/new", channel.InitMap)
+  let assert Ok(middle) = handle.reference_from_path("/P/middle")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "P/new", "target", handle.reference_to_json(middle))
+  let assert Ok(child) = handle.reference_from_path("/P/new")
+  let assert Ok(#(pending, _, outbounds)) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "transient",
+      handle.reference_to_json(child),
+    )
+  let referenced =
+    settle_summary_outbounds_at(pending, outbounds, 1_700_000_000_001)
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.delete(referenced, "A/root", "transient")
+  let removed =
+    settle_summary_outbounds_at(pending, [outbound], 1_700_000_000_002)
+  let assert Ok(captured) = runtime_core.capture_summary(removed)
+  list.each(["/P", "/P/middle", "/P/new"], fn(path) {
+    gc_timestamp(captured, path) |> expect.to_equal(Ok(1_700_000_000_002))
+  })
+}
+
+pub fn shared_tree_document_summary_refuses_malformed_last_message_timestamp_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(fluid_summary.SummaryTree(entries)) =
+    fluid_document.encode(summary)
+  let encoded = fluid_summary.SummaryTree(entries)
+  let assert Ok(fluid_summary.SummaryBlob(bytes)) =
+    list.key_find(entries, ".metadata")
+  let assert Ok(raw) = bit_array.to_string(bytes)
+  let assert Ok(fields) =
+    json.parse(raw, decode.dict(decode.string, wire.json_value_decoder()))
+  let malformed =
+    dict.insert(
+      fields,
+      "lastMessage",
+      json.object([#("timestamp", json.string("bad"))]),
+    )
+  let encoded =
+    replace_entry(
+      encoded,
+      [".metadata"],
+      fluid_summary.SummaryBlob(<<
+        json.to_string(json.object(dict.to_list(malformed))):utf8,
+      >>),
+    )
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  fluid_document.decode(encoded, None, session, view) |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_document_summary_requires_gc_after_initial_snapshot_test() {
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  list.each([0, 3], fn(sequence) {
+    let assert Ok(summary) =
+      fluid_document.native(sequence, 0, [], [
+        #("watershed/root", channel.MapSnapshot([])),
+      ])
+    let assert Ok(fluid_summary.SummaryTree(entries)) =
+      fluid_document.encode(summary)
+    let missing =
+      fluid_summary.SummaryTree(
+        list.filter(entries, fn(entry) { entry.0 != "gc" }),
+      )
+    case sequence, fluid_document.decode(missing, None, session, view) {
+      0, Ok(_) -> Nil
+      3, Error(fluid_summary.MissingEntry("/gc/__gc_root")) -> Nil
+      _, result ->
+        panic as { "missing stored GC accepted: " <> string.inspect(result) }
+    }
+    let incomplete =
+      replace_entry(
+        fluid_summary.SummaryTree(entries),
+        ["gc"],
+        fluid_summary.SummaryTree([]),
+      )
+    fluid_document.decode(incomplete, None, session, view)
+    |> expect.to_be_error()
+  })
+}
+
+pub fn shared_tree_document_summary_preserves_secondary_root_status_test() {
+  let summary = retained_publication("fresh-load")
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let rooted =
+    replace_entry(
+      encoded,
+      [".channels", "P", ".component"],
+      fluid_summary.SummaryBlob(<<
+        "{\"pkg\":\"[\\\"org.watershed.shared-tree.m7.graph\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":true}":utf8,
+      >>),
+    )
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(rooted) = fluid_document.decode(rooted, None, session, view)
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("root-reader", [], 38),
+      rooted,
+    )
+  let assert Ok(captured) = runtime_core.capture_summary(core)
+  let assert Ok(routes) =
+    json.parse(
+      json.to_string(fluid_document.gc(captured)),
+      decode.at(["gcNodes", "/", "outboundRoutes"], decode.list(decode.string)),
+    )
+  routes |> expect.to_equal(["/A", "/P"])
+  gc_timestamp(captured, "/P") |> expect.to_equal(Error(Nil))
+  gc_timestamp(captured, "/P/root") |> expect.to_equal(Error(Nil))
+}
+
+pub fn shared_tree_document_summary_two_datastore_tree_cycle_context_and_reload_test() {
+  let summary = retained_publication("before-removal")
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "cycle-writer",
+        [],
+        fluid_document.sequence_number(summary),
+      ),
+      summary,
+    )
+  let assert Ok(channel.TreeState(source)) =
+    dict.get(core.channels, "A/9a787e70-ea41-4479-9649-c81c9b74fe58")
+  let assert Ok(Some(root)) = tree_kernel.read(source, [])
+  let assert tree_types.ObjectValue(_, fields) = root
+  let assert Ok(tree_types.MapValue(links_type, _)) =
+    list.key_find(fields, "links")
+  let assert Ok(core) = runtime_core.create_detached_data_store(core, "B")
+  let core = create_summary_test_tree(core, "A/left", source, root)
+  let core = create_summary_test_tree(core, "B/right", source, root)
+  let assert Ok(core) =
+    runtime_core.create_detached(core, "A/child", channel.InitMap)
+  let assert Ok(core) =
+    runtime_core.create_detached(core, "B/child", channel.InitMap)
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "A/child", "context", json.string("A"))
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "B/child", "context", json.string("B"))
+  let assert Ok(left) = handle.reference_from_path("/A/left")
+  let assert Ok(right) = handle.reference_from_path("/B/right")
+  let assert Ok(a_child) = handle.reference_from_path("/A/child")
+  let assert Ok(b_child) = handle.reference_from_path("/B/child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.submit_tree_edits(core, "A/left", [
+      tree_types.SetField(["link"], tree_types.HandleValue(right)),
+      tree_types.SetField(
+        ["links"],
+        tree_types.MapValue(links_type, [
+          #("local", tree_types.HandleValue(a_child)),
+        ]),
+      ),
+    ])
+  let assert Ok(#(core, _, [])) =
+    runtime_core.submit_tree_edits(core, "B/right", [
+      tree_types.SetField(["link"], tree_types.HandleValue(left)),
+      tree_types.SetField(
+        ["links"],
+        tree_types.MapValue(links_type, [
+          #("local", tree_types.HandleValue(b_child)),
+        ]),
+      ),
+    ])
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.set(core, "A/root", "cycle", handle.reference_to_json(left))
+  let core = settle_summary_outbound(pending, outbound)
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "local-child",
+      handle.reference_to_json(a_child),
+    )
+  let core = settle_summary_outbound(pending, outbound)
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.set(
+      core,
+      "B/root",
+      "local-child",
+      handle.reference_to_json(b_child),
+    )
+  let core = settle_summary_outbound(pending, outbound)
+  let assert Ok(summary) = runtime_core.capture_summary(core)
+  fluid_document.aliases(summary) |> expect.to_equal([#("root", "A")])
+  list.map(fluid_document.datastores(summary), fn(store) {
+    #(store.id, store.package_path)
+  })
+  |> expect.to_equal([
+    #("A", ["org.watershed.shared-tree.m7.graph"]),
+    #("B", ["org.watershed.shared-tree.m7.graph"]),
+  ])
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let relative = relative_summary_markers(encoded, ["A", "B"])
+  let assert Ok(session) =
+    fluid_ids.session_id("80000000-0000-4000-8000-000000000008")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) = fluid_document.decode(relative, None, session, view)
+  let assert Ok(reencoded) = fluid_document.encode(restored)
+  canonical_summary(reencoded) |> expect.to_equal(canonical_summary(encoded))
+  let assert Some(before) = fluid_document.compressor(summary)
+  let assert Some(after) = fluid_document.compressor(restored)
+  fluid_ids.serialize(after, False)
+  |> expect.to_equal(fluid_ids.serialize(before, False))
+  let assert Ok(runtime_core.Complete(fresh)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "cycle-fresh",
+        [],
+        fluid_document.sequence_number(restored),
+      ),
+      restored,
+    )
+  list.each([#("A/left", right), #("B/right", left)], fn(item) {
+    runtime_core.tree_read(fresh, item.0, ["link"])
+    |> expect.to_equal(Ok(Some(tree_types.HandleValue(item.1))))
+  })
+  list.each([#("A/left", "A"), #("B/right", "B")], fn(item) {
+    let assert Ok(Some(tree_types.HandleValue(reference))) =
+      runtime_core.tree_read(fresh, item.0, ["links", "local"])
+    let assert Ok(address) =
+      runtime_core.resolve_handle_address(
+        fresh,
+        handle.reference_to_json(reference),
+      )
+    runtime_core.get(fresh, address, "context")
+    |> expect.to_equal(Ok(json.string(item.1)))
+    let assert Ok(marker) =
+      runtime_core.get(fresh, item.1 <> "/root", "local-child")
+    let assert Ok(address) = runtime_core.resolve_handle_address(fresh, marker)
+    runtime_core.get(fresh, address, "context")
+    |> expect.to_equal(Ok(json.string(item.1)))
+  })
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(fresh, "B/right", [
+      tree_types.SetField(["label"], tree_types.StringValue("continued")),
+    ])
+  let message = summary_outbound_message(pending, outbound)
+  let fresh = settle_summary_outbound(pending, outbound)
+  let assert Ok(#(observed, _)) = runtime_core.handle_sequenced(core, message)
+  runtime_core.tree_read(observed, "B/right", ["label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("continued"))))
+  runtime_core.tree_read(fresh, "A/left", ["link"])
+  |> expect.to_equal(Ok(Some(tree_types.HandleValue(right))))
+  let malformed = case
+    fluid_summary.map_utf8_blobs(relative, fn(raw) {
+      Ok(string.replace(raw, "\"url\":\"child\"", "\"url\":\"../child\""))
+    })
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  fluid_document.decode(malformed, None, session, view) |> expect.to_be_error()
+  Nil
+}
+
+fn create_summary_test_tree(
+  core: runtime_core.Core,
+  address: String,
+  source: tree_kernel.TreeState,
+  root: tree_types.TreeValue,
+) -> runtime_core.Core {
+  let assert Some(compressor) = core.compressor
+  let assert Ok(#(compressor, id)) = fluid_ids.generate(compressor)
+  let assert Ok(view) = fluid_ids.decompress(compressor, id)
+  let assert Ok(core) =
+    runtime_core.create_detached_tree(
+      runtime_core.Core(..core, compressor: Some(compressor)),
+      address,
+      tree_kernel.stored_schema(source),
+      Some(root),
+      view,
+    )
+  core
+}
+
+fn summary_outbound_message(
+  core: runtime_core.Core,
+  outbound: wire.OutboundOperation,
+) -> spillway_types.SequencedDocumentMessage {
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(metadata) -> {
+      let assert Ok(value) =
+        json.parse(json.to_string(metadata), decode.dynamic)
+      Some(value)
+    }
+  }
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some(core.client_id),
+    sequence_number: core.last_seen_sequence_number + 1,
+    minimum_sequence_number: core.minimum_sequence_number,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents:,
+    metadata:,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 1_700_000_000_000,
+    data: None,
+  )
+}
+
+fn settle_summary_outbound(
+  core: runtime_core.Core,
+  outbound: wire.OutboundOperation,
+) -> runtime_core.Core {
+  let assert Ok(#(settled, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      summary_outbound_message(core, outbound),
+    )
+  settled
+}
+
+fn settle_summary_outbounds_at(
+  core: runtime_core.Core,
+  outbounds: List(wire.OutboundOperation),
+  timestamp: Int,
+) -> runtime_core.Core {
+  list.fold(outbounds, core, fn(core, outbound) {
+    let message = summary_outbound_message(core, outbound)
+    let assert Ok(#(settled, _)) =
+      runtime_core.handle_sequenced(
+        core,
+        spillway_types.SequencedDocumentMessage(..message, timestamp:),
+      )
+    settled
+  })
+}
+
+fn relative_summary_markers(
+  encoded: fluid_summary.SummaryEntry,
+  stores: List(String),
+) -> fluid_summary.SummaryEntry {
+  let assert fluid_summary.SummaryTree(entries) = encoded
+  let assert Ok(fluid_summary.SummaryTree(datastores)) =
+    list.key_find(entries, ".channels")
+  let datastores =
+    list.map(datastores, fn(store) {
+      case list.contains(stores, store.0) {
+        False -> store
+        True -> {
+          let assert Ok(relative) =
+            fluid_summary.map_utf8_blobs(store.1, fn(raw) {
+              Ok(string.replace(
+                raw,
+                "\"url\":\"/" <> store.0 <> "/child\"",
+                "\"url\":\"child\"",
+              ))
+            })
+          #(store.0, relative)
+        }
+      }
+    })
+  replace_entry(encoded, [".channels"], fluid_summary.SummaryTree(datastores))
+}
+
+fn canonical_summary(
+  encoded: fluid_summary.SummaryEntry,
+) -> fluid_summary.SummaryEntry {
+  let assert Ok(canonical) =
+    fluid_summary.map_utf8_blobs(encoded, fn(raw) {
+      let assert Ok(value) = json_ot.parse_json(raw)
+      Ok(canonical_json.to_string(value))
+    })
+  canonical
+}
+
+fn document_message(
+  sequence: Int,
+  timestamp: Int,
+  kind: String,
+  contents: json.Json,
+) -> spillway_types.SequencedDocumentMessage {
+  let assert Ok(contents) = json.parse(json.to_string(contents), decode.dynamic)
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some("gc-writer"),
+    sequence_number: sequence,
+    minimum_sequence_number: case sequence >= 38 {
+      True -> 36
+      False -> 0
+    },
+    client_sequence_number: case kind {
+      "op" -> sequence - 38
+      _ -> -1
+    },
+    reference_sequence_number: sequence - 1,
+    message_type: kind,
+    contents:,
+    metadata: None,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp:,
+    data: None,
+  )
+}
+
+fn captured_summary_number(summary: fluid_document.DocumentSummary) -> Int {
+  let stores = fluid_document.datastores(summary)
+  let assert Ok(captured) =
+    fluid_document.capture(
+      summary,
+      list.flat_map(stores, fn(store) {
+        list.map(store.channels, fn(item) {
+          #(store.id <> "/" <> item.id, item.snapshot)
+        })
+      }),
+      fluid_document.compressor(summary),
+      fluid_document.CaptureRouting(
+        fluid_document.aliases(summary),
+        list.map(stores, fn(store) { #(store.id, store.package_path) }),
+        list.flat_map(stores, fn(store) {
+          list.map(store.channels, fn(item) {
+            #(store.id <> "/" <> item.id, item.attributes)
+          })
+        }),
+      ),
+    )
+  let assert Ok(fluid_summary.SummaryTree(entries)) =
+    fluid_document.encode(captured)
+  let assert Ok(fluid_summary.SummaryBlob(bytes)) =
+    list.key_find(entries, ".metadata")
+  let assert Ok(raw) = bit_array.to_string(bytes)
+  let assert Ok(number) =
+    json.parse(raw, decode.at(["summaryNumber"], decode.int))
+  number
+}
+
+fn stored_summary_number(summary: fluid_document.DocumentSummary) -> Int {
+  let assert Ok(fluid_summary.SummaryTree(entries)) =
+    fluid_document.encode(summary)
+  let assert Ok(fluid_summary.SummaryBlob(bytes)) =
+    list.key_find(entries, ".metadata")
+  let assert Ok(raw) = bit_array.to_string(bytes)
+  let assert Ok(number) =
+    json.parse(raw, decode.at(["summaryNumber"], decode.int))
+  number
+}
+
+fn retained_publication(id: String) -> fluid_document.DocumentSummary {
+  let assert Ok(fixture) = fixtures.load("handle-retention")
+  let assert Ok(records) =
+    json.parse(
+      json.to_string(fixture.raw),
+      decode.at(["summaries"], decode.list(wire.json_value_decoder())),
+    )
+  let assert Ok(record) =
+    list.find(records, fn(record) {
+      json.parse(
+        json.to_string(record),
+        decode.at(["scenarioId"], decode.string),
+      )
+      == Ok(id)
+      && json.parse(json.to_string(record), decode.at(["kind"], decode.string))
+      == Ok("published-document")
+    })
+  let assert Ok(snapshot) =
+    json.parse(
+      json.to_string(record),
+      decode.at(["value", "snapshot"], wire.json_value_decoder()),
+    )
+  let assert Ok(hierarchy) = runtime_fixture.read_snapshot(snapshot)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(summary) = fluid_document.decode(hierarchy, None, session, view)
+  summary
+}
+
+fn gc_timestamp(
+  summary: fluid_document.DocumentSummary,
+  path: String,
+) -> Result(Int, Nil) {
+  json.parse(
+    json.to_string(fluid_document.gc(summary)),
+    decode.at(["gcNodes", path, "unreferencedTimestampMs"], decode.int),
+  )
+  |> result.replace_error(Nil)
 }
 
 pub fn shared_tree_document_summary_restores_each_persistence_state_test() {

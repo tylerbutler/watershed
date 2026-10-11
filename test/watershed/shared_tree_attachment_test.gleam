@@ -8,6 +8,7 @@ import startest/expect
 import watershed/channel
 import watershed/handle
 import watershed/runtime_core
+import watershed/tree/fixtures
 import watershed/tree/lifecycle_fixture
 import watershed/tree/runtime_fixture
 import watershed/wire
@@ -61,6 +62,13 @@ pub fn shared_tree_multiple_tree_identity_lifecycle_test() {
 
 pub fn shared_tree_handle_publication_boundary_replay_test() {
   lifecycle_fixture.assert_publication_replay("handle-transaction-branch")
+}
+
+pub fn shared_tree_handle_retained_gc_and_reload_test() {
+  fixtures.assert_case("handle-retention", lifecycle_fixture.run_case(
+    "handle-retention",
+    _,
+  ))
 }
 
 pub fn shared_tree_handle_publication_active_target_preflight_test() {

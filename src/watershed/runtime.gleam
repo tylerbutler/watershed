@@ -4064,10 +4064,10 @@ fn summarize_native(
                     <> "in-flight edits have been acknowledged",
                   ))
                 True ->
-                  case runtime_core.capture_summary(core) {
+                  case runtime_core.generate_summary(core) {
                     Error(error) ->
                       promise.resolve(Error(string.inspect(error)))
-                    Ok(captured) -> {
+                    Ok(#(core, captured)) -> {
                       let hierarchy = fluid_document.encode(captured)
                       case hierarchy {
                         Error(error) ->
@@ -4079,6 +4079,7 @@ fn summarize_native(
                             cell,
                             State(
                               ..state,
+                              phase: Ready(core, None),
                               pending_summary: Some(PendingSummary(
                                 "",
                                 -1,
