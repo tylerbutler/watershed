@@ -12,11 +12,26 @@ import watershed/channel
 import watershed/fluid_ids
 import watershed/handle
 import watershed/runtime_core
+import watershed/tree/fixtures
 import watershed/tree/lifecycle_fixture
 import watershed/tree/runtime_fixture
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
+
+pub fn shared_tree_live_channel_attachment_test() {
+  fixtures.assert_case("live-channel-attachment", lifecycle_fixture.run_case(
+    "live-channel-attachment",
+    _,
+  ))
+}
+
+pub fn shared_tree_cross_datastore_tree_attachment_test() {
+  fixtures.assert_case("cross-datastore-attachment", lifecycle_fixture.run_case(
+    "cross-datastore-attachment",
+    _,
+  ))
+}
 
 pub fn shared_tree_cross_datastore_map_attachment_test() {
   lifecycle_fixture.assert_scenario(

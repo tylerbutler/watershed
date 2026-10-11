@@ -2420,6 +2420,11 @@ pub fn pending(state: History) -> List(Commit) {
   list.map(state.pending, fn(entry) { entry.current.commit })
 }
 
+/// Mark the current local branch as captured by an attach snapshot.
+pub fn promote_attach(state: History) -> History {
+  History(..state, pending: [], local_base: None, local_authored_context: [])
+}
+
 pub fn inspect(state: History) -> HistoryView {
   HistoryView(
     sequenced: HistorySnapshot(

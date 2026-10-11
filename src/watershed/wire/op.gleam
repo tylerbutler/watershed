@@ -9,13 +9,14 @@
 //// Tree documents use the declared Fluid summary hierarchy.
 //// Other existing DDSes retain their native summary payloads.
 
+import gleam/bit_array
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
@@ -37,8 +38,10 @@ import watershed/channel
 import watershed/claims_kernel.{type ClaimOperation, Claim}
 import watershed/counter_kernel.{type CounterOperation, Increment}
 import watershed/directory_kernel.{type DirectoryOperation}
+import watershed/fluid_ids
 import watershed/g_counter_kernel.{type GCounterOperation}
 import watershed/g_set_kernel.{type GSetOperation}
+import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
 import watershed/lww_map_kernel.{type LwwMapOperation}
@@ -59,9 +62,14 @@ import watershed/rich_text_kernel.{
 import watershed/sequence_kernel.{type SequenceOperation}
 import watershed/task_manager_kernel.{type TaskManagerOperation}
 import watershed/text_kernel.{type TextOperation}
+import watershed/tree/codec
+import watershed/tree/codec/summary as tree_summary_codec
+import watershed/tree/summary as tree_summary
+import watershed/tree_kernel
 import watershed/two_p_set_kernel.{type TwoPSetOperation}
 import watershed/wire.{type OutboundOperation}
 import watershed/wire/fluid_container
+import watershed/wire/fluid_summary
 import watershed/wire/json_object
 import watershed/wire/socket
 
@@ -115,11 +123,153 @@ pub fn attachment_message(
   ))
 }
 
+pub fn encode_tree_attach(
+  route: fluid_container.Route,
+  snapshot: tree_kernel.TreeSnapshot,
+  compressor: fluid_ids.Compressor,
+) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
+  use snapshot <- result.try(tree_attach_snapshot(snapshot, compressor))
+  Ok(fluid_container.ChannelAttach(
+    route,
+    channel.fluid_type_to_string(channel.TreeChannel),
+    snapshot,
+  ))
+}
+
+fn tree_attach_snapshot(
+  snapshot: tree_kernel.TreeSnapshot,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, fluid_container.ContainerError) {
+  use wire <- result.try(
+    tree_summary.to_wire(snapshot)
+    |> result.map_error(fn(error) {
+      fluid_container.MalformedMessage("tree attach", string.inspect(error))
+    }),
+  )
+  use summary <- result.try(
+    tree_summary_codec.encode(
+      wire,
+      fluid_ids.local_session(compressor),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(wire.schema)),
+    )
+    |> result.map_error(fn(error) {
+      fluid_container.MalformedMessage("tree attach", string.inspect(error))
+    }),
+  )
+  use entries <- result.try(case summary {
+    fluid_summary.SummaryTree(entries) ->
+      list.try_map(entries, fn(entry) { attach_summary_entry(entry.0, entry.1) })
+    _ ->
+      Error(fluid_container.MalformedMessage(
+        "tree attach",
+        "tree summary root is not a tree",
+      ))
+  })
+  let attributes = channel.fluid_attributes(channel.TreeChannel)
+  let gc =
+    json.object([
+      #("gcNodes", json.object([#("/", json.array([], json.string))])),
+    ])
+  Ok(
+    json.object([
+      #(
+        "entries",
+        json.preprocessed_array(
+          list.append(entries, [
+            attach_blob(".attributes", attributes),
+            attach_blob(".gcdata", gc),
+          ]),
+        ),
+      ),
+    ]),
+  )
+}
+
+fn attach_summary_entry(
+  path: String,
+  entry: fluid_summary.SummaryEntry,
+) -> Result(Json, fluid_container.ContainerError) {
+  case entry {
+    fluid_summary.SummaryBlob(bytes) -> {
+      use contents <- result.try(
+        bit_array.to_string(bytes)
+        |> result.map_error(fn(_) {
+          fluid_container.MalformedMessage(
+            "tree attach",
+            "summary blob is not UTF-8",
+          )
+        }),
+      )
+      Ok(
+        json.object([
+          #("path", json.string(path)),
+          #("mode", json.string("100644")),
+          #("type", json.string("Blob")),
+          #(
+            "value",
+            json.object([
+              #("contents", json.string(contents)),
+              #("encoding", json.string("utf-8")),
+            ]),
+          ),
+        ]),
+      )
+    }
+    fluid_summary.SummaryTree(entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          attach_summary_entry(entry.0, entry.1)
+        }),
+      )
+      Ok(attach_tree_entry(
+        path,
+        json.object([#("entries", json.preprocessed_array(entries))]),
+      ))
+    }
+    fluid_summary.SummaryHandle(..) ->
+      Error(fluid_container.UnsupportedMessage(
+        "tree attach summary handles are not supported",
+      ))
+  }
+}
+
 pub fn encode_datastore_attach(
   data_store_id: String,
   package_path: List(String),
   channels: List(#(String, channel.Snapshot)),
   routes: List(String),
+) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
+  encode_datastore_attach_context(
+    data_store_id,
+    package_path,
+    channels,
+    routes,
+    None,
+  )
+}
+
+pub fn encode_datastore_attach_with_context(
+  data_store_id: String,
+  package_path: List(String),
+  channels: List(#(String, channel.Snapshot)),
+  routes: List(String),
+  compressor: fluid_ids.Compressor,
+) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
+  encode_datastore_attach_context(
+    data_store_id,
+    package_path,
+    channels,
+    routes,
+    Some(compressor),
+  )
+}
+
+fn encode_datastore_attach_context(
+  data_store_id: String,
+  package_path: List(String),
+  channels: List(#(String, channel.Snapshot)),
+  routes: List(String),
+  compressor: Option(fluid_ids.Compressor),
 ) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
   use _ <- result.try(case package_path {
     ["org.watershed.shared-tree.m7.graph"] -> Ok(Nil)
@@ -139,7 +289,15 @@ pub fn encode_datastore_attach(
   )
   use channel_entries <- result.try(
     list.try_map(channels, fn(entry) {
-      use snapshot <- result.try(channel_attach_snapshot(entry.1))
+      use snapshot <- result.try(case entry.1, compressor {
+        channel.TreeSnapshot(snapshot), Some(compressor) ->
+          tree_attach_snapshot(snapshot, compressor)
+        channel.TreeSnapshot(_), None ->
+          Error(fluid_container.UnsupportedMessage(
+            "tree attach requires document context",
+          ))
+        snapshot, _ -> channel_attach_snapshot(snapshot)
+      })
       Ok(attach_tree_entry(entry.0, snapshot))
     }),
   )
@@ -2059,6 +2217,32 @@ pub fn decode_channel_message(
   }
 }
 
+pub fn decode_channel_message_with_context(
+  kind: fluid_container.MessageKind,
+  compressor: fluid_ids.Compressor,
+  view_id: fluid_ids.StableId,
+  source_context: String,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(OperationContents, fluid_container.ContainerError) {
+  case kind {
+    fluid_container.ChannelAttach(route, channel_type, snapshot) -> {
+      use address <- result.try(fluid_container.route_key(route))
+      use snapshot <- result.try(decode_attach_snapshot_with_context(
+        channel_type,
+        snapshot,
+        compressor,
+        view_id,
+        source_context,
+        sequence_number,
+        minimum_sequence_number,
+      ))
+      Ok(AttachOperation(address, snapshot))
+    }
+    _ -> decode_channel_message(kind)
+  }
+}
+
 fn routed_operation_decoder(
   operation_decoder: Decoder(operation),
 ) -> Decoder(#(String, operation)) {
@@ -2172,6 +2356,49 @@ pub fn decode_datastore_attach(
   #(List(String), List(#(String, channel.Snapshot))),
   fluid_container.ContainerError,
 ) {
+  decode_datastore_attach_context(contents, None)
+}
+
+pub fn decode_datastore_attach_with_context(
+  contents: Json,
+  compressor: fluid_ids.Compressor,
+  view_id: fluid_ids.StableId,
+  source_context: String,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(
+  #(List(String), List(#(String, channel.Snapshot))),
+  fluid_container.ContainerError,
+) {
+  decode_datastore_attach_context(
+    contents,
+    Some(AttachContext(
+      compressor,
+      view_id,
+      source_context,
+      sequence_number,
+      minimum_sequence_number,
+    )),
+  )
+}
+
+type AttachContext {
+  AttachContext(
+    compressor: fluid_ids.Compressor,
+    view_id: fluid_ids.StableId,
+    source_context: String,
+    sequence_number: Int,
+    minimum_sequence_number: Int,
+  )
+}
+
+fn decode_datastore_attach_context(
+  contents: Json,
+  context: Option(AttachContext),
+) -> Result(
+  #(List(String), List(#(String, channel.Snapshot))),
+  fluid_container.ContainerError,
+) {
   use #(kind, snapshot) <- result.try(
     json.parse(json.to_string(contents), {
       use kind <- decode.field("type", decode.string)
@@ -2235,7 +2462,11 @@ pub fn decode_datastore_attach(
           )
         }),
       )
-      use snapshot <- result.try(decode_attach_snapshot(kind, snapshot))
+      use snapshot <- result.try(decode_attach_snapshot_context(
+        kind,
+        snapshot,
+        context,
+      ))
       Ok(#(entry.0, snapshot))
     }),
   )
@@ -2246,24 +2477,52 @@ pub fn decode_attach_snapshot(
   channel_type: String,
   snapshot: Json,
 ) -> Result(channel.Snapshot, fluid_container.ContainerError) {
+  decode_attach_snapshot_context(channel_type, snapshot, None)
+}
+
+pub fn decode_attach_snapshot_with_context(
+  channel_type: String,
+  snapshot: Json,
+  compressor: fluid_ids.Compressor,
+  view_id: fluid_ids.StableId,
+  source_context: String,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(channel.Snapshot, fluid_container.ContainerError) {
+  decode_attach_snapshot_context(
+    channel_type,
+    snapshot,
+    Some(AttachContext(
+      compressor,
+      view_id,
+      source_context,
+      sequence_number,
+      minimum_sequence_number,
+    )),
+  )
+}
+
+fn decode_attach_snapshot_context(
+  channel_type: String,
+  snapshot: Json,
+  context: Option(AttachContext),
+) -> Result(channel.Snapshot, fluid_container.ContainerError) {
   use kind <- result.try(
     channel.fluid_string_to_type(channel_type)
     |> result.replace_error(fluid_container.UnsupportedMessage(channel_type)),
   )
   use entries <- result.try(attach_entries(snapshot))
-  use _ <- result.try(
-    case
-      kind == channel.MapChannel
-      || list.sort(dict.keys(entries), string.compare)
-      == [".attributes", "header"]
-    {
-      True -> Ok(Nil)
-      False ->
-        Error(fluid_container.UnsupportedMessage(
-          "unsupported channel attach snapshot",
-        ))
-    },
-  )
+  let names = list.sort(dict.keys(entries), string.compare)
+  use _ <- result.try(case kind, names {
+    channel.MapChannel, _ -> Ok(Nil)
+    channel.TreeChannel, [".attributes", ".gcdata", ".metadata", "indexes"] ->
+      Ok(Nil)
+    _, [".attributes", "header"] -> Ok(Nil)
+    _, _ ->
+      Error(fluid_container.UnsupportedMessage(
+        "unsupported channel attach snapshot",
+      ))
+  })
   use attributes <- result.try(attach_blob_contents(entries, ".attributes"))
   use attributes <- result.try(
     json.parse(attributes, {
@@ -2277,6 +2536,7 @@ pub fn decode_attach_snapshot(
     }),
   )
   let expected = case kind {
+    channel.TreeChannel -> #(channel_type, "0.0.0", "3.1.0")
     channel.MapChannel -> #(channel_type, "0.2", "3.1.0")
     _ -> #(channel_type, "1", "1")
   }
@@ -2285,6 +2545,110 @@ pub fn decode_attach_snapshot(
     False ->
       Error(fluid_container.UnsupportedMessage("unsupported channel attributes"))
   })
+  case kind, context {
+    channel.TreeChannel,
+      Some(AttachContext(
+        compressor,
+        view_id,
+        source_context,
+        sequence_number,
+        minimum_sequence_number,
+      ))
+    -> {
+      use summary <- result.try(attach_tree_summary(entries, source_context))
+      use data <- result.try(
+        tree_summary_codec.decode(
+          summary,
+          None,
+          fluid_ids.local_session(compressor),
+          codec.DecodeContext(codec.Fluid310, compressor),
+        )
+        |> result.map_error(fn(error) {
+          fluid_container.MalformedMessage("tree attach", string.inspect(error))
+        }),
+      )
+      tree_summary.from_wire(
+        data,
+        view_id,
+        compressor,
+        sequence_number,
+        minimum_sequence_number,
+      )
+      |> result.map(channel.TreeSnapshot)
+      |> result.map_error(fn(error) {
+        fluid_container.MalformedMessage("tree attach", string.inspect(error))
+      })
+    }
+    channel.TreeChannel, None ->
+      Error(fluid_container.UnsupportedMessage(
+        "tree attach requires document context",
+      ))
+    _, _ -> decode_non_tree_attach(kind, entries)
+  }
+}
+
+fn attach_tree_summary(
+  entries: dict.Dict(String, AttachEntry),
+  source_context: String,
+) -> Result(fluid_summary.SummaryEntry, fluid_container.ContainerError) {
+  use values <- result.try(
+    [".metadata", "indexes"]
+    |> list.try_map(fn(path) {
+      use entry <- result.try(
+        dict.get(entries, path)
+        |> result.map_error(fn(_) {
+          fluid_container.MalformedMessage(
+            "tree attach",
+            "missing summary entry " <> path,
+          )
+        }),
+      )
+      attach_entry_summary(entry, source_context)
+      |> result.map(fn(value) { #(path, value) })
+    }),
+  )
+  Ok(fluid_summary.SummaryTree(values))
+}
+
+fn attach_entry_summary(
+  entry: AttachEntry,
+  source_context: String,
+) -> Result(fluid_summary.SummaryEntry, fluid_container.ContainerError) {
+  case entry {
+    AttachBlob(contents) -> {
+      let contents = case json.parse(contents, wire.json_value_decoder()) {
+        Error(_) -> Ok(contents)
+        Ok(value) ->
+          handle.bind_serialized_references(value, source_context)
+          |> result.map(json.to_string)
+          |> result.map_error(fn(error) {
+            fluid_container.InvalidRoute(
+              "tree attach handle",
+              string.inspect(error),
+            )
+          })
+      }
+      use contents <- result.try(contents)
+      Ok(fluid_summary.SummaryBlob(<<contents:utf8>>))
+    }
+    AttachTree(snapshot) -> {
+      use entries <- result.try(attach_entries(snapshot))
+      use values <- result.try(
+        dict.to_list(entries)
+        |> list.try_map(fn(entry) {
+          attach_entry_summary(entry.1, source_context)
+          |> result.map(fn(value) { #(entry.0, value) })
+        }),
+      )
+      Ok(fluid_summary.SummaryTree(values))
+    }
+  }
+}
+
+fn decode_non_tree_attach(
+  kind: channel.ChannelType,
+  entries: dict.Dict(String, AttachEntry),
+) -> Result(channel.Snapshot, fluid_container.ContainerError) {
   use header <- result.try(attach_blob_contents(entries, "header"))
   let decoded = case kind {
     channel.MapChannel ->

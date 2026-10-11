@@ -4,6 +4,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/fluid_ids
+import watershed/handle
 import watershed/tree/change
 import watershed/tree/codec/summary as summary_codec
 import watershed/tree/forest
@@ -226,6 +227,29 @@ pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
   ))
 }
 
+/// Capture the optimistic tree state for channel attachment.
+pub fn snapshot_for_attach(
+  state: TreeState,
+) -> Result(TreeSnapshot, TreeError) {
+  use data <- result.try(forest.export_data(state.visible))
+  let history.HistoryView(sequenced:, ..) = history.inspect(state.history)
+  Ok(TreeSnapshot(
+    forest.stored_schema(state.visible),
+    data,
+    history.HistorySnapshot(..sequenced, trunk: [], peers: []),
+    state.retained_wire,
+  ))
+}
+
+/// Promote the captured optimistic state without replacing local tree objects.
+pub fn promote_attach(state: TreeState) -> TreeState {
+  TreeState(
+    ..state,
+    sequenced: state.visible,
+    history: history.promote_attach(state.history),
+  )
+}
+
 pub fn retained_wire(
   snapshot: TreeSnapshot,
 ) -> summary_codec.EditManagerSummary {
@@ -238,8 +262,46 @@ pub fn snapshot_parts(
   #(snapshot.stored, snapshot.forest_data, snapshot.history_snapshot)
 }
 
+pub fn same_attach_snapshot(left: TreeSnapshot, right: TreeSnapshot) -> Bool {
+  left.stored == right.stored
+  && left.forest_data == right.forest_data
+  && left.history_snapshot.base == right.history_snapshot.base
+  && left.history_snapshot.trunk == right.history_snapshot.trunk
+  && left.history_snapshot.peers == right.history_snapshot.peers
+  && left.retained_wire == right.retained_wire
+}
+
 pub fn visible_data(state: TreeState) -> Result(forest.ForestData, TreeError) {
   forest.export_data(state.visible)
+}
+
+pub fn handle_references(
+  state: TreeState,
+) -> Result(List(handle.Reference), TreeError) {
+  use data <- result.try(visible_data(state))
+  let roots = case data.root {
+    None -> []
+    Some(root) -> [root]
+  }
+  Ok(
+    list.append(roots, list.map(data.detached, fn(entry) { entry.value }))
+    |> list.flat_map(value_handle_references)
+    |> list.unique,
+  )
+}
+
+fn value_handle_references(value: TreeValue) -> List(handle.Reference) {
+  case value {
+    types.HandleValue(reference) -> [reference]
+    types.ObjectValue(_, fields) | types.MapValue(_, fields) ->
+      list.flat_map(fields, fn(field) { value_handle_references(field.1) })
+    types.ArrayValue(_, values) ->
+      list.flat_map(values, value_handle_references)
+    types.StringValue(_)
+    | types.NumberValue(_)
+    | types.BooleanValue(_)
+    | types.NullValue -> []
+  }
 }
 
 pub fn history_view(state: TreeState) -> history.HistoryView {

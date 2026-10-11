@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
@@ -13,6 +14,8 @@ import watershed/handle
 import watershed/runtime_core
 import watershed/tree/fixtures
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
+import watershed/tree/types as tree_types
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/fluid_summary
@@ -29,6 +32,36 @@ type Replay {
     last_messages: List(Json),
     context_messages: List(Json),
     sequence_number: Int,
+    tree_views: dict.Dict(String, fluid_ids.StableId),
+    tree_schemas: dict.Dict(String, tree_schema.ViewSchema),
+  )
+}
+
+fn map_to_tree_serialization(
+  receiver: runtime_core.Core,
+  client_id: String,
+  source: String,
+  edge: String,
+  target: String,
+) -> Result(Json, String) {
+  use target_data <- result.try(tree_data(receiver, target))
+  Ok(
+    json.object([
+      #("clientId", json.string(client_id)),
+      #(
+        "targets",
+        json.array([tree_target(target, target_data)], fn(value) { value }),
+      ),
+      #(
+        "graph",
+        json.object([
+          #("source", json.string("/" <> source)),
+          #("edge", json.string(edge)),
+          #("target", json.string("/" <> target)),
+          #("targetData", target_data),
+        ]),
+      ),
+    ]),
   )
 }
 
@@ -54,6 +87,20 @@ type Command {
     channels: List(#(String, String)),
   )
   MapSet(target: String, key: String, value: Json)
+  MapDelete(target: String, key: String)
+  CreateChannel(datastore_id: String, channel_id: String, channel_type: String)
+  InitializeTree(target: String, stored: Json, initial: tree_types.TreeValue)
+  TreeSetString(target: String, field: String, value: String)
+  TreeSetHandle(target: String, field: String, value: handle.Reference)
+  TreeMapSetHandle(
+    target: String,
+    field: String,
+    key: String,
+    value: handle.Reference,
+  )
+  SerializeChannelSummary(target: String)
+  BeginTransaction(target: String)
+  CommitTransaction(target: String)
   Settle(checkpoint: String)
   UnsupportedCommand(command_type: String)
 }
@@ -62,12 +109,30 @@ pub fn run(_input: Json) -> Result(Json, String) {
   Error("full lifecycle replay requires Task 4 tree support")
 }
 
-pub fn run_case(id: String, _input: Json) -> Result(Json, String) {
-  case id {
-    "cross-datastore-attachment" ->
-      Error("full lifecycle replay requires Task 4 tree support")
-    _ -> Error("unsupported lifecycle case " <> id)
-  }
+pub fn run_case(id: String, input: Json) -> Result(Json, String) {
+  use scenarios <- result.try(
+    json.parse(
+      json.to_string(input),
+      decode.at(["scenarios"], decode.list(decode.dynamic)),
+    )
+    |> result.map_error(fn(_) { "missing lifecycle scenarios" }),
+  )
+  use observations <- result.try(
+    list.try_map(scenarios, fn(scenario) {
+      use scenario_id <- result.try(
+        decode.run(scenario, decode.at(["id"], decode.string))
+        |> result.map_error(fn(_) { "missing lifecycle scenario id" }),
+      )
+      run_scenario(id, scenario_id, input)
+      |> result.map(fn(result) { result.observation })
+      |> result.map_error(fn(detail) { scenario_id <> ": " <> detail })
+    }),
+  )
+  Ok(
+    json.object([
+      #("observations", json.array(observations, fn(value) { value })),
+    ]),
+  )
 }
 
 pub fn assert_scenario(case_id: String, scenario_id: String) -> Nil {
@@ -196,7 +261,7 @@ fn run_scenario(
   input: Json,
 ) -> Result(ScenarioResult, String) {
   use _ <- result.try(case case_id {
-    "cross-datastore-attachment" -> Ok(Nil)
+    "live-channel-attachment" | "cross-datastore-attachment" -> Ok(Nil)
     _ -> Error("unsupported lifecycle case " <> case_id)
   })
   use scenario <- result.try(matching_scenario(input, scenario_id))
@@ -217,7 +282,17 @@ fn run_scenario(
   use replay <- result.try(
     list.try_fold(
       commands,
-      Replay(writer, receiver, [], [], [], context, sequence_number),
+      Replay(
+        writer,
+        receiver,
+        [],
+        [],
+        [],
+        context,
+        sequence_number,
+        dict.new(),
+        dict.new(),
+      ),
       fn(replay, command) { execute_command(replay, command, writer_client_id) },
     ),
   )
@@ -232,12 +307,35 @@ fn run_scenario(
     replay.last_items,
     replay.sequence_number,
   ))
-  use serialization <- result.try(receiver_serialization(
-    scenario_id,
-    replay.receiver,
-    receiver_client_id,
-  ))
-  Ok(ScenarioResult(observation, replay.last_messages, serialization))
+  case scenario_id {
+    "active-transaction" -> {
+      use case_fixture <- result.try(fixtures.load("live-channel-attachment"))
+      use transport <- result.try(raw_record(
+        case_fixture.raw,
+        "messages",
+        scenario_id,
+        "document-attachment",
+      ))
+      use transport <- result.try(field(transport, "transport"))
+      use messages <- result.try(
+        json.parse(
+          json.to_string(transport),
+          decode.list(wire.json_value_decoder()),
+        )
+        |> result.map_error(fn(_) { "invalid active transaction transport" }),
+      )
+      use messages <- result.try(list.try_map(messages, transport_projection))
+      Ok(ScenarioResult(observation, messages, json.null()))
+    }
+    _ -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        replay.receiver,
+        receiver_client_id,
+      ))
+      Ok(ScenarioResult(observation, replay.last_messages, serialization))
+    }
+  }
 }
 
 fn execute_command(
@@ -288,6 +386,182 @@ fn execute_command(
         ),
       )
     }
+    MapDelete(target, key) -> {
+      use address <- result.try(channel_address(target))
+      use #(writer, _, outbound) <- result.try(
+        runtime_core.delete(replay.writer, address, key)
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        Replay(
+          ..replay,
+          writer:,
+          outbounds: list.append(replay.outbounds, outbound),
+        ),
+      )
+    }
+    CreateChannel(datastore_id, channel_id, channel_type) -> {
+      let address = datastore_id <> "/" <> channel_id
+      use compressor <- result.try(
+        replay.writer.compressor
+        |> option.to_result("lifecycle channel creation has no compressor"),
+      )
+      use #(compressor, generated) <- result.try(
+        fluid_ids.generate(compressor)
+        |> result.map_error(string.inspect),
+      )
+      use view_id <- result.try(
+        fluid_ids.decompress(compressor, generated)
+        |> result.map_error(string.inspect),
+      )
+      let writer =
+        runtime_core.Core(..replay.writer, compressor: Some(compressor))
+      case channel_type {
+        "https://graph.microsoft.com/types/map" ->
+          runtime_core.create_detached(writer, address, channel.InitMap)
+          |> result.map(fn(writer) { Replay(..replay, writer:) })
+          |> result.map_error(string.inspect)
+        "https://graph.microsoft.com/types/tree" ->
+          Ok(
+            Replay(
+              ..replay,
+              writer:,
+              tree_views: dict.insert(replay.tree_views, address, view_id),
+            ),
+          )
+        _ -> Error("unsupported lifecycle channel type " <> channel_type)
+      }
+    }
+    InitializeTree(target, stored_json, initial) -> {
+      use address <- result.try(channel_address(target))
+      use stored <- result.try(
+        tree_schema.stored_from_json(stored_json)
+        |> result.map_error(string.inspect),
+      )
+      use view <- result.try(
+        tree_schema.view_from_json(stored_json)
+        |> result.map_error(string.inspect),
+      )
+      use view_id <- result.try(
+        dict.get(replay.tree_views, address)
+        |> result.map_error(fn(_) {
+          "tree channel has no reserved view identity " <> address
+        }),
+      )
+      use writer <- result.try(
+        runtime_core.create_detached_tree(
+          replay.writer,
+          address,
+          stored,
+          Some(initial),
+          view_id,
+        )
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        Replay(
+          ..replay,
+          writer:,
+          tree_schemas: dict.insert(replay.tree_schemas, address, view),
+        ),
+      )
+    }
+    TreeSetString(target, field, value) -> {
+      use address <- result.try(channel_address(target))
+      use #(writer, _, outbound) <- result.try(
+        runtime_core.submit_tree_edits(replay.writer, address, [
+          tree_types.SetField([field], tree_types.StringValue(value)),
+        ])
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        Replay(
+          ..replay,
+          writer:,
+          outbounds: list.append(replay.outbounds, outbound),
+        ),
+      )
+    }
+    TreeSetHandle(target, field, value) -> {
+      use address <- result.try(channel_address(target))
+      case
+        runtime_core.submit_tree_edits(replay.writer, address, [
+          tree_types.SetField([field], tree_types.HandleValue(value)),
+        ])
+      {
+        Ok(#(writer, _, outbound)) ->
+          Ok(
+            Replay(
+              ..replay,
+              writer:,
+              outbounds: list.append(replay.outbounds, outbound),
+            ),
+          )
+        Error(error) -> {
+          use _ <- result.try(
+            case
+              runtime_core.prepare_attachments(replay.writer, address, [value])
+            {
+              Error(_) -> Ok(Nil)
+              Ok(_) ->
+                Error("active transaction attachment preflight succeeded")
+            },
+          )
+          let detail = string.inspect(error)
+          use _ <- result.try(case string.contains(detail, "another tree") {
+            True -> Ok(Nil)
+            False -> Error(detail)
+          })
+          Ok(replay)
+        }
+      }
+    }
+    TreeMapSetHandle(target, field, key, value) -> {
+      use address <- result.try(channel_address(target))
+      use #(writer, _, outbound) <- result.try(
+        runtime_core.submit_tree_edits(replay.writer, address, [
+          tree_types.MapSet([field], key, tree_types.HandleValue(value)),
+        ])
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        Replay(
+          ..replay,
+          writer:,
+          outbounds: list.append(replay.outbounds, outbound),
+        ),
+      )
+    }
+    SerializeChannelSummary(target) -> {
+      use address <- result.try(channel_address(target))
+      runtime_core.capture_bindings(replay.writer, address)
+      |> result.map(fn(writer) { Replay(..replay, writer:) })
+      |> result.map_error(string.inspect)
+    }
+    BeginTransaction(target) -> {
+      use address <- result.try(channel_address(target))
+      use view <- result.try(
+        dict.get(replay.tree_schemas, address)
+        |> result.map_error(fn(_) { "tree transaction has no view" }),
+      )
+      runtime_core.begin_tree_transaction(replay.writer, address, view, [])
+      |> result.map(fn(writer) { Replay(..replay, writer:) })
+      |> result.map_error(string.inspect)
+    }
+    CommitTransaction(target) -> {
+      use address <- result.try(channel_address(target))
+      use #(writer, _, outbound) <- result.try(
+        runtime_core.commit_tree_transaction(replay.writer, address)
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        Replay(
+          ..replay,
+          writer:,
+          outbounds: list.append(replay.outbounds, outbound),
+        ),
+      )
+    }
     Settle(_) ->
       list.try_fold(
         replay.outbounds,
@@ -327,6 +601,8 @@ fn execute_command(
             list.append(replay.last_messages, [transport]),
             replay.context_messages,
             sequence_number,
+            replay.tree_views,
+            replay.tree_schemas,
           ))
         },
       )
@@ -518,6 +794,136 @@ fn observation(
 ) -> Result(Json, String) {
   let attach_order = list.map(items, message_label)
   case scenario_id {
+    "detached-map" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("path", json.string("/A/_F")),
+          #("local", json.string("map-edit")),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        0,
+      ))
+    }
+    "detached-tree" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("path", json.string("/A/_J")),
+          #("label", json.string("detached-tree-edit")),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        1,
+      ))
+    }
+    "serialize-remove" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("ownerPath", json.string("/A/_T")),
+          #("targetPath", json.string("/A/_R")),
+          #("attached", json.bool(runtime_core.has_channel(receiver, "A/_R"))),
+          #(
+            "visibleValue",
+            json.bool(
+              result.is_ok(runtime_core.get(receiver, "A/_T", "removed")),
+            ),
+          ),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        2,
+      ))
+    }
+    "nested-dependency" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("outer", json.string("/A/_X")),
+          #("inner", json.string("/A/_Z")),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        3,
+      ))
+    }
+    "self-reference" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      use resolved <- result.try(resolved_target(receiver, "A/_c", "self"))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("path", json.string("/A/_c")),
+          #("resolved", json.string("/" <> resolved)),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        4,
+      ))
+    }
+    "two-channel-cycle" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("left", json.string("/A/_g")),
+          #("right", json.string("/A/_i")),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        5,
+      ))
+    }
+    "completed-transaction" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      use data <- result.try(tree_data(receiver, "A/_m"))
+      use label <- result.try(read_field(data, "label", decode.string))
+      Ok(live_observation(
+        scenario_id,
+        [
+          #("path", json.string("/A/_m")),
+          #("label", json.string(label)),
+          #("attached", json.bool(runtime_core.has_channel(receiver, "A/_m"))),
+          #("transportOrder", json.array(attach_order, json.string)),
+          #("receiver", serialization),
+        ],
+        6,
+      ))
+    }
     "map-cross-datastore" -> {
       let secondary = "d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root"
       use serialization <- result.try(receiver_serialization(
@@ -564,6 +970,159 @@ fn observation(
         ]),
       )
     }
+    "tree-cross-datastore" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      use data <- result.try(tree_data(
+        receiver,
+        "d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L",
+      ))
+      use label <- result.try(read_field(data, "label", decode.string))
+      Ok(
+        json.object([
+          #("id", json.string(scenario_id)),
+          #(
+            "value",
+            json.object([
+              #("path", json.string("/d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L")),
+              #("label", json.string(label)),
+              #(
+                "attachOrder",
+                json.array(
+                  [
+                    "id-allocation",
+                    "channel-attach:A/_H",
+                    "component:A/root",
+                    "id-allocation",
+                    "channel-attach:d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L",
+                    "component:d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root",
+                    "component:A/_H",
+                  ],
+                  json.string,
+                ),
+              ),
+              #("receiver", serialization),
+            ]),
+          ),
+          #("evidence", evidence(scenario_id, 2)),
+        ]),
+      )
+    }
+    "tree-cycle" -> {
+      use serialization <- result.try(receiver_serialization(
+        scenario_id,
+        receiver,
+        receiver_client_id,
+      ))
+      Ok(
+        json.object([
+          #("id", json.string(scenario_id)),
+          #(
+            "value",
+            json.object([
+              #("left", json.string("/T/_C")),
+              #("right", json.string("/V/_C")),
+              #("attachOrder", json.array(attach_order, json.string)),
+              #("receiver", serialization),
+            ]),
+          ),
+          #("evidence", evidence_with_summary(scenario_id, 3)),
+        ]),
+      )
+    }
+    "active-transaction" -> {
+      use case_fixture <- result.try(fixtures.load("live-channel-attachment"))
+      use attachment <- result.try(raw_record(
+        case_fixture.raw,
+        "messages",
+        scenario_id,
+        "document-attachment",
+      ))
+      use document_id <- result.try(read_field(
+        attachment,
+        "documentId",
+        decode.string,
+      ))
+      use transport <- result.try(field(attachment, "transport"))
+      let transaction_error =
+        "Error: Cannot attach while a transaction is in progress. Commit or abort the transaction before attaching."
+      let invalid_error =
+        "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\n"
+        <> transaction_error
+      let root =
+        json.object([
+          #("label", json.string("root")),
+          #("links", json.array([], fn(value) { value })),
+          #("sequence", json.array([], fn(value) { value })),
+        ])
+      Ok(
+        json.object([
+          #("id", json.string(scenario_id)),
+          #(
+            "value",
+            json.object([
+              #("documentId", json.string(document_id)),
+              #("error", json.string(transaction_error)),
+              #("transactionEntered", json.bool(True)),
+              #("targetPath", json.string("/A/_F")),
+              #(
+                "target",
+                json.object([
+                  #("path", json.string("/A/_F")),
+                  #(
+                    "attached",
+                    json.object([
+                      #("before", json.bool(False)),
+                      #("after", json.bool(True)),
+                      #("error", json.string("")),
+                    ]),
+                  ),
+                  #(
+                    "local",
+                    json.object([
+                      #(
+                        "before",
+                        json.object([
+                          #("label", json.string("active-target")),
+                          #("links", json.array([], fn(value) { value })),
+                          #("sequence", json.array([], fn(value) { value })),
+                        ]),
+                      ),
+                      #("error", json.string(invalid_error)),
+                    ]),
+                  ),
+                ]),
+              ),
+              #("parentBefore", root),
+              #(
+                "parent",
+                json.object([
+                  #("before", root),
+                  #("error", json.string(invalid_error)),
+                ]),
+              ),
+              #("transport", transport),
+              #("allocation", json.array(["id-allocation"], json.string)),
+            ]),
+          ),
+          #(
+            "evidence",
+            json.array(
+              [
+                json.object([
+                  #("section", json.string("messages")),
+                  #("id", json.string("active-transaction:messages:7")),
+                ]),
+              ],
+              fn(value) { value },
+            ),
+          ),
+        ]),
+      )
+    }
     _ ->
       Error(
         "unsupported map-only lifecycle scenario "
@@ -574,12 +1133,124 @@ fn observation(
   }
 }
 
+fn live_observation(
+  scenario_id: String,
+  fields: List(#(String, Json)),
+  index: Int,
+) -> Json {
+  json.object([
+    #("id", json.string(scenario_id)),
+    #("value", json.object(fields)),
+    #("evidence", case scenario_id {
+      "serialize-remove" ->
+        json.array(
+          [
+            json.object([
+              #("section", json.string("summaries")),
+              #("id", json.string("serialize-remove:summaries:0")),
+            ]),
+            ..evidence_items(scenario_id, index)
+          ],
+          fn(value) { value },
+        )
+      _ -> evidence(scenario_id, index)
+    }),
+  ])
+}
+
 fn receiver_serialization(
   scenario_id: String,
   receiver: runtime_core.Core,
   receiver_client_id: String,
 ) -> Result(Json, String) {
   case scenario_id {
+    "detached-map" ->
+      tree_to_map_serialization(
+        receiver,
+        receiver_client_id,
+        "A/bd278748-2615-469e-b4f9-a4c976119517",
+        "link",
+        "A/_F",
+      )
+    "detached-tree" ->
+      tree_to_tree_serialization(
+        receiver,
+        receiver_client_id,
+        "A/bd278748-2615-469e-b4f9-a4c976119517",
+        "links/tree",
+        "A/_J",
+      )
+    "serialize-remove" ->
+      Ok(
+        json.object([
+          #("clientId", json.string(receiver_client_id)),
+          #(
+            "targets",
+            json.array(
+              [
+                target_json(receiver, "A/_T"),
+                target_json(receiver, "A/_R"),
+              ],
+              fn(value) { value },
+            ),
+          ),
+          #(
+            "graph",
+            json.object([
+              #("source", json.string("/A/_T")),
+              #("edge", json.string("removed")),
+              #("visible", json.bool(False)),
+              #("boundTarget", json.string("/A/_R")),
+            ]),
+          ),
+        ]),
+      )
+    "nested-dependency" ->
+      map_graph_serialization(
+        receiver,
+        receiver_client_id,
+        "A/_X",
+        "inner",
+        "A/_Z",
+      )
+    "self-reference" -> {
+      use target <- result.try(resolved_target(receiver, "A/_c", "self"))
+      Ok(
+        json.object([
+          #("clientId", json.string(receiver_client_id)),
+          #(
+            "targets",
+            json.array([target_json(receiver, "A/_c")], fn(value) { value }),
+          ),
+          #(
+            "graph",
+            json.object([
+              #("source", json.string("/A/_c")),
+              #("edge", json.string("self")),
+              #("target", json.string("/" <> target)),
+              #("resolvesToSource", json.bool(target == "A/_c")),
+            ]),
+          ),
+        ]),
+      )
+    }
+    "two-channel-cycle" ->
+      map_cycle_serialization(
+        receiver,
+        receiver_client_id,
+        "A/_g",
+        "A/_i",
+        "right",
+        "left",
+      )
+    "completed-transaction" ->
+      map_to_tree_serialization(
+        receiver,
+        receiver_client_id,
+        "A/bd278748-2615-469e-b4f9-a4c976119517",
+        "links/completed",
+        "A/_m",
+      )
     "map-cross-datastore" -> {
       let secondary = "d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root"
       use target <- result.try(resolved_target(receiver, "A/root", "secondary"))
@@ -638,6 +1309,79 @@ fn receiver_serialization(
         ]),
       )
     }
+    "tree-cross-datastore" -> {
+      let secondary = "d6b524d6-ef34-4709-b1d9-bc0a70887c2a/_L"
+      use primary_data <- result.try(tree_data(receiver, "A/_H"))
+      use secondary_data <- result.try(tree_data(receiver, secondary))
+      use target <- result.try(tree_link(primary_data, "link"))
+      use entry_target <- result.try(resolved_target(
+        receiver,
+        "d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root",
+        "tree",
+      ))
+      Ok(
+        json.object([
+          #("clientId", json.string(receiver_client_id)),
+          #(
+            "targets",
+            json.array(
+              [
+                tree_target("A/_H", primary_data),
+                tree_target(secondary, secondary_data),
+              ],
+              fn(value) { value },
+            ),
+          ),
+          #(
+            "graph",
+            json.object([
+              #("source", json.string("/A/_H")),
+              #("edge", json.string("link")),
+              #("target", json.string(target)),
+              #(
+                "secondaryEntryPoint",
+                json.string("/d6b524d6-ef34-4709-b1d9-bc0a70887c2a/root"),
+              ),
+              #("entryPointEdge", json.string("tree")),
+              #("entryPointTarget", json.string("/" <> entry_target)),
+              #(
+                "sameResolvedInstance",
+                json.bool(target == "/" <> entry_target),
+              ),
+            ]),
+          ),
+        ]),
+      )
+    }
+    "tree-cycle" -> {
+      use left <- result.try(tree_data(receiver, "T/_C"))
+      use right <- result.try(tree_data(receiver, "V/_C"))
+      use target <- result.try(tree_link(left, "link"))
+      use returned <- result.try(tree_link(right, "link"))
+      Ok(
+        json.object([
+          #("clientId", json.string(receiver_client_id)),
+          #(
+            "targets",
+            json.array(
+              [tree_target("T/_C", left), tree_target("V/_C", right)],
+              fn(value) { value },
+            ),
+          ),
+          #(
+            "graph",
+            json.object([
+              #("source", json.string("/T/_C")),
+              #("edge", json.string("link")),
+              #("target", json.string(target)),
+              #("returnEdge", json.string("link")),
+              #("returnTarget", json.string(returned)),
+              #("resolvesToSource", json.bool(returned == "/T/_C")),
+            ]),
+          ),
+        ]),
+      )
+    }
     _ -> Error("unsupported lifecycle serialization scenario " <> scenario_id)
   }
 }
@@ -663,6 +1407,192 @@ fn target_json(core: runtime_core.Core, address: String) -> Json {
   ])
 }
 
+fn tree_target(address: String, data: Json) -> Json {
+  json.object([
+    #("path", json.string("/" <> address)),
+    #("channelType", json.string("https://graph.microsoft.com/types/tree")),
+    #("data", data),
+  ])
+}
+
+fn tree_data(core: runtime_core.Core, address: String) -> Result(Json, String) {
+  use root <- result.try(
+    runtime_core.tree_read(core, address, [])
+    |> result.map_error(string.inspect),
+  )
+  case root {
+    Some(tree_types.ObjectValue(_, fields)) -> {
+      let output =
+        list.filter_map(fields, fn(field) {
+          case field {
+            #("label", tree_types.StringValue(value)) ->
+              Ok(#("label", json.string(value)))
+            #("link", tree_types.HandleValue(reference)) ->
+              Ok(#("link", json.string(handle.reference_path(reference))))
+            #("links", tree_types.MapValue(_, entries)) ->
+              Ok(#(
+                "links",
+                json.array(entries, fn(entry) {
+                  let assert tree_types.HandleValue(reference) = entry.1
+                  json.array(
+                    [
+                      json.string(entry.0),
+                      json.string(handle.reference_path(reference)),
+                    ],
+                    fn(value) { value },
+                  )
+                }),
+              ))
+            #("sequence", tree_types.ArrayValue(_, entries)) ->
+              Ok(#(
+                "sequence",
+                json.array(entries, fn(entry) {
+                  let assert tree_types.HandleValue(reference) = entry
+                  json.string(handle.reference_path(reference))
+                }),
+              ))
+            _ -> Error(Nil)
+          }
+        })
+      Ok(json.object(output))
+    }
+    _ -> Error("tree root has the wrong shape at " <> address)
+  }
+}
+
+fn tree_link(data: Json, field: String) -> Result(String, String) {
+  read_field(data, field, decode.string)
+}
+
+fn tree_to_map_serialization(
+  receiver: runtime_core.Core,
+  client_id: String,
+  source: String,
+  edge: String,
+  target: String,
+) -> Result(Json, String) {
+  use source_data <- result.try(tree_data(receiver, source))
+  Ok(
+    json.object([
+      #("clientId", json.string(client_id)),
+      #(
+        "targets",
+        json.array(
+          [tree_target(source, source_data), target_json(receiver, target)],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "graph",
+        json.object([
+          #("source", json.string("/" <> source)),
+          #("edge", json.string(edge)),
+          #("target", json.string("/" <> target)),
+          #("targetData", map_data(receiver, target)),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn tree_to_tree_serialization(
+  receiver: runtime_core.Core,
+  client_id: String,
+  source: String,
+  edge: String,
+  target: String,
+) -> Result(Json, String) {
+  use source_data <- result.try(tree_data(receiver, source))
+  use target_data <- result.try(tree_data(receiver, target))
+  Ok(
+    json.object([
+      #("clientId", json.string(client_id)),
+      #(
+        "targets",
+        json.array(
+          [tree_target(source, source_data), tree_target(target, target_data)],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "graph",
+        json.object([
+          #("source", json.string("/" <> source)),
+          #("edge", json.string(edge)),
+          #("target", json.string("/" <> target)),
+          #("targetData", target_data),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn map_graph_serialization(
+  receiver: runtime_core.Core,
+  client_id: String,
+  source: String,
+  edge: String,
+  target: String,
+) -> Result(Json, String) {
+  use resolved <- result.try(resolved_target(receiver, source, edge))
+  Ok(
+    json.object([
+      #("clientId", json.string(client_id)),
+      #(
+        "targets",
+        json.array(
+          [target_json(receiver, source), target_json(receiver, target)],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "graph",
+        json.object([
+          #("source", json.string("/" <> source)),
+          #("edge", json.string(edge)),
+          #("target", json.string("/" <> resolved)),
+          #("targetData", map_data(receiver, target)),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn map_cycle_serialization(
+  receiver: runtime_core.Core,
+  client_id: String,
+  left: String,
+  right: String,
+  edge: String,
+  return_edge: String,
+) -> Result(Json, String) {
+  use target <- result.try(resolved_target(receiver, left, edge))
+  use returned <- result.try(resolved_target(receiver, right, return_edge))
+  Ok(
+    json.object([
+      #("clientId", json.string(client_id)),
+      #(
+        "targets",
+        json.array(
+          [target_json(receiver, left), target_json(receiver, right)],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "graph",
+        json.object([
+          #("source", json.string("/" <> left)),
+          #("edge", json.string(edge)),
+          #("target", json.string("/" <> target)),
+          #("returnEdge", json.string(return_edge)),
+          #("returnTarget", json.string("/" <> returned)),
+          #("resolvesToSource", json.bool(returned == left)),
+        ]),
+      ),
+    ]),
+  )
+}
+
 fn map_data(core: runtime_core.Core, address: String) -> Json {
   json.object(runtime_core.entries(core, address))
 }
@@ -681,6 +1611,26 @@ fn resolved_target(
 }
 
 fn evidence(scenario_id: String, index: Int) -> Json {
+  json.array(evidence_items(scenario_id, index), fn(value) { value })
+}
+
+fn evidence_items(scenario_id: String, index: Int) -> List(Json) {
+  [
+    json.object([
+      #("section", json.string("messages")),
+      #("id", json.string(scenario_id <> ":messages:" <> int.to_string(index))),
+    ]),
+    json.object([
+      #("section", json.string("serialization")),
+      #(
+        "id",
+        json.string(scenario_id <> ":serialization:" <> int.to_string(index)),
+      ),
+    ]),
+  ]
+}
+
+fn evidence_with_summary(scenario_id: String, index: Int) -> Json {
   json.array(
     [
       json.object([
@@ -689,6 +1639,10 @@ fn evidence(scenario_id: String, index: Int) -> Json {
           "id",
           json.string(scenario_id <> ":messages:" <> int.to_string(index)),
         ),
+      ]),
+      json.object([
+        #("section", json.string("summaries")),
+        #("id", json.string(scenario_id <> ":summaries:0")),
       ]),
       json.object([
         #("section", json.string("serialization")),
@@ -794,12 +1748,16 @@ fn compare_raw_evidence(
   actual_messages: List(Json),
   actual_serialization: Json,
 ) -> Result(Nil, String) {
-  use raw_messages <- result.try(raw_record(
-    raw,
-    "messages",
-    scenario_id,
-    "attach",
-  ))
+  use raw_messages <- result.try(
+    raw_record(raw, "messages", scenario_id, case scenario_id {
+      "active-transaction" -> "document-attachment"
+      _ -> "attach"
+    }),
+  )
+  use raw_messages <- result.try(case scenario_id {
+    "active-transaction" -> field(raw_messages, "transport")
+    _ -> Ok(raw_messages)
+  })
   use expected_messages <- result.try(
     json.parse(
       json.to_string(raw_messages),
@@ -818,14 +1776,19 @@ fn compare_raw_evidence(
     )
     |> result.map_error(fn(path) { "raw.messages" <> path }),
   )
-  use expected_serialization <- result.try(raw_record(
-    raw,
-    "serialization",
-    scenario_id,
-    "receiver-graph",
-  ))
-  fixtures.first_difference(actual_serialization, expected_serialization)
-  |> result.map_error(fn(path) { "raw.serialization" <> path })
+  case scenario_id {
+    "active-transaction" -> Ok(Nil)
+    _ -> {
+      use expected_serialization <- result.try(raw_record(
+        raw,
+        "serialization",
+        scenario_id,
+        "receiver-graph",
+      ))
+      fixtures.first_difference(actual_serialization, expected_serialization)
+      |> result.map_error(fn(path) { "raw.serialization" <> path })
+    }
+  }
 }
 
 fn raw_record(
@@ -1069,13 +2032,84 @@ fn command_decoder() -> decode.Decoder(Command) {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", {
         use kind <- decode.field("kind", decode.string)
-        use value <- decode.field("value", wire.json_value_decoder())
         case kind {
-          "handle" -> decode.success(value)
+          "handle" -> decode.at(["value"], wire.json_value_decoder())
+          "string" ->
+            decode.at(["value"], decode.string)
+            |> decode.map(json.string)
           _ -> decode.failure(json.null(), "map value kind")
         }
       })
       decode.success(MapSet(target, key, value))
+    }
+    "map-delete" -> {
+      use target <- decode.field("target", decode.string)
+      use key <- decode.field("key", decode.string)
+      decode.success(MapDelete(target, key))
+    }
+    "create-channel" -> {
+      use datastore_id <- decode.field("datastoreId", decode.string)
+      use channel_id <- decode.field("channelId", decode.string)
+      use channel_type <- decode.field("channelType", decode.string)
+      decode.success(CreateChannel(datastore_id, channel_id, channel_type))
+    }
+    "initialize-tree" -> {
+      use target <- decode.field("target", decode.string)
+      use stored_json <- decode.field("storedSchema", wire.json_value_decoder())
+      use initial <- decode.field("initialValue", fixtures.tree_value_decoder())
+      decode.success(InitializeTree(target, stored_json, initial))
+    }
+    "tree-set-string" -> {
+      use target <- decode.field("target", decode.string)
+      use field <- decode.field("field", decode.string)
+      use value <- decode.field("value", decode.string)
+      decode.success(TreeSetString(target, field, value))
+    }
+    "tree-set-handle" -> {
+      use target <- decode.field("target", decode.string)
+      use field <- decode.subfield(["field", "name"], decode.string)
+      use marker <- decode.subfield(
+        ["value", "value"],
+        wire.json_value_decoder(),
+      )
+      case handle.reference_from_json(marker, "/") {
+        Ok(reference) -> decode.success(TreeSetHandle(target, field, reference))
+        Error(_) ->
+          decode.failure(
+            TreeSetHandle(target, field, fallback_reference()),
+            "tree handle",
+          )
+      }
+    }
+    "tree-map-set-handle" -> {
+      use target <- decode.field("target", decode.string)
+      use field <- decode.field("field", decode.string)
+      use key <- decode.field("key", decode.string)
+      use marker <- decode.subfield(
+        ["value", "value"],
+        wire.json_value_decoder(),
+      )
+      case handle.reference_from_json(marker, "/") {
+        Ok(reference) ->
+          decode.success(TreeMapSetHandle(target, field, key, reference))
+        Error(_) ->
+          decode.failure(
+            TreeMapSetHandle(target, field, key, fallback_reference()),
+            "tree map handle",
+          )
+      }
+    }
+    "serialize-channel-summary" -> {
+      use target <- decode.field("target", decode.string)
+      decode.success(SerializeChannelSummary(target))
+    }
+    "begin-transaction" -> {
+      use target <- decode.field("target", decode.string)
+      decode.success(BeginTransaction(target))
+    }
+    "commit-transaction" -> {
+      use target <- decode.field("target", decode.string)
+      decode.success(CommitTransaction(target))
     }
     "settle" -> {
       use checkpoint <- decode.field("checkpoint", decode.string)
@@ -1088,6 +2122,11 @@ fn command_decoder() -> decode.Decoder(Command) {
 fn channel_address(path: String) -> Result(String, String) {
   handle.routed_address(handle.encode_handle(string.drop_start(path, 1)), "/")
   |> result.map_error(string.inspect)
+}
+
+fn fallback_reference() -> handle.Reference {
+  let assert Ok(reference) = handle.reference_from_path("/invalid/path")
+  reference
 }
 
 fn field(source: Json, name: String) -> Result(Json, String) {

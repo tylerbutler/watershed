@@ -2754,7 +2754,8 @@ fn same_task_manager_shape(
 /// their bytes.
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
-    TreeSnapshot(ours), TreeSnapshot(echoed) -> ours == echoed
+    TreeSnapshot(ours), TreeSnapshot(echoed) ->
+      tree_kernel.same_attach_snapshot(ours, echoed)
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
     PnCounterSnapshot(ours), PnCounterSnapshot(echoed) -> ours == echoed
@@ -2847,9 +2848,24 @@ pub fn routed_handle_addresses(
   state: ChannelState,
   context: String,
 ) -> Result(List(String), handle.HandleError) {
-  handle_values(state)
-  |> list.try_map(handle.collect_routed_addresses(_, context))
-  |> result.map(fn(addresses) { list.flatten(addresses) |> list.unique })
+  case state {
+    TreeState(tree) -> {
+      use references <- result.try(
+        tree_kernel.handle_references(tree)
+        |> result.map_error(fn(_) {
+          handle.InvalidHandle("invalid tree handle")
+        }),
+      )
+      list.try_map(references, fn(reference) {
+        handle.routed_address(handle.reference_to_json(reference), context)
+      })
+      |> result.map(list.unique)
+    }
+    _ ->
+      handle_values(state)
+      |> list.try_map(handle.collect_routed_addresses(_, context))
+      |> result.map(fn(addresses) { list.flatten(addresses) |> list.unique })
+  }
 }
 
 fn handle_values(state: ChannelState) -> List(Json) {

@@ -3005,11 +3005,30 @@ fn handle_operation(
               }
             }
           }
-          fluid_container.ChannelAttach(..) -> {
-            use operation <- result.try(
-              wire_op.decode_channel_message(message.kind)
-              |> result.map_error(ContainerOperationFailed),
-            )
+          fluid_container.ChannelAttach(route, type_name, _) -> {
+            use operation <- result.try(case type_name {
+              "https://graph.microsoft.com/types/tree" -> {
+                use compressor <- result.try(
+                  core.compressor
+                  |> option.to_result(BadBootstrapSeed(
+                    "tree attach requires a document compressor",
+                  )),
+                )
+                use view_id <- result.try(attachment_view_id(core, route))
+                wire_op.decode_channel_message_with_context(
+                  message.kind,
+                  compressor,
+                  view_id,
+                  "/" <> fluid_summary.encode_component(route.data_store_id),
+                  msg.sequence_number,
+                  msg.minimum_sequence_number,
+                )
+                |> result.map_error(ContainerOperationFailed)
+              }
+              _ ->
+                wire_op.decode_channel_message(message.kind)
+                |> result.map_error(ContainerOperationFailed)
+            })
             handle_channel_operation(
               core,
               msg,
@@ -3050,10 +3069,26 @@ fn handle_operation(
             )
           }
           fluid_container.DatastoreAttach(datastore, contents) -> {
-            use #(package_path, channels) <- result.try(
-              wire_op.decode_datastore_attach(contents)
-              |> result.map_error(ContainerOperationFailed),
-            )
+            use #(package_path, channels) <- result.try(case core.compressor {
+              None ->
+                wire_op.decode_datastore_attach(contents)
+                |> result.map_error(ContainerOperationFailed)
+              Some(compressor) -> {
+                use view_id <- result.try(attachment_view_id(
+                  core,
+                  fluid_container.Route(datastore, "root"),
+                ))
+                wire_op.decode_datastore_attach_with_context(
+                  contents,
+                  compressor,
+                  view_id,
+                  "/" <> fluid_summary.encode_component(datastore),
+                  msg.sequence_number,
+                  msg.minimum_sequence_number,
+                )
+                |> result.map_error(ContainerOperationFailed)
+              }
+            })
             case
               is_own_operation(core, msg.client_id),
               dict.get(core.local_datastores, datastore)
@@ -3483,15 +3518,48 @@ fn remote_attach(
   case has_channel(core, address) {
     True -> Error(DuplicateAttach(address, sequence_number))
     False -> {
-      use state <- result.try(
-        channel.from_snapshot(snapshot, replica: core.client_id)
-        |> result.map_error(fn(detail) {
-          BadSummaryChannel(address: address, detail: detail)
-        }),
+      use state <- result.try(case snapshot {
+        channel.TreeSnapshot(snapshot) -> {
+          use compressor <- result.try(
+            core.compressor
+            |> option.to_result(BadBootstrapSeed(
+              "tree attach requires a document compressor",
+            )),
+          )
+          use view_id <- result.try(attachment_view_id(core, route))
+          tree_runtime.restore_unviewed(snapshot, view_id, compressor)
+          |> result.map(channel.TreeState)
+          |> result.map_error(fn(error) {
+            BadSummaryChannel(address: address, detail: string.inspect(error))
+          })
+        }
+        snapshot ->
+          channel.from_snapshot(snapshot, replica: core.client_id)
+          |> result.map_error(fn(detail) {
+            BadSummaryChannel(address: address, detail: detail)
+          })
+      })
+      use core <- result.try(
+        add_attached_channel(core, address, state)
+        |> sync_tree_checkouts,
       )
-      Ok(#(add_attached_channel(core, address, state), [], []))
+      Ok(#(core, [], []))
     }
   }
+}
+
+fn attachment_view_id(
+  core: Core,
+  route: fluid_container.Route,
+) -> Result(fluid_ids.StableId, CoreError) {
+  fluid_ids.stable_id(route.channel_id)
+  |> result.lazy_or(fn() { fluid_ids.stable_id(core.client_id) })
+  |> result.lazy_or(fn() {
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000001")
+  })
+  |> result.map_error(fn(error) {
+    BadBootstrapSeed("tree attach view identity: " <> string.inspect(error))
+  })
 }
 
 fn apply_remote_channel(
@@ -3848,6 +3916,70 @@ pub fn create_detached(
   }
 }
 
+pub fn create_detached_tree(
+  core: Core,
+  address: String,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view_id: fluid_ids.StableId,
+) -> Result(Core, CoreError) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use canonical <- result.try(
+    fluid_container.route_key(route)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    canonical == address
+      && {
+      dict.has_key(core.routing.datastores, route.data_store_id)
+      || dict.has_key(core.local_datastores, route.data_store_id)
+    },
+    "detached tree has an invalid route",
+  ))
+  use _ <- result.try(seed_requirement(
+    address != root_address && !has_channel(core, address),
+    "duplicate channel identity",
+  ))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree creation requires a document compressor",
+    )),
+  )
+  use #(state, compressor) <- result.try(
+    tree_runtime.create_detached(
+      stored,
+      initial_root,
+      view_id,
+      compressor,
+      core.last_seen_sequence_number,
+      core.minimum_sequence_number,
+    )
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  let forest =
+    tree_branch.new(
+      tree_branch.origin(core.client_id, "document", address),
+      state,
+    )
+  Ok(
+    Core(
+      ..core,
+      compressor: Some(compressor),
+      routing: register_channel_attributes(
+        core.routing,
+        address,
+        channel.TreeChannel,
+      ),
+      detached: dict.insert(core.detached, address, channel.TreeState(state)),
+      tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+    ),
+  )
+}
+
 pub fn has_channel(core: Core, address: String) -> Bool {
   dict.has_key(core.channels, address) || dict.has_key(core.detached, address)
 }
@@ -3887,34 +4019,30 @@ pub fn has_pending_tree(core: Core) -> Bool {
 }
 
 fn sync_tree_checkouts(core: Core) -> Result(Core, CoreError) {
+  let addresses =
+    list.unique(list.append(core.channel_order, dict.keys(core.detached)))
   use checkouts <- result.try(
-    list.try_fold(
-      core.channel_order,
-      core.tree_checkouts,
-      fn(checkouts, address) {
-        case dict.get(core.channels, address) {
-          Ok(channel.TreeState(document)) -> {
-            use forest <- result.try(case dict.get(checkouts, address) {
-              Ok(forest) ->
-                tree_branch.update_document(forest, fn(_) {
-                  Ok(#(document, Nil))
-                })
-                |> result.map(fn(updated) { updated.0 })
-                |> result.map_error(fn(error) {
-                  TreeOperationFailed(address, error)
-                })
-              Error(_) ->
-                Ok(tree_branch.new(
-                  tree_branch.origin(core.client_id, "document", address),
-                  document,
-                ))
-            })
-            Ok(dict.insert(checkouts, address, forest))
-          }
-          _ -> Ok(checkouts)
+    list.try_fold(addresses, core.tree_checkouts, fn(checkouts, address) {
+      case find_channel(core, address) {
+        Ok(channel.TreeState(document)) -> {
+          use forest <- result.try(case dict.get(checkouts, address) {
+            Ok(forest) ->
+              tree_branch.update_document(forest, fn(_) { Ok(#(document, Nil)) })
+              |> result.map(fn(updated) { updated.0 })
+              |> result.map_error(fn(error) {
+                TreeOperationFailed(address, error)
+              })
+            Error(_) ->
+              Ok(tree_branch.new(
+                tree_branch.origin(core.client_id, "document", address),
+                document,
+              ))
+          })
+          Ok(dict.insert(checkouts, address, forest))
         }
-      },
-    ),
+        _ -> Ok(checkouts)
+      }
+    }),
   )
   Ok(
     Core(..core, tree_checkouts: checkouts)
@@ -3990,11 +4118,28 @@ fn install_checkout_forest_state(
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
   Ok(
-    Core(
-      ..core,
-      channels: dict.insert(core.channels, address, channel.TreeState(document)),
-      tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
-    )
+    case dict.has_key(core.detached, address) {
+      True ->
+        Core(
+          ..core,
+          detached: dict.insert(
+            core.detached,
+            address,
+            channel.TreeState(document),
+          ),
+          tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+        )
+      False ->
+        Core(
+          ..core,
+          channels: dict.insert(
+            core.channels,
+            address,
+            channel.TreeState(document),
+          ),
+          tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+        )
+    }
     |> prune_tree_publication_scopes,
   )
 }
@@ -4549,7 +4694,7 @@ fn tree_channel(
   core: Core,
   address: String,
 ) -> Result(tree_kernel.TreeState, CoreError) {
-  case dict.get(core.channels, address) {
+  case find_channel(core, address) {
     Error(_) -> Error(UnknownChannel(address, core.last_seen_sequence_number))
     Ok(channel.TreeState(state)) -> Ok(state)
     Ok(other) ->
@@ -5721,7 +5866,44 @@ fn submit_tree_commits(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  let applied_events =
+    list.append(
+      list.map(commits, fn(commit) {
+        #(
+          address,
+          channel.TreeCommitApplied(commit.revision, kind, True, revertible),
+        )
+      }),
+      events,
+    )
+  use <- bool.guard(
+    dict.has_key(core.detached, address),
+    Ok(#(core, applied_events, [])),
+  )
+  let core = Core(..core, compressor: Some(compressor))
+  use references <- result.try(references_for(core, address))
+  use #(core, prepared) <- result.try(prepare_attachments(
+    core,
+    address,
+    references,
+  ))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
+  )
+  let already_allocated =
+    list.any(prepared, fn(message) {
+      case message {
+        fluid_container.IdAllocation(_) -> True
+        _ -> False
+      }
+    })
+  let #(compressor, range) = case already_allocated {
+    True -> #(compressor, None)
+    False -> fluid_ids.take_creation_range(compressor)
+  }
   use encoded <- result.try(
     list.try_map(commits, fn(commit) {
       use contents <- result.try(
@@ -5731,10 +5913,14 @@ fn submit_tree_commits(
       Ok(fluid_container.ChannelOperation(route, contents))
     }),
   )
-  let kinds = case range {
-    Some(allocation) -> [fluid_container.IdAllocation(allocation), ..encoded]
-    None -> encoded
-  }
+  let kinds =
+    list.append(
+      case range {
+        Some(allocation) -> [fluid_container.IdAllocation(allocation)]
+        None -> []
+      },
+      list.append(prepared, encoded),
+    )
   let batch_id =
     core.client_id
     <> "_["
@@ -5784,6 +5970,10 @@ fn submit_tree_commits(
       contents,
       outer_metadata,
     )
+  use pending_items <- result.try(case prepared {
+    [] -> Ok([])
+    _ -> list.try_map(kinds, pending_tree_batch_item(core, csn, _))
+  })
   let core =
     Core(
       ..core,
@@ -5801,26 +5991,46 @@ fn submit_tree_commits(
             False -> None
           },
           kinds,
-          [],
+          pending_items,
         ),
       ]),
     )
   use core <- result.try(sync_tree_checkouts(core))
-  Ok(
-    #(
-      core,
-      list.append(
-        list.map(commits, fn(commit) {
-          #(
-            address,
-            channel.TreeCommitApplied(commit.revision, kind, True, revertible),
-          )
-        }),
-        events,
-      ),
-      [outbound],
-    ),
-  )
+  Ok(#(core, applied_events, [outbound]))
+}
+
+fn pending_tree_batch_item(
+  core: Core,
+  csn: Int,
+  item: fluid_container.MessageKind,
+) -> Result(InFlight, CoreError) {
+  case item {
+    fluid_container.ChannelAttach(route, type_name, snapshot) -> {
+      use address <- result.try(
+        fluid_container.route_key(route)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use snapshot <- result.try(decode_prepared_attach(
+        core,
+        route,
+        type_name,
+        snapshot,
+      ))
+      Ok(InFlightAttach(core.client_id, csn, address, snapshot))
+    }
+    _ ->
+      Ok(
+        InFlightBatch(
+          core.client_id,
+          csn,
+          core.last_seen_sequence_number,
+          False,
+          None,
+          [item],
+          [],
+        ),
+      )
+  }
 }
 
 pub fn set(
@@ -8430,6 +8640,11 @@ fn prepare_reference(
         True -> Ok(Nil)
         False -> Error(UnknownChannel(address, core.last_seen_sequence_number))
       })
+      use _ <- result.try(case core.active_tree_transaction {
+        Some(#(active_address, _, _, _)) if active_address == address ->
+          transaction_error(address, "tree transaction blocks attachment")
+        _ -> Ok(Nil)
+      })
       case
         dict.get(core.local_datastores, route.data_store_id),
         dict.has_key(core.routing.datastores, route.data_store_id)
@@ -8465,27 +8680,22 @@ fn prepare_reference(
               case list.contains(visible_datastores, route.data_store_id) {
                 False -> Ok(#(core, messages, visited))
                 True -> {
-                  use snapshot <- result.try(
-                    channel.attach_snapshot(state)
-                    |> result.map_error(ChannelBoundaryFailed),
-                  )
-                  use kind <- result.try(
-                    wire_op.attachment_message(address, snapshot)
-                    |> result.map_error(ContainerOperationFailed),
-                  )
-                  use attached <- result.try(
-                    channel.attach_state(state, replica: core.client_id)
-                    |> result.map_error(ChannelBoundaryFailed),
-                  )
-                  let core =
-                    add_attached_channel(core, address, attached)
-                    |> fn(core) {
-                      Core(
-                        ..core,
-                        detached: dict.delete(core.detached, address),
-                      )
-                    }
-                  Ok(#(core, list.append(messages, [kind]), visited))
+                  use snapshot <- result.try(detached_attach_snapshot(
+                    core,
+                    address,
+                    state,
+                  ))
+                  use kind <- result.try(detached_attachment_message(
+                    core,
+                    address,
+                    snapshot,
+                  ))
+                  use attached <- result.try(promote_detached_channel(
+                    core,
+                    address,
+                    state,
+                  ))
+                  Ok(#(attached, list.append(messages, [kind]), visited))
                 }
               }
           }
@@ -8530,10 +8740,11 @@ fn prepare_local_datastore(
   )
   use snapshots <- result.try(
     list.try_map(channels, fn(entry) {
-      use snapshot <- result.try(
-        channel.attach_snapshot(entry.2)
-        |> result.map_error(ChannelBoundaryFailed),
-      )
+      use snapshot <- result.try(detached_attach_snapshot(
+        core,
+        entry.0,
+        entry.2,
+      ))
       Ok(#(entry.1, snapshot))
     }),
   )
@@ -8546,29 +8757,125 @@ fn prepare_local_datastore(
     |> result.map(list.unique),
   )
   use attach <- result.try(
-    wire_op.encode_datastore_attach(
-      data_store_id,
-      store.package_path,
-      snapshots,
-      routes,
-    )
+    case core.compressor {
+      Some(compressor) ->
+        wire_op.encode_datastore_attach_with_context(
+          data_store_id,
+          store.package_path,
+          snapshots,
+          routes,
+          compressor,
+        )
+      None ->
+        wire_op.encode_datastore_attach(
+          data_store_id,
+          store.package_path,
+          snapshots,
+          routes,
+        )
+    }
     |> result.map_error(ContainerOperationFailed),
   )
   use core <- result.try(
     list.try_fold(channels, core, fn(core, entry) {
-      use attached <- result.try(
-        channel.attach_state(entry.2, replica: core.client_id)
-        |> result.map_error(ChannelBoundaryFailed),
-      )
-      Ok(
-        add_attached_channel(core, entry.0, attached)
-        |> fn(core) {
-          Core(..core, detached: dict.delete(core.detached, entry.0))
-        },
-      )
+      use attached <- result.try(promote_detached_channel(
+        core,
+        entry.0,
+        entry.2,
+      ))
+      Ok(attached)
     }),
   )
   Ok(#(core, list.append(messages, [attach]), visited))
+}
+
+fn detached_attach_snapshot(
+  core: Core,
+  address: String,
+  state: ChannelState,
+) -> Result(channel.Snapshot, CoreError) {
+  case state {
+    channel.TreeState(tree) -> {
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(BadBootstrapSeed(
+          "tree attach requires a document compressor",
+        )),
+      )
+      tree_runtime.snapshot_for_attach(tree, compressor)
+      |> result.map(channel.TreeSnapshot)
+      |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+    }
+    _ ->
+      channel.attach_snapshot(state)
+      |> result.map_error(ChannelBoundaryFailed)
+  }
+}
+
+fn detached_attachment_message(
+  core: Core,
+  address: String,
+  snapshot: channel.Snapshot,
+) -> Result(fluid_container.MessageKind, CoreError) {
+  case snapshot {
+    channel.TreeSnapshot(tree) -> {
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> address)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(BadBootstrapSeed(
+          "tree attach requires a document compressor",
+        )),
+      )
+      wire_op.encode_tree_attach(route, tree, compressor)
+      |> result.map_error(ContainerOperationFailed)
+    }
+    _ ->
+      wire_op.attachment_message(address, snapshot)
+      |> result.map_error(ContainerOperationFailed)
+  }
+}
+
+fn promote_detached_channel(
+  core: Core,
+  address: String,
+  state: ChannelState,
+) -> Result(Core, CoreError) {
+  case state {
+    channel.TreeState(tree) -> {
+      let promoted = tree_kernel.promote_attach(tree)
+      use forest <- result.try(checkout_forest(core, address))
+      use forest <- result.try(
+        tree_branch.update_document(forest, fn(_) { Ok(#(promoted, Nil)) })
+        |> result.map(fn(value) { value.0 })
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        add_attached_channel(core, address, channel.TreeState(promoted))
+        |> fn(core) {
+          Core(
+            ..core,
+            detached: dict.delete(core.detached, address),
+            tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+          )
+        },
+      )
+    }
+    _ -> {
+      use attached <- result.try(
+        channel.attach_state(state, replica: core.client_id)
+        |> result.map_error(ChannelBoundaryFailed),
+      )
+      Ok(
+        add_attached_channel(core, address, attached)
+        |> fn(core) {
+          Core(..core, detached: dict.delete(core.detached, address))
+        },
+      )
+    }
+  }
 }
 
 fn prepare_bound_references(
@@ -8616,6 +8923,14 @@ fn references_for(
       handle.reference_from_path("/" <> address)
     })
   Ok(merge_references(retained, current))
+}
+
+pub fn capture_bindings(
+  core: Core,
+  address: String,
+) -> Result(Core, CoreError) {
+  use references <- result.try(references_for(core, address))
+  Ok(Core(..core, bindings: dict.insert(core.bindings, address, references)))
 }
 
 fn merge_references(
@@ -8741,6 +9056,26 @@ fn stamp_prepared_channel_attaches(
   core: Core,
   messages: List(fluid_container.MessageKind),
 ) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  case core.compressor {
+    Some(compressor) -> {
+      let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+      case range {
+        Some(range) ->
+          stamp_allocated_channel_attaches(
+            Core(..core, compressor: Some(compressor)),
+            [fluid_container.IdAllocation(range), ..messages],
+          )
+        None -> stamp_channel_attaches(core, messages)
+      }
+    }
+    None -> stamp_channel_attaches(core, messages)
+  }
+}
+
+fn stamp_channel_attaches(
+  core: Core,
+  messages: List(fluid_container.MessageKind),
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
   list.try_fold(messages, #(core, []), fn(acc, message) {
     let #(core, outbound) = acc
     case message {
@@ -8749,10 +9084,12 @@ fn stamp_prepared_channel_attaches(
           fluid_container.route_key(route)
           |> result.map_error(ContainerOperationFailed),
         )
-        use decoded <- result.try(
-          wire_op.decode_attach_snapshot(type_name, snapshot)
-          |> result.map_error(ContainerOperationFailed),
-        )
+        use decoded <- result.try(decode_prepared_attach(
+          core,
+          route,
+          type_name,
+          snapshot,
+        ))
         let csn = core.next_client_sequence_number
         use contents <- result.try(
           fluid_container.encode(message)
@@ -8788,6 +9125,94 @@ fn stamp_prepared_channel_attaches(
         ))
     }
   })
+}
+
+fn stamp_allocated_channel_attaches(
+  core: Core,
+  messages: List(fluid_container.MessageKind),
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  let csn = core.next_client_sequence_number
+  let metadata =
+    Some(json.object([#("groupedOpCount", json.int(list.length(messages)))]))
+  let last = list.length(messages) - 1
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      metadata,
+      list.index_map(messages, fn(kind, index) {
+        fluid_container.ContainerMessage(kind, index, case index {
+          0 -> Some(json.object([#("batch", json.bool(True))]))
+          index if index == last ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        })
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let outbound =
+    wire.OutboundOperation(
+      csn,
+      core.last_seen_sequence_number,
+      "op",
+      contents,
+      metadata,
+    )
+  use pending <- result.try(
+    list.try_map(messages, pending_tree_batch_item(core, csn, _)),
+  )
+  Ok(
+    #(
+      Core(
+        ..core,
+        next_client_sequence_number: csn + 1,
+        in_flight: list.append(core.in_flight, [
+          InFlightBatch(
+            core.client_id,
+            csn,
+            core.last_seen_sequence_number,
+            True,
+            None,
+            messages,
+            pending,
+          ),
+        ]),
+      ),
+      [outbound],
+    ),
+  )
+}
+
+fn decode_prepared_attach(
+  core: Core,
+  route: fluid_container.Route,
+  type_name: String,
+  snapshot: Json,
+) -> Result(channel.Snapshot, CoreError) {
+  case type_name {
+    "https://graph.microsoft.com/types/tree" -> {
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(BadBootstrapSeed(
+          "tree attach requires a document compressor",
+        )),
+      )
+      use view_id <- result.try(attachment_view_id(core, route))
+      wire_op.decode_attach_snapshot_with_context(
+        type_name,
+        snapshot,
+        compressor,
+        view_id,
+        "/" <> fluid_summary.encode_component(route.data_store_id),
+        core.last_seen_sequence_number,
+        core.minimum_sequence_number,
+      )
+      |> result.map_error(ContainerOperationFailed)
+    }
+    _ ->
+      wire_op.decode_attach_snapshot(type_name, snapshot)
+      |> result.map_error(ContainerOperationFailed)
+  }
 }
 
 fn stamp_attachment_batch(

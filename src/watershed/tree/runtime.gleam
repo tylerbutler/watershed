@@ -9,12 +9,59 @@ import gleam/string
 import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/codec
+import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/identifier
 import watershed/tree/schema
 import watershed/tree/shared_change
-import watershed/tree/types.{type Edit, type SequencePoint, type TreeError}
+import watershed/tree/types.{
+  type Edit, type SequencePoint, type TreeError, type TreeValue, InvalidHistory,
+}
 import watershed/tree_kernel
+
+pub fn create_detached(
+  stored: schema.StoredSchema,
+  initial_root: Option(TreeValue),
+  view_id: fluid_ids.StableId,
+  compressor: fluid_ids.Compressor,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor), TreeError) {
+  use _ <- result.try(schema.validate_root_construction(stored, initial_root))
+  use #(compressor, _) <- result.try(
+    fluid_ids.generate(compressor)
+    |> result.map_error(fn(error) { InvalidHistory(string.inspect(error)) }),
+  )
+  use #(initial_root, compressor) <- result.try(case initial_root {
+    None -> Ok(#(None, compressor))
+    Some(value) ->
+      identifier.materialize_value(stored, value, compressor)
+      |> result.map(fn(value) { #(Some(value.0), value.1) })
+  })
+  use _ <- result.try(schema.validate_root_field(stored, initial_root))
+  use snapshot <- result.try(tree_kernel.snapshot_from_parts(
+    view_id,
+    stored,
+    forest.ForestData(initial_root, [], 1),
+    history.HistorySnapshot(
+      history.InitialBase,
+      [],
+      [],
+      sequence_number,
+      minimum_sequence_number,
+      [],
+    ),
+  ))
+  use state <- result.try(restore_unviewed(snapshot, view_id, compressor))
+  Ok(#(state, compressor))
+}
+
+pub fn snapshot_for_attach(
+  state: tree_kernel.TreeState,
+  _compressor: fluid_ids.Compressor,
+) -> Result(tree_kernel.TreeSnapshot, TreeError) {
+  tree_kernel.snapshot_for_attach(state)
+}
 
 pub type AuthoredEdit {
   AuthoredEdit(
