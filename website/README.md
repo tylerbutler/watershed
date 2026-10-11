@@ -15,8 +15,9 @@ pnpm preview:worker
 
 Run these commands from `website/`. `build:cloudflare` installs Gleam if it
 isn't on `PATH`, then runs `pnpm build`. The prebuild compiles the Gleam
-runtime and samples, generates source snippets, checks TypeScript, and runs
-the Node tests. The Gleam packages target JavaScript, so you don't need Erlang.
+runtime and samples, generates source snippets, and checks TypeScript. Builds
+don't run tests; CI runs `pnpm test:unit` before the required browser integration gate.
+The Gleam packages target JavaScript, so you don't need Erlang.
 Set `GLEAM_VERSION` to override the compiler release used by the installer.
 
 `preview:worker` serves the built site with Wrangler, including Workers'

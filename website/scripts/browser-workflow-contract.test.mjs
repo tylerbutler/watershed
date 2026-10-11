@@ -20,3 +20,14 @@ test("website browser workflow provides Chrome and runs the required gate", () =
   assert.match(workflow, /WATERSHED_CHROME:/);
   assert.match(workflow, /pnpm test:integration:browser:required/);
 });
+
+test("website CI checks types and runs Node tests before browser integration", () => {
+  assert.match(
+    workflow,
+    /- run: pnpm check:types && pnpm test:unit\s+working-directory: website/,
+  );
+  assert.ok(
+    workflow.indexOf("pnpm check:types && pnpm test:unit") <
+      workflow.indexOf("pnpm test:integration:browser:required"),
+  );
+});

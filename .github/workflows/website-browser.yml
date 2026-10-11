@@ -27,6 +27,8 @@ jobs:
         uses: browser-actions/setup-chrome@v1
       - run: pnpm install --frozen-lockfile
         working-directory: website
+      - run: pnpm check:types && pnpm test:unit
+        working-directory: website
       - run: pnpm test:integration:browser:required
         working-directory: website
         env:

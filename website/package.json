@@ -9,7 +9,7 @@
     "build:samples": "cd ../tools/website-samples && gleam build --target javascript",
     "predev": "pnpm check:types",
     "dev": "astro dev",
-    "prebuild": "pnpm check:types && pnpm test:unit",
+    "prebuild": "pnpm check:types",
     "build": "astro build",
     "build:cloudflare": "./scripts/cloudflare-build.sh",
     "deploy": "wrangler deploy",

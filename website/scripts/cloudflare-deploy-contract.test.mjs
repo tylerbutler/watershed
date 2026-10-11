@@ -245,10 +245,10 @@ describe("Cloudflare deploy contract", () => {
       /check:types/,
       "the prebuild hook must run check:types before Astro reads generated modules",
     );
-    assert.match(
+    assert.doesNotMatch(
       prebuild,
-      /test:unit/,
-      "the prebuild hook must run the complete Node test suite",
+      /\btest(?::|\s|$)/,
+      "the prebuild hook must leave tests to CI",
     );
 
     assert.match(
