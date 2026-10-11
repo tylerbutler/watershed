@@ -436,7 +436,7 @@ Create `test/watershed/shared_tree_attachment_test.gleam` and
 - [x] Add source-backed tests for bound-then-removed references, root-to-map
   graphs, two-way/cyclic datastore references and resolving an unloaded channel
   after an incoming datastore attach. Preserve the package/attribute bytes.
-- [ ] Run:
+- [x] Run:
 
   ```sh
   gleam test --target erlang -- shared_tree_attachment shared_tree_container handle
@@ -491,7 +491,7 @@ native lifecycle fixture and attachment/runtime/summary tests.
   each tree summary blob before invoking context-free tree codecs. Keep
   context-free map/other DDS decoding intact.
 
-- [ ] Add the full source-backed attach tests:
+- [x] Add the full source-backed attach tests:
 
   ```gleam
   import watershed/tree/fixtures
@@ -512,31 +512,31 @@ native lifecycle fixture and attachment/runtime/summary tests.
   }
   ```
 
-- [ ] Run both target selections and confirm tree creation/document-context
+- [x] Run both target selections and confirm tree creation/document-context
   attach fails. Implement the initial snapshot helper using the document
   compressor and schema construction validation; reuse it from the fixed
   creator only where that removes the existing duplicated initialization.
-- [ ] Preserve identities through detached edits and attach promotion.
+- [x] Preserve identities through detached edits and attach promotion.
   Snapshot the state/retention that upstream captures, including completed
   local transactions and identifiers; preserve edits after snapshot capture.
   Do not generate a new forest from the displayed root on ack.
-- [ ] Extend tree lookup and checkout operations to local detached trees,
+- [x] Extend tree lookup and checkout operations to local detached trees,
   including reads, edits, subscriptions, transactions and local handle
   resolution. Detached edits update local tree state and deliver measured
   local events without transport submission; publication takes the attach
   path only when upstream's binding rule makes the channel visible.
-- [ ] Extend the candidate attachment planner with contextual tree snapshots
+- [x] Extend the candidate attachment planner with contextual tree snapshots
   and identifier allocation dependencies. Decode newly attached trees only
   after their required allocation and datastore context exists.
   Initialize/check tree checkout registries on remote and local attachment.
-- [ ] Refuse attachment of an actively transacting target tree with an explicit
+- [x] Refuse attachment of an actively transacting target tree with an explicit
   tree/lifecycle error. Test a group whose final tree snapshot is corrupt,
   mismatched attributes, missing allocation, duplicate identity and wrong ack
   snapshot. No prior group state or event may escape those refusals.
-- [ ] Test multiple attached trees sharing one compressor, preserving
+- [x] Test multiple attached trees sharing one compressor, preserving
   identifiers and node identities through concurrent allocations and later
   attachment. Assert exact source-backed allocation order and final IDs.
-- [ ] Run:
+- [x] Run:
 
   ```sh
   gleam test --target erlang -- shared_tree_attachment shared_tree_runtime shared_tree_summary shared_tree_document_summary
@@ -545,7 +545,30 @@ native lifecycle fixture and attachment/runtime/summary tests.
   just shared-tree-codec-interop
   ```
 
-- [ ] Commit as `feat(tree): attach native trees with document identity`.
+- [x] Commit as `feat(tree): attach native trees with document identity`.
+
+**Task 4 acceptance, 2026-10-11:** Foundations and schema-race corrections
+landed in `fc77d751` through `c60b6e3b`; identity/history/event recovery landed
+in `5c352a58`. Native replay compares complete source-backed attachment
+transport and receiver state, plus twelve checkpoint summary envelopes/blob
+strings, compressor reservations/final identities, stable checkout/root/anchor
+tokens, local/remote events, settlements, and the selected detached inverse.
+Production promotion keeps retained history rather than rebuilding visible data.
+
+Review found lost promoted history, repeated sibling shape traversal, and
+missing detached settlements. Corrections and failing-first regressions close
+those findings. Additional summary regressions preserve window-start batches,
+peer ancestry, and retained replay receipts. The spec records the narrow
+loadability exception for a pinned Fluid summary that omits its peer base.
+Captured lifecycle checkpoint bytes remain unchanged.
+
+Fresh serial acceptance passed 1143 Erlang and 1116 JavaScript tests through
+`just shared-tree-test`, including the JS/BEAM reconnect tests and
+storage/bootstrap/creation smokes. Pinned codec consumers passed 38 items per
+target; lint and whitespace checks passed. Final scoped re-review found no
+remaining original Task 4 blocker. Facade factory-lifetime checks remain in
+Task 6; graph publication, retained GC, and real-service proof remain in
+Tasks 5–9. This acceptance does not complete M7.
 
 ### Task 5: Bind references at publication, transaction and branch boundaries
 
