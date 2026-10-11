@@ -312,6 +312,11 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
     Ok(value) -> value
     Error(_) -> panic as "lifecycle transport did not connect"
   }
+  let actor = watershed_beam.runtime_subject(document)
+  process.call(actor, waiting: 1000, sending: fn(reply) {
+    runtime_beam.PutChecked("A/root", "early", json.string("no"), reply)
+  })
+  |> expect.to_be_error()
   callbacks.on_ready(
     runtime_beam.TransportHandle(
       push: fn(event, payload) {
@@ -344,9 +349,17 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
       presence_v1: False,
     ),
   )
-  let actor = watershed_beam.runtime_subject(document)
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   let assert Ok(root) = watershed_beam.resolve_root(document)
+  let malformed_handle =
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.int(123)),
+    ])
+  watershed_beam.set_checked(root, "malformed", malformed_handle)
+  |> expect.to_be_error()
+  watershed_beam.get(root, "malformed") |> expect.to_be_error()
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
   let assert Ok(store) = watershed_beam.create_data_store(document)
   let assert Ok(store_root) = watershed_beam.data_store_root(store)
   let foreign_connections = process.new_subject()
@@ -743,6 +756,14 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let close_release =
     process.receive(runtime_close_entered, 1000)
     |> expect.to_be_ok()
+  let closed_set_results = process.new_subject()
+  let _ =
+    process.spawn_unlinked(fn() {
+      process.send(
+        closed_set_results,
+        watershed_beam.set_checked(root, "closed", json.string("no")),
+      )
+    })
   let runtime_owner = process.subject_owner(close_release) |> expect.to_be_ok()
   let runtime_monitor = process.monitor(runtime_owner)
   await_revertible_status_request(actor, 1000)
@@ -754,6 +775,10 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   |> process.selector_receive(1000)
   |> expect.to_equal(Ok(Nil))
   process.demonitor_process(runtime_monitor)
+  process.receive(closed_set_results, 1000)
+  |> expect.to_equal(Ok(Error("document runtime is closed")))
+  watershed_beam.delete_checked(root, "closed")
+  |> expect.to_equal(Error("document runtime is closed"))
   process.receive(close_notifications, 1000)
   |> expect.to_equal(Ok(#(close_revertible, watershed_beam.RevertibleDisposed)))
   process.receive(close_notifications, 0) |> expect.to_equal(Error(Nil))

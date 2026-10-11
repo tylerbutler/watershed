@@ -4829,8 +4829,24 @@ pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
 }
 
 @target(javascript)
+/// Set an entry and return a runtime refusal.
+pub fn set_checked(
+  map: SharedMap,
+  key: String,
+  value: Json,
+) -> Result(Nil, String) {
+  runtime.set_checked(map.runtime, map.address, key, value)
+}
+
+@target(javascript)
 pub fn delete(map: SharedMap, key: String) -> Nil {
   runtime.delete(map.runtime, map.address, key)
+}
+
+@target(javascript)
+/// Delete an entry and return a runtime refusal.
+pub fn delete_checked(map: SharedMap, key: String) -> Result(Nil, String) {
+  runtime.delete_checked(map.runtime, map.address, key)
 }
 
 @target(javascript)

@@ -17,6 +17,8 @@ import gleam/result
 @target(javascript)
 import watershed
 @target(javascript)
+import watershed/canonical_json
+@target(javascript)
 import watershed/runtime
 @target(javascript)
 import watershed/runtime_core
@@ -56,6 +58,10 @@ fn lines(
 @target(javascript)
 @external(javascript, "./client_io.mjs", "fail")
 fn fail(message: String) -> Nil
+
+@target(javascript)
+@external(javascript, "./client_io.mjs", "runtimeStateEvidence")
+fn runtime_state_evidence(runtime: runtime.Runtime) -> String
 
 @target(javascript)
 pub fn main() -> Promise(Nil) {
@@ -145,21 +151,25 @@ pub fn main() -> Promise(Nil) {
                     }
                     Ok(tree) -> {
                       let active_tree = transport_js.new_cell(tree)
+                      let data_stores = transport_js.new_cell(dict.new())
+                      let maps = transport_js.new_cell(dict.new())
+                      let trees =
+                        transport_js.new_cell(dict.from_list([#("main", tree)]))
                       let branches = transport_js.new_cell(dict.new())
                       let branch_subscriptions =
                         transport_js.new_cell(dict.new())
-                      let events = transport_js.new_cell([])
-                      let commits = transport_js.new_cell([])
+                      let events = transport_js.new_cell(dict.new())
+                      let commits = transport_js.new_cell(dict.new())
                       let handles = transport_js.new_cell(dict.new())
                       let last_local = transport_js.new_cell(dict.new())
                       let commit_event_count = transport_js.new_cell(0)
-                      let subscription = transport_js.new_cell(None)
+                      let subscriptions = transport_js.new_cell(dict.new())
                       let _ =
                         watershed.subscribe_tree_commits(tree, fn(event) {
                           observe_commit(
                             event,
                             tree,
-                            "main",
+                            protocol.Document("main"),
                             commits,
                             last_local,
                             commit_event_count,
@@ -173,6 +183,9 @@ pub fn main() -> Promise(Nil) {
                             handle,
                             config,
                             active_tree,
+                            data_stores,
+                            maps,
+                            trees,
                             branches,
                             branch_subscriptions,
                             events,
@@ -182,7 +195,7 @@ pub fn main() -> Promise(Nil) {
                             commit_event_count,
                             outbound_sends,
                             outbound_send_count,
-                            subscription,
+                            subscriptions,
                           )
                         },
                         fn() { watershed.close(document) },
@@ -252,14 +265,18 @@ fn require_revert_evidence(
 @target(javascript)
 fn named_tree(
   main: watershed.SharedTree,
-  branches: Cell(Dict(String, watershed.SharedTree)),
+  branches: Cell(Dict(protocol.TreeOwner, watershed.SharedTree)),
+  owner: protocol.TreeOwner,
   name: String,
   operation: String,
 ) -> Result(watershed.SharedTree, protocol.ProtocolError) {
   case name {
     "main" -> Ok(main)
     _ ->
-      dict.get(transport_js.get_cell(branches), name)
+      dict.get(
+        transport_js.get_cell(branches),
+        protocol.local_branch_owner(owner, name),
+      )
       |> result.map_error(fn(_) {
         facade(operation, "Unknown branch: " <> name)
       })
@@ -267,22 +284,101 @@ fn named_tree(
 }
 
 @target(javascript)
-fn remove_branch(
+fn selected_command(
+  command: protocol.Command,
+) -> #(Option(String), protocol.Command) {
+  case command {
+    protocol.SelectedTree(name, command) -> #(Some(name), command)
+    _ -> #(None, command)
+  }
+}
+
+@target(javascript)
+fn selected_tree(
+  active: watershed.SharedTree,
+  trees: Cell(Dict(String, watershed.SharedTree)),
+  selected: Option(String),
+  operation: String,
+) -> Result(watershed.SharedTree, protocol.ProtocolError) {
+  case selected {
+    None -> Ok(active)
+    Some(name) ->
+      dict.get(transport_js.get_cell(trees), name)
+      |> result.map_error(fn(_) { facade(operation, "Unknown tree: " <> name) })
+  }
+}
+
+@target(javascript)
+fn insert_named(
+  objects: Cell(Dict(String, a)),
   name: String,
-  branches: Cell(Dict(String, watershed.SharedTree)),
-  subscriptions: Cell(Dict(String, watershed.SubscriptionToken)),
+  value: a,
+  operation: String,
+) -> Result(Nil, protocol.ProtocolError) {
+  case dict.has_key(transport_js.get_cell(objects), name) {
+    True -> Error(facade(operation, "Object name already exists: " <> name))
+    False -> {
+      transport_js.set_cell(
+        objects,
+        dict.insert(transport_js.get_cell(objects), name, value),
+      )
+      Ok(Nil)
+    }
+  }
+}
+
+@target(javascript)
+fn require_new_name(
+  objects: Cell(Dict(String, a)),
+  name: String,
+  operation: String,
+) -> Result(Nil, protocol.ProtocolError) {
+  case dict.has_key(transport_js.get_cell(objects), name) {
+    True -> Error(facade(operation, "Object name already exists: " <> name))
+    False -> Ok(Nil)
+  }
+}
+
+@target(javascript)
+fn named_object(
+  objects: Cell(Dict(String, a)),
+  name: String,
+  kind: String,
+  operation: String,
+) -> Result(a, protocol.ProtocolError) {
+  dict.get(transport_js.get_cell(objects), name)
+  |> result.map_error(fn(_) {
+    facade(operation, "Unknown " <> kind <> ": " <> name)
+  })
+}
+
+@target(javascript)
+fn encode_shared_map_entries(entries: List(#(String, Json))) -> Json {
+  entries
+  |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+  |> list.map(fn(entry) {
+    json.preprocessed_array([json.string(entry.0), entry.1])
+  })
+  |> json.preprocessed_array
+}
+
+@target(javascript)
+fn remove_branch(
+  owner: protocol.TreeOwner,
+  branches: Cell(Dict(protocol.TreeOwner, watershed.SharedTree)),
+  subscriptions: Cell(Dict(protocol.TreeOwner, watershed.SubscriptionToken)),
 ) -> Nil {
-  case dict.get(transport_js.get_cell(subscriptions), name) {
+  case dict.get(transport_js.get_cell(subscriptions), owner) {
     Ok(subscription) -> watershed.unsubscribe(subscription)
     Error(_) -> Nil
   }
   transport_js.set_cell(
     branches,
-    dict.delete(transport_js.get_cell(branches), name),
+    dict.delete(transport_js.get_cell(branches), owner),
   )
   transport_js.set_cell(
     subscriptions,
-    dict.delete(transport_js.get_cell(subscriptions), name),
+    dict.delete(transport_js.get_cell(subscriptions), owner),
   )
 }
 
@@ -290,7 +386,8 @@ fn remove_branch(
 fn run_branch_edit(
   document: watershed.Document(a),
   tree: watershed.SharedTree,
-  events: Cell(List(Json)),
+  owner: protocol.TreeOwner,
+  events: Cell(Dict(protocol.TreeOwner, List(Json))),
   edit: protocol.BranchEdit,
 ) -> Result(Json, protocol.ProtocolError) {
   case edit {
@@ -346,7 +443,7 @@ fn run_branch_edit(
         fn(_) { json.null() },
       )
     protocol.BranchTransaction(scope) ->
-      run_transaction(document, tree, events, scope)
+      run_transaction(document, tree, owner, events, scope)
   }
 }
 
@@ -357,10 +454,15 @@ fn execute(
   handle: Json,
   config: protocol.Descriptor,
   active_tree: Cell(watershed.SharedTree),
-  branches: Cell(Dict(String, watershed.SharedTree)),
-  branch_subscriptions: Cell(Dict(String, watershed.SubscriptionToken)),
-  events: Cell(List(Json)),
-  commits: Cell(List(Json)),
+  data_stores: Cell(Dict(String, watershed.DataStore)),
+  maps: Cell(Dict(String, watershed.SharedMap)),
+  trees: Cell(Dict(String, watershed.SharedTree)),
+  branches: Cell(Dict(protocol.TreeOwner, watershed.SharedTree)),
+  branch_subscriptions: Cell(
+    Dict(protocol.TreeOwner, watershed.SubscriptionToken),
+  ),
+  events: Cell(Dict(protocol.TreeOwner, List(Json))),
+  commits: Cell(Dict(protocol.TreeOwner, List(Json))),
   handles: Cell(
     Dict(
       String,
@@ -369,437 +471,717 @@ fn execute(
         TreeCommitKind,
         Option(String),
         watershed.SharedTree,
-        String,
+        protocol.TreeOwner,
         Bool,
       ),
     ),
   ),
   last_local: Cell(
     Dict(
-      String,
+      protocol.TreeOwner,
       #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   commit_event_count: Cell(Int),
   outbound_sends: Cell(List(Json)),
   outbound_send_count: Cell(Int),
-  subscription: Cell(Option(watershed.SubscriptionToken)),
+  subscriptions: Cell(Dict(protocol.TreeOwner, watershed.SubscriptionToken)),
 ) -> Promise(String) {
   case protocol.decode_request(raw) {
     Error(error) ->
       promise.resolve(response(protocol.request_id(raw), Error(error), document))
     Ok(protocol.Request(id, command)) -> {
-      let tree = transport_js.get_cell(active_tree)
-      let result = case command {
-        protocol.Read(path) ->
-          map_result(
-            "read",
-            watershed.tree_get(tree, path),
-            protocol.encode_read,
-          )
-        protocol.Set(path, value) ->
-          map_result("set", watershed.tree_set(tree, path, value), fn(_) {
-            json.null()
-          })
-        protocol.Clear(path) ->
-          map_result("clear", watershed.tree_clear(tree, path), fn(_) {
-            json.null()
-          })
-        protocol.MapGet(path, key) ->
-          map_result(
-            "map-get",
-            watershed.tree_map_get(tree, path, key),
-            protocol.encode_read,
-          )
-        protocol.MapSet(path, key, value) ->
-          map_result(
-            "map-set",
-            watershed.tree_map_set(tree, path, key, value),
-            fn(_) { json.null() },
-          )
-        protocol.MapDelete(path, key) ->
-          map_result(
-            "map-delete",
-            watershed.tree_map_delete(tree, path, key),
-            fn(_) { json.null() },
-          )
-        protocol.MapKeys(path) ->
-          map_result(
-            "map-keys",
-            watershed.tree_map_keys(tree, path),
-            protocol.encode_map_keys,
-          )
-        protocol.MapEntries(path) ->
-          map_result(
-            "map-entries",
-            watershed.tree_map_entries(tree, path),
-            protocol.encode_map_entries,
-          )
-        protocol.SchemaCompatibility(label) ->
-          case protocol.descriptor_view(config, label) {
-            Error(error) -> Error(error)
-            Ok(view) -> {
-              use opened <- result.try(
-                watershed.open_tree(document, handle, view)
-                |> result.map_error(fn(reason) {
-                  facade("schema-compatibility", reason)
-                }),
-              )
-              map_result(
-                "schema-compatibility",
-                watershed.tree_compatibility(opened),
-                protocol.encode_compatibility,
-              )
-            }
+      let #(selected, command) = selected_command(command)
+      let owner = protocol.selected_owner(selected)
+      let operation = case selected {
+        Some(_) -> "tree"
+        None -> "command"
+      }
+      let result = {
+        use tree <- result.try(selected_tree(
+          transport_js.get_cell(active_tree),
+          trees,
+          selected,
+          operation,
+        ))
+        case command {
+          protocol.CreateDataStore(name) -> {
+            use _ <- result.try(require_new_name(
+              data_stores,
+              name,
+              "create-data-store",
+            ))
+            use store <- result.try(
+              watershed.create_data_store(document)
+              |> result.map_error(fn(reason) {
+                facade("create-data-store", reason)
+              }),
+            )
+            use _ <- result.try(insert_named(
+              data_stores,
+              name,
+              store,
+              "create-data-store",
+            ))
+            use root <- result.try(
+              watershed.data_store_root(store)
+              |> result.map_error(fn(reason) {
+                facade("create-data-store", reason)
+              }),
+            )
+            Ok(watershed.handle_of(root))
           }
-        protocol.SchemaUpgrade(label) ->
-          case protocol.descriptor_view(config, label) {
-            Error(error) -> Error(error)
-            Ok(view) -> {
-              use opened <- result.try(
-                watershed.open_tree(document, handle, view)
-                |> result.map_error(fn(reason) {
-                  facade("schema-upgrade", reason)
-                }),
-              )
-              map_result(
-                "schema-upgrade",
-                watershed.tree_upgrade_schema(opened),
-                fn(_) { json.null() },
-              )
-            }
+          protocol.RootMap(name) -> {
+            use map <- result.try(
+              watershed.resolve_root(document)
+              |> result.map_error(fn(reason) { facade("root-map", reason) }),
+            )
+            use _ <- result.try(insert_named(maps, name, map, "root-map"))
+            Ok(watershed.handle_of(map))
           }
-        protocol.OpenView(label) ->
-          case protocol.descriptor_view(config, label) {
-            Error(error) -> Error(error)
-            Ok(view) -> {
-              use opened <- result.try(
-                watershed.open_tree(document, handle, view)
-                |> result.map_error(fn(reason) { facade("open-view", reason) }),
-              )
-              transport_js.set_cell(active_tree, opened)
-              Ok(json.null())
-            }
+          protocol.DataStoreRoot(store_name, name) -> {
+            use store <- result.try(named_object(
+              data_stores,
+              store_name,
+              "data store",
+              "data-store-root",
+            ))
+            use map <- result.try(
+              watershed.data_store_root(store)
+              |> result.map_error(fn(reason) {
+                facade("data-store-root", reason)
+              }),
+            )
+            use _ <- result.try(insert_named(maps, name, map, "data-store-root"))
+            Ok(watershed.handle_of(map))
           }
-        protocol.ArrayGet(path, index) ->
-          map_result(
-            "array-get",
-            watershed.tree_array_get(tree, path, index),
-            protocol.encode_read,
-          )
-        protocol.ArrayValues(path) ->
-          map_result(
-            "array-values",
-            watershed.tree_array_values(tree, path),
-            protocol.encode_array_values,
-          )
-        protocol.ArrayInsert(path, index, values) ->
-          map_result(
-            "array-insert",
-            watershed.tree_array_insert(tree, path, index, values),
-            fn(_) { json.null() },
-          )
-        protocol.ArrayRemove(path, start, end) ->
-          map_result(
-            "array-remove",
-            watershed.tree_array_remove(tree, path, start, end),
-            fn(_) { json.null() },
-          )
-        protocol.ArrayMove(
-          source_path,
-          source_start,
-          source_end,
-          destination_path,
-          destination_gap,
-        ) ->
-          map_result(
-            "array-move",
-            watershed.tree_array_move(
-              tree,
-              source_path,
-              source_start,
-              source_end,
-              destination_path,
-              destination_gap,
-            ),
-            fn(_) { json.null() },
-          )
-        protocol.ConstrainedArrayRemove(target_path, path, start, end) ->
-          case
-            watershed.tree_transaction(
-              tree,
-              [watershed.NodeInDocument(target_path)],
-              fn(transaction_tree) {
-                watershed.tree_array_remove(transaction_tree, path, start, end)
+          protocol.CreateMap(name, store_name) -> {
+            use _ <- result.try(require_new_name(maps, name, "create-map"))
+            use map <- result.try(case store_name {
+              None ->
+                watershed.create_map(document)
+                |> result.map_error(fn(reason) { facade("create-map", reason) })
+              Some(store_name) -> {
+                use store <- result.try(named_object(
+                  data_stores,
+                  store_name,
+                  "data store",
+                  "create-map",
+                ))
+                watershed.create_map_in(document, store)
+                |> result.map_error(fn(reason) { facade("create-map", reason) })
+              }
+            })
+            use _ <- result.try(insert_named(maps, name, map, "create-map"))
+            Ok(watershed.handle_of(map))
+          }
+          protocol.OpenMap(name, marker) -> {
+            use map <- result.try(
+              watershed.resolve(document, marker)
+              |> result.map_error(fn(reason) { facade("open-map", reason) }),
+            )
+            use _ <- result.try(insert_named(maps, name, map, "open-map"))
+            Ok(watershed.handle_of(map))
+          }
+          protocol.SharedMapGet(name, key) -> {
+            use map <- result.try(named_object(
+              maps,
+              name,
+              "shared map",
+              "shared-map-get",
+            ))
+            Ok(case watershed.get(map, key) {
+              Ok(value) ->
+                json.object([
+                  #("present", json.bool(True)),
+                  #("value", value),
+                ])
+              Error(_) -> json.object([#("present", json.bool(False))])
+            })
+          }
+          protocol.SharedMapSet(name, key, value) -> {
+            use map <- result.try(named_object(
+              maps,
+              name,
+              "shared map",
+              "shared-map-set",
+            ))
+            map_result(
+              "shared-map-set",
+              watershed.set_checked(map, key, value),
+              fn(_) { json.null() },
+            )
+          }
+          protocol.SharedMapDelete(name, key) -> {
+            use map <- result.try(named_object(
+              maps,
+              name,
+              "shared map",
+              "shared-map-delete",
+            ))
+            map_result(
+              "shared-map-delete",
+              watershed.delete_checked(map, key),
+              fn(_) { json.null() },
+            )
+          }
+          protocol.SharedMapEntries(name) -> {
+            use map <- result.try(named_object(
+              maps,
+              name,
+              "shared map",
+              "shared-map-entries",
+            ))
+            Ok(encode_shared_map_entries(watershed.entries(map)))
+          }
+          protocol.CreateTree(name, store_name, stored, initial, view) -> {
+            use _ <- result.try(require_new_name(trees, name, "create-tree"))
+            use created <- result.try(case store_name {
+              None ->
+                watershed.create_tree(document, stored, Some(initial), view)
+                |> result.map_error(fn(reason) { facade("create-tree", reason) })
+              Some(store_name) -> {
+                use store <- result.try(named_object(
+                  data_stores,
+                  store_name,
+                  "data store",
+                  "create-tree",
+                ))
+                watershed.create_tree_in(
+                  document,
+                  store,
+                  stored,
+                  Some(initial),
+                  view,
+                )
+                |> result.map_error(fn(reason) { facade("create-tree", reason) })
+              }
+            })
+            use _ <- result.try(insert_named(
+              trees,
+              name,
+              created,
+              "create-tree",
+            ))
+            let _ =
+              watershed.subscribe_tree_commits(created, fn(event) {
+                observe_commit(
+                  event,
+                  created,
+                  protocol.Document(name),
+                  commits,
+                  last_local,
+                  commit_event_count,
+                )
+              })
+            Ok(watershed.tree_handle_of(created))
+          }
+          protocol.OpenTree(name, marker, view) -> {
+            use opened <- result.try(
+              watershed.resolve_tree(document, marker, view)
+              |> result.map_error(fn(reason) { facade("open-tree", reason) }),
+            )
+            use _ <- result.try(insert_named(trees, name, opened, "open-tree"))
+            let _ =
+              watershed.subscribe_tree_commits(opened, fn(event) {
+                observe_commit(
+                  event,
+                  opened,
+                  protocol.Document(name),
+                  commits,
+                  last_local,
+                  commit_event_count,
+                )
+              })
+            Ok(watershed.tree_handle_of(opened))
+          }
+          protocol.SelectedTree(_, _) ->
+            Error(facade("tree", "Nested tree selection is invalid"))
+          protocol.Read(path) ->
+            map_result(
+              "read",
+              watershed.tree_get(tree, path),
+              protocol.encode_read,
+            )
+          protocol.Set(path, value) ->
+            map_result("set", watershed.tree_set(tree, path, value), fn(_) {
+              json.null()
+            })
+          protocol.Clear(path) ->
+            map_result("clear", watershed.tree_clear(tree, path), fn(_) {
+              json.null()
+            })
+          protocol.MapGet(path, key) ->
+            map_result(
+              "map-get",
+              watershed.tree_map_get(tree, path, key),
+              protocol.encode_read,
+            )
+          protocol.MapSet(path, key, value) ->
+            map_result(
+              "map-set",
+              watershed.tree_map_set(tree, path, key, value),
+              fn(_) { json.null() },
+            )
+          protocol.MapDelete(path, key) ->
+            map_result(
+              "map-delete",
+              watershed.tree_map_delete(tree, path, key),
+              fn(_) { json.null() },
+            )
+          protocol.MapKeys(path) ->
+            map_result(
+              "map-keys",
+              watershed.tree_map_keys(tree, path),
+              protocol.encode_map_keys,
+            )
+          protocol.MapEntries(path) ->
+            map_result(
+              "map-entries",
+              watershed.tree_map_entries(tree, path),
+              protocol.encode_map_entries,
+            )
+          protocol.SchemaCompatibility(label) ->
+            case protocol.descriptor_view(config, label) {
+              Error(error) -> Error(error)
+              Ok(view) -> {
+                use opened <- result.try(
+                  watershed.open_tree(
+                    document,
+                    watershed.tree_handle_of(tree),
+                    view,
+                  )
+                  |> result.map_error(fn(reason) {
+                    facade("schema-compatibility", reason)
+                  }),
+                )
+                map_result(
+                  "schema-compatibility",
+                  watershed.tree_compatibility(opened),
+                  protocol.encode_compatibility,
+                )
+              }
+            }
+          protocol.SchemaUpgrade(label) ->
+            case protocol.descriptor_view(config, label) {
+              Error(error) -> Error(error)
+              Ok(view) -> {
+                use opened <- result.try(
+                  watershed.open_tree(
+                    document,
+                    watershed.tree_handle_of(tree),
+                    view,
+                  )
+                  |> result.map_error(fn(reason) {
+                    facade("schema-upgrade", reason)
+                  }),
+                )
+                map_result(
+                  "schema-upgrade",
+                  watershed.tree_upgrade_schema(opened),
+                  fn(_) { json.null() },
+                )
+              }
+            }
+          protocol.OpenView(label) ->
+            case protocol.descriptor_view(config, label) {
+              Error(error) -> Error(error)
+              Ok(view) -> {
+                use opened <- result.try(
+                  watershed.open_tree(
+                    document,
+                    watershed.tree_handle_of(tree),
+                    view,
+                  )
+                  |> result.map_error(fn(reason) { facade("open-view", reason) }),
+                )
+                case selected {
+                  None -> {
+                    transport_js.set_cell(active_tree, opened)
+                    transport_js.set_cell(
+                      trees,
+                      dict.insert(transport_js.get_cell(trees), "main", opened),
+                    )
+                  }
+                  Some("main") -> {
+                    transport_js.set_cell(active_tree, opened)
+                    transport_js.set_cell(
+                      trees,
+                      dict.insert(transport_js.get_cell(trees), "main", opened),
+                    )
+                  }
+                  Some(name) ->
+                    transport_js.set_cell(
+                      trees,
+                      dict.insert(transport_js.get_cell(trees), name, opened),
+                    )
+                }
+                Ok(json.null())
+              }
+            }
+          protocol.ArrayGet(path, index) ->
+            map_result(
+              "array-get",
+              watershed.tree_array_get(tree, path, index),
+              protocol.encode_read,
+            )
+          protocol.ArrayValues(path) ->
+            map_result(
+              "array-values",
+              watershed.tree_array_values(tree, path),
+              protocol.encode_array_values,
+            )
+          protocol.ArrayInsert(path, index, values) ->
+            map_result(
+              "array-insert",
+              watershed.tree_array_insert(tree, path, index, values),
+              fn(_) { json.null() },
+            )
+          protocol.ArrayRemove(path, start, end) ->
+            map_result(
+              "array-remove",
+              watershed.tree_array_remove(tree, path, start, end),
+              fn(_) { json.null() },
+            )
+          protocol.ArrayMove(
+            source_path,
+            source_start,
+            source_end,
+            destination_path,
+            destination_gap,
+          ) ->
+            map_result(
+              "array-move",
+              watershed.tree_array_move(
+                tree,
+                source_path,
+                source_start,
+                source_end,
+                destination_path,
+                destination_gap,
+              ),
+              fn(_) { json.null() },
+            )
+          protocol.ConstrainedArrayRemove(target_path, path, start, end) ->
+            case
+              watershed.tree_transaction(
+                tree,
+                [watershed.NodeInDocument(target_path)],
+                fn(transaction_tree) {
+                  watershed.tree_array_remove(
+                    transaction_tree,
+                    path,
+                    start,
+                    end,
+                  )
+                },
+              )
+            {
+              Ok(_) -> Ok(json.null())
+              Error(watershed.TransactionFailed(reason)) ->
+                Error(facade("constrained-array-remove", reason))
+              Error(watershed.Aborted(reason)) ->
+                Error(facade("constrained-array-remove", reason))
+            }
+          protocol.Transaction(scope) ->
+            run_transaction(document, tree, owner, events, scope)
+          protocol.Fork(source, name) -> {
+            let branch_owner = protocol.local_branch_owner(owner, name)
+            use _ <- result.try(
+              case
+                name == "main"
+                || dict.has_key(transport_js.get_cell(branches), branch_owner)
+              {
+                True ->
+                  Error(facade("fork", "Branch name already exists: " <> name))
+                False -> Ok(Nil)
               },
             )
-          {
-            Ok(_) -> Ok(json.null())
-            Error(watershed.TransactionFailed(reason)) ->
-              Error(facade("constrained-array-remove", reason))
-            Error(watershed.Aborted(reason)) ->
-              Error(facade("constrained-array-remove", reason))
+            use source_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              source,
+              "fork",
+            ))
+            use branch <- result.try(
+              watershed.tree_fork(source_tree)
+              |> result.map_error(fn(reason) { facade("fork", reason) }),
+            )
+            let subscriber =
+              watershed.subscribe_tree_commits(branch, fn(event) {
+                observe_commit(
+                  event,
+                  branch,
+                  branch_owner,
+                  commits,
+                  last_local,
+                  commit_event_count,
+                )
+              })
+            transport_js.set_cell(
+              branches,
+              dict.insert(transport_js.get_cell(branches), branch_owner, branch),
+            )
+            transport_js.set_cell(
+              branch_subscriptions,
+              dict.insert(
+                transport_js.get_cell(branch_subscriptions),
+                branch_owner,
+                subscriber,
+              ),
+            )
+            Ok(
+              json.object([
+                #("name", json.string(name)),
+                #("source", json.string(source)),
+                #("status", json.string("BranchValid")),
+              ]),
+            )
           }
-        protocol.Transaction(scope) ->
-          run_transaction(document, tree, events, scope)
-        protocol.Fork(source, name) -> {
-          use _ <- result.try(
-            case
-              name == "main"
-              || dict.has_key(transport_js.get_cell(branches), name)
-            {
+          protocol.BranchEditCommand(branch, edit) -> {
+            use branch_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              branch,
+              "branchEdit",
+            ))
+            let branch_owner = protocol.checkout_owner(owner, branch)
+            let before_commits = list.length(owned_json(commits, branch_owner))
+            let before_sends = transport_js.get_cell(outbound_send_count)
+            use observation <- result.try(run_branch_edit(
+              document,
+              branch_tree,
+              branch_owner,
+              events,
+              edit,
+            ))
+            Ok(
+              json.object([
+                #("branch", json.string(branch)),
+                #(
+                  "authoredCount",
+                  json.int(
+                    list.length(owned_json(commits, branch_owner))
+                    - before_commits,
+                  ),
+                ),
+                #(
+                  "outboundCount",
+                  json.int(
+                    transport_js.get_cell(outbound_send_count) - before_sends,
+                  ),
+                ),
+                #("observation", observation),
+              ]),
+            )
+          }
+          protocol.RebaseBranch(source, target) -> {
+            use source_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              source,
+              "rebaseBranch",
+            ))
+            use target_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              target,
+              "rebaseBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_rebase_onto(source_tree, target_tree)
+              |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
+            )
+            Ok(
+              json.object([
+                #("source", json.string(source)),
+                #("target", json.string(target)),
+              ]),
+            )
+          }
+          protocol.MergeBranch(target, source, dispose) -> {
+            use target_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              target,
+              "mergeBranch",
+            ))
+            use source_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              source,
+              "mergeBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_merge(target_tree, source_tree, dispose)
+              |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
+            )
+            case dispose && source != "main" {
               True ->
-                Error(facade("fork", "Branch name already exists: " <> name))
-              False -> Ok(Nil)
-            },
-          )
-          use source_tree <- result.try(named_tree(
-            tree,
-            branches,
-            source,
-            "fork",
-          ))
-          use branch <- result.try(
-            watershed.tree_fork(source_tree)
-            |> result.map_error(fn(reason) { facade("fork", reason) }),
-          )
-          let subscriber =
-            watershed.subscribe_tree_commits(branch, fn(event) {
-              observe_commit(
-                event,
-                branch,
-                name,
-                commits,
-                last_local,
-                commit_event_count,
-              )
-            })
-          transport_js.set_cell(
-            branches,
-            dict.insert(transport_js.get_cell(branches), name, branch),
-          )
-          transport_js.set_cell(
-            branch_subscriptions,
-            dict.insert(
-              transport_js.get_cell(branch_subscriptions),
-              name,
-              subscriber,
-            ),
-          )
-          Ok(
-            json.object([
-              #("name", json.string(name)),
-              #("source", json.string(source)),
-              #("status", json.string("BranchValid")),
-            ]),
-          )
-        }
-        protocol.BranchEditCommand(branch, edit) -> {
-          use branch_tree <- result.try(named_tree(
-            tree,
-            branches,
-            branch,
-            "branchEdit",
-          ))
-          let before_commits = list.length(transport_js.get_cell(commits))
-          let before_sends = transport_js.get_cell(outbound_send_count)
-          use observation <- result.try(run_branch_edit(
-            document,
-            branch_tree,
-            events,
-            edit,
-          ))
-          Ok(
-            json.object([
-              #("branch", json.string(branch)),
-              #(
-                "authoredCount",
-                json.int(
-                  list.length(transport_js.get_cell(commits)) - before_commits,
-                ),
-              ),
-              #(
-                "outboundCount",
-                json.int(
-                  transport_js.get_cell(outbound_send_count) - before_sends,
-                ),
-              ),
-              #("observation", observation),
-            ]),
-          )
-        }
-        protocol.RebaseBranch(source, target) -> {
-          use source_tree <- result.try(named_tree(
-            tree,
-            branches,
-            source,
-            "rebaseBranch",
-          ))
-          use target_tree <- result.try(named_tree(
-            tree,
-            branches,
-            target,
-            "rebaseBranch",
-          ))
-          use _ <- result.try(
-            watershed.tree_rebase_onto(source_tree, target_tree)
-            |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
-          )
-          Ok(
-            json.object([
-              #("source", json.string(source)),
-              #("target", json.string(target)),
-            ]),
-          )
-        }
-        protocol.MergeBranch(target, source, dispose) -> {
-          use target_tree <- result.try(named_tree(
-            tree,
-            branches,
-            target,
-            "mergeBranch",
-          ))
-          use source_tree <- result.try(named_tree(
-            tree,
-            branches,
-            source,
-            "mergeBranch",
-          ))
-          use _ <- result.try(
-            watershed.tree_merge(target_tree, source_tree, dispose)
-            |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
-          )
-          case dispose && source != "main" {
-            True -> remove_branch(source, branches, branch_subscriptions)
-            False -> Nil
+                remove_branch(
+                  protocol.local_branch_owner(owner, source),
+                  branches,
+                  branch_subscriptions,
+                )
+              False -> Nil
+            }
+            Ok(
+              json.object([
+                #("target", json.string(target)),
+                #("source", json.string(source)),
+                #("disposed", json.bool(dispose)),
+              ]),
+            )
           }
-          Ok(
-            json.object([
-              #("target", json.string(target)),
-              #("source", json.string(source)),
-              #("disposed", json.bool(dispose)),
-            ]),
-          )
-        }
-        protocol.DisposeBranch(name) -> {
-          use branch <- result.try(named_tree(
-            tree,
-            branches,
-            name,
-            "disposeBranch",
-          ))
-          use _ <- result.try(
-            watershed.tree_dispose_branch(branch)
-            |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
-          )
-          remove_branch(name, branches, branch_subscriptions)
-          Ok(
-            json.object([
-              #("name", json.string(name)),
-              #("status", json.string("BranchDisposed")),
-            ]),
-          )
-        }
-        protocol.RetainLastLocalCommit(name) ->
-          retain_last_local_commit(
-            tree,
-            "main",
-            name,
-            handles,
-            last_local,
-            outbound_sends,
-          )
-        protocol.BranchRetainLastLocalCommit(branch, name) -> {
-          use branch_tree <- result.try(named_tree(
-            tree,
-            branches,
-            branch,
-            "retainLastLocalCommit",
-          ))
-          retain_last_local_commit(
-            branch_tree,
-            branch,
-            name,
-            handles,
-            last_local,
-            outbound_sends,
-          )
-        }
-        protocol.RevertibleStatus(name) ->
-          revertible_status_for_name(name, handles)
-        protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
-        protocol.Revert(name, dispose) ->
-          revert_handle(
-            name,
-            dispose,
-            handles,
-            last_local,
-            commit_event_count,
-            outbound_sends,
-            outbound_send_count,
-          )
-        protocol.Checkpoint -> checkpoint(document, tree, events, commits)
-        protocol.Disconnect -> {
-          watershed.go_offline(document)
-          Ok(json.null())
-        }
-        protocol.Reconnect -> {
-          watershed.go_online(document)
-          Ok(json.null())
-        }
-        protocol.Subscribe -> {
-          case transport_js.get_cell(subscription) {
-            Some(_) -> Ok(json.null())
-            None -> {
-              let subscriber =
-                watershed.subscribe_tree(tree, fn(event) {
-                  case event {
-                    SchemaChanged(local) -> {
-                      let previous = transport_js.get_cell(events)
-                      transport_js.set_cell(events, [
-                        json.object([
-                          #("kind", json.string("schema")),
-                          #("local", json.bool(local)),
-                        ]),
-                        ..previous
-                      ])
+          protocol.DisposeBranch(name) -> {
+            use branch <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              name,
+              "disposeBranch",
+            ))
+            use _ <- result.try(
+              watershed.tree_dispose_branch(branch)
+              |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
+            )
+            remove_branch(
+              protocol.local_branch_owner(owner, name),
+              branches,
+              branch_subscriptions,
+            )
+            Ok(
+              json.object([
+                #("name", json.string(name)),
+                #("status", json.string("BranchDisposed")),
+              ]),
+            )
+          }
+          protocol.RetainLastLocalCommit(name) ->
+            retain_last_local_commit(
+              tree,
+              owner,
+              name,
+              handles,
+              last_local,
+              outbound_sends,
+            )
+          protocol.BranchRetainLastLocalCommit(branch, name) -> {
+            use branch_tree <- result.try(named_tree(
+              tree,
+              branches,
+              owner,
+              branch,
+              "retainLastLocalCommit",
+            ))
+            retain_last_local_commit(
+              branch_tree,
+              protocol.checkout_owner(owner, branch),
+              name,
+              handles,
+              last_local,
+              outbound_sends,
+            )
+          }
+          protocol.RevertibleStatus(name) ->
+            revertible_status_for_name(name, handles)
+          protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
+          protocol.Revert(name, dispose) ->
+            revert_handle(
+              name,
+              dispose,
+              handles,
+              last_local,
+              commit_event_count,
+              outbound_sends,
+              outbound_send_count,
+            )
+          protocol.Checkpoint ->
+            checkpoint(document, tree, owner, events, commits)
+          protocol.RuntimeStateEvidence ->
+            Ok(
+              json.string(
+                runtime_state_evidence(watershed.runtime_of(document)),
+              ),
+            )
+          protocol.Disconnect -> {
+            watershed.go_offline(document)
+            Ok(json.null())
+          }
+          protocol.Reconnect -> {
+            watershed.go_online(document)
+            Ok(json.null())
+          }
+          protocol.Subscribe -> {
+            case dict.has_key(transport_js.get_cell(subscriptions), owner) {
+              True -> Ok(json.null())
+              False -> {
+                let subscriber =
+                  watershed.subscribe_tree(tree, fn(event) {
+                    case event {
+                      SchemaChanged(local) -> {
+                        push_owned_json(
+                          events,
+                          owner,
+                          json.object([
+                            #("kind", json.string("schema")),
+                            #("local", json.bool(local)),
+                          ]),
+                        )
+                      }
+                      TreeChanged(local) -> {
+                        push_owned_json(
+                          events,
+                          owner,
+                          json.object([
+                            #("kind", json.string("data")),
+                            #("local", json.bool(local)),
+                          ]),
+                        )
+                      }
                     }
-                    TreeChanged(local) -> {
-                      let previous = transport_js.get_cell(events)
-                      transport_js.set_cell(events, [
-                        json.object([
-                          #("kind", json.string("data")),
-                          #("local", json.bool(local)),
-                        ]),
-                        ..previous
-                      ])
-                    }
-                  }
-                })
-              transport_js.set_cell(subscription, Some(subscriber))
-              Ok(json.null())
+                  })
+                transport_js.set_cell(
+                  subscriptions,
+                  dict.insert(
+                    transport_js.get_cell(subscriptions),
+                    owner,
+                    subscriber,
+                  ),
+                )
+                Ok(json.null())
+              }
             }
           }
-        }
-        protocol.Unsubscribe -> {
-          case transport_js.get_cell(subscription) {
-            None -> Nil
-            Some(subscriber) -> watershed.unsubscribe(subscriber)
+          protocol.Unsubscribe -> {
+            case dict.get(transport_js.get_cell(subscriptions), owner) {
+              Error(_) -> Nil
+              Ok(subscriber) -> watershed.unsubscribe(subscriber)
+            }
+            transport_js.set_cell(
+              subscriptions,
+              dict.delete(transport_js.get_cell(subscriptions), owner),
+            )
+            Ok(json.null())
           }
-          transport_js.set_cell(subscription, None)
-          Ok(json.null())
+          protocol.Close -> {
+            watershed.close(document)
+            Ok(json.null())
+          }
+          protocol.PendingSummaryEvidence ->
+            map_result(
+              "pending-summary-evidence",
+              watershed.pending_summary_evidence(document),
+              fn(value) { value },
+            )
+          protocol.AwaitSynced(_) | protocol.Summarize -> Ok(json.null())
         }
-        protocol.Close -> {
-          watershed.close(document)
-          Ok(json.null())
-        }
-        protocol.PendingSummaryEvidence ->
-          map_result(
-            "pending-summary-evidence",
-            watershed.pending_summary_evidence(document),
-            fn(value) { value },
-          )
-        protocol.AwaitSynced(_) | protocol.Summarize -> Ok(json.null())
       }
       case command {
         protocol.AwaitSynced(watermark) -> {
@@ -946,18 +1328,19 @@ fn run_transaction_scope(
 fn run_transaction(
   document: watershed.Document(a),
   tree: watershed.SharedTree,
-  events: Cell(List(Json)),
+  owner: protocol.TreeOwner,
+  events: Cell(Dict(protocol.TreeOwner, List(Json))),
   scope: protocol.TransactionScope,
 ) -> Result(Json, protocol.ProtocolError) {
-  let before_events = transport_js.get_cell(events)
+  let before_events = owned_json(events, owner)
   let before_pending = observe(document).pending_tree_count
   let outcome = run_transaction_scope(tree, scope)
-  let after_events = transport_js.get_cell(events)
+  let after_events = owned_json(events, owner)
   let emitted =
     after_events
     |> list.take(list.length(after_events) - list.length(before_events))
     |> list.reverse
-  transport_js.set_cell(events, before_events)
+  set_owned_json(events, owner, before_events)
   use observation <- result.try(outcome)
   let outbound =
     int.max(observe(document).pending_tree_count - before_pending, 0)
@@ -986,17 +1369,17 @@ fn run_transaction(
 fn checkpoint(
   document: watershed.Document(a),
   tree: watershed.SharedTree,
-  events: Cell(List(Json)),
-  commits: Cell(List(Json)),
+  owner: protocol.TreeOwner,
+  events: Cell(Dict(protocol.TreeOwner, List(Json))),
+  commits: Cell(Dict(protocol.TreeOwner, List(Json))),
 ) -> Result(Json, protocol.ProtocolError) {
   use history <- result.try(
     watershed.tree_history_evidence(tree)
     |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
   )
-  let changes = list.reverse(transport_js.get_cell(events))
-  transport_js.set_cell(events, [])
-  let commit_events = list.reverse(transport_js.get_cell(commits))
-  transport_js.set_cell(commits, [])
+  let changes = list.reverse(owned_json(events, owner))
+  set_owned_json(events, owner, [])
+  let commit_events = drain_tree_commits(commits, owner)
   case watershed.tree_get(tree, []) {
     Error(reason) ->
       Ok(protocol.encode_checkpoint(
@@ -1074,6 +1457,27 @@ fn checkpoint(
 }
 
 @target(javascript)
+fn drain_tree_commits(
+  commits: Cell(Dict(protocol.TreeOwner, List(Json))),
+  owner: protocol.TreeOwner,
+) -> List(Json) {
+  let tree = protocol.owner_tree(owner)
+  let #(drained, remaining) =
+    dict.fold(
+      transport_js.get_cell(commits),
+      #([], dict.new()),
+      fn(state, candidate, events) {
+        case protocol.owner_tree(candidate) == tree {
+          True -> #(list.append(state.0, list.reverse(events)), state.1)
+          False -> #(state.0, dict.insert(state.1, candidate, events))
+        }
+      },
+    )
+  transport_js.set_cell(commits, remaining)
+  drained
+}
+
+@target(javascript)
 fn summary_sequence_number(document: watershed.Document(a)) -> Option(Int) {
   option.map(observe(document).sequence_number, fn(sequence_number) {
     sequence_number - watershed.operations_since_summary(document)
@@ -1112,14 +1516,53 @@ fn push_json(cell: Cell(List(Json)), value: Json) -> Nil {
 }
 
 @target(javascript)
+fn owned_json(
+  cell: Cell(Dict(protocol.TreeOwner, List(Json))),
+  owner: protocol.TreeOwner,
+) -> List(Json) {
+  dict.get(transport_js.get_cell(cell), owner) |> result.unwrap([])
+}
+
+@target(javascript)
+fn set_owned_json(
+  cell: Cell(Dict(protocol.TreeOwner, List(Json))),
+  owner: protocol.TreeOwner,
+  values: List(Json),
+) -> Nil {
+  transport_js.set_cell(
+    cell,
+    dict.insert(transport_js.get_cell(cell), owner, values),
+  )
+}
+
+@target(javascript)
+fn push_owned_json(
+  cell: Cell(Dict(protocol.TreeOwner, List(Json))),
+  owner: protocol.TreeOwner,
+  value: Json,
+) -> Nil {
+  set_owned_json(cell, owner, [value, ..owned_json(cell, owner)])
+}
+
+@target(javascript)
+fn owner_tree_field(owner: protocol.TreeOwner) -> List(#(String, Json)) {
+  case owner {
+    protocol.Document("main") | protocol.LocalBranch("main", _) -> []
+    protocol.Document(tree) | protocol.LocalBranch(tree, _) -> [
+      #("tree", json.string(tree)),
+    ]
+  }
+}
+
+@target(javascript)
 fn observe_commit(
   event: watershed.TreeCommitEvent,
   tree: watershed.SharedTree,
-  branch: String,
-  commits: Cell(List(Json)),
+  owner: protocol.TreeOwner,
+  commits: Cell(Dict(protocol.TreeOwner, List(Json))),
   last_local: Cell(
     Dict(
-      String,
+      protocol.TreeOwner,
       #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
@@ -1143,7 +1586,7 @@ fn observe_commit(
           transport_js.set_cell(
             last_local,
             transport_js.get_cell(last_local)
-              |> dict.insert(branch, #(handle, kind, event_id, revision)),
+              |> dict.insert(owner, #(handle, kind, event_id, revision)),
           )
           True
         }
@@ -1151,35 +1594,43 @@ fn observe_commit(
       }
     _, _ -> False
   }
-  push_json(
+  push_owned_json(
     commits,
-    json.object([
-      #("type", json.string("commit")),
-      #("kind", json.string(commit_kind(kind))),
-      #("local", json.bool(local)),
-      #("factoryAvailable", json.bool(factory_available)),
-      #("handleAcquired", json.bool(acquired)),
-      #("eventId", json.int(event_id)),
-      #("actionId", json.string(action_id)),
-      #("branch", json.string(branch)),
-      #("revision", optional_string(revision)),
-    ]),
+    owner,
+    json.object(list.append(
+      [
+        #("type", json.string("commit")),
+        #("kind", json.string(commit_kind(kind))),
+        #("local", json.bool(local)),
+        #("factoryAvailable", json.bool(factory_available)),
+        #("handleAcquired", json.bool(acquired)),
+        #("eventId", json.int(event_id)),
+        #("actionId", json.string(action_id)),
+        #("branch", json.string(protocol.owner_label(owner))),
+        #("revision", optional_string(revision)),
+      ],
+      owner_tree_field(owner),
+    )),
   )
   case settlement {
     None -> Nil
     Some(on_settled) -> {
       let _ =
         on_settled(fn(outcome) {
-          push_json(
+          push_owned_json(
             commits,
-            json.object([
-              #("type", json.string("settlement")),
-              #("kind", json.string(commit_kind(kind))),
-              #("outcome", json.string(commit_outcome(outcome))),
-              #("eventId", json.int(event_id)),
-              #("actionId", json.string(action_id)),
-              #("revision", optional_string(revision)),
-            ]),
+            owner,
+            json.object(list.append(
+              [
+                #("type", json.string("settlement")),
+                #("kind", json.string(commit_kind(kind))),
+                #("outcome", json.string(commit_outcome(outcome))),
+                #("eventId", json.int(event_id)),
+                #("actionId", json.string(action_id)),
+                #("revision", optional_string(revision)),
+              ],
+              settlement_owner_fields(owner),
+            )),
           )
         })
       Nil
@@ -1188,9 +1639,23 @@ fn observe_commit(
 }
 
 @target(javascript)
+fn settlement_owner_fields(owner: protocol.TreeOwner) -> List(#(String, Json)) {
+  case owner {
+    protocol.Document(_) -> owner_tree_field(owner)
+    protocol.LocalBranch("main", branch) -> [
+      #("branch", json.string(branch)),
+    ]
+    protocol.LocalBranch(tree, branch) -> [
+      #("branch", json.string(branch)),
+      #("tree", json.string(tree)),
+    ]
+  }
+}
+
+@target(javascript)
 fn retain_last_local_commit(
   tree: watershed.SharedTree,
-  branch: String,
+  owner: protocol.TreeOwner,
   name: String,
   handles: Cell(
     Dict(
@@ -1200,27 +1665,27 @@ fn retain_last_local_commit(
         TreeCommitKind,
         Option(String),
         watershed.SharedTree,
-        String,
+        protocol.TreeOwner,
         Bool,
       ),
     ),
   ),
   last_local: Cell(
     Dict(
-      String,
+      protocol.TreeOwner,
       #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   outbound_sends: Cell(List(Json)),
 ) -> Result(Json, protocol.ProtocolError) {
-  case dict.get(transport_js.get_cell(last_local), branch) {
+  case dict.get(transport_js.get_cell(last_local), owner) {
     Error(_) ->
       Error(facade(
         "retainLastLocalCommit",
         "No unretained local commit is available",
       ))
     Ok(entry) -> {
-      let publishes = branch == "main"
+      let publishes = protocol.owner_publishes(owner)
       transport_js.set_cell(
         handles,
         transport_js.get_cell(handles)
@@ -1229,13 +1694,13 @@ fn retain_last_local_commit(
             entry.1,
             entry.3,
             tree,
-            branch,
+            owner,
             publishes,
           )),
       )
       transport_js.set_cell(
         last_local,
-        dict.delete(transport_js.get_cell(last_local), branch),
+        dict.delete(transport_js.get_cell(last_local), owner),
       )
       let outbound_records =
         transport_js.get_cell(outbound_sends)
@@ -1272,7 +1737,7 @@ fn revertible_status_for_name(
         TreeCommitKind,
         Option(String),
         watershed.SharedTree,
-        String,
+        protocol.TreeOwner,
         Bool,
       ),
     ),
@@ -1304,7 +1769,7 @@ fn dispose_revertible(
         TreeCommitKind,
         Option(String),
         watershed.SharedTree,
-        String,
+        protocol.TreeOwner,
         Bool,
       ),
     ),
@@ -1341,14 +1806,14 @@ fn revert_handle(
         TreeCommitKind,
         Option(String),
         watershed.SharedTree,
-        String,
+        protocol.TreeOwner,
         Bool,
       ),
     ),
   ),
   last_local: Cell(
     Dict(
-      String,
+      protocol.TreeOwner,
       #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),

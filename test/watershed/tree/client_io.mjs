@@ -1,5 +1,18 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
+import { inspect } from "node:util";
+
+export function runtimeStateEvidence(runtime) {
+  // Inspect the actual private runtime state, including orphan checkouts.
+  return createHash("sha256").update(inspect(runtime.cell.value, {
+    depth: null,
+    maxArrayLength: null,
+    maxStringLength: null,
+    sorted: true,
+    customInspect: false,
+  })).digest("hex");
+}
 
 function startup(code, operation, message) {
   process.stderr.write(`${JSON.stringify({

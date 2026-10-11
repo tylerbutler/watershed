@@ -1,5 +1,10 @@
 -module(client_io).
--export([descriptor/0, token/0, read_line/0, write_line/1, fail/1]).
+-export([descriptor/0, token/0, read_line/0, write_line/1, fail/1,
+    runtime_state_evidence/1]).
+
+runtime_state_evidence({subject, Runtime, _Selector}) ->
+    State = sys:get_state(Runtime),
+    binary:encode_hex(crypto:hash(sha256, term_to_binary(State)), lowercase).
 
 descriptor() ->
     case os:getenv("WATERSHED_DESCRIPTOR") of

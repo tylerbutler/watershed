@@ -138,57 +138,151 @@ export class JsonLinesChannel {
     });
   }
 
-  mapGet(path, key) {
-    return this.#result({ command: "map-get", path, key });
+  read(path, tree) {
+    return this.#result({
+      command: "read",
+      ...(tree === undefined ? {} : { tree }),
+      path,
+    });
   }
 
-  mapSet(path, key, value) {
-    return this.#result({ command: "map-set", path, key, value });
+  createDataStore(name) {
+    return this.#result({ command: "create-data-store", name });
   }
 
-  mapDelete(path, key) {
-    return this.#result({ command: "map-delete", path, key });
+  rootMap(name) {
+    return this.#result({ command: "root-map", name });
   }
 
-  mapKeys(path) {
-    return this.#result({ command: "map-keys", path });
+  dataStoreRoot(store, name) {
+    return this.#result({ command: "data-store-root", store, name });
   }
 
-  mapEntries(path) {
-    return this.#result({ command: "map-entries", path });
+  createMap(name, store) {
+    return this.#result({
+      command: "create-map",
+      ...(store === undefined ? {} : { store }),
+      name,
+    });
   }
 
-  schemaCompatibility(view) {
-    return this.#result({ command: "schema-compatibility", view });
+  openMap(name, handle) {
+    return this.#result({ command: "open-map", name, handle });
   }
 
-  schemaUpgrade(view) {
-    return this.#result({ command: "schema-upgrade", view });
+  sharedMapGet(name, key) {
+    return this.#result({ command: "shared-map-get", name, key });
   }
 
-  openView(view) {
-    return this.#result({ command: "open-view", view });
+  sharedMapSet(name, key, value) {
+    return this.#result({ command: "shared-map-set", name, key, value });
   }
 
-  arrayGet(path, index) {
-    return this.#result({ command: "array-get", path, index });
+  sharedMapDelete(name, key) {
+    return this.#result({ command: "shared-map-delete", name, key });
   }
 
-  arrayValues(path) {
-    return this.#result({ command: "array-values", path });
+  sharedMapEntries(name) {
+    return this.#result({ command: "shared-map-entries", name });
   }
 
-  arrayInsert(path, index, values) {
-    return this.#result({ command: "array-insert", path, index, values });
+  createTree({ name, store, schema, initialRoot, view }) {
+    return this.#result({
+      command: "create-tree",
+      ...(store === undefined ? {} : { store }),
+      name,
+      schema,
+      initialRoot,
+      view,
+    });
   }
 
-  arrayRemove(path, start, end) {
-    return this.#result({ command: "array-remove", path, start, end });
+  openTree(name, handle, view) {
+    return this.#result({ command: "open-tree", name, handle, view });
   }
 
-  arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+  mapGet(path, key, tree) {
+    return this.#result({ command: "map-get", ...(tree === undefined ? {} : { tree }), path, key });
+  }
+
+  mapSet(path, key, value, tree) {
+    return this.#result({
+      command: "map-set", ...(tree === undefined ? {} : { tree }), path, key, value,
+    });
+  }
+
+  mapDelete(path, key, tree) {
+    return this.#result({
+      command: "map-delete", ...(tree === undefined ? {} : { tree }), path, key,
+    });
+  }
+
+  mapKeys(path, tree) {
+    return this.#result({ command: "map-keys", ...(tree === undefined ? {} : { tree }), path });
+  }
+
+  mapEntries(path, tree) {
+    return this.#result({
+      command: "map-entries", ...(tree === undefined ? {} : { tree }), path,
+    });
+  }
+
+  schemaCompatibility(view, tree) {
+    return this.#result({
+      command: "schema-compatibility", ...(tree === undefined ? {} : { tree }), view,
+    });
+  }
+
+  schemaUpgrade(view, tree) {
+    return this.#result({
+      command: "schema-upgrade", ...(tree === undefined ? {} : { tree }), view,
+    });
+  }
+
+  openView(view, tree) {
+    return this.#result({ command: "open-view", ...(tree === undefined ? {} : { tree }), view });
+  }
+
+  subscribe(tree) {
+    return this.#result({ command: "subscribe", ...(tree === undefined ? {} : { tree }) });
+  }
+
+  unsubscribe(tree) {
+    return this.#result({ command: "unsubscribe", ...(tree === undefined ? {} : { tree }) });
+  }
+
+  checkpoint(tree) {
+    return this.#result({ command: "checkpoint", ...(tree === undefined ? {} : { tree }) });
+  }
+
+  arrayGet(path, index, tree) {
+    return this.#result({
+      command: "array-get", ...(tree === undefined ? {} : { tree }), path, index,
+    });
+  }
+
+  arrayValues(path, tree) {
+    return this.#result({
+      command: "array-values", ...(tree === undefined ? {} : { tree }), path,
+    });
+  }
+
+  arrayInsert(path, index, values, tree) {
+    return this.#result({
+      command: "array-insert", ...(tree === undefined ? {} : { tree }), path, index, values,
+    });
+  }
+
+  arrayRemove(path, start, end, tree) {
+    return this.#result({
+      command: "array-remove", ...(tree === undefined ? {} : { tree }), path, start, end,
+    });
+  }
+
+  arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap, tree) {
     return this.#result({
       command: "array-move",
+      ...(tree === undefined ? {} : { tree }),
       sourcePath,
       sourceStart,
       sourceEnd,
@@ -197,9 +291,10 @@ export class JsonLinesChannel {
     });
   }
 
-  constrainedArrayRemove(targetPath, path, start, end) {
+  constrainedArrayRemove(targetPath, path, start, end, tree) {
     return this.#result({
       command: "constrained-array-remove",
+      ...(tree === undefined ? {} : { tree }),
       targetPath,
       path,
       start,
@@ -207,48 +302,65 @@ export class JsonLinesChannel {
     });
   }
 
-  transaction({ constraints, edits, result }) {
-    return this.#result({ command: "transaction", constraints, edits, result });
+  transaction({ constraints, edits, result, tree }) {
+    return this.#result({
+      command: "transaction", ...(tree === undefined ? {} : { tree }), constraints, edits, result,
+    });
   }
 
-  fork(source, name) {
-    return this.#result({ op: "fork", source, name });
+  fork(source, name, tree) {
+    return this.#result({ op: "fork", ...(tree === undefined ? {} : { tree }), source, name });
   }
 
-  branchEdit(branch, edit) {
-    return this.#result({ op: "branchEdit", branch, edit });
+  branchEdit(branch, edit, tree) {
+    return this.#result({
+      op: "branchEdit", ...(tree === undefined ? {} : { tree }), branch, edit,
+    });
   }
 
-  rebaseBranch(source, target) {
-    return this.#result({ op: "rebaseBranch", source, target });
+  rebaseBranch(source, target, tree) {
+    return this.#result({
+      op: "rebaseBranch", ...(tree === undefined ? {} : { tree }), source, target,
+    });
   }
 
-  mergeBranch(target, source, dispose) {
-    return this.#result({ op: "mergeBranch", target, source, dispose });
+  mergeBranch(target, source, dispose, tree) {
+    return this.#result({
+      op: "mergeBranch", ...(tree === undefined ? {} : { tree }), target, source, dispose,
+    });
   }
 
-  disposeBranch(name) {
-    return this.#result({ op: "disposeBranch", name });
+  disposeBranch(name, tree) {
+    return this.#result({
+      op: "disposeBranch", ...(tree === undefined ? {} : { tree }), name,
+    });
   }
 
-  retainLastLocalCommit(name, branch) {
+  retainLastLocalCommit(name, branch, tree) {
     return this.#result({
       op: "retainLastLocalCommit",
+      ...(tree === undefined ? {} : { tree }),
       name,
       ...(branch === undefined ? {} : { branch }),
     });
   }
 
-  revertibleStatus(name) {
-    return this.#result({ op: "revertibleStatus", name });
+  revertibleStatus(name, tree) {
+    return this.#result({
+      op: "revertibleStatus", ...(tree === undefined ? {} : { tree }), name,
+    });
   }
 
-  disposeRevertible(name) {
-    return this.#result({ op: "disposeRevertible", name });
+  disposeRevertible(name, tree) {
+    return this.#result({
+      op: "disposeRevertible", ...(tree === undefined ? {} : { tree }), name,
+    });
   }
 
-  revert(name, dispose) {
-    return this.#result({ op: "revert", name, dispose });
+  revert(name, dispose, tree) {
+    return this.#result({
+      op: "revert", ...(tree === undefined ? {} : { tree }), name, dispose,
+    });
   }
 
   end() {
@@ -538,40 +650,59 @@ export async function startClient(target, descriptor, environment, options = {})
       instanceId,
       gate,
       request: (command) => channel.request(command),
-      mapGet: (path, key) => channel.mapGet(path, key),
-      mapSet: (path, key, value) => channel.mapSet(path, key, value),
-      mapDelete: (path, key) => channel.mapDelete(path, key),
-      mapKeys: (path) => channel.mapKeys(path),
-      mapEntries: (path) => channel.mapEntries(path),
-      schemaCompatibility: (view) => channel.schemaCompatibility(view),
-      schemaUpgrade: (view) => channel.schemaUpgrade(view),
-      openView: (view) => channel.openView(view),
-      arrayGet: (path, index) => channel.arrayGet(path, index),
-      arrayValues: (path) => channel.arrayValues(path),
-      arrayInsert: (path, index, values) => channel.arrayInsert(path, index, values),
-      arrayRemove: (path, start, end) => channel.arrayRemove(path, start, end),
-      arrayMove: (sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) =>
+      read: (path, tree) => channel.read(path, tree),
+      createDataStore: (name) => channel.createDataStore(name),
+      rootMap: (name) => channel.rootMap(name),
+      dataStoreRoot: (store, name) => channel.dataStoreRoot(store, name),
+      createMap: (name, store) => channel.createMap(name, store),
+      openMap: (name, handle) => channel.openMap(name, handle),
+      sharedMapGet: (name, key) => channel.sharedMapGet(name, key),
+      sharedMapSet: (name, key, value) => channel.sharedMapSet(name, key, value),
+      sharedMapDelete: (name, key) => channel.sharedMapDelete(name, key),
+      sharedMapEntries: (name) => channel.sharedMapEntries(name),
+      createTree: (options) => channel.createTree(options),
+      openTree: (name, handle, view) => channel.openTree(name, handle, view),
+      mapGet: (path, key, tree) => channel.mapGet(path, key, tree),
+      mapSet: (path, key, value, tree) => channel.mapSet(path, key, value, tree),
+      mapDelete: (path, key, tree) => channel.mapDelete(path, key, tree),
+      mapKeys: (path, tree) => channel.mapKeys(path, tree),
+      mapEntries: (path, tree) => channel.mapEntries(path, tree),
+      schemaCompatibility: (view, tree) => channel.schemaCompatibility(view, tree),
+      schemaUpgrade: (view, tree) => channel.schemaUpgrade(view, tree),
+      openView: (view, tree) => channel.openView(view, tree),
+      subscribe: (tree) => channel.subscribe(tree),
+      unsubscribe: (tree) => channel.unsubscribe(tree),
+      checkpoint: (tree) => channel.checkpoint(tree),
+      arrayGet: (path, index, tree) => channel.arrayGet(path, index, tree),
+      arrayValues: (path, tree) => channel.arrayValues(path, tree),
+      arrayInsert: (path, index, values, tree) =>
+        channel.arrayInsert(path, index, values, tree),
+      arrayRemove: (path, start, end, tree) =>
+        channel.arrayRemove(path, start, end, tree),
+      arrayMove: (sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap, tree) =>
         channel.arrayMove(
           sourcePath,
           sourceStart,
           sourceEnd,
           destinationPath,
           destinationGap,
+          tree,
         ),
-      constrainedArrayRemove: (targetPath, path, start, end) =>
-        channel.constrainedArrayRemove(targetPath, path, start, end),
+      constrainedArrayRemove: (targetPath, path, start, end, tree) =>
+        channel.constrainedArrayRemove(targetPath, path, start, end, tree),
       transaction: (scope) => channel.transaction(scope),
-      fork: (source, name) => channel.fork(source, name),
-      branchEdit: (branch, edit) => channel.branchEdit(branch, edit),
-      rebaseBranch: (source, target) => channel.rebaseBranch(source, target),
-      mergeBranch: (target, source, dispose) =>
-        channel.mergeBranch(target, source, dispose),
-      disposeBranch: (name) => channel.disposeBranch(name),
-      retainLastLocalCommit: (name, branch) =>
-        channel.retainLastLocalCommit(name, branch),
-      revertibleStatus: (name) => channel.revertibleStatus(name),
-      disposeRevertible: (name) => channel.disposeRevertible(name),
-      revert: (name, dispose) => channel.revert(name, dispose),
+      fork: (source, name, tree) => channel.fork(source, name, tree),
+      branchEdit: (branch, edit, tree) => channel.branchEdit(branch, edit, tree),
+      rebaseBranch: (source, target, tree) =>
+        channel.rebaseBranch(source, target, tree),
+      mergeBranch: (target, source, dispose, tree) =>
+        channel.mergeBranch(target, source, dispose, tree),
+      disposeBranch: (name, tree) => channel.disposeBranch(name, tree),
+      retainLastLocalCommit: (name, branch, tree) =>
+        channel.retainLastLocalCommit(name, branch, tree),
+      revertibleStatus: (name, tree) => channel.revertibleStatus(name, tree),
+      disposeRevertible: (name, tree) => channel.disposeRevertible(name, tree),
+      revert: (name, dispose, tree) => channel.revert(name, dispose, tree),
       async close() {
         const cleanupErrors = [];
         try {

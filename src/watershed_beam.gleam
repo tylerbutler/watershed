@@ -5050,8 +5050,24 @@ pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
 }
 
 @target(erlang)
+/// Set an entry and return a runtime refusal.
+pub fn set_checked(
+  map: SharedMap,
+  key: String,
+  value: Json,
+) -> Result(Nil, String) {
+  runtime_beam.set_checked(map.runtime, map.address, key, value)
+}
+
+@target(erlang)
 pub fn delete(map: SharedMap, key: String) -> Nil {
   process.send(map.runtime, runtime_beam.Remove(map.address, key))
+}
+
+@target(erlang)
+/// Delete an entry and return a runtime refusal.
+pub fn delete_checked(map: SharedMap, key: String) -> Result(Nil, String) {
+  runtime_beam.delete_checked(map.runtime, map.address, key)
 }
 
 @target(erlang)

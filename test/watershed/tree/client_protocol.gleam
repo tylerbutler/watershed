@@ -15,6 +15,7 @@ import watershed/tree/types.{
   type FieldPath, type TreeValue, ArrayValue, BooleanValue, HandleValue,
   MapValue, NullValue, NumberValue, ObjectValue, StringValue,
 }
+import watershed/wire
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -107,6 +108,24 @@ fn nonempty(data: Dynamic, key: String) -> Result(String, ProtocolError) {
 }
 
 pub type Command {
+  CreateDataStore(String)
+  RootMap(String)
+  DataStoreRoot(String, String)
+  CreateMap(String, Option(String))
+  OpenMap(String, Json)
+  SharedMapGet(String, String)
+  SharedMapSet(String, String, Json)
+  SharedMapDelete(String, String)
+  SharedMapEntries(String)
+  CreateTree(
+    String,
+    Option(String),
+    schema.StoredSchema,
+    TreeValue,
+    schema.ViewSchema,
+  )
+  OpenTree(String, Json, schema.ViewSchema)
+  SelectedTree(String, Command)
   Read(FieldPath)
   Set(FieldPath, TreeValue)
   Clear(FieldPath)
@@ -137,6 +156,7 @@ pub type Command {
   Revert(String, Bool)
   AwaitSynced(Int)
   Checkpoint
+  RuntimeStateEvidence
   PendingSummaryEvidence
   Summarize
   Disconnect
@@ -155,6 +175,47 @@ pub type BranchEdit {
   BranchArrayRemove(FieldPath, Int, Int)
   BranchArrayMove(FieldPath, Int, Int, FieldPath, Int)
   BranchTransaction(TransactionScope)
+}
+
+pub type TreeOwner {
+  Document(tree: String)
+  LocalBranch(tree: String, branch: String)
+}
+
+pub fn selected_owner(selected: Option(String)) -> TreeOwner {
+  Document(option.unwrap(selected, "main"))
+}
+
+pub fn local_branch_owner(owner: TreeOwner, branch: String) -> TreeOwner {
+  LocalBranch(owner_tree(owner), branch)
+}
+
+pub fn checkout_owner(owner: TreeOwner, branch: String) -> TreeOwner {
+  case branch {
+    "main" -> Document(owner_tree(owner))
+    _ -> local_branch_owner(owner, branch)
+  }
+}
+
+pub fn owner_tree(owner: TreeOwner) -> String {
+  case owner {
+    Document(tree) | LocalBranch(tree, _) -> tree
+  }
+}
+
+pub fn owner_label(owner: TreeOwner) -> String {
+  case owner {
+    Document(tree) -> tree
+    LocalBranch("main", branch) -> branch
+    LocalBranch(tree, branch) -> tree <> ":" <> branch
+  }
+}
+
+pub fn owner_publishes(owner: TreeOwner) -> Bool {
+  case owner {
+    Document(_) -> True
+    LocalBranch(_, _) -> False
+  }
 }
 
 pub type Request {
@@ -257,6 +318,70 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     }),
   )
   use decoded <- result.try(case command {
+    "create-data-store" -> nonempty(data, "name") |> result.map(CreateDataStore)
+    "root-map" -> nonempty(data, "name") |> result.map(RootMap)
+    "data-store-root" -> {
+      use store <- result.try(nonempty(data, "store"))
+      use name <- result.try(nonempty(data, "name"))
+      Ok(DataStoreRoot(store, name))
+    }
+    "create-map" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use store <- result.try(optional_nonempty(data, "store"))
+      Ok(CreateMap(name, store))
+    }
+    "open-map" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use marker <- result.try(decode_handle(data, "handle"))
+      Ok(OpenMap(name, marker))
+    }
+    "shared-map-get" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use key <- result.try(decode_key(data))
+      Ok(SharedMapGet(name, key))
+    }
+    "shared-map-set" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use key <- result.try(decode_key(data))
+      use value <- result.try(required_json(data, "value"))
+      Ok(SharedMapSet(name, key, value))
+    }
+    "shared-map-delete" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use key <- result.try(decode_key(data))
+      Ok(SharedMapDelete(name, key))
+    }
+    "shared-map-entries" ->
+      nonempty(data, "name") |> result.map(SharedMapEntries)
+    "create-tree" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use store <- result.try(optional_nonempty(data, "store"))
+      use stored_json <- result.try(required_json(data, "schema"))
+      use stored <- result.try(
+        schema.stored_from_json(stored_json)
+        |> result.map_error(fn(_) {
+          invalid("schema", "invalid stored tree schema")
+        }),
+      )
+      use initial <- result.try(required(data, "initialRoot", decode.dynamic))
+      use initial <- result.try(decode_value(initial))
+      use view_json <- result.try(required_json(data, "view"))
+      use view <- result.try(
+        schema.view_from_json(view_json)
+        |> result.map_error(fn(_) { invalid("view", "invalid tree view") }),
+      )
+      Ok(CreateTree(name, store, stored, initial, view))
+    }
+    "open-tree" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use marker <- result.try(decode_handle(data, "handle"))
+      use view_json <- result.try(required_json(data, "view"))
+      use view <- result.try(
+        schema.view_from_json(view_json)
+        |> result.map_error(fn(_) { invalid("view", "invalid tree view") }),
+      )
+      Ok(OpenTree(name, marker, view))
+    }
     "read" -> decode_path(data) |> result.map(Read)
     "set" -> {
       use path <- result.try(decode_path(data))
@@ -391,6 +516,7 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       }
     }
     "checkpoint" -> Ok(Checkpoint)
+    "runtime-state-evidence" -> Ok(RuntimeStateEvidence)
     "pending-summary-evidence" -> Ok(PendingSummaryEvidence)
     "summarize" -> Ok(Summarize)
     "disconnect" -> Ok(Disconnect)
@@ -400,7 +526,63 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     "close" -> Ok(Close)
     _ -> Error(invalid(command, "unknown command"))
   })
+  use selected <- result.try(optional_nonempty(data, "tree"))
+  use decoded <- result.try(case selected, supports_selected_tree(decoded) {
+    Some(name), True -> Ok(SelectedTree(name, decoded))
+    Some(_), False -> Error(invalid("tree", "command does not select a tree"))
+    None, _ -> Ok(decoded)
+  })
   Ok(Request(id, decoded))
+}
+
+fn supports_selected_tree(command: Command) -> Bool {
+  case command {
+    CreateDataStore(_)
+    | RootMap(_)
+    | DataStoreRoot(_, _)
+    | CreateMap(_, _)
+    | OpenMap(_, _)
+    | SharedMapGet(_, _)
+    | SharedMapSet(_, _, _)
+    | SharedMapDelete(_, _)
+    | SharedMapEntries(_)
+    | CreateTree(_, _, _, _, _)
+    | OpenTree(_, _, _)
+    | RuntimeStateEvidence
+    | SelectedTree(_, _) -> False
+    _ -> True
+  }
+}
+
+fn optional_nonempty(
+  data: Dynamic,
+  key: String,
+) -> Result(Option(String), ProtocolError) {
+  case
+    decode.run(data, {
+      use value <- decode.optional_field(
+        key,
+        None,
+        decode.map(decode.string, Some),
+      )
+      decode.success(value)
+    })
+  {
+    Error(_) -> Error(invalid(key, "invalid " <> key))
+    Ok(Some("")) -> Error(invalid(key, "empty " <> key))
+    Ok(value) -> Ok(value)
+  }
+}
+
+fn required_json(data: Dynamic, name: String) -> Result(Json, ProtocolError) {
+  required(data, name, decode.dynamic) |> result.map(wire.dynamic_to_json)
+}
+
+fn decode_handle(data: Dynamic, name: String) -> Result(Json, ProtocolError) {
+  use marker <- result.try(required_json(data, name))
+  handle.routed_address(marker, "/")
+  |> result.map(fn(_) { marker })
+  |> result.map_error(fn(_) { invalid(name, "invalid handle marker") })
 }
 
 fn decode_branch_edit(data: Dynamic) -> Result(BranchEdit, ProtocolError) {

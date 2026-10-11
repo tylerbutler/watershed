@@ -94,6 +94,25 @@ pub fn create_map_in(
 }
 
 @target(erlang)
+pub fn set_checked(
+  runtime: Subject(Msg),
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(Nil, String) {
+  call_runtime(runtime, fn(reply) { PutChecked(address, key, value, reply) })
+}
+
+@target(erlang)
+pub fn delete_checked(
+  runtime: Subject(Msg),
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  call_runtime(runtime, fn(reply) { RemoveChecked(address, key, reply) })
+}
+
+@target(erlang)
 pub fn create_tree(
   runtime: Subject(Msg),
   stored: tree_schema.StoredSchema,
@@ -347,7 +366,18 @@ pub type Msg {
   ChannelClosed(generation: Int, reason: String)
   // Local edits
   Put(address: String, key: String, value: Json)
+  PutChecked(
+    address: String,
+    key: String,
+    value: Json,
+    reply: Subject(Result(Nil, String)),
+  )
   Remove(address: String, key: String)
+  RemoveChecked(
+    address: String,
+    key: String,
+    reply: Subject(Result(Nil, String)),
+  )
   RemoveAll(address: String)
   IncrementCounter(address: String, amount: Int)
   UpdatePnCounter(address: String, amount: Int)
@@ -3798,8 +3828,22 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       }
     Put(address, key, value) ->
       edit(state, fn(core) { runtime_core.set(core, address, key, value) })
+    PutChecked(address, key, value, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.set(core, address, key, value) },
+        "SharedMap set",
+      )
     Remove(address, key) ->
       edit(state, fn(core) { runtime_core.delete(core, address, key) })
+    RemoveChecked(address, key, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.delete(core, address, key) },
+        "SharedMap delete",
+      )
     RemoveAll(address) ->
       edit(state, fn(core) { runtime_core.clear(core, address) })
     IncrementCounter(address, amount) ->

@@ -691,8 +691,31 @@ pub fn set(runtime: Runtime, address: String, key: String, value: Json) -> Nil {
 }
 
 @target(javascript)
+pub fn set_checked(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.set(core, address, key, value)
+  })
+}
+
+@target(javascript)
 pub fn delete(runtime: Runtime, address: String, key: String) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.delete(core, address, key) })
+}
+
+@target(javascript)
+pub fn delete_checked(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.delete(core, address, key)
+  })
 }
 
 @target(javascript)

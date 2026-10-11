@@ -26,7 +26,13 @@ import {
 } from "@fluidframework/shared-object-base/internal";
 import { SharedTree } from "@fluidframework/tree/internal";
 import {
+  configuredSharedTreeAlpha,
+  FluidClientVersion,
+} from "fluid-framework/alpha";
+import {
   arrayTreeConfig,
+  handleTreeConfig,
+  initialHandleRoot,
   initialArrayRoot,
   initialIdentifierRoot,
   initialMapRoot,
@@ -217,6 +223,57 @@ export const schemaEvolutionServiceStore = createServiceStore(
   schemaEvolutionConfigurations.v1.config,
   initialSchemaEvolutionRoot,
 );
+
+const HandleTree = configuredSharedTreeAlpha({
+  minVersionForCollab: FluidClientVersion.v2_117,
+});
+const handleRegistry = sharedObjectRegistryFromIterable([SharedMap, HandleTree]);
+
+export const handleServiceStore = defineDataStore({
+  type: "org.watershed.shared-tree.m1.bootstrap",
+  registry: handleRegistry,
+  async instantiateFirstTime(rootCreator, creator) {
+    const bootstrap = await rootCreator.createSharedObject(SharedMap);
+    const tree = await creator.createSharedObject(HandleTree);
+    const view = tree.viewWith(handleTreeConfig);
+    view.initialize(initialHandleRoot());
+    view.dispose();
+    bootstrap.set("tree", tree.handle);
+    return bootstrap;
+  },
+  async view(bootstrap, context) {
+    const handle = bootstrap.get("tree");
+    assert.equal(typeof handle?.get, "function", "Bootstrap tree handle is missing");
+    const tree = await handle.get();
+    assert.equal(
+      tree.attributes.type,
+      HandleTree.getFactory().type,
+      "Bootstrap handle is not a configured tree",
+    );
+    return {
+      bootstrap,
+      tree,
+      view: tree.viewWith(handleTreeConfig),
+      createMap: async () => context.createSharedObject(SharedMap),
+      createTree: async () => context.createSharedObject(HandleTree),
+    };
+  },
+});
+
+export const handleGraphStore = defineDataStore({
+  type: "org.watershed.shared-tree.m7.graph",
+  registry: handleRegistry,
+  instantiateFirstTime: async (creator) => creator.createSharedObject(SharedMap),
+  view: async (root, context) => ({
+    get IFluidLoadable() {
+      return root.IFluidLoadable;
+    },
+    handle: root.handle,
+    root,
+    createMap: async () => context.createSharedObject(SharedMap),
+    createTree: async () => context.createSharedObject(HandleTree),
+  }),
+});
 
 export function serviceConfig(environment = process.env) {
   const secret = environment.FLOODGATE_JWT_SECRET;
@@ -566,8 +623,9 @@ export async function openSession(
     });
   const codeLoader = makeCodeLoader(
     async (type) => {
-      assert.equal(type, store.type, "Unexpected data store type");
-      return store;
+      if (type === store.type) return store;
+      if (type === handleGraphStore.type) return handleGraphStore;
+      assert.fail(`Unexpected data store type: ${type}`);
     },
     oldestSupportedClient,
     async (parameters) => {

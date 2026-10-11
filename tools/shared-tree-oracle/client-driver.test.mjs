@@ -88,6 +88,76 @@ test("map helpers send exact commands and return decoded results", async (t) => 
   ]);
 });
 
+test("native object helpers send exact datastore map and tree commands", async (t) => {
+  const schema = {
+    version: 2,
+    nodes: { "com.fluidframework.leaf.string": { kind: { leaf: 1 } } },
+    root: { kind: "Value", types: ["com.fluidframework.leaf.string"] },
+  };
+  const handle = { type: "__fluid_handle__", url: "/B/child" };
+  const expected = [
+    { command: "create-data-store", name: "secondary" },
+    { command: "root-map", name: "bootstrap" },
+    { command: "data-store-root", store: "secondary", name: "entry" },
+    { command: "create-map", store: "secondary", name: "target-map" },
+    { command: "open-map", name: "opened", handle },
+    { command: "shared-map-set", name: "target-map", key: "tree", value: handle },
+    { command: "shared-map-get", name: "target-map", key: "tree" },
+    { command: "shared-map-entries", name: "target-map" },
+    { command: "shared-map-delete", name: "target-map", key: "tree" },
+    {
+      command: "create-tree",
+      store: "secondary",
+      name: "target-tree",
+      schema,
+      initialRoot: { kind: "string", value: "start" },
+      view: schema,
+    },
+    { command: "open-tree", name: "selected", handle, view: schema },
+    { command: "read", tree: "selected", path: [] },
+  ];
+  const process = child(`
+    const expected = ${JSON.stringify(expected)};
+    const handle = ${JSON.stringify(handle)};
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? { requestId, ok: true, result: index === 6 ? handle : null }
+          : { requestId, ok: false, error: { message: line } }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.equal(await channel.createDataStore("secondary"), null);
+  assert.equal(await channel.rootMap("bootstrap"), null);
+  assert.equal(await channel.dataStoreRoot("secondary", "entry"), null);
+  assert.equal(await channel.createMap("target-map", "secondary"), null);
+  assert.equal(await channel.openMap("opened", handle), null);
+  assert.equal(await channel.sharedMapSet("target-map", "tree", handle), null);
+  assert.deepEqual(await channel.sharedMapGet("target-map", "tree"), handle);
+  assert.equal(await channel.sharedMapEntries("target-map"), null);
+  assert.equal(await channel.sharedMapDelete("target-map", "tree"), null);
+  assert.equal(await channel.createTree({
+    store: "secondary",
+    name: "target-tree",
+    schema,
+    initialRoot: { kind: "string", value: "start" },
+    view: schema,
+  }), null);
+  assert.equal(await channel.openTree("selected", handle, schema), null);
+  assert.equal(await channel.read([], "selected"), null);
+});
+
 test("schema helpers send explicit view commands", async (t) => {
   const process = child(`
     const expected = [
@@ -126,6 +196,39 @@ test("schema helpers send explicit view commands", async (t) => {
   });
   assert.equal(await channel.schemaUpgrade("optional"), null);
   assert.equal(await channel.openView("v1"), null);
+});
+
+test("tree lifecycle helpers keep explicit tree selection", async (t) => {
+  const process = child(`
+    const expected = [
+      { command: "subscribe", tree: "selected" },
+      { command: "checkpoint", tree: "selected" },
+      { command: "unsubscribe", tree: "selected" },
+      { command: "checkpoint" },
+    ];
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? { requestId, ok: true, result: index === 1 || index === 3 ? { events: [] } : null }
+          : { requestId, ok: false, error: { message: line } }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.equal(await channel.subscribe("selected"), null);
+  assert.deepEqual(await channel.checkpoint("selected"), { events: [] });
+  assert.equal(await channel.unsubscribe("selected"), null);
+  assert.deepEqual(await channel.checkpoint(), { events: [] });
 });
 
 test("constraint helper sends a client-authored node constraint command", async (t) => {

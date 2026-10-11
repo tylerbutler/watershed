@@ -4,6 +4,7 @@ import gleam/option.{None, Some}
 import startest/expect
 import watershed/runtime_core
 import watershed/tree/client_protocol
+import watershed/tree/schema
 import watershed/tree/types.{
   ArrayValue, BooleanValue, MapValue, NullValue, NumberValue, ObjectValue,
   StringValue,
@@ -19,6 +20,115 @@ pub fn shared_tree_client_rejects_unknown_command_test() -> Nil {
   )
   |> expect.to_be_error()
   Nil
+}
+
+pub fn shared_tree_client_runtime_state_evidence_is_document_scoped_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"runtime-state-evidence\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(1, client_protocol.RuntimeStateEvidence)),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"runtime-state-evidence\",\"tree\":\"selected\"}",
+  )
+  |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_client_decodes_named_native_objects_test() -> Nil {
+  let string_schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  let assert Ok(stored) = schema.stored_from_string(string_schema)
+  let assert Ok(view) = schema.view_from_string(string_schema)
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"create-data-store\",\"name\":\"secondary\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(1, client_protocol.CreateDataStore("secondary"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":2,\"command\":\"root-map\",\"name\":\"bootstrap\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(2, client_protocol.RootMap("bootstrap"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":3,\"command\":\"data-store-root\",\"store\":\"secondary\",\"name\":\"entry\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      3,
+      client_protocol.DataStoreRoot("secondary", "entry"),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":4,\"command\":\"create-map\",\"store\":\"secondary\",\"name\":\"target-map\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      4,
+      client_protocol.CreateMap("target-map", Some("secondary")),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":5,\"command\":\"open-map\",\"name\":\"opened\",\"handle\":{\"type\":\"__fluid_handle__\",\"url\":\"/B/child\"}}",
+  )
+  |> expect.to_be_ok()
+  client_protocol.decode_request(
+    "{\"requestId\":6,\"command\":\"shared-map-set\",\"name\":\"target-map\",\"key\":\"tree\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/B/child\"}}",
+  )
+  |> expect.to_be_ok()
+  client_protocol.decode_request(
+    "{\"requestId\":7,\"command\":\"create-tree\",\"store\":\"secondary\",\"name\":\"target-tree\",\"schema\":"
+    <> string_schema
+    <> ",\"initialRoot\":{\"kind\":\"string\",\"value\":\"start\"},\"view\":"
+    <> string_schema
+    <> "}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      7,
+      client_protocol.CreateTree(
+        "target-tree",
+        Some("secondary"),
+        stored,
+        StringValue("start"),
+        view,
+      ),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":8,\"command\":\"open-tree\",\"name\":\"selected\",\"handle\":{\"type\":\"__fluid_handle__\",\"url\":\"/B/child\"},\"view\":"
+    <> string_schema
+    <> "}",
+  )
+  |> expect.to_be_ok()
+  client_protocol.decode_request(
+    "{\"requestId\":9,\"command\":\"read\",\"tree\":\"selected\",\"path\":[]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      9,
+      client_protocol.SelectedTree("selected", client_protocol.Read([])),
+    )),
+  )
+}
+
+pub fn shared_tree_client_rejects_bad_native_object_commands_test() -> Nil {
+  list.each(
+    [
+      "{\"requestId\":1,\"command\":\"create-data-store\",\"name\":\"\"}",
+      "{\"requestId\":2,\"command\":\"data-store-root\",\"store\":\"secondary\",\"name\":\"\"}",
+      "{\"requestId\":3,\"command\":\"create-map\",\"name\":\"map\",\"store\":\"\"}",
+      "{\"requestId\":4,\"command\":\"open-map\",\"name\":\"map\",\"handle\":{\"type\":\"wrong\",\"url\":\"/B/child\"}}",
+      "{\"requestId\":5,\"command\":\"shared-map-get\",\"name\":\"map\"}",
+      "{\"requestId\":6,\"command\":\"create-tree\",\"name\":\"tree\"}",
+      "{\"requestId\":7,\"command\":\"open-tree\",\"name\":\"tree\",\"handle\":{\"type\":\"__fluid_handle__\",\"url\":\"relative\"},\"view\":{}}",
+      "{\"requestId\":8,\"command\":\"read\",\"tree\":\"\",\"path\":[]}",
+    ],
+    fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
+  )
 }
 
 pub fn shared_tree_client_preserves_absence_and_null_test() -> Nil {

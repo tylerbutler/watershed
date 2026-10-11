@@ -13,6 +13,8 @@ import gleam/option.{type Option, None, Some}
 @target(erlang)
 import gleam/result
 @target(erlang)
+import watershed/canonical_json
+@target(erlang)
 import watershed/id
 @target(erlang)
 import watershed/runtime_beam
@@ -51,6 +53,10 @@ fn write_line(line: String) -> Nil
 @target(erlang)
 @external(erlang, "client_io", "fail")
 fn fail(reason: String) -> Nil
+
+@target(erlang)
+@external(erlang, "client_io", "runtime_state_evidence")
+fn runtime_state_evidence(runtime: process.Subject(runtime_beam.Msg)) -> String
 
 @target(erlang)
 pub fn main() -> Nil {
@@ -123,6 +129,19 @@ pub fn main() -> Nil {
                       ))
                     }
                     Ok(tree) -> {
+                      let object_store_ready = process.new_subject()
+                      process.spawn_unlinked(fn() {
+                        let object_store = process.new_subject()
+                        process.send(object_store_ready, object_store)
+                        object_store_loop(
+                          object_store,
+                          dict.new(),
+                          dict.new(),
+                          dict.from_list([#("main", tree)]),
+                        )
+                      })
+                      let object_store =
+                        process.receive_forever(from: object_store_ready)
                       let handle_store_ready = process.new_subject()
                       process.spawn_unlinked(fn() {
                         let handle_store = process.new_subject()
@@ -131,7 +150,7 @@ pub fn main() -> Nil {
                           handle_store,
                           dict.new(),
                           dict.new(),
-                          [],
+                          dict.new(),
                           0,
                         )
                       })
@@ -147,18 +166,23 @@ pub fn main() -> Nil {
                         process.receive_forever(from: branch_store_ready)
                       let _ =
                         watershed.subscribe_tree_commits(tree, fn(event) {
-                          observe_commit(event, "main", handle_store)
+                          observe_commit(
+                            event,
+                            protocol.Document("main"),
+                            handle_store,
+                          )
                         })
                       loop(
                         document,
                         handle,
                         config,
                         tree,
-                        None,
+                        dict.new(),
                         False,
                         handle_store,
                         outbound_store,
                         branch_store,
+                        object_store,
                       )
                       watershed.close(document)
                     }
@@ -206,11 +230,15 @@ fn loop(
   handle: Json,
   config: protocol.Descriptor,
   tree: watershed.SharedTree,
-  events: Option(process.Subject(tree_kernel.TreeEvent)),
+  events: Dict(
+    protocol.TreeOwner,
+    #(process.Subject(tree_kernel.TreeEvent), Bool),
+  ),
   active: Bool,
   handle_store: process.Subject(HandleMessage),
   outbound_store: process.Subject(OutboundMessage),
   branch_store: process.Subject(BranchMessage),
+  object_store: process.Subject(ObjectMessage),
 ) -> Nil {
   case read_line() {
     Error(_) -> Nil
@@ -230,6 +258,7 @@ fn loop(
                 handle_store,
                 outbound_store,
                 branch_store,
+                object_store,
               )
             write_line(output)
           })
@@ -243,10 +272,11 @@ fn loop(
             handle_store,
             outbound_store,
             branch_store,
+            object_store,
           )
         }
         _ -> {
-          let #(output, next_tree, next_events, next_active, closing) =
+          let #(output, next_tree, next_subscriptions, next_active, closing) =
             execute(
               line,
               document,
@@ -258,6 +288,7 @@ fn loop(
               handle_store,
               outbound_store,
               branch_store,
+              object_store,
             )
           write_line(output)
           case closing {
@@ -268,11 +299,12 @@ fn loop(
                 handle,
                 config,
                 next_tree,
-                next_events,
+                next_subscriptions,
                 next_active,
                 handle_store,
                 outbound_store,
                 branch_store,
+                object_store,
               )
           }
         }
@@ -288,15 +320,19 @@ fn execute(
   handle: Json,
   config: protocol.Descriptor,
   tree: watershed.SharedTree,
-  events: Option(process.Subject(tree_kernel.TreeEvent)),
+  events: Dict(
+    protocol.TreeOwner,
+    #(process.Subject(tree_kernel.TreeEvent), Bool),
+  ),
   active: Bool,
   handle_store: process.Subject(HandleMessage),
   outbound_store: process.Subject(OutboundMessage),
   branch_store: process.Subject(BranchMessage),
+  object_store: process.Subject(ObjectMessage),
 ) -> #(
   String,
   watershed.SharedTree,
-  Option(process.Subject(tree_kernel.TreeEvent)),
+  Dict(protocol.TreeOwner, #(process.Subject(tree_kernel.TreeEvent), Bool)),
   Bool,
   Bool,
 ) {
@@ -309,544 +345,949 @@ fn execute(
       False,
     )
     Ok(protocol.Request(id, command)) -> {
+      let #(selected, command) = selected_command(command)
+      let owner = protocol.selected_owner(selected)
+      let selected_tree = case selected {
+        None -> Ok(tree)
+        Some(name) ->
+          process.call(object_store, waiting: 5000, sending: fn(reply) {
+            LookupTree(name, reply)
+          })
+          |> result.map_error(fn(_) { facade("tree", "Unknown tree: " <> name) })
+      }
       let #(outcome, next_tree, next_events, next_active, closing) = case
-        command
+        selected_tree
       {
-        protocol.Read(path) -> #(
-          map_result(
-            "read",
-            watershed.tree_get(tree, path),
-            protocol.encode_read,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Set(path, value) -> #(
-          map_result("set", watershed.tree_set(tree, path, value), fn(_) {
-            json.null()
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Clear(path) -> #(
-          map_result("clear", watershed.tree_clear(tree, path), fn(_) {
-            json.null()
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.MapGet(path, key) -> #(
-          map_result(
-            "map-get",
-            watershed.tree_map_get(tree, path, key),
-            protocol.encode_read,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.MapSet(path, key, value) -> #(
-          map_result(
-            "map-set",
-            watershed.tree_map_set(tree, path, key, value),
-            fn(_) { json.null() },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.MapDelete(path, key) -> #(
-          map_result(
-            "map-delete",
-            watershed.tree_map_delete(tree, path, key),
-            fn(_) { json.null() },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.MapKeys(path) -> #(
-          map_result(
-            "map-keys",
-            watershed.tree_map_keys(tree, path),
-            protocol.encode_map_keys,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.MapEntries(path) -> #(
-          map_result(
-            "map-entries",
-            watershed.tree_map_entries(tree, path),
-            protocol.encode_map_entries,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.SchemaCompatibility(label) -> {
-          let outcome = case protocol.descriptor_view(config, label) {
-            Error(error) -> Error(error)
-            Ok(view) -> {
-              use opened <- result.try(
-                watershed.open_tree(document, handle, view)
-                |> result.map_error(fn(reason) {
-                  protocol.ProtocolError(
-                    "facade-error",
-                    "schema-compatibility",
-                    reason,
-                  )
-                }),
-              )
-              map_result(
-                "schema-compatibility",
-                watershed.tree_compatibility(opened),
-                protocol.encode_compatibility,
-              )
-            }
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.SchemaUpgrade(label) -> {
-          let outcome = case protocol.descriptor_view(config, label) {
-            Error(error) -> Error(error)
-            Ok(view) -> {
-              use opened <- result.try(
-                watershed.open_tree(document, handle, view)
-                |> result.map_error(fn(reason) {
-                  protocol.ProtocolError(
-                    "facade-error",
-                    "schema-upgrade",
-                    reason,
-                  )
-                }),
-              )
-              map_result(
-                "schema-upgrade",
-                watershed.tree_upgrade_schema(opened),
-                fn(_) { json.null() },
-              )
-            }
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.OpenView(label) ->
-          case protocol.descriptor_view(config, label) {
-            Error(error) -> #(Error(error), tree, events, active, False)
-            Ok(view) ->
-              case watershed.open_tree(document, handle, view) {
-                Error(reason) -> #(
-                  Error(protocol.ProtocolError(
-                    "facade-error",
-                    "open-view",
-                    reason,
-                  )),
-                  tree,
-                  events,
-                  active,
-                  False,
+        Error(error) -> #(Error(error), tree, events, active, False)
+        Ok(command_tree) ->
+          case command {
+            protocol.CreateDataStore(name) -> {
+              let outcome = {
+                use _ <- result.try(require_new_object_name(
+                  object_store,
+                  command,
+                ))
+                use store <- result.try(
+                  watershed.create_data_store(document)
+                  |> result.map_error(fn(reason) {
+                    facade("create-data-store", reason)
+                  }),
                 )
-                Ok(opened) -> #(Ok(json.null()), opened, events, active, False)
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreDataStore(name, store, reply)
+                  })
+                  |> ensure_fresh("create-data-store", name),
+                )
+                use root <- result.try(
+                  watershed.data_store_root(store)
+                  |> result.map_error(fn(reason) {
+                    facade("create-data-store", reason)
+                  }),
+                )
+                Ok(watershed.handle_of(root))
               }
-          }
-        protocol.ArrayGet(path, index) -> #(
-          map_result(
-            "array-get",
-            watershed.tree_array_get(tree, path, index),
-            protocol.encode_read,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.ArrayValues(path) -> #(
-          map_result(
-            "array-values",
-            watershed.tree_array_values(tree, path),
-            protocol.encode_array_values,
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.ArrayInsert(path, index, values) -> #(
-          map_result(
-            "array-insert",
-            watershed.tree_array_insert(tree, path, index, values),
-            fn(_) { json.null() },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.ArrayRemove(path, start, end) -> #(
-          map_result(
-            "array-remove",
-            watershed.tree_array_remove(tree, path, start, end),
-            fn(_) { json.null() },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.ArrayMove(
-          source_path,
-          source_start,
-          source_end,
-          destination_path,
-          destination_gap,
-        ) -> #(
-          map_result(
-            "array-move",
-            watershed.tree_array_move(
+              #(outcome, tree, events, active, False)
+            }
+            protocol.RootMap(name) -> {
+              let outcome = {
+                use map <- result.try(
+                  watershed.resolve_root(document)
+                  |> result.map_error(fn(reason) { facade("root-map", reason) }),
+                )
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreMap(name, map, reply)
+                  })
+                  |> ensure_fresh("root-map", name),
+                )
+                Ok(watershed.handle_of(map))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.DataStoreRoot(store_name, name) -> {
+              let outcome = {
+                use store <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    LookupDataStore(store_name, reply)
+                  })
+                  |> result.map_error(fn(_) {
+                    facade(
+                      "data-store-root",
+                      "Unknown data store: " <> store_name,
+                    )
+                  }),
+                )
+                use map <- result.try(
+                  watershed.data_store_root(store)
+                  |> result.map_error(fn(reason) {
+                    facade("data-store-root", reason)
+                  }),
+                )
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreMap(name, map, reply)
+                  })
+                  |> ensure_fresh("data-store-root", name),
+                )
+                Ok(watershed.handle_of(map))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.CreateMap(name, store_name) -> {
+              let outcome = {
+                use _ <- result.try(require_new_object_name(
+                  object_store,
+                  command,
+                ))
+                use map <- result.try(case store_name {
+                  None ->
+                    watershed.create_map(document)
+                    |> result.map_error(fn(reason) {
+                      facade("create-map", reason)
+                    })
+                  Some(store_name) -> {
+                    use store <- result.try(
+                      process.call(
+                        object_store,
+                        waiting: 5000,
+                        sending: fn(reply) {
+                          LookupDataStore(store_name, reply)
+                        },
+                      )
+                      |> result.map_error(fn(_) {
+                        facade(
+                          "create-map",
+                          "Unknown data store: " <> store_name,
+                        )
+                      }),
+                    )
+                    watershed.create_map_in(document, store)
+                    |> result.map_error(fn(reason) {
+                      facade("create-map", reason)
+                    })
+                  }
+                })
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreMap(name, map, reply)
+                  })
+                  |> ensure_fresh("create-map", name),
+                )
+                Ok(watershed.handle_of(map))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.OpenMap(name, marker) -> {
+              let outcome = {
+                use map <- result.try(
+                  watershed.resolve(document, marker)
+                  |> result.map_error(fn(reason) { facade("open-map", reason) }),
+                )
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreMap(name, map, reply)
+                  })
+                  |> ensure_fresh("open-map", name),
+                )
+                Ok(watershed.handle_of(map))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SharedMapGet(name, key) -> {
+              let outcome = {
+                use map <- result.try(named_map(
+                  object_store,
+                  name,
+                  "shared-map-get",
+                ))
+                Ok(case watershed.get(map, key) {
+                  Ok(value) ->
+                    json.object([
+                      #("present", json.bool(True)),
+                      #("value", value),
+                    ])
+                  Error(_) -> json.object([#("present", json.bool(False))])
+                })
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SharedMapSet(name, key, value) -> {
+              let outcome = {
+                use map <- result.try(named_map(
+                  object_store,
+                  name,
+                  "shared-map-set",
+                ))
+                map_result(
+                  "shared-map-set",
+                  watershed.set_checked(map, key, value),
+                  fn(_) { json.null() },
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SharedMapDelete(name, key) -> {
+              let outcome = {
+                use map <- result.try(named_map(
+                  object_store,
+                  name,
+                  "shared-map-delete",
+                ))
+                map_result(
+                  "shared-map-delete",
+                  watershed.delete_checked(map, key),
+                  fn(_) { json.null() },
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SharedMapEntries(name) -> {
+              let outcome = {
+                use map <- result.try(named_map(
+                  object_store,
+                  name,
+                  "shared-map-entries",
+                ))
+                Ok(encode_shared_map_entries(watershed.entries(map)))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.CreateTree(name, store_name, stored, initial, view) -> {
+              let outcome = {
+                use _ <- result.try(require_new_object_name(
+                  object_store,
+                  command,
+                ))
+                use created <- result.try(case store_name {
+                  None ->
+                    watershed.create_tree(document, stored, Some(initial), view)
+                    |> result.map_error(fn(reason) {
+                      facade("create-tree", reason)
+                    })
+                  Some(store_name) -> {
+                    use store <- result.try(
+                      process.call(
+                        object_store,
+                        waiting: 5000,
+                        sending: fn(reply) {
+                          LookupDataStore(store_name, reply)
+                        },
+                      )
+                      |> result.map_error(fn(_) {
+                        facade(
+                          "create-tree",
+                          "Unknown data store: " <> store_name,
+                        )
+                      }),
+                    )
+                    watershed.create_tree_in(
+                      document,
+                      store,
+                      stored,
+                      Some(initial),
+                      view,
+                    )
+                    |> result.map_error(fn(reason) {
+                      facade("create-tree", reason)
+                    })
+                  }
+                })
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreTree(name, created, reply)
+                  })
+                  |> ensure_fresh("create-tree", name),
+                )
+                let _ =
+                  watershed.subscribe_tree_commits(created, fn(event) {
+                    observe_commit(event, protocol.Document(name), handle_store)
+                  })
+                Ok(watershed.tree_handle_of(created))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.OpenTree(name, marker, view) -> {
+              let outcome = {
+                use opened <- result.try(
+                  watershed.resolve_tree(document, marker, view)
+                  |> result.map_error(fn(reason) { facade("open-tree", reason) }),
+                )
+                use _ <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    StoreTree(name, opened, reply)
+                  })
+                  |> ensure_fresh("open-tree", name),
+                )
+                let _ =
+                  watershed.subscribe_tree_commits(opened, fn(event) {
+                    observe_commit(event, protocol.Document(name), handle_store)
+                  })
+                Ok(watershed.tree_handle_of(opened))
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SelectedTree(_, _) -> #(
+              Error(facade("tree", "Nested tree selection is invalid")),
               tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Read(path) -> #(
+              map_result(
+                "read",
+                watershed.tree_get(command_tree, path),
+                protocol.encode_read,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Set(path, value) -> #(
+              map_result(
+                "set",
+                watershed.tree_set(command_tree, path, value),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Clear(path) -> #(
+              map_result(
+                "clear",
+                watershed.tree_clear(command_tree, path),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.MapGet(path, key) -> #(
+              map_result(
+                "map-get",
+                watershed.tree_map_get(command_tree, path, key),
+                protocol.encode_read,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.MapSet(path, key, value) -> #(
+              map_result(
+                "map-set",
+                watershed.tree_map_set(command_tree, path, key, value),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.MapDelete(path, key) -> #(
+              map_result(
+                "map-delete",
+                watershed.tree_map_delete(command_tree, path, key),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.MapKeys(path) -> #(
+              map_result(
+                "map-keys",
+                watershed.tree_map_keys(command_tree, path),
+                protocol.encode_map_keys,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.MapEntries(path) -> #(
+              map_result(
+                "map-entries",
+                watershed.tree_map_entries(command_tree, path),
+                protocol.encode_map_entries,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.SchemaCompatibility(label) -> {
+              let outcome = case protocol.descriptor_view(config, label) {
+                Error(error) -> Error(error)
+                Ok(view) -> {
+                  use opened <- result.try(
+                    watershed.open_tree(
+                      document,
+                      watershed.tree_handle_of(command_tree),
+                      view,
+                    )
+                    |> result.map_error(fn(reason) {
+                      protocol.ProtocolError(
+                        "facade-error",
+                        "schema-compatibility",
+                        reason,
+                      )
+                    }),
+                  )
+                  map_result(
+                    "schema-compatibility",
+                    watershed.tree_compatibility(opened),
+                    protocol.encode_compatibility,
+                  )
+                }
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.SchemaUpgrade(label) -> {
+              let outcome = case protocol.descriptor_view(config, label) {
+                Error(error) -> Error(error)
+                Ok(view) -> {
+                  use opened <- result.try(
+                    watershed.open_tree(
+                      document,
+                      watershed.tree_handle_of(command_tree),
+                      view,
+                    )
+                    |> result.map_error(fn(reason) {
+                      protocol.ProtocolError(
+                        "facade-error",
+                        "schema-upgrade",
+                        reason,
+                      )
+                    }),
+                  )
+                  map_result(
+                    "schema-upgrade",
+                    watershed.tree_upgrade_schema(opened),
+                    fn(_) { json.null() },
+                  )
+                }
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.OpenView(label) ->
+              case protocol.descriptor_view(config, label) {
+                Error(error) -> #(Error(error), tree, events, active, False)
+                Ok(view) ->
+                  case
+                    watershed.open_tree(
+                      document,
+                      watershed.tree_handle_of(command_tree),
+                      view,
+                    )
+                  {
+                    Error(reason) -> #(
+                      Error(protocol.ProtocolError(
+                        "facade-error",
+                        "open-view",
+                        reason,
+                      )),
+                      tree,
+                      events,
+                      active,
+                      False,
+                    )
+                    Ok(opened) -> #(
+                      Ok(json.null()),
+                      case selected {
+                        None -> {
+                          process.send(
+                            object_store,
+                            ReplaceTree("main", opened),
+                          )
+                          opened
+                        }
+                        Some("main") -> {
+                          process.send(
+                            object_store,
+                            ReplaceTree("main", opened),
+                          )
+                          opened
+                        }
+                        Some(name) -> {
+                          process.send(object_store, ReplaceTree(name, opened))
+                          tree
+                        }
+                      },
+                      events,
+                      active,
+                      False,
+                    )
+                  }
+              }
+            protocol.ArrayGet(path, index) -> #(
+              map_result(
+                "array-get",
+                watershed.tree_array_get(command_tree, path, index),
+                protocol.encode_read,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.ArrayValues(path) -> #(
+              map_result(
+                "array-values",
+                watershed.tree_array_values(command_tree, path),
+                protocol.encode_array_values,
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.ArrayInsert(path, index, values) -> #(
+              map_result(
+                "array-insert",
+                watershed.tree_array_insert(command_tree, path, index, values),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.ArrayRemove(path, start, end) -> #(
+              map_result(
+                "array-remove",
+                watershed.tree_array_remove(command_tree, path, start, end),
+                fn(_) { json.null() },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.ArrayMove(
               source_path,
               source_start,
               source_end,
               destination_path,
               destination_gap,
-            ),
-            fn(_) { json.null() },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.ConstrainedArrayRemove(target_path, path, start, end) -> {
-          let outcome = case
-            watershed.tree_transaction(
-              tree,
-              [watershed.NodeInDocument(target_path)],
-              fn(transaction_tree) {
-                watershed.tree_array_remove(transaction_tree, path, start, end)
-              },
-            )
-          {
-            Ok(_) -> Ok(json.null())
-            Error(watershed.TransactionFailed(reason)) ->
-              Error(protocol.ProtocolError(
-                "facade-error",
-                "constrained-array-remove",
-                reason,
-              ))
-            Error(watershed.Aborted(reason)) ->
-              Error(protocol.ProtocolError(
-                "facade-error",
-                "constrained-array-remove",
-                reason,
-              ))
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.Transaction(scope) -> #(
-          run_transaction(document, tree, events, active, scope),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Fork(source, name) -> {
-          let outcome = {
-            use source_tree <- result.try(named_branch_tree(
-              tree,
-              branch_store,
-              source,
-              "fork",
-            ))
-            use branch <- result.try(
-              watershed.tree_fork(source_tree)
-              |> result.map_error(fn(reason) { facade("fork", reason) }),
-            )
-            let stored =
-              process.call(branch_store, waiting: 5000, sending: fn(reply) {
-                StoreBranch(name, branch, reply)
-              })
-            use _ <- result.try(case stored {
-              True -> Ok(Nil)
-              False ->
-                Error(facade("fork", "Branch name already exists: " <> name))
-            })
-            let _ =
-              watershed.subscribe_tree_commits(branch, fn(event) {
-                observe_commit(event, name, handle_store)
-              })
-            Ok(
-              json.object([
-                #("name", json.string(name)),
-                #("source", json.string(source)),
-                #("status", json.string("BranchValid")),
-              ]),
-            )
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.BranchEditCommand(branch, edit) -> {
-          let before = outbound_snapshot(outbound_store)
-          let outcome = {
-            use branch_tree <- result.try(named_branch_tree(
-              tree,
-              branch_store,
-              branch,
-              "branchEdit",
-            ))
-            use observation <- result.try(run_branch_edit(
-              document,
-              branch_tree,
-              edit,
-            ))
-            let after = outbound_snapshot(outbound_store)
-            Ok(
-              json.object([
-                #("branch", json.string(branch)),
-                #("authoredCount", json.int(1)),
-                #(
-                  "outboundCount",
-                  json.int(list.length(after) - list.length(before)),
+            ) -> #(
+              map_result(
+                "array-move",
+                watershed.tree_array_move(
+                  command_tree,
+                  source_path,
+                  source_start,
+                  source_end,
+                  destination_path,
+                  destination_gap,
                 ),
-                #("observation", observation),
-              ]),
-            )
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.RebaseBranch(source, target) -> {
-          let outcome = {
-            use source_tree <- result.try(named_branch_tree(
+                fn(_) { json.null() },
+              ),
               tree,
-              branch_store,
-              source,
-              "rebaseBranch",
-            ))
-            use target_tree <- result.try(named_branch_tree(
-              tree,
-              branch_store,
-              target,
-              "rebaseBranch",
-            ))
-            use _ <- result.try(
-              watershed.tree_rebase_onto(source_tree, target_tree)
-              |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
+              events,
+              active,
+              False,
             )
-            Ok(
-              json.object([
-                #("source", json.string(source)),
-                #("target", json.string(target)),
-              ]),
-            )
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.MergeBranch(target, source, dispose) -> {
-          let outcome = {
-            use target_tree <- result.try(named_branch_tree(
-              tree,
-              branch_store,
-              target,
-              "mergeBranch",
-            ))
-            use source_tree <- result.try(named_branch_tree(
-              tree,
-              branch_store,
-              source,
-              "mergeBranch",
-            ))
-            use _ <- result.try(
-              watershed.tree_merge(target_tree, source_tree, dispose)
-              |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
-            )
-            case dispose && source != "main" {
-              True -> process.send(branch_store, RemoveBranch(source))
-              False -> Nil
+            protocol.ConstrainedArrayRemove(target_path, path, start, end) -> {
+              let outcome = case
+                watershed.tree_transaction(
+                  command_tree,
+                  [watershed.NodeInDocument(target_path)],
+                  fn(transaction_tree) {
+                    watershed.tree_array_remove(
+                      transaction_tree,
+                      path,
+                      start,
+                      end,
+                    )
+                  },
+                )
+              {
+                Ok(_) -> Ok(json.null())
+                Error(watershed.TransactionFailed(reason)) ->
+                  Error(protocol.ProtocolError(
+                    "facade-error",
+                    "constrained-array-remove",
+                    reason,
+                  ))
+                Error(watershed.Aborted(reason)) ->
+                  Error(protocol.ProtocolError(
+                    "facade-error",
+                    "constrained-array-remove",
+                    reason,
+                  ))
+              }
+              #(outcome, tree, events, active, False)
             }
-            Ok(
-              json.object([
-                #("target", json.string(target)),
-                #("source", json.string(source)),
-                #("disposed", json.bool(dispose)),
-              ]),
-            )
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.DisposeBranch(name) -> {
-          let outcome = {
-            use branch <- result.try(named_branch_tree(
+            protocol.Transaction(scope) -> #(
+              run_transaction(document, command_tree, owner, events, scope),
               tree,
-              branch_store,
-              name,
-              "disposeBranch",
-            ))
-            use _ <- result.try(
-              watershed.tree_dispose_branch(branch)
-              |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
+              events,
+              active,
+              False,
             )
-            process.send(branch_store, RemoveBranch(name))
-            Ok(
-              json.object([
-                #("name", json.string(name)),
-                #("status", json.string("BranchDisposed")),
-              ]),
-            )
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.RetainLastLocalCommit(name) -> #(
-          process.call(handle_store, waiting: 1000, sending: fn(reply) {
-            RetainHandle(
-              name,
-              "main",
-              fn() {
-                watershed.tree_history_evidence(tree)
-                |> result.map(protocol.history_commit_ids)
-                |> result.unwrap([])
-              },
-              fn() { outbound_snapshot(outbound_store) },
-              reply,
-            )
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.BranchRetainLastLocalCommit(branch, name) -> {
-          let outcome = {
-            use branch_tree <- result.try(named_branch_tree(
+            protocol.Fork(source, name) -> {
+              let outcome = {
+                let branch_owner = protocol.local_branch_owner(owner, name)
+                use _ <- result.try(
+                  case
+                    name == "main"
+                    || result.is_ok(
+                      process.call(
+                        branch_store,
+                        waiting: 5000,
+                        sending: fn(reply) { LookupBranch(branch_owner, reply) },
+                      ),
+                    )
+                  {
+                    True ->
+                      Error(facade(
+                        "fork",
+                        "Branch name already exists: " <> name,
+                      ))
+                    False -> Ok(Nil)
+                  },
+                )
+                use source_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  source,
+                  "fork",
+                ))
+                use branch <- result.try(
+                  watershed.tree_fork(source_tree)
+                  |> result.map_error(fn(reason) { facade("fork", reason) }),
+                )
+                let stored =
+                  process.call(branch_store, waiting: 5000, sending: fn(reply) {
+                    StoreBranch(branch_owner, branch, reply)
+                  })
+                use _ <- result.try(case stored {
+                  True -> Ok(Nil)
+                  False -> {
+                    let _ = watershed.tree_dispose_branch(branch)
+                    Error(facade("fork", "Branch name already exists: " <> name))
+                  }
+                })
+                let _ =
+                  watershed.subscribe_tree_commits(branch, fn(event) {
+                    observe_commit(event, branch_owner, handle_store)
+                  })
+                Ok(
+                  json.object([
+                    #("name", json.string(name)),
+                    #("source", json.string(source)),
+                    #("status", json.string("BranchValid")),
+                  ]),
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.BranchEditCommand(branch, edit) -> {
+              let before = outbound_snapshot(outbound_store)
+              let outcome = {
+                use branch_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  branch,
+                  "branchEdit",
+                ))
+                use observation <- result.try(run_branch_edit(
+                  document,
+                  branch_tree,
+                  edit,
+                ))
+                let after = outbound_snapshot(outbound_store)
+                Ok(
+                  json.object([
+                    #("branch", json.string(branch)),
+                    #("authoredCount", json.int(1)),
+                    #(
+                      "outboundCount",
+                      json.int(list.length(after) - list.length(before)),
+                    ),
+                    #("observation", observation),
+                  ]),
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.RebaseBranch(source, target) -> {
+              let outcome = {
+                use source_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  source,
+                  "rebaseBranch",
+                ))
+                use target_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  target,
+                  "rebaseBranch",
+                ))
+                use _ <- result.try(
+                  watershed.tree_rebase_onto(source_tree, target_tree)
+                  |> result.map_error(fn(reason) {
+                    facade("rebaseBranch", reason)
+                  }),
+                )
+                Ok(
+                  json.object([
+                    #("source", json.string(source)),
+                    #("target", json.string(target)),
+                  ]),
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.MergeBranch(target, source, dispose) -> {
+              let outcome = {
+                use target_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  target,
+                  "mergeBranch",
+                ))
+                use source_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  source,
+                  "mergeBranch",
+                ))
+                use _ <- result.try(
+                  watershed.tree_merge(target_tree, source_tree, dispose)
+                  |> result.map_error(fn(reason) {
+                    facade("mergeBranch", reason)
+                  }),
+                )
+                case dispose && source != "main" {
+                  True ->
+                    process.send(
+                      branch_store,
+                      RemoveBranch(protocol.local_branch_owner(owner, source)),
+                    )
+                  False -> Nil
+                }
+                Ok(
+                  json.object([
+                    #("target", json.string(target)),
+                    #("source", json.string(source)),
+                    #("disposed", json.bool(dispose)),
+                  ]),
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.DisposeBranch(name) -> {
+              let outcome = {
+                use branch <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  name,
+                  "disposeBranch",
+                ))
+                use _ <- result.try(
+                  watershed.tree_dispose_branch(branch)
+                  |> result.map_error(fn(reason) {
+                    facade("disposeBranch", reason)
+                  }),
+                )
+                process.send(
+                  branch_store,
+                  RemoveBranch(protocol.local_branch_owner(owner, name)),
+                )
+                Ok(
+                  json.object([
+                    #("name", json.string(name)),
+                    #("status", json.string("BranchDisposed")),
+                  ]),
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.RetainLastLocalCommit(name) -> #(
+              process.call(handle_store, waiting: 1000, sending: fn(reply) {
+                RetainHandle(
+                  name,
+                  owner,
+                  fn() {
+                    watershed.tree_history_evidence(command_tree)
+                    |> result.map(protocol.history_commit_ids)
+                    |> result.unwrap([])
+                  },
+                  fn() { outbound_snapshot(outbound_store) },
+                  reply,
+                )
+              }),
               tree,
-              branch_store,
-              branch,
-              "retainLastLocalCommit",
-            ))
-            process.call(handle_store, waiting: 1000, sending: fn(reply) {
-              RetainHandle(
-                name,
-                branch,
-                fn() {
-                  watershed.tree_history_evidence(branch_tree)
-                  |> result.map(protocol.history_commit_ids)
-                  |> result.unwrap([])
-                },
-                fn() { outbound_snapshot(outbound_store) },
-                reply,
-              )
-            })
-          }
-          #(outcome, tree, events, active, False)
-        }
-        protocol.RevertibleStatus(name) -> #(
-          process.call(handle_store, waiting: 1000, sending: fn(reply) {
-            HandleStatus(name, reply)
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.DisposeRevertible(name) -> #(
-          process.call(handle_store, waiting: 1000, sending: fn(reply) {
-            DisposeHandle(name, reply)
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Revert(name, dispose) -> #(
-          process.call(handle_store, waiting: 1000, sending: fn(reply) {
-            RevertHandle(
-              name,
-              dispose,
-              fn() {
-                watershed.tree_history_evidence(tree)
-                |> result.map(protocol.history_commit_ids)
-                |> result.unwrap([])
-              },
-              fn() { outbound_snapshot(outbound_store) },
-              reply,
+              events,
+              active,
+              False,
             )
-          }),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Checkpoint -> #(
-          checkpoint(document, tree, events, active, handle_store),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Subscribe -> {
-          let subscriber = case events {
-            None -> Some(watershed.subscribe_tree(tree))
-            Some(_) -> events
-          }
-          #(Ok(json.null()), tree, subscriber, True, False)
-        }
-        protocol.Unsubscribe -> #(Ok(json.null()), tree, events, False, False)
-        protocol.Disconnect -> {
-          watershed.force_reconnect(document)
-          #(Ok(json.null()), tree, events, active, False)
-        }
-        protocol.Reconnect -> {
-          watershed.force_reconnect(document)
-          #(Ok(json.null()), tree, events, active, False)
-        }
-        protocol.AwaitSynced(watermark) -> #(
-          await_synced(document, watermark, 1200),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Summarize -> {
-          let snapshot_sequence_number = observe(document).sequence_number
-          #(
-            map_result("summarize", watershed.summarize(document), fn(version) {
-              json.object([
-                #("version", json.string(version)),
-                #(
-                  "snapshotSequenceNumber",
-                  optional_int(snapshot_sequence_number),
+            protocol.BranchRetainLastLocalCommit(branch, name) -> {
+              let outcome = {
+                use branch_tree <- result.try(named_branch_tree(
+                  command_tree,
+                  branch_store,
+                  owner,
+                  branch,
+                  "retainLastLocalCommit",
+                ))
+                process.call(handle_store, waiting: 1000, sending: fn(reply) {
+                  RetainHandle(
+                    name,
+                    protocol.checkout_owner(owner, branch),
+                    fn() {
+                      watershed.tree_history_evidence(branch_tree)
+                      |> result.map(protocol.history_commit_ids)
+                      |> result.unwrap([])
+                    },
+                    fn() { outbound_snapshot(outbound_store) },
+                    reply,
+                  )
+                })
+              }
+              #(outcome, tree, events, active, False)
+            }
+            protocol.RevertibleStatus(name) -> #(
+              process.call(handle_store, waiting: 1000, sending: fn(reply) {
+                HandleStatus(name, reply)
+              }),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.DisposeRevertible(name) -> #(
+              process.call(handle_store, waiting: 1000, sending: fn(reply) {
+                DisposeHandle(name, reply)
+              }),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Revert(name, dispose) -> #(
+              process.call(handle_store, waiting: 1000, sending: fn(reply) {
+                RevertHandle(
+                  name,
+                  dispose,
+                  fn() {
+                    watershed.tree_history_evidence(command_tree)
+                    |> result.map(protocol.history_commit_ids)
+                    |> result.unwrap([])
+                  },
+                  fn() { outbound_snapshot(outbound_store) },
+                  reply,
+                )
+              }),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Checkpoint -> #(
+              checkpoint(document, command_tree, owner, events, handle_store),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Subscribe -> {
+              let next_events = case dict.get(events, owner) {
+                Error(_) ->
+                  dict.insert(events, owner, #(
+                    watershed.subscribe_tree(command_tree),
+                    True,
+                  ))
+                Ok(#(subject, _)) ->
+                  dict.insert(events, owner, #(subject, True))
+              }
+              #(Ok(json.null()), tree, next_events, active, False)
+            }
+            protocol.Unsubscribe -> {
+              let next_events = case dict.get(events, owner) {
+                Error(_) -> events
+                Ok(#(subject, _)) ->
+                  dict.insert(events, owner, #(subject, False))
+              }
+              #(Ok(json.null()), tree, next_events, active, False)
+            }
+            protocol.Disconnect -> {
+              watershed.force_reconnect(document)
+              #(Ok(json.null()), tree, events, active, False)
+            }
+            protocol.Reconnect -> {
+              watershed.force_reconnect(document)
+              #(Ok(json.null()), tree, events, active, False)
+            }
+            protocol.AwaitSynced(watermark) -> #(
+              await_synced(document, watermark, 1200),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Summarize -> {
+              let snapshot_sequence_number = observe(document).sequence_number
+              #(
+                map_result(
+                  "summarize",
+                  watershed.summarize(document),
+                  fn(version) {
+                    json.object([
+                      #("version", json.string(version)),
+                      #(
+                        "snapshotSequenceNumber",
+                        optional_int(snapshot_sequence_number),
+                      ),
+                    ])
+                  },
                 ),
-              ])
-            }),
-            tree,
-            events,
-            active,
-            False,
-          )
-        }
-        protocol.PendingSummaryEvidence -> #(
-          map_result(
-            "pending-summary-evidence",
-            watershed.pending_summary_evidence(document),
-            fn(value) { value },
-          ),
-          tree,
-          events,
-          active,
-          False,
-        )
-        protocol.Close -> #(Ok(json.null()), tree, events, active, True)
+                tree,
+                events,
+                active,
+                False,
+              )
+            }
+            protocol.RuntimeStateEvidence -> #(
+              Ok(
+                json.string(
+                  runtime_state_evidence(watershed.runtime_subject(document)),
+                ),
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.PendingSummaryEvidence -> #(
+              map_result(
+                "pending-summary-evidence",
+                watershed.pending_summary_evidence(document),
+                fn(value) { value },
+              ),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.Close -> #(Ok(json.null()), tree, events, active, True)
+          }
       }
       #(
         response(Some(id), outcome, document),
@@ -868,6 +1309,80 @@ type ScopeFailure {
 @target(erlang)
 fn facade(operation: String, reason: String) -> protocol.ProtocolError {
   protocol.ProtocolError("facade-error", operation, reason)
+}
+
+@target(erlang)
+fn selected_command(
+  command: protocol.Command,
+) -> #(Option(String), protocol.Command) {
+  case command {
+    protocol.SelectedTree(name, command) -> #(Some(name), command)
+    _ -> #(None, command)
+  }
+}
+
+@target(erlang)
+fn ensure_fresh(
+  fresh: Bool,
+  operation: String,
+  name: String,
+) -> Result(Nil, protocol.ProtocolError) {
+  case fresh {
+    True -> Ok(Nil)
+    False -> Error(facade(operation, "Object name already exists: " <> name))
+  }
+}
+
+@target(erlang)
+fn require_new_object_name(
+  store: process.Subject(ObjectMessage),
+  command: protocol.Command,
+) -> Result(Nil, protocol.ProtocolError) {
+  case command {
+    protocol.CreateDataStore(name) ->
+      process.call(store, waiting: 5000, sending: fn(reply) {
+        LookupDataStore(name, reply)
+      })
+      |> result.is_error
+      |> ensure_fresh("create-data-store", name)
+    protocol.CreateMap(name, _) ->
+      process.call(store, waiting: 5000, sending: fn(reply) {
+        LookupMap(name, reply)
+      })
+      |> result.is_error
+      |> ensure_fresh("create-map", name)
+    protocol.CreateTree(name, _, _, _, _) ->
+      process.call(store, waiting: 5000, sending: fn(reply) {
+        LookupTree(name, reply)
+      })
+      |> result.is_error
+      |> ensure_fresh("create-tree", name)
+    _ -> Ok(Nil)
+  }
+}
+
+@target(erlang)
+fn named_map(
+  store: process.Subject(ObjectMessage),
+  name: String,
+  operation: String,
+) -> Result(watershed.SharedMap, protocol.ProtocolError) {
+  process.call(store, waiting: 5000, sending: fn(reply) {
+    LookupMap(name, reply)
+  })
+  |> result.map_error(fn(_) {
+    facade(operation, "Unknown shared map: " <> name)
+  })
+}
+
+@target(erlang)
+fn encode_shared_map_entries(entries: List(#(String, Json))) -> Json {
+  entries
+  |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+  |> list.map(fn(entry) {
+    json.preprocessed_array([json.string(entry.0), entry.1])
+  })
+  |> json.preprocessed_array
 }
 
 @target(erlang)
@@ -901,6 +1416,7 @@ fn require_revert_evidence(
 fn named_branch_tree(
   main: watershed.SharedTree,
   branch_store: process.Subject(BranchMessage),
+  owner: protocol.TreeOwner,
   name: String,
   operation: String,
 ) -> Result(watershed.SharedTree, protocol.ProtocolError) {
@@ -908,7 +1424,7 @@ fn named_branch_tree(
     "main" -> Ok(main)
     _ ->
       process.call(branch_store, waiting: 5000, sending: fn(reply) {
-        LookupBranch(name, reply)
+        LookupBranch(protocol.local_branch_owner(owner, name), reply)
       })
       |> result.map_error(fn(_) {
         facade(operation, "Unknown branch: " <> name)
@@ -975,7 +1491,13 @@ fn run_branch_edit(
         fn(_) { json.null() },
       )
     protocol.BranchTransaction(scope) ->
-      run_transaction(document, tree, None, False, scope)
+      run_transaction(
+        document,
+        tree,
+        protocol.Document("main"),
+        dict.new(),
+        scope,
+      )
   }
 }
 
@@ -1147,16 +1669,19 @@ fn run_transaction_scope(
 fn run_transaction(
   document: watershed.Document(a),
   tree: watershed.SharedTree,
-  events: Option(process.Subject(tree_kernel.TreeEvent)),
-  active: Bool,
+  owner: protocol.TreeOwner,
+  events: Dict(
+    protocol.TreeOwner,
+    #(process.Subject(tree_kernel.TreeEvent), Bool),
+  ),
   scope: protocol.TransactionScope,
 ) -> Result(Json, protocol.ProtocolError) {
   // The mailbox holds the events of earlier commands. Take them out, run the
   // transaction, then put them back so that the next checkpoint still sees
   // them. The transaction reports only the events that it emitted.
-  let subject = case events, active {
-    Some(subject), True -> Some(subject)
-    _, _ -> None
+  let subject = case dict.get(events, owner) {
+    Ok(#(subject, True)) -> Some(subject)
+    _ -> None
   }
   let earlier = case subject {
     None -> []
@@ -1228,8 +1753,11 @@ fn encode_event(event: tree_kernel.TreeEvent) -> Json {
 fn checkpoint(
   document: watershed.Document(a),
   tree: watershed.SharedTree,
-  events: Option(process.Subject(tree_kernel.TreeEvent)),
-  active: Bool,
+  owner: protocol.TreeOwner,
+  events: Dict(
+    protocol.TreeOwner,
+    #(process.Subject(tree_kernel.TreeEvent), Bool),
+  ),
   handle_store: process.Subject(HandleMessage),
 ) -> Result(Json, protocol.ProtocolError) {
   use history <- result.try(
@@ -1238,13 +1766,13 @@ fn checkpoint(
       protocol.ProtocolError("facade-error", "checkpoint", reason)
     }),
   )
-  let changes = case events, active {
-    Some(subject), True -> drain(subject, [])
-    _, _ -> []
+  let changes = case dict.get(events, owner) {
+    Ok(#(subject, True)) -> drain(subject, [])
+    _ -> []
   }
   let commits =
     process.call(handle_store, waiting: 1000, sending: fn(reply) {
-      DrainCommits(reply)
+      DrainTreeCommits(owner, reply)
     })
   case watershed.tree_get(tree, []) {
     Error(reason) ->
@@ -1342,12 +1870,12 @@ type HandleMessage {
     Option(watershed.TreeRevertible),
     Option(String),
     String,
-    String,
+    protocol.TreeOwner,
   )
-  SettleCommit(TreeCommitKind, TreeCommitOutcome, String)
+  SettleCommit(TreeCommitKind, TreeCommitOutcome, String, protocol.TreeOwner)
   RetainHandle(
     String,
-    String,
+    protocol.TreeOwner,
     fn() -> List(#(String, String)),
     fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
@@ -1361,7 +1889,7 @@ type HandleMessage {
     fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
-  DrainCommits(process.Subject(List(Json)))
+  DrainTreeCommits(protocol.TreeOwner, process.Subject(List(Json)))
 }
 
 @target(erlang)
@@ -1372,15 +1900,93 @@ type OutboundMessage {
 
 @target(erlang)
 type BranchMessage {
-  LookupBranch(String, process.Subject(Result(watershed.SharedTree, Nil)))
-  StoreBranch(String, watershed.SharedTree, process.Subject(Bool))
-  RemoveBranch(String)
+  LookupBranch(
+    protocol.TreeOwner,
+    process.Subject(Result(watershed.SharedTree, Nil)),
+  )
+  StoreBranch(protocol.TreeOwner, watershed.SharedTree, process.Subject(Bool))
+  RemoveBranch(protocol.TreeOwner)
+}
+
+@target(erlang)
+type ObjectMessage {
+  LookupDataStore(String, process.Subject(Result(watershed.DataStore, Nil)))
+  StoreDataStore(String, watershed.DataStore, process.Subject(Bool))
+  LookupMap(String, process.Subject(Result(watershed.SharedMap, Nil)))
+  StoreMap(String, watershed.SharedMap, process.Subject(Bool))
+  LookupTree(String, process.Subject(Result(watershed.SharedTree, Nil)))
+  StoreTree(String, watershed.SharedTree, process.Subject(Bool))
+  ReplaceTree(String, watershed.SharedTree)
+}
+
+@target(erlang)
+fn object_store_loop(
+  subject: process.Subject(ObjectMessage),
+  data_stores: Dict(String, watershed.DataStore),
+  maps: Dict(String, watershed.SharedMap),
+  trees: Dict(String, watershed.SharedTree),
+) -> Nil {
+  case process.receive_forever(from: subject) {
+    LookupDataStore(name, reply) -> {
+      process.send(reply, dict.get(data_stores, name))
+      object_store_loop(subject, data_stores, maps, trees)
+    }
+    StoreDataStore(name, store, reply) -> {
+      let fresh = !dict.has_key(data_stores, name)
+      process.send(reply, fresh)
+      object_store_loop(
+        subject,
+        case fresh {
+          True -> dict.insert(data_stores, name, store)
+          False -> data_stores
+        },
+        maps,
+        trees,
+      )
+    }
+    LookupMap(name, reply) -> {
+      process.send(reply, dict.get(maps, name))
+      object_store_loop(subject, data_stores, maps, trees)
+    }
+    StoreMap(name, map, reply) -> {
+      let fresh = !dict.has_key(maps, name)
+      process.send(reply, fresh)
+      object_store_loop(
+        subject,
+        data_stores,
+        case fresh {
+          True -> dict.insert(maps, name, map)
+          False -> maps
+        },
+        trees,
+      )
+    }
+    LookupTree(name, reply) -> {
+      process.send(reply, dict.get(trees, name))
+      object_store_loop(subject, data_stores, maps, trees)
+    }
+    StoreTree(name, tree, reply) -> {
+      let fresh = !dict.has_key(trees, name) && name != "main"
+      process.send(reply, fresh)
+      object_store_loop(subject, data_stores, maps, case fresh {
+        True -> dict.insert(trees, name, tree)
+        False -> trees
+      })
+    }
+    ReplaceTree(name, tree) ->
+      object_store_loop(
+        subject,
+        data_stores,
+        maps,
+        dict.insert(trees, name, tree),
+      )
+  }
 }
 
 @target(erlang)
 fn branch_store_loop(
   subject: process.Subject(BranchMessage),
-  branches: Dict(String, watershed.SharedTree),
+  branches: Dict(protocol.TreeOwner, watershed.SharedTree),
 ) -> Nil {
   case process.receive_forever(from: subject) {
     LookupBranch(name, reply) -> {
@@ -1388,7 +1994,7 @@ fn branch_store_loop(
       branch_store_loop(subject, branches)
     }
     StoreBranch(name, tree, reply) -> {
-      let fresh = !dict.has_key(branches, name) && name != "main"
+      let fresh = !dict.has_key(branches, name)
       process.send(reply, fresh)
       branch_store_loop(subject, case fresh {
         True -> dict.insert(branches, name, tree)
@@ -1462,7 +2068,7 @@ fn revertible_status(handle: watershed.TreeRevertible) -> String {
 @target(erlang)
 fn observe_commit(
   event: watershed.TreeCommitEvent,
-  branch: String,
+  owner: protocol.TreeOwner,
   handle_store: process.Subject(HandleMessage),
 ) -> Nil {
   let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
@@ -1484,7 +2090,7 @@ fn observe_commit(
       acquired,
       None,
       action_id,
-      branch,
+      owner,
     ),
   )
   case settlement {
@@ -1492,7 +2098,10 @@ fn observe_commit(
     Some(on_settled) -> {
       let _ =
         on_settled(fn(outcome) {
-          process.send(handle_store, SettleCommit(kind, outcome, action_id))
+          process.send(
+            handle_store,
+            SettleCommit(kind, outcome, action_id, owner),
+          )
         })
       Nil
     }
@@ -1500,16 +2109,47 @@ fn observe_commit(
 }
 
 @target(erlang)
+fn owner_commits(
+  commits: Dict(protocol.TreeOwner, List(Json)),
+  owner: protocol.TreeOwner,
+) -> List(Json) {
+  dict.get(commits, owner) |> result.unwrap([])
+}
+
+@target(erlang)
+fn push_owner_commit(
+  commits: Dict(protocol.TreeOwner, List(Json)),
+  owner: protocol.TreeOwner,
+  event: Json,
+) -> Dict(protocol.TreeOwner, List(Json)) {
+  dict.insert(commits, owner, [event, ..owner_commits(commits, owner)])
+}
+
+@target(erlang)
+fn owner_event_fields(owner: protocol.TreeOwner) -> List(#(String, Json)) {
+  case owner {
+    protocol.Document("main") -> []
+    protocol.Document(tree) -> [#("tree", json.string(tree))]
+    protocol.LocalBranch("main", branch) -> [#("branch", json.string(branch))]
+    protocol.LocalBranch(tree, branch) -> [
+      #("branch", json.string(branch)),
+      #("tree", json.string(tree)),
+    ]
+  }
+}
+
+@target(erlang)
 fn await_revert_commit(
   subject: process.Subject(HandleMessage),
-  commits: List(Json),
+  owner: protocol.TreeOwner,
+  commits: Dict(protocol.TreeOwner, List(Json)),
   next_event_id: Int,
 ) -> Result(
   #(
     TreeCommitKind,
     Option(watershed.TreeRevertible),
     Json,
-    List(Json),
+    Dict(protocol.TreeOwner, List(Json)),
     Int,
     Option(String),
     String,
@@ -1518,18 +2158,23 @@ fn await_revert_commit(
 ) {
   case process.receive(subject, 1000) {
     Error(_) -> Error(facade("revert", "Revert authored no local commit event"))
-    Ok(SettleCommit(kind, outcome, action_id)) ->
+    Ok(SettleCommit(kind, outcome, action_id, event_owner)) ->
       await_revert_commit(
         subject,
-        [
-          json.object([
-            #("type", json.string("settlement")),
-            #("kind", json.string(commit_kind(kind))),
-            #("outcome", json.string(commit_outcome(outcome))),
-            #("actionId", json.string(action_id)),
-          ]),
-          ..commits
-        ],
+        owner,
+        push_owner_commit(
+          commits,
+          event_owner,
+          json.object(list.append(
+            [
+              #("type", json.string("settlement")),
+              #("kind", json.string(commit_kind(kind))),
+              #("outcome", json.string(commit_outcome(outcome))),
+              #("actionId", json.string(action_id)),
+            ],
+            owner_event_fields(event_owner),
+          )),
+        ),
         next_event_id,
       )
     Ok(CaptureCommit(
@@ -1539,24 +2184,33 @@ fn await_revert_commit(
       acquired,
       revision,
       action_id,
-      _branch,
+      event_owner,
     )) -> {
       let event_id = next_event_id + 1
       let commit =
-        json.object([
-          #("type", json.string("commit")),
-          #("kind", json.string(commit_kind(kind))),
-          #("local", json.bool(local)),
-          #("factoryAvailable", json.bool(factory_available)),
-          #("handleAcquired", json.bool(option.is_some(acquired))),
-          #("eventId", json.int(event_id)),
-          #("actionId", json.string(action_id)),
-          #("revision", optional_string(revision)),
-        ])
-      case local {
+        json.object(list.append(
+          [
+            #("type", json.string("commit")),
+            #("kind", json.string(commit_kind(kind))),
+            #("local", json.bool(local)),
+            #("factoryAvailable", json.bool(factory_available)),
+            #("handleAcquired", json.bool(option.is_some(acquired))),
+            #("eventId", json.int(event_id)),
+            #("actionId", json.string(action_id)),
+            #("revision", optional_string(revision)),
+          ],
+          owner_event_fields(event_owner),
+        ))
+      case local && event_owner == owner {
         True ->
           Ok(#(kind, acquired, commit, commits, event_id, revision, action_id))
-        False -> await_revert_commit(subject, [commit, ..commits], event_id)
+        False ->
+          await_revert_commit(
+            subject,
+            owner,
+            push_owner_commit(commits, event_owner, commit),
+            event_id,
+          )
       }
     }
     Ok(_) ->
@@ -1574,15 +2228,15 @@ fn handle_store_loop(
       TreeCommitKind,
       Option(String),
       fn() -> List(#(String, String)),
-      String,
+      protocol.TreeOwner,
       Bool,
     ),
   ),
   last_local: Dict(
-    String,
+    protocol.TreeOwner,
     #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String), String),
   ),
-  commits: List(Json),
+  commits: Dict(protocol.TreeOwner, List(Json)),
   next_event_id: Int,
 ) -> Nil {
   let message = process.receive_forever(from: subject)
@@ -1594,23 +2248,26 @@ fn handle_store_loop(
       acquired,
       revision,
       action_id,
-      branch,
+      owner,
     ) -> {
       let event_id = next_event_id + 1
       let commit =
-        json.object([
-          #("type", json.string("commit")),
-          #("kind", json.string(commit_kind(kind))),
-          #("local", json.bool(local)),
-          #("factoryAvailable", json.bool(factory_available)),
-          #("handleAcquired", json.bool(option.is_some(acquired))),
-          #("eventId", json.int(event_id)),
-          #("actionId", json.string(action_id)),
-          #("revision", optional_string(revision)),
-        ])
+        json.object(list.append(
+          [
+            #("type", json.string("commit")),
+            #("kind", json.string(commit_kind(kind))),
+            #("local", json.bool(local)),
+            #("factoryAvailable", json.bool(factory_available)),
+            #("handleAcquired", json.bool(option.is_some(acquired))),
+            #("eventId", json.int(event_id)),
+            #("actionId", json.string(action_id)),
+            #("revision", optional_string(revision)),
+          ],
+          owner_event_fields(owner),
+        ))
       let next = case acquired {
         Some(handle) ->
-          dict.insert(last_local, branch, #(
+          dict.insert(last_local, owner, #(
             handle,
             kind,
             event_id,
@@ -1619,26 +2276,36 @@ fn handle_store_loop(
           ))
         None -> last_local
       }
-      handle_store_loop(subject, handles, next, [commit, ..commits], event_id)
+      handle_store_loop(
+        subject,
+        handles,
+        next,
+        push_owner_commit(commits, owner, commit),
+        event_id,
+      )
     }
-    SettleCommit(kind, outcome, action_id) ->
+    SettleCommit(kind, outcome, action_id, owner) ->
       handle_store_loop(
         subject,
         handles,
         last_local,
-        [
-          json.object([
-            #("type", json.string("settlement")),
-            #("kind", json.string(commit_kind(kind))),
-            #("outcome", json.string(commit_outcome(outcome))),
-            #("actionId", json.string(action_id)),
-          ]),
-          ..commits
-        ],
+        push_owner_commit(
+          commits,
+          owner,
+          json.object(list.append(
+            [
+              #("type", json.string("settlement")),
+              #("kind", json.string(commit_kind(kind))),
+              #("outcome", json.string(commit_outcome(outcome))),
+              #("actionId", json.string(action_id)),
+            ],
+            owner_event_fields(owner),
+          )),
+        ),
         next_event_id,
       )
-    RetainHandle(name, branch, revisions, outbound, reply) ->
-      case dict.get(last_local, branch) {
+    RetainHandle(name, owner, revisions, outbound, reply) ->
+      case dict.get(last_local, owner) {
         Error(_) -> {
           process.send(
             reply,
@@ -1656,7 +2323,7 @@ fn handle_store_loop(
           )
         }
         Ok(entry) -> {
-          let publishes = branch == "main"
+          let publishes = protocol.owner_publishes(owner)
           let revision = case publishes, entry.3 {
             False, _ -> None
             True, Some(_) -> entry.3
@@ -1696,10 +2363,10 @@ fn handle_store_loop(
               entry.1,
               revision,
               revisions,
-              branch,
+              owner,
               publishes,
             )),
-            dict.delete(last_local, branch),
+            dict.delete(last_local, owner),
             commits,
             next_event_id,
           )
@@ -1764,7 +2431,9 @@ fn handle_store_loop(
           let outcome = case watershed.tree_revert(entry.0, dispose) {
             Error(reason) -> Error(facade("revert", reason))
             Ok(_) ->
-              case await_revert_commit(subject, commits, next_event_id) {
+              case
+                await_revert_commit(subject, entry.4, commits, next_event_id)
+              {
                 Error(error) -> Error(error)
                 Ok(#(
                   authored_kind,
@@ -1880,16 +2549,24 @@ fn handle_store_loop(
                 subject,
                 handles,
                 next,
-                [commit, ..observed_commits],
+                push_owner_commit(observed_commits, entry.4, commit),
                 event_id,
               )
             }
           }
         }
       }
-    DrainCommits(reply) -> {
-      process.send(reply, list.reverse(commits))
-      handle_store_loop(subject, handles, last_local, [], next_event_id)
+    DrainTreeCommits(owner, reply) -> {
+      let tree = protocol.owner_tree(owner)
+      let #(drained, remaining) =
+        dict.fold(commits, #([], dict.new()), fn(state, candidate, events) {
+          case protocol.owner_tree(candidate) == tree {
+            True -> #(list.append(state.0, list.reverse(events)), state.1)
+            False -> #(state.0, dict.insert(state.1, candidate, events))
+          }
+        })
+      process.send(reply, drained)
+      handle_store_loop(subject, handles, last_local, remaining, next_event_id)
     }
   }
 }

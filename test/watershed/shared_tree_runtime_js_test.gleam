@@ -3845,6 +3845,15 @@ pub fn detached_graph_lifecycle_facade_test() {
     ),
   )
   let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let malformed_handle =
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.int(123)),
+    ])
+  watershed.set_checked(root, "malformed", malformed_handle)
+  |> expect.to_be_error()
+  watershed.get(root, "malformed") |> expect.to_be_error()
+  transport_js.get_cell(submissions) |> expect.to_equal([])
   let store = watershed.create_data_store(document) |> expect.to_be_ok()
   let store_root = watershed.data_store_root(store) |> expect.to_be_ok()
   let foreign =
@@ -4274,6 +4283,8 @@ pub fn detached_graph_lifecycle_facade_test() {
   watershed.unsubscribe(lifetime_token)
   watershed.close(peer)
   watershed.close(document)
+  watershed.set_checked(root, "closed", json.string("no"))
+  |> expect.to_be_error()
   transport_js.get_cell(close_notifications)
   |> expect.to_equal([close_revertible])
   transport_js.get_cell(disposed_lifetime_revertibles)

@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
+import { SchemaFactory, TreeViewConfiguration } from "fluid-framework/alpha";
 import {
   cleanupEphemeralService,
   startEphemeralService,
@@ -19,6 +20,8 @@ import {
   branchExcludedFeatures,
   branchSupportedFeatures,
   mapServiceStore,
+  handleGraphStore,
+  handleServiceStore,
   excludedFeatures,
   serviceConfig,
   serviceStore,
@@ -28,6 +31,14 @@ import {
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
+import {
+  HandleLinks,
+  HandleRoot,
+  HandleSequence,
+  handleStoredSchema,
+  handleTreeConfig,
+  initialHandleRoot,
+} from "./schema.mjs";
 import {
   validateLocalBranchRow,
   validateLocalBranchSections,
@@ -40,6 +51,8 @@ import {
   runLocalBranchReconnectCell,
   runLocalBranchScenarios,
   upstreamAdapter,
+  success,
+  until,
 } from "./interop-scenarios.mjs";
 import { runLocalBranchReloadMatrix } from "./summary-interop.mjs";
 
@@ -93,6 +106,490 @@ test("service profile names supported M5 behavior and its limits", () => {
   ]) {
     assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
   }
+});
+
+test("handle schema and exact primary and secondary stores are exported", () => {
+  assert.equal(typeof HandleRoot, "function");
+  assert.equal(typeof HandleLinks, "function");
+  assert.equal(typeof HandleSequence, "function");
+  assert(handleTreeConfig);
+  assert(initialHandleRoot() instanceof HandleRoot);
+  assert.deepEqual(handleStoredSchema.root, {
+    kind: "Value",
+    types: ["org.watershed.shared-tree.handles.Root"],
+  });
+  assert.equal(handleServiceStore.type, "org.watershed.shared-tree.m1.bootstrap");
+  assert.equal(handleGraphStore.type, "org.watershed.shared-tree.m7.graph");
+});
+
+test("native named objects publish actual graphs and preserve the default tree", {
+  timeout: 180_000,
+}, async () => {
+  const stringSchema = {
+    version: 2,
+    nodes: { "com.fluidframework.leaf.string": { kind: { leaf: 1 } } },
+    root: { kind: "Value", types: ["com.fluidframework.leaf.string"] },
+  };
+  const optionalStringSchema = {
+    ...stringSchema,
+    root: { kind: "Optional", types: ["com.fluidframework.leaf.string"] },
+  };
+  await withLocalFloodgate(async (config) => {
+    for (const target of ["javascript", "erlang"]) {
+      const containers = [];
+      let native;
+      try {
+        const options = { store: handleServiceStore };
+        const creator = await openSession(config, containers, undefined, false, options);
+        const documentId = creator.container.resolvedUrl.id;
+        await publishUpstreamSummary(config, containers, documentId, "named object bootstrap", options);
+        const peer = await openSession(config, containers, documentId, false, options);
+        const jwt = (await tokenProvider(config).fetchOrdererToken(config.tenantId, documentId)).jwt;
+        native = await nativeAdapter(target, config, {
+          runId: `named-objects-${target}`,
+          documentId,
+          tenant: config.tenantId,
+          viewSchema: JSON.stringify(handleStoredSchema),
+          viewSchemas: {
+            default: JSON.stringify(handleStoredSchema),
+            "required-string": JSON.stringify(stringSchema),
+          },
+        }, jwt);
+        const command = async (request) => success(
+          await native.client.request(request), `${target} ${request.command}`,
+        ).result;
+        const matchesBranch = (label, branch, tree) =>
+          tree === undefined
+            ? label === branch
+            : label === `${tree}:${branch}`
+              || (target === "erlang" && label === branch);
+        const branchCommits = async (
+          branch, tree, expectedTypes = ["commit"],
+        ) => {
+          const commits = [];
+          try {
+            await until(async () => {
+              commits.push(...(await native.client.checkpoint(tree)).commits);
+              const owned = commits.filter(({ branch: label }) =>
+                matchesBranch(label, branch, tree)
+              );
+              return expectedTypes.every((type) =>
+                owned.some(({ type: observed }) => observed === type)
+              );
+            }, `${tree ?? "main"}:${branch} commit settlement`);
+          } catch (error) {
+            throw new Error(`${error.message}: ${JSON.stringify(commits)}`, {
+              cause: error,
+            });
+          }
+          return commits.filter(({ branch: label }) =>
+            matchesBranch(label, branch, tree)
+          );
+        };
+        const owningTreeCommits = async (branch, tree) => {
+          const commits = [];
+          await until(async () => {
+            commits.push(...(await native.client.checkpoint(tree)).commits);
+            const hasBranchCommit = commits.some(({ type, branch: label }) =>
+              type === "commit"
+                && matchesBranch(label, branch, tree)
+            );
+            const hasSettlement = commits.some(({ type, tree: ownerTree }) =>
+              type === "settlement" && ownerTree === tree
+            );
+            return hasBranchCommit && hasSettlement;
+          }, `${tree ?? "main"}:${branch} owning-tree commits`);
+          return commits;
+        };
+        await native.awaitSynced();
+        await command({ command: "root-map", name: "bootstrap" });
+        await command({ command: "create-data-store", name: "secondary" });
+        const entry = await command({
+          command: "data-store-root", store: "secondary", name: "entry",
+        });
+        const map = await command({
+          command: "create-map", store: "secondary", name: "map",
+        });
+        const tree = await command({
+          command: "create-tree",
+          store: "secondary",
+          name: "draft",
+          schema: optionalStringSchema,
+          view: optionalStringSchema,
+          initialRoot: { kind: "string", value: "start" },
+        });
+        for (const marker of [entry, map, tree]) {
+          assert.equal(marker.type, "__fluid_handle__");
+          assert.match(marker.url, /^\/[^/]+\/[^/]+$/);
+        }
+        await command({ command: "shared-map-set", name: "map", key: "value", value: "before" });
+        await command({ command: "shared-map-set", name: "entry", key: "map", value: map });
+        await command({ command: "shared-map-set", name: "entry", key: "tree", value: tree });
+        assert.equal(peer.data.bootstrap.has("secondary"), false);
+        await command({
+          command: "shared-map-set", name: "bootstrap", key: "secondary", value: entry,
+        });
+        await native.awaitSynced();
+        await until(() => peer.data.bootstrap.has("secondary"), "secondary graph publication");
+        const loadedEntry = await peer.data.bootstrap.get("secondary").get();
+        const loadedMap = await loadedEntry.get("map").get();
+        assert.equal(loadedMap.get("value"), "before");
+        const loadedTree = await loadedEntry.get("tree").get();
+        const namedFactory = new SchemaFactory("org.watershed.shared-tree.named");
+        const view = loadedTree.viewWith(new TreeViewConfiguration({
+          schema: namedFactory.optional(namedFactory.string),
+        }));
+        containers.push({ dispose: () => view.dispose() });
+        assert.equal(view.root, "start");
+
+        const malformedBefore = await native.client.sharedMapGet("map", "value");
+        const pendingBefore = (await native.client.request({
+          command: "shared-map-get", name: "map", key: "value",
+        })).observation.pendingTreeCount;
+        const outboundBefore = native.client.gate.evidence();
+        const outboundOpCount = (evidence) =>
+          [...evidence.held, ...evidence.delivered]
+            .filter(({ direction, kind }) => direction === "outbound" && kind === "op")
+            .length;
+        const malformed = await native.client.request({
+          command: "shared-map-set",
+          name: "map",
+          key: "value",
+          value: { type: "__fluid_handle__", url: 123 },
+        });
+        assert.equal(malformed.ok, false);
+        assert.equal(malformed.error.code, "facade-error");
+        assert.equal(malformed.observation.pendingTreeCount, pendingBefore);
+        assert.equal(
+          outboundOpCount(native.client.gate.evidence()),
+          outboundOpCount(outboundBefore),
+        );
+        assert.deepEqual(await native.client.sharedMapGet("map", "value"), malformedBefore);
+        assert.equal(loadedMap.get("value"), "before");
+
+        await native.client.subscribe("draft");
+        await command({
+          command: "set", path: ["label"],
+          value: { kind: "string", value: "main-first" },
+        });
+        await command({
+          command: "set", tree: "draft", path: [],
+          value: { kind: "string", value: "selected-first" },
+        });
+        const selectedFirst = await native.client.checkpoint("draft");
+        const mainFirst = await native.client.checkpoint();
+        assert.deepEqual(selectedFirst.events.map(({ kind }) => kind), ["data"]);
+        assert.deepEqual(mainFirst.events.map(({ kind }) => kind), ["data"]);
+
+        await command({
+          command: "set", tree: "draft", path: [],
+          value: { kind: "string", value: "selected-second" },
+        });
+        await command({
+          command: "set", path: ["label"],
+          value: { kind: "string", value: "main-second" },
+        });
+        const mainSecond = await native.client.checkpoint();
+        const selectedSecond = await native.client.checkpoint("draft");
+        assert.deepEqual(mainSecond.events.map(({ kind }) => kind), ["data"]);
+        assert.deepEqual(selectedSecond.events.map(({ kind }) => kind), ["data"]);
+
+        await native.client.unsubscribe("draft");
+        await command({
+          command: "set", tree: "draft", path: [],
+          value: { kind: "string", value: "selected-third" },
+        });
+        await command({
+          command: "set", path: ["label"],
+          value: { kind: "string", value: "main-third" },
+        });
+        assert.deepEqual((await native.client.checkpoint("draft")).events, []);
+        assert.deepEqual(
+          (await native.client.checkpoint()).events.map(({ kind }) => kind),
+          ["data"],
+        );
+
+        await native.client.checkpoint();
+        await native.client.checkpoint("draft");
+        await native.client.fork("main", "checkpoint-default");
+        await native.client.fork("main", "checkpoint-named", "draft");
+        await native.client.branchEdit("checkpoint-default", {
+          kind: "object-set", path: ["label"], value: "default-branch-commit",
+        });
+        await native.client.branchEdit("checkpoint-named", {
+          kind: "object-set", path: [], value: "named-branch-commit",
+        }, "draft");
+        const retainedDefaultCheckpoint = await native.client.retainLastLocalCommit(
+          "checkpoint-default-edit", "checkpoint-default",
+        );
+        const retainedNamedCheckpoint = await native.client.retainLastLocalCommit(
+          "checkpoint-named-edit", "checkpoint-named", "draft",
+        );
+        assert.equal(retainedDefaultCheckpoint.factoryAvailable, true);
+        assert.equal(retainedNamedCheckpoint.factoryAvailable, true);
+        await native.client.mergeBranch(
+          "main", "checkpoint-named", true, "draft",
+        );
+        await native.awaitSynced();
+        const namedBranchCommits = await owningTreeCommits(
+          "checkpoint-named", "draft",
+        );
+        assert.equal(
+          namedBranchCommits.some(({ type, factoryAvailable, tree }) =>
+            type === "commit" && factoryAvailable === true && tree === "draft"
+          ),
+          true,
+        );
+        assert.equal(
+          namedBranchCommits.some(({ type, tree: ownerTree }) =>
+            type === "settlement" && ownerTree === "draft"
+          ),
+          true,
+        );
+        await native.client.mergeBranch("main", "checkpoint-default", true);
+        await native.awaitSynced();
+        const defaultBranchCommits = await owningTreeCommits(
+          "checkpoint-default", undefined,
+        );
+        assert.equal(
+          defaultBranchCommits.some(({ type, factoryAvailable, tree }) =>
+            type === "commit" && factoryAvailable === true && tree === undefined
+          ),
+          true,
+        );
+        assert.equal(
+          defaultBranchCommits.some(({ type, tree: ownerTree }) =>
+            type === "settlement" && ownerTree === undefined
+          ),
+          true,
+        );
+        assert.equal(
+          defaultBranchCommits.some(({ tree }) => tree === "draft"),
+          false,
+        );
+
+        const explicitDefaultMain = await native.client.branchEdit("main", {
+          kind: "object-set", path: ["label"], value: "explicit-default-main",
+        });
+        assert.equal(explicitDefaultMain.authoredCount, 1);
+        assert.equal(explicitDefaultMain.outboundCount, 1);
+        const retainedExplicitDefault = await native.client.retainLastLocalCommit(
+          "explicit-default-main", "main",
+        );
+        assert.equal(retainedExplicitDefault.factoryAvailable, true);
+        const explicitNamedMain = await native.client.branchEdit("main", {
+          kind: "object-set", path: [], value: "explicit-named-main",
+        }, "draft");
+        assert.equal(explicitNamedMain.authoredCount, 1);
+        assert.equal(explicitNamedMain.outboundCount, 1);
+        const retainedExplicitNamed = await native.client.retainLastLocalCommit(
+          "explicit-named-main", "main", "draft",
+        );
+        assert.equal(retainedExplicitNamed.factoryAvailable, true);
+        await native.awaitSynced();
+        await until(
+          () => peer.data.view.root.label === "explicit-default-main",
+          "explicit default main publication",
+        );
+        await until(() => view.root === "explicit-named-main", "explicit named main publication");
+        assert.deepEqual(await native.client.read(["label"]), {
+          present: true,
+          value: { kind: "string", value: "explicit-default-main" },
+        });
+        await native.client.disposeRevertible("explicit-default-main");
+        await native.client.disposeRevertible("explicit-named-main");
+
+        await command({
+          command: "set", tree: "draft", path: [],
+          value: { kind: "string", value: "undo-target" },
+        });
+        await native.client.fork("main", "draft");
+        const defaultDraftEdit = await native.client.branchEdit("draft", {
+          kind: "object-set", path: ["label"], value: "default-draft",
+        });
+        assert.equal(defaultDraftEdit.outboundCount, 0);
+        const retainedSelected = await command({
+          op: "retainLastLocalCommit", tree: "draft", name: "selected-edit",
+        });
+        const retainedDefaultBranch = await command({
+          op: "retainLastLocalCommit",
+          branch: "draft",
+          name: "default-draft-edit",
+        });
+        assert.equal(typeof retainedSelected.revision, "string");
+        assert.equal(retainedDefaultBranch.factoryAvailable, true);
+        await native.client.disposeRevertible("default-draft-edit");
+        await native.client.disposeBranch("draft");
+        await native.awaitSynced();
+        await until(() => view.root === "undo-target", "named tree retained edit");
+        const undo = await command({
+          op: "revert", tree: "draft", name: "selected-edit", dispose: true,
+        });
+        assert.equal(undo.authoredKind, "Undo");
+        assert.equal(undo.outboundCount, 1);
+        assert.equal(undo.submittedRevisions.length, 1);
+        await native.awaitSynced();
+        await until(
+          () => view.root === "explicit-named-main",
+          "named tree undo",
+        );
+
+        const namedHandles = {};
+        for (const name of ["a", "a:b"]) {
+          namedHandles[name] = await command({
+            command: "create-tree",
+            store: "secondary",
+            name,
+            schema: stringSchema,
+            view: stringSchema,
+            initialRoot: { kind: "string", value: name },
+          });
+          await command({
+            command: "shared-map-set", name: "entry", key: `tree-${name}`,
+            value: namedHandles[name],
+          });
+        }
+        await native.client.fork("main", "b:c", "a");
+        await native.client.fork("main", "c", "a:b");
+        await native.client.fork("main", "a:b:c");
+        await native.client.branchEdit("b:c", {
+          kind: "object-set", path: [], value: "branch-a",
+        }, "a");
+        await native.client.branchEdit("c", {
+          kind: "object-set", path: [], value: "branch-ab",
+        }, "a:b");
+        await native.client.branchEdit("a:b:c", {
+          kind: "object-set", path: ["label"], value: "branch-main",
+        });
+        await native.client.mergeBranch("main", "b:c", true, "a");
+        await native.client.mergeBranch("main", "c", true, "a:b");
+        await native.client.mergeBranch("main", "a:b:c", true);
+        assert.deepEqual(await native.client.read([], "a"), {
+          present: true, value: { kind: "string", value: "branch-a" },
+        });
+        assert.deepEqual(await native.client.read([], "a:b"), {
+          present: true, value: { kind: "string", value: "branch-ab" },
+        });
+        assert.deepEqual(await native.client.read(["label"]), {
+          present: true, value: { kind: "string", value: "branch-main" },
+        });
+        const unknownBranch = await native.client.request({
+          op: "branchEdit", tree: "a", branch: "c",
+          edit: { kind: "object-set", path: [], value: "wrong" },
+        });
+        assert.equal(unknownBranch.ok, false);
+
+        await native.awaitSynced();
+        const beforeForkResources = await command({
+          command: "runtime-state-evidence",
+        });
+        await native.client.fork("main", "draft", "draft");
+        assert.notEqual(
+          await command({ command: "runtime-state-evidence" }),
+          beforeForkResources,
+          `${target} actual fork was absent from runtime state evidence`,
+        );
+        const preservedDraftEdit = await native.client.branchEdit("draft", {
+          kind: "object-set", path: [], value: "preserved-draft",
+        }, "draft");
+        assert.equal(preservedDraftEdit.outboundCount, 0);
+        const retainedBeforeDuplicate = await native.client.retainLastLocalCommit(
+          "duplicate-before", "draft", "draft",
+        );
+        assert.equal(retainedBeforeDuplicate.factoryAvailable, true);
+        const beforeDuplicateCommits = await branchCommits(
+          "draft", "draft", ["commit"],
+        );
+        assert.equal(
+          beforeDuplicateCommits.filter(({ type }) => type === "commit").length,
+          1,
+        );
+        await native.awaitSynced();
+        const beforeDuplicateResources = await command({
+          command: "runtime-state-evidence",
+        });
+        assert.match(beforeDuplicateResources, /^[a-f0-9]{64}$/);
+        const duplicateFork = await native.client.request({
+          op: "fork", tree: "draft", source: "main", name: "draft",
+        });
+        assert.equal(duplicateFork.ok, false);
+        assert.equal(
+          await command({ command: "runtime-state-evidence" }),
+          beforeDuplicateResources,
+          `${target} duplicate fork changed runtime checkout, subscription or retention state`,
+        );
+        assert.equal(
+          (await native.client.revertibleStatus("duplicate-before")).status,
+          "Valid",
+        );
+        const afterDuplicateEdit = await native.client.branchEdit("draft", {
+          kind: "object-set", path: [], value: "preserved-after-duplicate",
+        }, "draft");
+        assert.equal(afterDuplicateEdit.authoredCount, 1);
+        assert.equal(afterDuplicateEdit.outboundCount, 0);
+        const afterDuplicateCommits = await branchCommits(
+          "draft", "draft", ["commit"],
+        );
+        assert.equal(
+          afterDuplicateCommits.filter(({ type }) => type === "commit").length,
+          1,
+        );
+        assert.equal(
+          afterDuplicateCommits.every(({ tree: ownerTree }) =>
+            ownerTree === "draft"
+          ),
+          true,
+        );
+        await native.client.mergeBranch("main", "draft", true, "draft");
+        await native.awaitSynced();
+        assert.equal(
+          (await native.client.checkpoint("draft")).commits
+            .some(({ type, tree: ownerTree }) =>
+              type === "settlement" && ownerTree === "draft"
+            ),
+          true,
+        );
+        await until(
+          () => view.root === "preserved-after-duplicate",
+          "preserved duplicate fork state",
+        );
+
+        await native.client.openView("required-string", "draft");
+        const refusedClear = await native.client.request({
+          command: "clear", tree: "draft", path: [],
+        });
+        assert.equal(refusedClear.ok, false);
+        assert.equal(view.root, "preserved-after-duplicate");
+        assert.deepEqual(await command({ command: "read", path: ["label"] }), {
+          present: true,
+          value: { kind: "string", value: "branch-main" },
+        });
+        const main = await command({ command: "read", path: ["label"] });
+        assert.deepEqual(main, {
+          present: true,
+          value: { kind: "string", value: "branch-main" },
+        });
+        for (const request of [
+          { command: "create-data-store", name: "secondary" },
+          { command: "create-map", store: "secondary", name: "map" },
+          {
+            command: "create-tree", name: "draft", store: "secondary",
+            schema: stringSchema, view: stringSchema,
+            initialRoot: { kind: "string", value: "duplicate" },
+          },
+        ]) {
+          const reply = await native.client.request(request);
+          assert.equal(reply.ok, false);
+          assert.equal(reply.error.code, "facade-error");
+        }
+        const published = await command({ command: "summarize" });
+        assert.equal(typeof published.version, "string");
+      } finally {
+        await native?.close();
+        cleanupOwned(containers);
+      }
+    }
+  });
 });
 
 test("service profile publishes the local M6 branch boundary", () => {

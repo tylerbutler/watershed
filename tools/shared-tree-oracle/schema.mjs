@@ -38,6 +38,87 @@ export const rootStore = defineTreeDataStore({
   initializer: initialRoot,
 });
 
+const handleFactory = new SchemaFactory("org.watershed.shared-tree.handles");
+
+export class HandleLinks extends handleFactory.map("Links", handleFactory.handle) {}
+
+export class HandleSequence extends handleFactory.array(
+  "Sequence",
+  handleFactory.handle,
+) {}
+
+export class HandleRoot extends handleFactory.object("Root", {
+  label: handleFactory.string,
+  link: handleFactory.optional(handleFactory.handle),
+  links: HandleLinks,
+  sequence: HandleSequence,
+}) {}
+
+export const handleTreeConfig = new TreeViewConfiguration({
+  schema: HandleRoot,
+  enableSchemaValidation: true,
+});
+
+export function initialHandleRoot() {
+  return new HandleRoot({
+    label: "root",
+    links: new HandleLinks([]),
+    sequence: new HandleSequence([]),
+  });
+}
+
+export const handleStoredSchema = {
+  version: 2,
+  nodes: {
+    "com.fluidframework.leaf.handle": { kind: { leaf: 3 } },
+    "com.fluidframework.leaf.string": { kind: { leaf: 1 } },
+    "org.watershed.shared-tree.handles.Links": {
+      kind: {
+        map: {
+          kind: "Optional",
+          types: ["com.fluidframework.leaf.handle"],
+        },
+      },
+    },
+    "org.watershed.shared-tree.handles.Root": {
+      kind: {
+        object: {
+          label: {
+            kind: "Value",
+            types: ["com.fluidframework.leaf.string"],
+          },
+          link: {
+            kind: "Optional",
+            types: ["com.fluidframework.leaf.handle"],
+          },
+          links: {
+            kind: "Value",
+            types: ["org.watershed.shared-tree.handles.Links"],
+          },
+          sequence: {
+            kind: "Value",
+            types: ["org.watershed.shared-tree.handles.Sequence"],
+          },
+        },
+      },
+    },
+    "org.watershed.shared-tree.handles.Sequence": {
+      kind: {
+        object: {
+          "": {
+            kind: "Sequence",
+            types: ["com.fluidframework.leaf.handle"],
+          },
+        },
+      },
+    },
+  },
+  root: {
+    kind: "Value",
+    types: ["org.watershed.shared-tree.handles.Root"],
+  },
+};
+
 const mapFactory = new SchemaFactory("org.watershed.shared-tree.m2");
 
 export class MapPoint extends mapFactory.object("Point", {
