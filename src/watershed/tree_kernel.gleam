@@ -218,11 +218,11 @@ pub fn ensure_attached(
 }
 
 pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
-  use data <- result.try(forest.export_data(state.sequenced))
+  use data <- result.try(forest.export_summary_data(state.sequenced))
   Ok(TreeSnapshot(
     forest.stored_schema(state.sequenced),
     data,
-    history.inspect(state.history).sequenced,
+    history.summary_snapshot(state.history),
     state.retained_wire,
   ))
 }
@@ -231,13 +231,30 @@ pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
 pub fn snapshot_for_attach(
   state: TreeState,
 ) -> Result(TreeSnapshot, TreeError) {
-  use data <- result.try(forest.export_data(state.visible))
-  let data = forest.ForestData(..data, detached: [])
-  let history.HistoryView(sequenced:, ..) = history.inspect(state.history)
+  let retain_local_history = history.has_retained_checkouts(state.history)
+  use data <- result.try(forest.export_summary_data(state.visible))
+  let data = case retain_local_history {
+    True -> data
+    False -> forest.ForestData(..data, detached: [])
+  }
+  let history.HistoryView(sequenced:, pending:, ..) =
+    history.inspect(state.history)
+  let trunk = case retain_local_history, list.first(list.reverse(pending)) {
+    True, Ok(commit) -> [
+      history.SequencedCommit(
+        commit,
+        types.SequencePoint(
+          -9_007_199_254_740_991 + list.length(pending) + 1,
+          0,
+        ),
+      ),
+    ]
+    _, _ -> []
+  }
   Ok(TreeSnapshot(
     forest.stored_schema(state.visible),
     data,
-    history.HistorySnapshot(..sequenced, trunk: [], peers: []),
+    history.HistorySnapshot(..sequenced, trunk:, peers: []),
     state.retained_wire,
   ))
 }
@@ -405,13 +422,13 @@ pub fn revert(
   ))
   let history.RevertAuthoring(_, inverse, kind) = authored
   use #(_, repair) <- result.try(replay_pending_commit(state.visible, inverse))
-  use inverse <- result.try(history.repair_commit(inverse, repair))
   use #(state, commit, events) <- result.try(apply_local_change(
     state,
     revision,
     order,
     inverse.change,
   ))
+  use commit <- result.try(history.repair_commit(commit, repair))
   Ok(#(state, commit, kind, events))
 }
 
@@ -701,7 +718,18 @@ pub fn advance_document(
     allocation,
     mint,
   ))
-  Ok(#(TreeState(..state, history: update.history), allocation))
+  use visible <- result.try(forest.trim_revisions(
+    state.visible,
+    update.trimmed_revisions,
+  ))
+  use sequenced <- result.try(forest.trim_revisions(
+    state.sequenced,
+    update.trimmed_revisions,
+  ))
+  Ok(#(
+    TreeState(..state, visible:, sequenced:, history: update.history),
+    allocation,
+  ))
 }
 
 pub fn advance_processed(
@@ -949,6 +977,14 @@ pub fn receive(
     state.visible,
     update.effects,
     False,
+  ))
+  use visible <- result.try(forest.trim_revisions(
+    visible,
+    update.trimmed_revisions,
+  ))
+  use sequenced <- result.try(forest.trim_revisions(
+    sequenced,
+    update.trimmed_revisions,
   ))
   let pending_revisions =
     history.pending(update.history)

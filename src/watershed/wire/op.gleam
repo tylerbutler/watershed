@@ -2557,7 +2557,7 @@ fn decode_attach_snapshot_context(
     -> {
       use summary <- result.try(attach_tree_summary(entries, source_context))
       use data <- result.try(
-        tree_summary_codec.decode(
+        tree_summary_codec.decode_attach(
           summary,
           None,
           fluid_ids.local_session(compressor),

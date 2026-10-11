@@ -12,6 +12,7 @@ import watershed/tree/codec
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/identifier
+import watershed/tree/optional_field
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
@@ -27,9 +28,35 @@ pub fn create_detached(
   sequence_number: Int,
   minimum_sequence_number: Int,
 ) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor), TreeError) {
+  use #(state, compressor, _) <- result.try(create_detached_with_commit(
+    stored,
+    initial_root,
+    view_id,
+    compressor,
+    sequence_number,
+    minimum_sequence_number,
+  ))
+  Ok(#(state, compressor))
+}
+
+pub fn create_detached_with_commit(
+  stored: schema.StoredSchema,
+  initial_root: Option(TreeValue),
+  view_id: fluid_ids.StableId,
+  compressor: fluid_ids.Compressor,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(
+  #(tree_kernel.TreeState, fluid_ids.Compressor, history.Commit),
+  TreeError,
+) {
   use _ <- result.try(schema.validate_root_construction(stored, initial_root))
-  use #(compressor, _) <- result.try(
+  use #(compressor, id) <- result.try(
     fluid_ids.generate(compressor)
+    |> result.map_error(fn(error) { InvalidHistory(string.inspect(error)) }),
+  )
+  use revision <- result.try(
+    fluid_ids.decompress(compressor, id)
     |> result.map_error(fn(error) { InvalidHistory(string.inspect(error)) }),
   )
   use #(initial_root, compressor) <- result.try(case initial_root {
@@ -39,13 +66,31 @@ pub fn create_detached(
       |> result.map(fn(value) { #(Some(value.0), value.1) })
   })
   use _ <- result.try(schema.validate_root_field(stored, initial_root))
+  use order <- result.try(codec.identity_order(
+    [revision],
+    compressor,
+    "tree initialization",
+  ))
+  use outer <- result.try(initialization_change(
+    stored,
+    initial_root,
+    revision,
+    order,
+  ))
+  let commit =
+    history.Commit(revision, fluid_ids.local_session(compressor), outer)
   use snapshot <- result.try(tree_kernel.snapshot_from_parts(
     view_id,
     stored,
     forest.ForestData(initial_root, [], 1),
     history.HistorySnapshot(
       history.InitialBase,
-      [],
+      [
+        history.SequencedCommit(
+          commit,
+          types.SequencePoint(-9_007_199_254_740_990, 0),
+        ),
+      ],
       [],
       sequence_number,
       minimum_sequence_number,
@@ -53,7 +98,57 @@ pub fn create_detached(
     ),
   ))
   use state <- result.try(restore_unviewed(snapshot, view_id, compressor))
-  Ok(#(state, compressor))
+  Ok(#(state, compressor, commit))
+}
+
+fn initialization_change(
+  stored: schema.StoredSchema,
+  initial_root: Option(TreeValue),
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+) -> Result(shared_change.Changeset, TreeError) {
+  use intermediate <- result.try(schema.initialization_schema(stored))
+  let items = [
+    shared_change.SchemaChange(
+      schema.EmptySchema,
+      schema.FixedSchema(intermediate),
+      False,
+    ),
+  ]
+  use data <- result.try(case initial_root {
+    None -> Ok([])
+    Some(root) -> {
+      let detach = types.AtomId(Some(revision), 0)
+      let fill = types.AtomId(Some(revision), 1)
+      use data <- result.try(change.from_data(
+        change.ChangeData(
+          ..change.to_data(change.empty()),
+          max_local_id: 1,
+          revisions: [change.RevisionInfo(revision, None)],
+          fields: [
+            #(
+              "rootFieldKey",
+              change.OptionalField(optional_field.set(True, fill, detach)),
+            ),
+          ],
+          builds: [forest.Build(fill, [root])],
+        ),
+        order,
+      ))
+      Ok([shared_change.DataChange(data)])
+    }
+  })
+  let finish = case intermediate == stored {
+    True -> []
+    False -> [
+      shared_change.SchemaChange(
+        schema.FixedSchema(intermediate),
+        schema.FixedSchema(stored),
+        False,
+      ),
+    ]
+  }
+  shared_change.from_changes(list.append(items, list.append(data, finish)))
 }
 
 pub fn snapshot_for_attach(

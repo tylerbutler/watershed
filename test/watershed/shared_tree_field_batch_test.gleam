@@ -785,6 +785,28 @@ pub fn shared_tree_codec_field_batch_contextual_identifier_round_trip_test() {
   |> expect.to_equal(Ok([[value]]))
 }
 
+pub fn shared_tree_codec_field_batch_counts_shared_child_shape_once_test() {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"R\":{\"kind\":{\"object\":{\"a\":{\"kind\":\"Value\",\"types\":[\"A\"]},\"b\":{\"kind\":\"Value\",\"types\":[\"A\"]}}}},\"A\":{\"kind\":{\"object\":{\"value\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Value\",\"types\":[\"R\"]}}",
+    )
+  let child = ObjectValue("A", [#("value", StringValue("value"))])
+  let assert Ok(encoded) =
+    field_batch.encode_summary_with_context(
+      [[ObjectValue("R", [#("a", child), #("b", child)])]],
+      stored,
+      field_batch.SummaryIds(
+        fluid_ids.new(identifier_fixture.receiver_session()),
+      ),
+    )
+  let assert Ok(expected) =
+    json.parse(
+      "{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"A\",\"value\":false,\"fields\":[[\"value\",2]]}},{\"c\":{\"type\":\"R\",\"value\":false,\"fields\":[[\"a\",0],[\"b\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[1,\"value\",\"value\"]]}",
+      wire.json_value_decoder(),
+    )
+  wire.json_semantically_equal(encoded, expected) |> expect.to_be_true
+}
+
 pub fn shared_tree_codec_field_batch_keeps_ordinary_context_bytes_test() {
   let assert Ok(encoded) =
     field_batch.encode_with_context(

@@ -111,6 +111,42 @@ pub fn root_field_schema(schema: StoredSchema) -> FieldSchema {
   schema.repository.root
 }
 
+pub fn initialization_schema(
+  schema: StoredSchema,
+) -> Result(StoredSchema, TreeError) {
+  case schema.repository.root.cardinality {
+    Required -> {
+      use members <- result.try(case schema.repository.persisted {
+        VObject(members) -> Ok(members)
+        _ -> Error(InvalidSchema("stored schema is not an object"))
+      })
+      let persisted =
+        VObject(
+          list.map(members, fn(entry) {
+            case entry.0 {
+              "root" -> #(
+                "root",
+                VObject([
+                  #("kind", VString("Optional")),
+                  #(
+                    "types",
+                    VArray(list.map(
+                      schema.repository.root.allowed_types,
+                      VString,
+                    )),
+                  ),
+                ]),
+              )
+              _ -> entry
+            }
+          }),
+        )
+      stored_from_json(json_ot.to_json(persisted))
+    }
+    Optional | Sequence | Identifier -> Ok(schema)
+  }
+}
+
 /// Read one node definition by its stored identifier.
 pub fn node_schema(
   schema: StoredSchema,

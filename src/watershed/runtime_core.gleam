@@ -3512,31 +3512,36 @@ fn same_batch_items(
         Ok(address) ->
           case dict.get(core.channels, address), core.compressor {
             Ok(channel.TreeState(state)), Some(compressor) -> {
-              use #(a, received_message) <- result.try(
-                tree_runtime.decode_message(
-                  json.to_string(received),
-                  state,
-                  compressor,
-                )
-                |> result.map_error(fn(error) {
-                  TreeOperationFailed(address, error)
-                }),
-              )
-              use #(b, sent_message) <- result.try(
-                tree_runtime.decode_message(
-                  json.to_string(sent),
-                  state,
-                  compressor,
-                )
-                |> result.map_error(fn(error) {
-                  TreeOperationFailed(address, error)
-                }),
-              )
-              Ok(
-                a == b
-                && received_message.commit.custom_metadata
-                == sent_message.commit.custom_metadata,
-              )
+              case wire.json_semantically_equal(received, sent) {
+                True -> Ok(True)
+                False -> {
+                  use #(a, received_message) <- result.try(
+                    tree_runtime.decode_message(
+                      json.to_string(received),
+                      state,
+                      compressor,
+                    )
+                    |> result.map_error(fn(error) {
+                      TreeOperationFailed(address, error)
+                    }),
+                  )
+                  use #(b, sent_message) <- result.try(
+                    tree_runtime.decode_message(
+                      json.to_string(sent),
+                      state,
+                      compressor,
+                    )
+                    |> result.map_error(fn(error) {
+                      TreeOperationFailed(address, error)
+                    }),
+                  )
+                  Ok(
+                    a == b
+                    && received_message.commit.custom_metadata
+                    == sent_message.commit.custom_metadata,
+                  )
+                }
+              }
             }
             Ok(state), _ -> {
               use decoder <- result.try(
@@ -4210,6 +4215,17 @@ pub fn create_detached_tree(
   initial_root: Option(tree_types.TreeValue),
   view_id: fluid_ids.StableId,
 ) -> Result(Core, CoreError) {
+  create_detached_tree_with_events(core, address, stored, initial_root, view_id)
+  |> result.map(fn(created) { created.0 })
+}
+
+pub fn create_detached_tree_with_events(
+  core: Core,
+  address: String,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  view_id: fluid_ids.StableId,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   use route <- result.try(
     fluid_container.route_from_path("/" <> address)
     |> result.map_error(ContainerOperationFailed),
@@ -4236,8 +4252,8 @@ pub fn create_detached_tree(
       "tree creation requires a document compressor",
     )),
   )
-  use #(state, compressor) <- result.try(
-    tree_runtime.create_detached(
+  use #(state, compressor, commit) <- result.try(
+    tree_runtime.create_detached_with_commit(
       stored,
       initial_root,
       view_id,
@@ -4252,7 +4268,7 @@ pub fn create_detached_tree(
       tree_branch.origin(core.client_id, "document", address),
       state,
     )
-  Ok(
+  let core =
     Core(
       ..core,
       compressor: Some(compressor),
@@ -4263,8 +4279,38 @@ pub fn create_detached_tree(
       ),
       detached: dict.insert(core.detached, address, channel.TreeState(state)),
       tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+    )
+  Ok(#(
+    core,
+    list.append(
+      [
+        #(
+          address,
+          channel.TreeCommitApplied(
+            commit.revision,
+            tree_types.DefaultCommit,
+            True,
+            False,
+          ),
+        ),
+        #(address, channel.TreeEvent(tree_kernel.SchemaChanged(True))),
+      ],
+      list.append(
+        case initial_root {
+          None -> []
+          Some(_) -> [
+            #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
+          ]
+        },
+        [
+          #(
+            address,
+            channel.TreeCommitSettled(commit.revision, tree_types.FullyApplied),
+          ),
+        ],
+      ),
     ),
-  )
+  ))
 }
 
 pub fn has_channel(core: Core, address: String) -> Bool {
@@ -5963,8 +6009,7 @@ pub fn dispose_tree_revertible(
     tree_kernel.dispose_revertible(state, id)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  put_tree_channel(core, address, state)
-  |> sync_tree_checkouts
+  trim_tree_retention(put_tree_channel(core, address, state), address)
 }
 
 pub fn dispose_tree_revertible_on(
@@ -5986,7 +6031,30 @@ pub fn dispose_tree_revertible_on(
     tree_branch.dispose_revertible(forest, revertible)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  install_checkout_forest_state(core, address, forest)
+  use core <- result.try(install_checkout_forest_state(core, address, forest))
+  trim_tree_retention(core, address)
+}
+
+fn trim_tree_retention(core: Core, address: String) -> Result(Core, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
+  )
+  let sequenced = tree_kernel.history_view(state).sequenced
+  use #(state, compressor) <- result.try(
+    tree_runtime.advance_document(
+      state,
+      sequenced.sequence_number,
+      sequenced.minimum_sequence_number,
+      compressor,
+    )
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  put_tree_channel(Core(..core, compressor: Some(compressor)), address, state)
+  |> sync_tree_checkouts
 }
 
 pub fn revert_tree_on(
@@ -6176,7 +6244,17 @@ fn submit_tree_commits(
       forest,
       compressor,
     ))
-    Ok(#(core, applied_events, []))
+    let settled_events =
+      list.map(commits, fn(commit) {
+        #(
+          address,
+          channel.TreeCommitSettled(
+            commit.revision,
+            tree_runtime.commit_outcome(commit.change),
+          ),
+        )
+      })
+    Ok(#(core, list.append(applied_events, settled_events), []))
   })
   let core = Core(..core, compressor: Some(compressor))
   use references <- result.try(references_for(core, address))
@@ -6219,23 +6297,21 @@ fn submit_tree_commits(
       },
       list.append(prepared, encoded),
     )
-  let batch_id = case has_datastore_attach(prepared), kinds {
-    True,
-      [
-        fluid_container.IdAllocation(fluid_ids.CreationRange(
-          ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
-          ..,
-        )),
-        ..
-      ]
-    ->
+  let batch_id = case kinds {
+    [
+      fluid_container.IdAllocation(fluid_ids.CreationRange(
+        ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+        ..,
+      )),
+      ..
+    ] ->
       Some(
         core.client_id
         <> "_["
         <> int.to_string(core.next_client_sequence_number)
         <> "]",
       )
-    _, _ -> None
+    _ -> None
   }
   let count = list.length(kinds)
   let grouped = count > 1
@@ -9776,7 +9852,6 @@ fn stamp_attached(
             events,
             operation,
             meta,
-            datastore_attach,
           )
         }
         False -> {
@@ -10018,7 +10093,6 @@ fn stamp_attachment_batch(
   events: List(#(String, ChannelEvent)),
   operation: channel.ChannelOperation,
   meta: channel.LocalOperationMeta,
-  datastore_attach: Bool,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
@@ -10036,17 +10110,15 @@ fn stamp_attachment_batch(
       fluid_container.ChannelOperation(route, encoded_operation),
     ])
   let csn = core.next_client_sequence_number
-  let batch_id = case datastore_attach, prepared {
-    True,
-      [
-        fluid_container.IdAllocation(fluid_ids.CreationRange(
-          ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
-          ..,
-        )),
-        ..
-      ]
-    -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
-    _, _ -> None
+  let batch_id = case prepared {
+    [
+      fluid_container.IdAllocation(fluid_ids.CreationRange(
+        ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+        ..,
+      )),
+      ..
+    ] -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+    _ -> None
   }
   let metadata =
     Some(

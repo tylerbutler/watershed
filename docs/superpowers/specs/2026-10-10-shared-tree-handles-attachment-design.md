@@ -367,6 +367,20 @@ delete an attached target. A peer's edits to that target survive local undo.
 Runtime-local handles and subscriptions stay local; fresh load reconstructs
 document state and routing without reviving old application stacks or branches.
 
+### Summary ancestry safety exception
+
+The pinned Fluid 3.1.0 edit manager can emit an unloadable summary after a
+retained local inverse, a peer edit, and a later local acknowledgement that
+advances the minimum. Its collaboration-window trunk omits the peer branch's
+base, and its fresh loader fails with assertion `0xad7`.
+
+Native summaries keep the contiguous trunk suffix from the earliest peer base
+that would otherwise be omitted. This preserves loadable peer ancestry without
+changing the authoritative retained history or restoring runtime-local inverses.
+It is a narrow byte-parity exception for the defective upstream schedule.
+Existing captured lifecycle checkpoint bytes remain the regression baseline.
+Native snapshot replay receipts also cover only commits in the emitted trunk.
+
 ## 7. Persistence and GC
 
 Use the existing hierarchical document summary and attach snapshot machinery.

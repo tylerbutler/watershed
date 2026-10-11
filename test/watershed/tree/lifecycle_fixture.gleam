@@ -12,14 +12,24 @@ import watershed/channel
 import watershed/fluid_ids
 import watershed/handle
 import watershed/runtime_core
+import watershed/tree/branch as tree_branch
+import watershed/tree/change as tree_change
+import watershed/tree/codec
+import watershed/tree/codec/summary as tree_summary_codec
 import watershed/tree/fixtures
+import watershed/tree/forest as tree_forest
+import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
+import watershed/tree/shared_change
+import watershed/tree/summary as tree_summary
 import watershed/tree/types as tree_types
+import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/fluid_summary
 import watershed/wire/op as wire_op
+import watershed/wire/socket
 
 const graph_store_type = "org.watershed.shared-tree.m7.graph"
 
@@ -68,6 +78,14 @@ fn map_to_tree_serialization(
 
 type ScenarioResult {
   ScenarioResult(observation: Json, messages: List(Json), serialization: Json)
+}
+
+type IdentityToken {
+  IdentityToken(
+    checkout: tree_branch.Checkout,
+    root: tree_forest.NodeRef,
+    anchor: tree_forest.NodeRef,
+  )
 }
 
 pub type EvidenceMutation {
@@ -313,6 +331,1559 @@ pub fn assert_scenario_rejects_evidence_mutation(
       actual.serialization,
     )
   Nil
+}
+
+pub fn assert_identity_replay(case_id: String) -> Nil {
+  case run_identity_replay(case_id) {
+    Ok(Nil) -> Nil
+    Error(detail) -> panic as { detail }
+  }
+}
+
+fn run_identity_replay(case_id: String) -> Result(Nil, String) {
+  use fixture <- result.try(fixtures.load(case_id))
+  use input <- result.try(field(fixture.input, "identityReplay"))
+  use observation <- result.try(expected_observation(
+    fixture.expected,
+    "successful-transaction",
+  ))
+  use value <- result.try(field(observation, "value"))
+  use lifecycle <- result.try(field(value, "identityLifecycle"))
+  use peer <- result.try(field(lifecycle, "peer"))
+  use checkpoints <- result.try(read_field(
+    lifecycle,
+    "checkpoints",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use sessions <- result.try(field(input, "sessions"))
+  use receiver_writer <- result.try(field(sessions, "receiverWriter"))
+  use receiver_session_raw <- result.try(read_field(
+    receiver_writer,
+    "sessionId",
+    decode.string,
+  ))
+  use #(writer, receiver, writer_client_id, _) <- result.try(
+    cores_from_decoder_input(input, receiver_session_raw),
+  )
+  use writer <- result.try(identity_deliver_context(writer, input, 1))
+  use receiver <- result.try(identity_deliver_context(receiver, input, 1))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 0, "missing initial checkpoint"),
+      [],
+    ),
+  )
+
+  use left_create <- result.try(identity_command(checkpoints, 1, 0))
+  use left_initialize <- result.try(identity_command(checkpoints, 1, 2))
+  use #(writer, left, left_creation_events) <- result.try(identity_create_tree(
+    writer,
+    left_create,
+    left_initialize,
+  ))
+  use left_token <- result.try(identity_token(writer, left))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    left_creation_events,
+    item_at(checkpoints, 1, "missing creation"),
+    left,
+    0,
+  ))
+  use _ <- result.try(assert_identity_initialization(
+    writer,
+    left,
+    item_at(checkpoints, 1, "missing creation"),
+  ))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 1, "missing left-created checkpoint"),
+      [#(left, left_token)],
+    ),
+  )
+
+  use right_create <- result.try(identity_command(checkpoints, 2, 4))
+  use right_initialize <- result.try(identity_command(checkpoints, 2, 6))
+  use #(writer, right, right_creation_events) <- result.try(
+    identity_create_tree(writer, right_create, right_initialize),
+  )
+  use right_token <- result.try(identity_token(writer, right))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    right_creation_events,
+    item_at(checkpoints, 2, "missing creation"),
+    right,
+    0,
+  ))
+  use _ <- result.try(assert_identity_initialization(
+    writer,
+    right,
+    item_at(checkpoints, 2, "missing creation"),
+  ))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 2, "missing right-created checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use #(writer, left_events, left_outbound) <- result.try(
+    runtime_core.submit_tree_edits(writer, left, [
+      tree_types.SetField(["label"], tree_types.StringValue("left-detached")),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case left_outbound {
+    [] -> Ok(Nil)
+    _ -> Error("detached left edit produced transport")
+  })
+  use left_revision <- result.try(identity_revision(left_events))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    left_events,
+    item_at(checkpoints, 3, "missing detached event"),
+    left,
+    1,
+  ))
+  use _ <- result.try(assert_identity_settlement(left_events, left_revision))
+  use _ <- result.try(assert_checkpoint_revision(
+    item_at(checkpoints, 3, "missing left-edited checkpoint"),
+    left,
+    left_revision,
+  ))
+  use #(writer, left_initial_revertible) <- result.try(
+    runtime_core.retain_tree_revertible(
+      writer,
+      left,
+      left_revision,
+      tree_types.DefaultCommit,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 3, "missing left-edited checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use #(writer, right_events, right_detached_outbound) <- result.try(
+    runtime_core.submit_tree_edits(writer, right, [
+      tree_types.SetField(["label"], tree_types.StringValue("right-detached")),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case right_detached_outbound {
+    [] -> Ok(Nil)
+    _ -> Error("detached right edit produced transport")
+  })
+  use right_revision <- result.try(identity_revision(right_events))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    right_events,
+    item_at(checkpoints, 4, "missing detached event"),
+    right,
+    1,
+  ))
+  use _ <- result.try(assert_identity_settlement(right_events, right_revision))
+  use #(writer, right_detached_revertible) <- result.try(
+    runtime_core.retain_tree_revertible(
+      writer,
+      right,
+      right_revision,
+      tree_types.DefaultCommit,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(assert_checkpoint_revision(
+    item_at(checkpoints, 4, "missing right-edited checkpoint"),
+    right,
+    right_revision,
+  ))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 4, "missing right-edited checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use right_reference <- result.try(
+    handle.reference_from_path("/" <> right) |> result.map_error(string.inspect),
+  )
+  use #(writer, _, right_outbound) <- result.try(
+    runtime_core.set(
+      writer,
+      "A/root",
+      "right",
+      handle.reference_to_json(right_reference),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use #(writer, receiver, attached_events, _) <- result.try(identity_settle(
+    writer,
+    receiver,
+    right_outbound,
+    writer_client_id,
+    2,
+    input,
+  ))
+  use _ <- result.try(assert_identity_no_commits(attached_events))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 5, "missing right-attached checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use #(writer, interleaved_events, interleaved_outbound) <- result.try(
+    runtime_core.submit_tree_edits(writer, left, [
+      tree_types.SetField(["label"], tree_types.StringValue("left-interleaved")),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case interleaved_outbound {
+    [] -> Ok(Nil)
+    _ -> Error("interleaved detached edit produced transport")
+  })
+  use interleaved_revision <- result.try(identity_revision(interleaved_events))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    interleaved_events,
+    item_at(checkpoints, 6, "missing interleaved event"),
+    left,
+    2,
+  ))
+  use _ <- result.try(assert_identity_settlement(
+    interleaved_events,
+    interleaved_revision,
+  ))
+  use _ <- result.try(assert_checkpoint_revision(
+    item_at(checkpoints, 6, "missing interleaved checkpoint"),
+    left,
+    interleaved_revision,
+  ))
+  use #(writer, original_revertible) <- result.try(
+    runtime_core.retain_tree_revertible(
+      writer,
+      left,
+      interleaved_revision,
+      tree_types.DefaultCommit,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 6, "missing interleaved checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use left_reference <- result.try(
+    handle.reference_from_path("/" <> left) |> result.map_error(string.inspect),
+  )
+  use #(writer, _, left_outbound) <- result.try(
+    runtime_core.set(
+      writer,
+      "A/root",
+      "left",
+      handle.reference_to_json(left_reference),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use #(writer, receiver, attached_events, _) <- result.try(identity_settle(
+    writer,
+    receiver,
+    left_outbound,
+    writer_client_id,
+    3,
+    input,
+  ))
+  use _ <- result.try(assert_identity_no_commits(attached_events))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 7, "missing left-attached checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use receiver_compressor_raw <- result.try(read_field(
+    receiver_writer,
+    "compressor",
+    decode.string,
+  ))
+  use receiver_compressor <- result.try(
+    receiver.compressor
+    |> option.to_result("identity receiver has no compressor"),
+  )
+  use ongoing <- result.try(
+    fluid_ids.serialize(receiver_compressor, True)
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case ongoing == json.string(receiver_compressor_raw) {
+    True -> Ok(Nil)
+    False -> Error("identity receiver compressor differs at peer load")
+  })
+  use peer_left_token <- result.try(identity_token(receiver, left))
+  use peer_right_token <- result.try(identity_token(receiver, right))
+
+  use #(writer, writer_events, writer_outbound) <- result.try(
+    runtime_core.submit_tree_edits(writer, right, [
+      tree_types.SetField(["label"], tree_types.StringValue("right-live")),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use writer_revision <- result.try(identity_revision(writer_events))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    writer_events,
+    item_at(checkpoints, 8, "missing writer event"),
+    right,
+    2,
+  ))
+  use _ <- result.try(assert_checkpoint_revision(
+    item_at(checkpoints, 8, "missing writer-live checkpoint"),
+    right,
+    writer_revision,
+  ))
+  use #(writer, writer_live_revertible) <- result.try(
+    runtime_core.retain_tree_revertible(
+      writer,
+      right,
+      writer_revision,
+      tree_types.DefaultCommit,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use #(writer, receiver, acknowledged_events, peer_received_events) <- result.try(
+    identity_settle(
+      writer,
+      receiver,
+      writer_outbound,
+      writer_client_id,
+      4,
+      input,
+    ),
+  )
+  use _ <- result.try(assert_identity_settlement(
+    acknowledged_events,
+    writer_revision,
+  ))
+  use _ <- result.try(assert_identity_peer_event(
+    receiver,
+    peer_received_events,
+    peer,
+    "trees",
+    right,
+    0,
+  ))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 8, "missing writer-live checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use receiver_write_client <- result.try(read_field(
+    sessions,
+    "receiverWriteClientId",
+    decode.string,
+  ))
+  use receiver <- result.try(identity_deliver_context(receiver, input, 5))
+  use writer <- result.try(identity_deliver_context(writer, input, 5))
+  let receiver =
+    runtime_core.Core(
+      ..receiver,
+      client_id: receiver_write_client,
+      next_client_sequence_number: 1,
+    )
+  use #(receiver, peer_events, peer_outbound) <- result.try(
+    runtime_core.submit_tree_edits(receiver, left, [
+      tree_types.SetField(["label"], tree_types.StringValue("left-peer")),
+    ])
+    |> result.map_error(fn(error) { "peer submit: " <> string.inspect(error) }),
+  )
+  use peer_revision <- result.try(identity_revision(peer_events))
+  use _ <- result.try(assert_identity_peer_event(
+    receiver,
+    peer_events,
+    peer,
+    "trees",
+    left,
+    0,
+  ))
+  use #(receiver, writer, acknowledged_events, writer_received_events) <- result.try(
+    identity_settle(
+      receiver,
+      writer,
+      peer_outbound,
+      receiver_write_client,
+      6,
+      input,
+    ),
+  )
+  use _ <- result.try(assert_identity_settlement(
+    acknowledged_events,
+    peer_revision,
+  ))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    writer_received_events,
+    item_at(checkpoints, 9, "missing peer event"),
+    left,
+    3,
+  ))
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 9, "missing peer-live checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+  use _ <- result.try(
+    assert_identity_peer(receiver, peer, "trees", [
+      #(left, peer_left_token),
+      #(right, peer_right_token),
+    ]),
+  )
+
+  use #(writer, undo_events, undo_outbound) <- result.try(
+    runtime_core.revert_tree(writer, left, original_revertible)
+    |> result.map_error(fn(error) { "revert: " <> string.inspect(error) }),
+  )
+  use undo_revision <- result.try(identity_revision(undo_events))
+  use _ <- result.try(assert_identity_event(
+    writer,
+    undo_events,
+    item_at(checkpoints, 10, "missing undo event"),
+    left,
+    4,
+  ))
+  use #(writer, undo_revertible) <- result.try(
+    runtime_core.retain_tree_revertible(
+      writer,
+      left,
+      undo_revision,
+      tree_types.UndoCommit,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use writer <- result.try(
+    runtime_core.dispose_tree_revertible(writer, left, original_revertible)
+    |> result.map_error(string.inspect),
+  )
+  use #(writer, receiver, acknowledged_events, peer_received_events) <- result.try(
+    identity_settle(
+      writer,
+      receiver,
+      [undo_outbound],
+      writer_client_id,
+      7,
+      input,
+    ),
+  )
+  use _ <- result.try(assert_identity_settlement(
+    acknowledged_events,
+    undo_revision,
+  ))
+  use _ <- result.try(assert_identity_peer_event(
+    receiver,
+    peer_received_events,
+    peer,
+    "finalTrees",
+    left,
+    1,
+  ))
+  use _ <- result.try(
+    case
+      runtime_core.tree_revertible_is_valid(writer, left, original_revertible)
+    {
+      False -> Ok(Nil)
+      True -> Error("original detached inverse remained valid after disposal")
+    },
+  )
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 10, "missing undo checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+
+  use writer <- result.try(
+    [
+      #(left, left_initial_revertible),
+      #(left, undo_revertible),
+      #(right, right_detached_revertible),
+      #(right, writer_live_revertible),
+    ]
+    |> list.try_fold(writer, fn(core, entry) {
+      runtime_core.dispose_tree_revertible(core, entry.0, entry.1)
+      |> result.map_error(string.inspect)
+    }),
+  )
+  use _ <- result.try(
+    assert_identity_checkpoint(
+      writer,
+      item_at(checkpoints, 11, "missing disposed checkpoint"),
+      [#(left, left_token), #(right, right_token)],
+    ),
+  )
+  use _ <- result.try(
+    assert_identity_peer(receiver, peer, "finalTrees", [
+      #(left, peer_left_token),
+      #(right, peer_right_token),
+    ]),
+  )
+  use value <- result.try(
+    runtime_core.tree_read(receiver, left, ["label"])
+    |> result.map_error(string.inspect),
+  )
+  case value == Some(tree_types.StringValue("left-detached")) {
+    True -> Ok(Nil)
+    False -> Error("peer did not observe detached inverse")
+  }
+}
+
+fn identity_command(
+  checkpoints: List(Json),
+  checkpoint_index: Int,
+  command_index: Int,
+) -> Result(Command, String) {
+  use checkpoint <- result.try(item_at(
+    checkpoints,
+    checkpoint_index,
+    "missing identity checkpoint",
+  ))
+  use commands <- result.try(read_field(
+    checkpoint,
+    "commands",
+    decode.list(command_decoder()),
+  ))
+  item_at(commands, command_index, "missing identity command")
+}
+
+fn identity_deliver_context(
+  core: runtime_core.Core,
+  input: Json,
+  sequence_number: Int,
+) -> Result(runtime_core.Core, String) {
+  use prefix <- result.try(read_field(
+    input,
+    "deliveryPrefix",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use envelope <- result.try(
+    list.find(prefix, fn(message) {
+      read_field(message, "sequenceNumber", decode.int) == Ok(sequence_number)
+    })
+    |> result.map_error(fn(_) { "identity context envelope is missing" }),
+  )
+  use message <- result.try(
+    json.parse(
+      json.to_string(envelope),
+      socket.sequenced_document_message_decoder(),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case message.message_type {
+    "join" | "leave" -> Ok(Nil)
+    _ -> Error("identity context envelope is not a membership message")
+  })
+  runtime_core.handle_sequenced(core, message)
+  |> result.map(fn(value) { value.0 })
+  |> result.map_error(string.inspect)
+}
+
+fn item_at(items: List(a), index: Int, detail: String) -> Result(a, String) {
+  case list.drop(items, index) {
+    [item, ..] -> Ok(item)
+    [] -> Error(detail)
+  }
+}
+
+fn identity_create_tree(
+  core: runtime_core.Core,
+  create: Command,
+  initialize: Command,
+) -> Result(
+  #(runtime_core.Core, String, List(#(String, channel.ChannelEvent))),
+  String,
+) {
+  let assert CreateChannel(datastore, channel_id, channel_type) = create
+  let assert InitializeTree(target, stored_json, initial) = initialize
+  use _ <- result.try(
+    case channel_type, target == "/" <> datastore <> "/" <> channel_id {
+      "https://graph.microsoft.com/types/tree", True -> Ok(Nil)
+      _, _ -> Error("identity tree creation command mismatch")
+    },
+  )
+  use compressor <- result.try(
+    core.compressor |> option.to_result("identity tree has no compressor"),
+  )
+  use #(compressor, generated) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  use view_id <- result.try(
+    fluid_ids.decompress(compressor, generated)
+    |> result.map_error(string.inspect),
+  )
+  use stored <- result.try(
+    tree_schema.stored_from_json(stored_json)
+    |> result.map_error(string.inspect),
+  )
+  let address = datastore <> "/" <> channel_id
+  runtime_core.create_detached_tree_with_events(
+    runtime_core.Core(..core, compressor: Some(compressor)),
+    address,
+    stored,
+    Some(initial),
+    view_id,
+  )
+  |> result.map(fn(created) { #(created.0, address, created.1) })
+  |> result.map_error(string.inspect)
+}
+
+fn identity_token(
+  core: runtime_core.Core,
+  address: String,
+) -> Result(IdentityToken, String) {
+  use forest <- result.try(
+    dict.get(core.tree_checkouts, address)
+    |> result.map_error(fn(_) { "identity checkout is missing" }),
+  )
+  let checkout = tree_branch.document(forest)
+  use state <- result.try(
+    tree_branch.checkout_state(forest, checkout)
+    |> result.map_error(string.inspect),
+  )
+  use root <- result.try(
+    tree_kernel.reference_at(state, []) |> result.map_error(string.inspect),
+  )
+  use anchor <- result.try(
+    tree_branch.reference_at(forest, checkout, [])
+    |> result.map_error(string.inspect),
+  )
+  Ok(IdentityToken(checkout, root, anchor))
+}
+
+fn assert_identity_initialization(
+  core: runtime_core.Core,
+  address: String,
+  checkpoint: Result(Json, String),
+) -> Result(Nil, String) {
+  use forest <- result.try(
+    dict.get(core.tree_checkouts, address)
+    |> result.map_error(fn(_) { "initialization checkout is missing" }),
+  )
+  use state <- result.try(
+    tree_branch.checkout_state(forest, tree_branch.document(forest))
+    |> result.map_error(string.inspect),
+  )
+  use commit <- result.try(
+    list.first(tree_kernel.history_view(state).sequenced.trunk)
+    |> result.map_error(fn(_) { "tree initialization commit is missing" }),
+  )
+  assert_checkpoint_revision(checkpoint, address, commit.commit.revision)
+}
+
+fn assert_identity_event(
+  core: runtime_core.Core,
+  events: List(#(String, channel.ChannelEvent)),
+  checkpoint: Result(Json, String),
+  address: String,
+  index: Int,
+) -> Result(Nil, String) {
+  use checkpoint <- result.try(checkpoint)
+  use trees <- result.try(read_field(
+    checkpoint,
+    "trees",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use tree <- result.try(
+    list.find(trees, fn(tree) {
+      read_field(tree, "path", decode.string) == Ok("/" <> address)
+    })
+    |> result.map_error(fn(_) { "identity event tree is missing" }),
+  )
+  assert_identity_tree_event(core, events, tree, address, index)
+}
+
+fn assert_identity_peer_event(
+  core: runtime_core.Core,
+  events: List(#(String, channel.ChannelEvent)),
+  peer: Json,
+  phase: String,
+  address: String,
+  index: Int,
+) -> Result(Nil, String) {
+  use trees <- result.try(read_field(
+    peer,
+    phase,
+    decode.list(wire.json_value_decoder()),
+  ))
+  use tree <- result.try(
+    list.find(trees, fn(tree) {
+      read_field(tree, "path", decode.string) == Ok("/" <> address)
+    })
+    |> result.map_error(fn(_) { "identity peer event tree is missing" }),
+  )
+  assert_identity_tree_event(core, events, tree, address, index)
+}
+
+fn assert_identity_tree_event(
+  core: runtime_core.Core,
+  events: List(#(String, channel.ChannelEvent)),
+  tree: Json,
+  address: String,
+  index: Int,
+) -> Result(Nil, String) {
+  use watch <- result.try(field(tree, "events"))
+  use expected_events <- result.try(read_field(
+    watch,
+    "events",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use expected <- result.try(item_at(
+    expected_events,
+    index,
+    "identity event is missing",
+  ))
+  use _ <- result.try(case list.length(expected_events) == index + 1 {
+    True -> Ok(Nil)
+    False -> Error("identity captured changed event count differs")
+  })
+  let applied =
+    list.filter_map(events, fn(event) {
+      case event {
+        #(target, channel.TreeCommitApplied(revision, kind, local, factory))
+          if target == address
+        -> Ok(#(revision, kind, local, factory))
+        _ -> Error(Nil)
+      }
+    })
+  use actual <- result.try(case applied {
+    [event] -> Ok(event)
+    _ -> Error("identity emission does not contain exactly one changed event")
+  })
+  let #(revision, kind, local, factory) = actual
+  use expected_kind <- result.try(read_field(expected, "kind", decode.string))
+  use expected_local <- result.try(read_field(expected, "local", decode.bool))
+  use expected_factory <- result.try(read_field(
+    expected,
+    "factory",
+    decode.bool,
+  ))
+  let kind = case kind {
+    tree_types.DefaultCommit -> "Default"
+    tree_types.UndoCommit -> "Undo"
+    tree_types.RedoCommit -> "Redo"
+  }
+  use _ <- result.try(
+    case
+      kind == expected_kind
+      && local == expected_local
+      && factory == expected_factory
+    {
+      True -> Ok(Nil)
+      False -> Error("identity changed event kind, origin, or factory differs")
+    },
+  )
+  use raw <- result.try(field(expected, "change"))
+  case local {
+    False ->
+      case json.to_string(raw) == "null" {
+        True -> Ok(Nil)
+        False -> Error("remote identity event exposes a local change")
+      }
+    True -> {
+      use settlements <- result.try(read_field(
+        watch,
+        "settlements",
+        decode.list(wire.json_value_decoder()),
+      ))
+      use settlement <- result.try(
+        list.find(settlements, fn(item) {
+          read_field(item, "index", decode.int) == Ok(index)
+        })
+        |> result.map_error(fn(_) {
+          "identity captured local settlement is missing"
+        }),
+      )
+      use outcome <- result.try(read_field(settlement, "outcome", decode.string))
+      use _ <- result.try(case outcome == "FullyApplied" {
+        True -> Ok(Nil)
+        False -> Error("identity captured settlement differs")
+      })
+      use expected_revision <- result.try(read_field(
+        expected,
+        "stableRevision",
+        decode.string,
+      ))
+      use _ <- result.try(
+        case fluid_ids.stable_id_to_string(revision) == expected_revision {
+          True -> Ok(Nil)
+          False -> Error("identity changed event stable revision differs")
+        },
+      )
+      use forest <- result.try(
+        dict.get(core.tree_checkouts, address)
+        |> result.map_error(fn(_) { "identity event checkout is missing" }),
+      )
+      use state <- result.try(
+        tree_branch.checkout_state(forest, tree_branch.document(forest))
+        |> result.map_error(string.inspect),
+      )
+      let view = tree_kernel.history_view(state)
+      use commit <- result.try(
+        list.find(
+          list.append(
+            view.pending,
+            list.map(view.sequenced.trunk, fn(entry) { entry.commit }),
+          ),
+          fn(commit) { commit.revision == revision },
+        )
+        |> result.map_error(fn(_) { "identity event commit is missing" }),
+      )
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result("identity event compressor is missing"),
+      )
+      use version <- result.try(read_field(raw, "version", decode.int))
+      use encoded_revision <- result.try(read_field(raw, "revision", decode.int))
+      use originator_raw <- result.try(read_field(
+        raw,
+        "originatorId",
+        decode.string,
+      ))
+      use originator <- result.try(
+        fluid_ids.session_id(originator_raw)
+        |> result.map_error(string.inspect),
+      )
+      use decoded_revision <- result.try(
+        codec.decode_stable_revision(
+          encoded_revision,
+          originator,
+          codec.DecodeContext(codec.Fluid310, compressor),
+          "identity event revision",
+        )
+        |> result.map_error(string.inspect),
+      )
+      use _ <- result.try(
+        case
+          version == 1
+          && decoded_revision == revision
+          && originator == commit.originator
+        {
+          True -> Ok(Nil)
+          False -> Error("identity SerializedChange identity differs")
+        },
+      )
+      use encoded_changes <- result.try(field(raw, "change"))
+      let schema = case shared_change.to_changes(commit.change) {
+        [shared_change.SchemaChange(before, _, _), ..] -> before
+        _ -> tree_schema.FixedSchema(tree_kernel.stored_schema(state))
+      }
+      use expected_changes <- result.try(
+        codec.decode_changes_with_schema_state(
+          encoded_changes,
+          codec.DecodeContext(codec.Fluid310, compressor),
+          codec.ChangeContext(originator, None, codec.Message),
+          schema,
+        )
+        |> result.map_error(string.inspect),
+      )
+      use encoded_native <- result.try(
+        codec.encode_changes_with_schema_state(
+          shared_change.to_changes(commit.change),
+          codec.EncodeContext(
+            codec.Fluid310,
+            compressor,
+            Some(tree_kernel.stored_schema(state)),
+          ),
+          codec.ChangeContext(originator, None, codec.Message),
+          schema,
+        )
+        |> result.map_error(string.inspect),
+      )
+      use native_changes <- result.try(
+        codec.decode_changes_with_schema_state(
+          encoded_native,
+          codec.DecodeContext(codec.Fluid310, compressor),
+          codec.ChangeContext(originator, None, codec.Message),
+          schema,
+        )
+        |> result.map_error(string.inspect),
+      )
+      case same_identity_changes(native_changes, expected_changes) {
+        True -> Ok(Nil)
+        False ->
+          Error(
+            "identity SerializedChange commit atoms or values differ at event "
+            <> int.to_string(index)
+            <> " actual="
+            <> string.inspect(
+              list.filter_map(native_changes, fn(item) {
+                case item {
+                  shared_change.DataChange(data) ->
+                    Ok(tree_change.to_data(data))
+                  _ -> Error(Nil)
+                }
+              }),
+            )
+            <> " expected="
+            <> string.inspect(
+              list.filter_map(expected_changes, fn(item) {
+                case item {
+                  shared_change.DataChange(data) ->
+                    Ok(tree_change.to_data(data))
+                  _ -> Error(Nil)
+                }
+              }),
+            ),
+          )
+      }
+    }
+  }
+}
+
+fn same_identity_changes(
+  actual: List(shared_change.TreeChange),
+  expected: List(shared_change.TreeChange),
+) -> Bool {
+  case actual, expected {
+    [], [] -> True
+    [shared_change.DataChange(actual), ..a],
+      [shared_change.DataChange(expected), ..b]
+    ->
+      tree_change.to_data(actual) == tree_change.to_data(expected)
+      && same_identity_changes(a, b)
+    [shared_change.SchemaChange(before_a, after_a, inverse_a), ..a],
+      [shared_change.SchemaChange(before_b, after_b, inverse_b), ..b]
+    ->
+      before_a == before_b
+      && after_a == after_b
+      && inverse_a == inverse_b
+      && same_identity_changes(a, b)
+    _, _ -> False
+  }
+}
+
+fn assert_identity_checkpoint(
+  core: runtime_core.Core,
+  checkpoint: Result(Json, String),
+  tokens: List(#(String, IdentityToken)),
+) -> Result(Nil, String) {
+  use checkpoint <- result.try(checkpoint)
+  use checkpoint_id <- result.try(read_field(checkpoint, "id", decode.string))
+  use compressor_expected <- result.try(field(checkpoint, "compressor"))
+  use ongoing <- result.try(read_field(
+    compressor_expected,
+    "ongoing",
+    decode.string,
+  ))
+  use summary <- result.try(read_field(
+    compressor_expected,
+    "summary",
+    decode.string,
+  ))
+  use reservation <- result.try(field(compressor_expected, "reservation"))
+  use compressor <- result.try(
+    core.compressor |> option.to_result("identity checkpoint has no compressor"),
+  )
+  use actual_ongoing <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  use actual_summary <- result.try(
+    fluid_ids.serialize(compressor, False) |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(
+    case
+      actual_ongoing == json.string(ongoing),
+      actual_summary == json.string(summary)
+    {
+      True, True -> Ok(Nil)
+      _, _ -> Error("identity checkpoint compressor bytes differ")
+    },
+  )
+  let #(_, pending) = fluid_ids.take_unfinalized_range(compressor)
+  use actual_reservation <- result.try(case pending {
+    Some(range) ->
+      fluid_ids.creation_range_to_json(range)
+      |> result.map_error(string.inspect)
+    None ->
+      Ok(
+        json.object([
+          #(
+            "sessionId",
+            json.string(
+              fluid_ids.session_id_to_string(fluid_ids.local_session(compressor)),
+            ),
+          ),
+        ]),
+      )
+  })
+  use _ <- result.try(
+    fixtures.first_difference(actual_reservation, reservation)
+    |> result.map_error(fn(path) {
+      "identity checkpoint reservation differs at " <> path
+    }),
+  )
+  use trees <- result.try(read_field(
+    checkpoint,
+    "trees",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use _ <- result.try(case list.length(trees) == list.length(tokens) {
+    True -> Ok(Nil)
+    False -> Error("identity checkpoint tree count differs")
+  })
+  list.try_each(tokens, fn(entry) {
+    let #(address, IdentityToken(checkout, root, anchor)) = entry
+    use expected <- result.try(
+      list.find(trees, fn(tree) {
+        read_field(tree, "path", decode.string) == Ok("/" <> address)
+      })
+      |> result.map_error(fn(_) { "identity checkpoint tree is missing" }),
+    )
+    use data <- result.try(field(expected, "data"))
+    use actual <- result.try(tree_data(core, address))
+    use _ <- result.try(
+      fixtures.first_difference(actual, data)
+      |> result.map_error(fn(path) {
+        "identity checkpoint root differs for " <> address <> path
+      }),
+    )
+    use expected_attached <- result.try(read_field(
+      expected,
+      "attached",
+      decode.bool,
+    ))
+    use _ <- result.try(
+      case
+        dict.has_key(core.channels, address) == expected_attached,
+        dict.has_key(core.detached, address) == !expected_attached
+      {
+        True, True -> Ok(Nil)
+        _, _ -> Error("identity checkpoint attachment state differs")
+      },
+    )
+    use forest <- result.try(
+      dict.get(core.tree_checkouts, address)
+      |> result.map_error(fn(_) { "identity checkout disappeared" }),
+    )
+    use state <- result.try(
+      tree_branch.checkout_state(forest, tree_branch.document(forest))
+      |> result.map_error(string.inspect),
+    )
+    use current_root <- result.try(
+      tree_kernel.reference_at(state, []) |> result.map_error(string.inspect),
+    )
+    use current_anchor <- result.try(
+      tree_branch.reference_at(forest, tree_branch.document(forest), [])
+      |> result.map_error(string.inspect),
+    )
+    use snapshot <- result.try(
+      case expected_attached {
+        True -> tree_kernel.snapshot(state)
+        False -> tree_runtime.snapshot_for_attach(state, compressor)
+      }
+      |> result.map_error(string.inspect),
+    )
+    use wire_summary <- result.try(
+      tree_summary.to_wire(snapshot) |> result.map_error(string.inspect),
+    )
+    use summary_entry <- result.try(
+      tree_summary_codec.encode(
+        wire_summary,
+        fluid_ids.local_session(compressor),
+        codec.EncodeContext(
+          codec.Fluid310,
+          compressor,
+          Some(wire_summary.schema),
+        ),
+      )
+      |> result.map_error(string.inspect),
+    )
+    use actual_summary <- result.try(identity_summary_json(summary_entry))
+    use expected_summary <- result.try(field(expected, "summary"))
+    use _ <- result.try(
+      fixtures.first_difference(actual_summary, expected_summary)
+      |> result.map_error(fn(path) {
+        "identity checkpoint "
+        <> checkpoint_id
+        <> " summary differs for "
+        <> address
+        <> path
+      }),
+    )
+    case
+      tree_branch.document(forest) == checkout,
+      current_root == root,
+      current_anchor == anchor
+    {
+      True, True, True -> Ok(Nil)
+      _, _, _ ->
+        Error("identity checkout, node, or anchor changed for " <> address)
+    }
+  })
+}
+
+fn identity_summary_json(
+  entry: fluid_summary.SummaryEntry,
+) -> Result(Json, String) {
+  case entry {
+    fluid_summary.SummaryTree(entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          use encoded <- result.try(identity_summary_json(entry.1))
+          Ok(#(entry.0, encoded))
+        }),
+      )
+      Ok(
+        json.object([
+          #("type", json.int(1)),
+          #("tree", json.object(entries)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryBlob(bytes) -> {
+      use content <- result.try(
+        bit_array.to_string(bytes)
+        |> result.map_error(fn(_) { "identity summary blob is not UTF-8" }),
+      )
+      Ok(
+        json.object([
+          #("type", json.int(2)),
+          #("content", json.string(content)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryHandle(_, _) ->
+      Error("identity summary contains an unresolved handle")
+  }
+}
+
+fn identity_revision(
+  events: List(#(String, channel.ChannelEvent)),
+) -> Result(fluid_ids.StableId, String) {
+  list.find_map(events, fn(event) {
+    case event.1 {
+      channel.TreeCommitApplied(revision, _, True, _) -> Ok(revision)
+      _ -> Error(Nil)
+    }
+  })
+  |> result.map_error(fn(_) { "identity edit emitted no local commit" })
+}
+
+fn assert_identity_settlement(
+  events: List(#(String, channel.ChannelEvent)),
+  revision: fluid_ids.StableId,
+) -> Result(Nil, String) {
+  let settlements =
+    list.filter_map(events, fn(event) {
+      case event.1 {
+        channel.TreeCommitSettled(settled, outcome) -> Ok(#(settled, outcome))
+        _ -> Error(Nil)
+      }
+    })
+  case settlements == [#(revision, tree_types.FullyApplied)] {
+    True -> Ok(Nil)
+    False -> Error("detached commit does not settle locally as FullyApplied")
+  }
+}
+
+fn assert_identity_no_commits(
+  events: List(#(String, channel.ChannelEvent)),
+) -> Result(Nil, String) {
+  case
+    list.any(events, fn(event) {
+      case event.1 {
+        channel.TreeCommitApplied(_, _, _, _)
+        | channel.TreeCommitSettled(_, _) -> True
+        _ -> False
+      }
+    })
+  {
+    True -> Error("attachment re-emitted a detached tree commit")
+    False -> Ok(Nil)
+  }
+}
+
+fn assert_identity_peer(
+  core: runtime_core.Core,
+  peer: Json,
+  field_name: String,
+  tokens: List(#(String, IdentityToken)),
+) -> Result(Nil, String) {
+  use trees <- result.try(read_field(
+    peer,
+    field_name,
+    decode.list(wire.json_value_decoder()),
+  ))
+  use _ <- result.try(case list.length(trees) == list.length(tokens) {
+    True -> Ok(Nil)
+    False -> Error("identity peer tree count differs")
+  })
+  list.try_each(tokens, fn(entry) {
+    let #(address, token) = entry
+    use expected <- result.try(
+      list.find(trees, fn(tree) {
+        read_field(tree, "path", decode.string) == Ok("/" <> address)
+      })
+      |> result.map_error(fn(_) { "identity peer tree is missing" }),
+    )
+    use data <- result.try(field(expected, "data"))
+    use actual <- result.try(tree_data(core, address))
+    use _ <- result.try(
+      fixtures.first_difference(actual, data)
+      |> result.map_error(fn(path) {
+        "identity peer data differs for " <> address <> path
+      }),
+    )
+    use current <- result.try(identity_token(core, address))
+    use same_root <- result.try(read_field(expected, "sameRoot", decode.bool))
+    use same_checkout <- result.try(read_field(
+      expected,
+      "sameCheckout",
+      decode.bool,
+    ))
+    case current == token && same_root && same_checkout {
+      True -> Ok(Nil)
+      False -> Error("identity peer checkout, node, or anchor changed")
+    }
+  })
+}
+
+fn assert_checkpoint_revision(
+  checkpoint: Result(Json, String),
+  address: String,
+  revision: fluid_ids.StableId,
+) -> Result(Nil, String) {
+  use checkpoint <- result.try(checkpoint)
+  use trees <- result.try(read_field(
+    checkpoint,
+    "trees",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use tree <- result.try(
+    list.find(trees, fn(tree) {
+      read_field(tree, "path", decode.string) == Ok("/" <> address)
+    })
+    |> result.map_error(fn(_) { "identity revision tree is missing" }),
+  )
+  use events <- result.try(field(tree, "events"))
+  use items <- result.try(read_field(
+    events,
+    "events",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use expected <- result.try(
+    list.find_map(list.reverse(items), fn(item) {
+      read_field(item, "stableRevision", decode.string)
+    })
+    |> result.map_error(fn(_) { "identity stable revision is missing" }),
+  )
+  case fluid_ids.stable_id_to_string(revision) == expected {
+    True -> Ok(Nil)
+    False ->
+      Error(
+        "identity event revision differs for "
+        <> address
+        <> ": "
+        <> fluid_ids.stable_id_to_string(revision)
+        <> " != "
+        <> expected,
+      )
+  }
+}
+
+fn identity_settle(
+  sender: runtime_core.Core,
+  receiver: runtime_core.Core,
+  outbounds: List(wire.OutboundOperation),
+  client_id: String,
+  sequence_number: Int,
+  input: Json,
+) -> Result(
+  #(
+    runtime_core.Core,
+    runtime_core.Core,
+    List(#(String, channel.ChannelEvent)),
+    List(#(String, channel.ChannelEvent)),
+  ),
+  String,
+) {
+  use #(sender, outbounds) <- result.try(
+    runtime_core.coalesce_outbound_operations(sender, outbounds)
+    |> result.map_error(fn(error) { "coalesce: " <> string.inspect(error) }),
+  )
+  let assert [outbound] = outbounds
+  use prefix <- result.try(read_field(
+    input,
+    "deliveryPrefix",
+    decode.list(wire.json_value_decoder()),
+  ))
+  use expected <- result.try(
+    list.find(prefix, fn(message) {
+      read_field(message, "sequenceNumber", decode.int) == Ok(sequence_number)
+    })
+    |> result.map_error(fn(_) { "identity transport checkpoint is missing" }),
+  )
+  use expected <- result.try(transport_projection(expected))
+  use minimum_sequence_number <- result.try(read_field(
+    expected,
+    "minimumSequenceNumber",
+    decode.int,
+  ))
+  use actual <- result.try(transport_message_with_minimum(
+    outbound,
+    client_id,
+    sequence_number,
+    minimum_sequence_number,
+  ))
+  use actual <- result.try(normalize_identity_transport(
+    actual,
+    client_id,
+    outbound.client_sequence_number,
+  ))
+  use expected <- result.try(normalize_identity_transport(
+    expected,
+    client_id,
+    outbound.client_sequence_number,
+  ))
+  use _ <- result.try(case fixtures.first_difference(actual, expected) {
+    Ok(Nil) -> Ok(Nil)
+    Error(path) ->
+      Error(
+        "identity transport differs at sequence "
+        <> int.to_string(sequence_number)
+        <> path
+        <> " actual="
+        <> string.slice(json.to_string(actual), 0, 500)
+        <> " expected="
+        <> string.slice(json.to_string(expected), 0, 500)
+        <> " actual-trunk="
+        <> snippet_after(json.to_string(actual), "trunk")
+        <> " expected-trunk="
+        <> snippet_after(json.to_string(expected), "trunk")
+        <> " actual-forest="
+        <> snippet_after(json.to_string(actual), "\\\"keys\\\"")
+        <> " expected-forest="
+        <> snippet_after(json.to_string(expected), "\\\"keys\\\"")
+        <> " actual-replace="
+        <> snippet_after(json.to_string(actual), "\"r\"")
+        <> " expected-replace="
+        <> snippet_after(json.to_string(expected), "\"r\""),
+      )
+  })
+  use message <- result.try(sequenced(outbound, client_id, sequence_number))
+  let message =
+    types.SequencedDocumentMessage(..message, minimum_sequence_number:)
+  use #(sender, sender_ingested) <- result.try(
+    runtime_core.handle_sequenced(sender, message)
+    |> result.map_error(fn(error) { "sender: " <> string.inspect(error) }),
+  )
+  use #(receiver, receiver_ingested) <- result.try(
+    runtime_core.handle_sequenced(receiver, message)
+    |> result.map_error(fn(error) { "receiver: " <> string.inspect(error) }),
+  )
+  Ok(#(sender, receiver, sender_ingested.events, receiver_ingested.events))
+}
+
+fn normalize_identity_transport(
+  message: Json,
+  client_id: String,
+  client_sequence_number: Int,
+) -> Result(Json, String) {
+  json.to_string(message)
+  |> string.replace(
+    client_id <> "_[" <> int.to_string(client_sequence_number) <> "]",
+    "transport-batch-[" <> int.to_string(client_sequence_number) <> "]",
+  )
+  |> json.parse(wire.json_value_decoder())
+  |> result.map_error(fn(_) { "invalid identity transport normalization" })
+}
+
+fn snippet_after(value: String, marker: String) -> String {
+  case string.split(value, marker) {
+    [_, rest, ..] -> string.slice(rest, 0, 600)
+    _ -> "missing"
+  }
+}
+
+pub fn assert_mismatched_attach_attributes() -> Nil {
+  let core = attachment_tree_core("A/attributes", "valid")
+  let assert Ok(reference) = handle.reference_from_path("/A/attributes")
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "attributes",
+      handle.reference_to_json(reference),
+    )
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert Ok(receiver) =
+    runtime_fixture.routed_core_for(
+      "remote-reader",
+      "40000000-0000-4000-8000-000000000004",
+    )
+  let sequence_number = receiver.last_seen_sequence_number + 1
+  let assert Ok(valid) = sequenced(outbound, "remote", sequence_number)
+  let valid_result = runtime_core.handle_sequenced(receiver, valid)
+  case valid_result {
+    Ok(_) -> Nil
+    Error(error) ->
+      panic as { "valid tree attachment: " <> string.inspect(error) }
+  }
+
+  let malicious =
+    fluid_container.DecodedBatch(
+      ..batch,
+      messages: list.map(batch.messages, fn(message) {
+        fluid_container.ContainerMessage(..message, kind: case message.kind {
+          fluid_container.ChannelAttach(route, kind, snapshot) -> {
+            let changed =
+              mutate_json(
+                snapshot,
+                "\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\"",
+                "\\\"snapshotFormatVersion\\\":\\\"9.9.9\\\"",
+              )
+            fluid_container.ChannelAttach(route, kind, changed)
+          }
+          other -> other
+        })
+      }),
+    )
+  let assert Ok(contents) = fluid_container.encode_batch(malicious)
+  let assert Ok(malicious) =
+    sequenced(
+      wire.OutboundOperation(..outbound, contents:),
+      "remote",
+      sequence_number,
+    )
+  let before = receiver
+  let assert Error(runtime_core.ContainerOperationFailed(fluid_container.UnsupportedMessage(
+    "unsupported channel attributes",
+  ))) = runtime_core.handle_sequenced(receiver, malicious)
+  receiver
+  |> expect_equal(before, "attribute mismatch changed the runtime core")
+}
+
+pub fn assert_wrong_attach_ack_snapshot() -> Nil {
+  let core = attachment_tree_core("A/ack", "submitted")
+  let assert Ok(reference) = handle.reference_from_path("/A/ack")
+  let assert Ok(#(writer, _, [outbound])) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "ack-tree",
+      handle.reference_to_json(reference),
+    )
+  let assert Ok(valid) =
+    sequenced(outbound, writer.client_id, writer.last_seen_sequence_number + 1)
+  let assert Ok(#(accepted, _)) = runtime_core.handle_sequenced(writer, valid)
+  accepted.in_flight
+  |> expect_equal(
+    [],
+    "valid attach acknowledgement did not drain in-flight state",
+  )
+
+  let alternate = attachment_tree_core("A/other", "malicious")
+  let assert Ok(other_reference) = handle.reference_from_path("/A/other")
+  let assert Ok(#(_, other_prepared)) =
+    runtime_core.prepare_attachments(alternate, "A/root", [other_reference])
+  let assert Ok(alternate_snapshot) =
+    list.find_map(other_prepared, fn(message) {
+      case message {
+        fluid_container.ChannelAttach(_, _, snapshot) -> Ok(snapshot)
+        _ -> Error(Nil)
+      }
+    })
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let changed =
+    fluid_container.DecodedBatch(
+      ..batch,
+      messages: list.map(batch.messages, fn(item) {
+        let fluid_container.ContainerMessage(kind, index, metadata) = item
+        fluid_container.ContainerMessage(
+          case kind {
+            fluid_container.ChannelAttach(route, channel_type, _) ->
+              fluid_container.ChannelAttach(
+                route,
+                channel_type,
+                alternate_snapshot,
+              )
+            other -> other
+          },
+          index,
+          metadata,
+        )
+      }),
+    )
+  let assert Ok(contents) = fluid_container.encode_batch(changed)
+  let malicious =
+    types.SequencedDocumentMessage(..valid, contents: {
+      let assert Ok(contents) =
+        json.parse(json.to_string(contents), decode.dynamic)
+      contents
+    })
+  let before = writer
+  let assert Error(runtime_core.AckMismatch(
+    "outer submission does not match pending items",
+  )) = runtime_core.handle_sequenced(writer, malicious)
+  writer
+  |> expect_equal(
+    before,
+    "wrong attach acknowledgement changed the runtime core",
+  )
+}
+
+fn attachment_tree_core(address: String, label: String) -> runtime_core.Core {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(channel.TreeState(source)) = dict.get(core.channels, "A/_C")
+  let assert Ok(Some(root)) = tree_kernel.read(source, [])
+  let assert Some(compressor) = core.compressor
+  let assert Ok(#(compressor, generated)) = fluid_ids.generate(compressor)
+  let assert Ok(view_id) = fluid_ids.decompress(compressor, generated)
+  let core = runtime_core.Core(..core, compressor: Some(compressor))
+  let assert Ok(core) =
+    runtime_core.create_detached_tree(
+      core,
+      address,
+      tree_kernel.stored_schema(source),
+      Some(root),
+      view_id,
+    )
+  let assert Ok(#(core, _, [])) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.SetField(["title"], tree_types.StringValue(label)),
+    ])
+  core
+}
+
+fn mutate_json(value: Json, before: String, after: String) -> Json {
+  let raw = json.to_string(value)
+  let changed = string.replace(raw, before, after)
+  let assert True = raw != changed
+  let assert Ok(value) = json.parse(changed, wire.json_value_decoder())
+  value
+}
+
+fn expect_equal(actual: a, expected: a, detail: String) -> Nil {
+  case actual == expected {
+    True -> Nil
+    False -> panic as { detail }
+  }
 }
 
 fn mutate_messages(
@@ -707,6 +2278,16 @@ fn cores(
   input: Json,
 ) -> Result(#(runtime_core.Core, runtime_core.Core, String, String), String) {
   use decoder_input <- result.try(field(input, "decoderInput"))
+  cores_from_decoder_input(
+    decoder_input,
+    "70000000-0000-4000-8000-000000000007",
+  )
+}
+
+fn cores_from_decoder_input(
+  decoder_input: Json,
+  receiver_session_id: String,
+) -> Result(#(runtime_core.Core, runtime_core.Core, String, String), String) {
   use runtime <- result.try(field(decoder_input, "runtime"))
   use store_type <- result.try(read_field(
     runtime,
@@ -808,7 +2389,7 @@ fn cores(
     |> complete_core,
   )
   use receiver_session <- result.try(
-    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+    fluid_ids.session_id(receiver_session_id)
     |> result.map_error(string.inspect),
   )
   use settled_compressor <- result.try(
@@ -1712,6 +3293,20 @@ fn transport_message(
   client_id: String,
   sequence_number: Int,
 ) -> Result(Json, String) {
+  transport_message_with_minimum(
+    outbound,
+    client_id,
+    sequence_number,
+    outbound.reference_sequence_number,
+  )
+}
+
+fn transport_message_with_minimum(
+  outbound: wire.OutboundOperation,
+  client_id: String,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(Json, String) {
   transport_projection(
     json.object([
       #("clientId", json.string(client_id)),
@@ -1721,7 +3316,7 @@ fn transport_message(
         Some(value) -> value
         None -> json.null()
       }),
-      #("minimumSequenceNumber", json.int(outbound.reference_sequence_number)),
+      #("minimumSequenceNumber", json.int(minimum_sequence_number)),
       #("referenceSequenceNumber", json.int(outbound.reference_sequence_number)),
       #("sequenceNumber", json.int(sequence_number)),
       #("timestamp", json.int(1_700_000_000_000)),

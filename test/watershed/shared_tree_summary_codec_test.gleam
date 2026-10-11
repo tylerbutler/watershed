@@ -480,8 +480,8 @@ fn corrupt_edit_manager_identifier(
   let corrupted =
     raw
     |> string.replace(
-      "\"data\":[[0,3,\"peer\"]],\"identifiers\"",
-      "\"data\":[[0,9007199254740991,\"peer\"]],\"identifiers\"",
+      "\"data\":[[0,3,\"peer\"]]",
+      "\"data\":[[0,9007199254740991,\"peer\"]]",
     )
   case corrupted == raw {
     True -> panic as "Identifier history corruption target was not found"

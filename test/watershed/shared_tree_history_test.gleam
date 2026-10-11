@@ -59,6 +59,143 @@ fn revision_r() -> fluid_ids.StableId {
   revision("00000000-0000-4000-8000-00000000000c")
 }
 
+pub fn shared_tree_history_summary_keeps_entire_window_start_batch_test() {
+  let trunk = [
+    history.SequencedCommit(
+      empty_commit(revision_a(), local_session()),
+      types.SequencePoint(1, 0),
+    ),
+    history.SequencedCommit(
+      empty_commit(revision_b(), peer_session()),
+      types.SequencePoint(1, 1),
+    ),
+    history.SequencedCommit(
+      empty_commit(revision_r(), local_session()),
+      types.SequencePoint(2, 0),
+    ),
+  ]
+  let assert Ok(state) =
+    history.restore(
+      history.HistorySnapshot(history.InitialBase, trunk, [], 2, 0, []),
+      local_session(),
+    )
+  history.summary_snapshot(state).trunk |> expect.to_equal(trunk)
+}
+
+pub fn shared_tree_history_summary_retains_peer_base_for_continuation_test() {
+  let local = empty_commit(revision_a(), local_session())
+  let peer = empty_commit(revision_b(), peer_session())
+  let later = empty_commit(revision_r(), local_session())
+  let assert Ok(appended) =
+    history.append_local(history.new(local_session()), local)
+  let assert Ok(#(retained, inverse)) =
+    history.retain_revertible(
+      appended.history,
+      revision_a(),
+      types.DefaultCommit,
+    )
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      retained,
+      local,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(received, Nil)) =
+    history.receive(
+      acked.history,
+      peer,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(appended) = history.append_local(received.history, later)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      appended.history,
+      later,
+      types.SequencePoint(3, 0),
+      2,
+      2,
+      Nil,
+      no_mint,
+    )
+  let summary = history.summary_snapshot(acked.history)
+  summary.trunk
+  |> list.map(fn(entry) { entry.commit.revision })
+  |> expect.to_equal([revision_b(), revision_r()])
+  let restored = history.restore(summary, other_peer_session())
+  restored |> expect.to_be_ok
+  let assert Ok(restored) = restored
+  history.revertible_is_valid(acked.history, inverse) |> expect.to_equal(True)
+  history.inspect(acked.history).sequenced.trunk
+  |> list.map(fn(entry) { entry.commit.revision })
+  |> expect.to_equal([revision_a(), revision_b(), revision_r()])
+  history.revertible_is_valid(restored, inverse) |> expect.to_equal(False)
+  let next =
+    empty_commit(
+      revision("00000000-0000-4000-8000-00000000000d"),
+      peer_session(),
+    )
+  history.receive(restored, next, types.SequencePoint(4, 0), 3, 2, Nil, no_mint)
+  |> expect.to_be_ok
+  Nil
+}
+
+pub fn shared_tree_history_summary_drops_evicted_replay_receipts_test() {
+  let commit = empty_commit(revision_a(), local_session())
+  let later = empty_commit(revision_b(), local_session())
+  let assert Ok(appended) =
+    history.append_local(history.new(local_session()), commit)
+  let assert Ok(#(retained, _)) =
+    history.retain_revertible(
+      appended.history,
+      revision_a(),
+      types.DefaultCommit,
+    )
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      retained,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(replayed, Nil)) =
+    history.receive(
+      acked.history,
+      commit,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(appended) = history.append_local(replayed.history, later)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      appended.history,
+      later,
+      types.SequencePoint(3, 0),
+      2,
+      2,
+      Nil,
+      no_mint,
+    )
+  let summary = history.summary_snapshot(acked.history)
+  history.restore(summary, other_peer_session()) |> expect.to_be_ok
+  summary.replayed_receipts |> expect.to_equal([])
+  history.inspect(acked.history).sequenced.replayed_receipts
+  |> expect.to_equal([types.SequencePoint(2, 0)])
+}
+
 type Allocation {
   Allocation(
     revisions: List(fluid_ids.StableId),
@@ -254,7 +391,7 @@ pub fn shared_tree_schema_evolution_history_test() -> Nil {
   let assert Ok(expected) =
     schema_evolution_fixture.history_projection(fixture.expected)
   observation_field(actual, "edit-then-upgrade-causal", "detachedIdentities")
-  |> expect.to_not_equal(observation_field(
+  |> expect.to_equal(observation_field(
     expected,
     "edit-then-upgrade-causal",
     "detachedIdentities",

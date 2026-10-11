@@ -1536,7 +1536,7 @@ fn encode_modular_value(
   }
   let members = case builds {
     None -> members
-    Some(value) -> [#("builds", value), ..members]
+    Some(value) -> list.append(members, [#("builds", value)])
   }
   let members = case refreshers {
     None -> members
@@ -1888,12 +1888,20 @@ fn encode_builds(
     [] -> Ok(None)
     _ -> {
       let EncodeContext(compressor: compressor, ..) = context
-      use trees <- result.try(field_batch.encode_with_context(
-        list.map(builds, fn(build) { build.trees }),
-        context.schema,
-        id_context(compressor, change_context),
-      ))
-      use trees <- result.try(json_value(trees, location <> ".trees"))
+      let fields = list.map(builds, fn(build) { build.trees })
+      let ids = id_context(compressor, change_context)
+      use trees <- result.try(case change_context.purpose, context.schema {
+        Summary, Some(stored) ->
+          field_batch.encode_summary_value_with_context(fields, stored, ids)
+        _, _ -> {
+          use trees <- result.try(field_batch.encode_with_context(
+            fields,
+            context.schema,
+            ids,
+          ))
+          json_value(trees, location <> ".trees")
+        }
+      })
       use entries <- result.try(
         index_try_map(builds, fn(build, index) {
           use local_id <- result.try(safe_local_id(build.id.local_id, location))

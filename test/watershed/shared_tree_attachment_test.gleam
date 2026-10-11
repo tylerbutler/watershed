@@ -57,6 +57,18 @@ pub fn shared_tree_cross_datastore_raw_evidence_test() {
   )
 }
 
+pub fn shared_tree_multiple_tree_identity_lifecycle_test() {
+  lifecycle_fixture.assert_identity_replay("handle-transaction-branch")
+}
+
+pub fn shared_tree_attachment_refuses_mismatched_attributes_atomically_test() {
+  lifecycle_fixture.assert_mismatched_attach_attributes()
+}
+
+pub fn shared_tree_attachment_refuses_wrong_ack_snapshot_atomically_test() {
+  lifecycle_fixture.assert_wrong_attach_ack_snapshot()
+}
+
 pub fn shared_tree_attachment_evidence_rejects_changed_snapshot_bytes_test() {
   lifecycle_fixture.assert_scenario_rejects_evidence_mutation(
     "cross-datastore-attachment",

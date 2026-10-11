@@ -386,7 +386,16 @@ pub fn shared_tree_runtime_detached_upgrade_installs_authored_state_test() {
   let assert Ok(#(upgraded, events, [])) =
     runtime_core.submit_tree_upgrade(core, address, optional)
 
-  events |> list.length |> expect.to_equal(2)
+  let revision = applied_revision(events)
+  events
+  |> expect.to_equal([
+    #(
+      address,
+      channel.TreeCommitApplied(revision, tree_types.DefaultCommit, True, False),
+    ),
+    #(address, channel.TreeEvent(tree_kernel.SchemaChanged(True))),
+    #(address, channel.TreeCommitSettled(revision, tree_types.FullyApplied)),
+  ])
   upgraded.compressor |> expect.to_not_equal(before_compressor)
   dict.has_key(upgraded.channels, address) |> expect.to_be_false
   let assert Ok(channel.TreeState(state)) = dict.get(upgraded.detached, address)

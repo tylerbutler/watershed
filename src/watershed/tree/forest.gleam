@@ -59,7 +59,11 @@ type DetachedEntry {
 }
 
 pub opaque type DetachedIndex {
-  DetachedIndex(entries: Dict(AtomId, DetachedEntry), next_root_id: Int)
+  DetachedIndex(
+    entries: Dict(AtomId, DetachedEntry),
+    insertion_order: List(AtomId),
+    next_root_id: Int,
+  )
 }
 
 pub type FieldDelta {
@@ -161,7 +165,7 @@ pub fn new(
 ) -> Result(Forest, TreeError) {
   use _ <- result.try(schema.validate_root_field(schema, root))
   let empty =
-    Forest(view_id, schema, [], dict.new(), 0, DetachedIndex(dict.new(), 0))
+    Forest(view_id, schema, [], dict.new(), 0, DetachedIndex(dict.new(), [], 0))
   case root {
     None -> Ok(empty)
     Some(value) -> {
@@ -220,59 +224,52 @@ pub fn promote_preview_identity(
       preview.root,
       nodes,
       int.max(canonical.next_node_id, preview.next_node_id),
-      DetachedIndex(dict.new(), canonical.detached.next_root_id),
+      DetachedIndex(dict.new(), [], canonical.detached.next_root_id),
     )
+  use entries <- result.try(ordered_detached_entries(canonical))
   use promoted <- result.try(
-    list.try_fold(
-      dict.to_list(canonical.detached.entries),
-      promoted,
-      fn(promoted, pair) {
-        let #(id, canonical_entry) = pair
-        let preview_id = replacement_input(id, replacements)
-        use #(canonical_value, _) <- result.try(materialize(
-          canonical,
-          canonical_entry.node_id,
-          set.new(),
-        ))
-        case dict.get(preview.detached.entries, preview_id) {
-          Ok(preview_entry) -> {
-            use #(preview_value, _) <- result.try(materialize(
-              preview,
-              preview_entry.node_id,
-              set.new(),
-            ))
-            use _ <- result.try(check(
-              canonical_value == preview_value,
-              atom_location(id),
-              "transaction preview has another detached tree",
-            ))
-            use nodes <- result.try(copy_subtree(
-              preview,
-              preview_entry.node_id,
-              promoted.nodes,
-            ))
-            Ok(
-              Forest(..promoted, nodes:)
-              |> put_entry(
-                id,
-                DetachedEntry(..canonical_entry, node_id: preview_entry.node_id),
-              ),
-            )
-          }
-          Error(Nil) -> {
-            use #(promoted, node_id) <- result.try(allocate(
-              promoted,
-              canonical_value,
-            ))
-            Ok(put_entry(
-              promoted,
+    list.try_fold(entries, promoted, fn(promoted, pair) {
+      let #(id, canonical_entry) = pair
+      let preview_id = replacement_input(id, replacements)
+      use #(canonical_value, _) <- result.try(materialize(
+        canonical,
+        canonical_entry.node_id,
+        set.new(),
+      ))
+      case dict.get(preview.detached.entries, preview_id) {
+        Ok(preview_entry) -> {
+          use #(preview_value, _) <- result.try(materialize(
+            preview,
+            preview_entry.node_id,
+            set.new(),
+          ))
+          use _ <- result.try(check(
+            canonical_value == preview_value,
+            atom_location(id),
+            "transaction preview has another detached tree",
+          ))
+          use nodes <- result.try(copy_subtree(
+            preview,
+            preview_entry.node_id,
+            promoted.nodes,
+          ))
+          Ok(
+            Forest(..promoted, nodes:)
+            |> put_entry(
               id,
-              DetachedEntry(..canonical_entry, node_id:),
-            ))
-          }
+              DetachedEntry(..canonical_entry, node_id: preview_entry.node_id),
+            ),
+          )
         }
-      },
-    ),
+        Error(Nil) -> {
+          use #(promoted, node_id) <- result.try(allocate(
+            promoted,
+            canonical_value,
+          ))
+          Ok(put_entry(promoted, id, DetachedEntry(..canonical_entry, node_id:)))
+        }
+      }
+    }),
   )
   use canonical_data <- result.try(export_data(canonical))
   use promoted_data <- result.try(export_data(promoted))
@@ -490,6 +487,22 @@ pub fn apply_delta_with_array_changes(
 }
 
 pub fn export_data(state: Forest) -> Result(ForestData, TreeError) {
+  export_entries(
+    state,
+    dict.to_list(state.detached.entries)
+      |> list.sort(fn(left, right) { compare_atom(left.0, right.0) }),
+  )
+}
+
+pub fn export_summary_data(state: Forest) -> Result(ForestData, TreeError) {
+  use entries <- result.try(ordered_detached_entries(state))
+  export_entries(state, entries)
+}
+
+fn export_entries(
+  state: Forest,
+  entries: List(#(AtomId, DetachedEntry)),
+) -> Result(ForestData, TreeError) {
   use #(root, visited) <- result.try(materialize_field(
     state,
     state.root,
@@ -499,9 +512,6 @@ pub fn export_data(state: Forest) -> Result(ForestData, TreeError) {
     schema.validate_root_field(state.schema, root)
     |> result.map_error(fn(error) { contextual("root", error) }),
   )
-  let entries =
-    dict.to_list(state.detached.entries)
-    |> list.sort(fn(left, right) { compare_atom(left.0, right.0) })
   use #(detached, visited) <- result.try(
     list.try_fold(entries, #([], visited), fn(acc, pair) {
       let #(id, entry) = pair
@@ -531,6 +541,23 @@ pub fn export_data(state: Forest) -> Result(ForestData, TreeError) {
     "unowned nodes remain",
   ))
   Ok(ForestData(root, list.reverse(detached), state.detached.next_root_id))
+}
+
+pub fn trim_revisions(
+  state: Forest,
+  revisions: List(StableId),
+) -> Result(Forest, TreeError) {
+  use entries <- result.try(ordered_detached_entries(state))
+  list.try_fold(entries, state, fn(state, pair) {
+    case pair.1.latest_relevant_revision {
+      Some(revision) ->
+        case list.contains(revisions, revision) {
+          True -> destroy_roots(state, pair.0, 1)
+          False -> Ok(state)
+        }
+      None -> Ok(state)
+    }
+  })
 }
 
 pub fn import_data(
@@ -809,8 +836,21 @@ fn put_entry(state: Forest, id: AtomId, entry: DetachedEntry) -> Forest {
     detached: DetachedIndex(
       ..state.detached,
       entries: dict.insert(state.detached.entries, id, entry),
+      insertion_order: case dict.has_key(state.detached.entries, id) {
+        True -> state.detached.insertion_order
+        False -> list.append(state.detached.insertion_order, [id])
+      },
     ),
   )
+}
+
+fn ordered_detached_entries(
+  state: Forest,
+) -> Result(List(#(AtomId, DetachedEntry)), TreeError) {
+  list.try_map(state.detached.insertion_order, fn(id) {
+    use entry <- result.try(detached_entry(state, id))
+    Ok(#(id, entry))
+  })
 }
 
 fn remove_entry(state: Forest, id: AtomId) -> Forest {
@@ -819,6 +859,9 @@ fn remove_entry(state: Forest, id: AtomId) -> Forest {
     detached: DetachedIndex(
       ..state.detached,
       entries: dict.delete(state.detached.entries, id),
+      insertion_order: list.filter(state.detached.insertion_order, fn(known) {
+        known != id
+      }),
     ),
   )
 }

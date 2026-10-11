@@ -1155,11 +1155,12 @@ pub fn shared_tree_bridge_advances_restored_session_identity_order_test() {
   let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
   let assert Ok(compressor) = fluid_ids.deserialize(serialized, session)
   let assert Ok(state) = tree_kernel.restore(snapshot, view_id, session, view)
-  let before = tree_kernel.visible_data(state)
+  let assert Ok(before) = tree_kernel.visible_data(state)
   let #(advanced, _) =
     tree_runtime.advance_document(state, 3, 2, compressor)
     |> expect.to_be_ok()
-  tree_kernel.visible_data(advanced) |> expect.to_equal(before)
+  tree_kernel.visible_data(advanced)
+  |> expect.to_equal(Ok(forest.ForestData(..before, detached: [])))
   tree_kernel.history_view(advanced).sequenced.sequence_number
   |> expect.to_equal(3)
   tree_kernel.history_view(advanced).sequenced.minimum_sequence_number

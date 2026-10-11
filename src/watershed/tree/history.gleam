@@ -12,7 +12,7 @@ import watershed/tree/shared_change
 import watershed/tree/types.{
   type CheckoutSelector, type LocalCheckoutId, type RevertibleId,
   type SequencePoint, type TreeCommitKind, type TreeError, DocumentCheckout,
-  InvalidHistory, LocalCheckout, LocalCheckoutId, RevertibleId,
+  InvalidHistory, LocalCheckout, LocalCheckoutId, RevertibleId, SequencePoint,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -2427,7 +2427,63 @@ pub fn pending(state: History) -> List(Commit) {
 
 /// Mark the current local branch as captured by an attach snapshot.
 pub fn promote_attach(state: History) -> History {
-  History(..state, pending: [], local_base: None, local_authored_context: [])
+  let detached_trunk =
+    list.index_map(state.pending, fn(entry, index) {
+      SequencedCommit(
+        entry.current.commit,
+        SequencePoint(minimum_sequence_number + index + 2, 0),
+      )
+    })
+  History(
+    ..state,
+    trunk: list.append(state.trunk, detached_trunk),
+    pending: [],
+    local_base: None,
+    local_authored_context: [],
+  )
+}
+
+pub fn has_retained_checkouts(state: History) -> Bool {
+  !list.is_empty(state.revertibles) || !list.is_empty(state.local_checkouts)
+}
+
+pub fn summary_snapshot(state: History) -> HistorySnapshot {
+  let snapshot = inspect(state).sequenced
+  let previous =
+    last_index_where(snapshot.trunk, fn(entry) {
+      entry.point.sequence_number <= snapshot.minimum_sequence_number
+    })
+  let first = case list.drop(snapshot.trunk, previous + 1) {
+    [entry, ..]
+      if entry.point.sequence_number == snapshot.minimum_sequence_number + 1
+    -> previous + 1
+    _ -> int_max(0, previous)
+  }
+  let first = case has_retained_checkouts(state) {
+    True -> first
+    False -> int_max(first, previous + 1)
+  }
+  let first =
+    list.fold(snapshot.peers, first, fn(first, peer) {
+      case peer.base {
+        None -> first
+        Some(revision) ->
+          int_min(
+            first,
+            last_index_where(snapshot.trunk, fn(entry) {
+              entry.commit.revision == revision
+            }),
+          )
+      }
+    })
+  let trunk = list.drop(snapshot.trunk, first)
+  HistorySnapshot(
+    ..snapshot,
+    trunk:,
+    replayed_receipts: list.filter(snapshot.replayed_receipts, fn(point) {
+      list.any(trunk, fn(entry) { entry.point == point })
+    }),
+  )
 }
 
 pub fn inspect(state: History) -> HistoryView {

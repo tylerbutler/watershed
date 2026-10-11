@@ -272,12 +272,13 @@ pub fn encode_with_context(
       )
       case
         schema.has_identifier_fields(stored)
-        || list.any(list.flatten(fields), contains_handle)
+        || schema.node_schema(stored, handle_leaf)
+        == Ok(schema.Leaf(schema.HandleLeaf))
       {
         False -> encode_with_context_generic(fields, stored, ids)
         True ->
           case encode_compressed_fields(fields, stored, ids) {
-            Ok(encoded) -> Ok(encoded)
+            Ok(encoded) -> Ok(json_ot.to_json(encoded))
             Error(Nil) -> encode_with_context_generic(fields, stored, ids)
           }
       }
@@ -290,6 +291,15 @@ pub fn encode_summary_with_context(
   stored: schema.StoredSchema,
   ids: IdContext,
 ) -> Result(Json, TreeError) {
+  encode_summary_value_with_context(fields, stored, ids)
+  |> result.map(json_ot.to_json)
+}
+
+pub fn encode_summary_value_with_context(
+  fields: List(List(TreeValue)),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+) -> Result(JsonValue, TreeError) {
   use _ <- result.try(
     list.try_each(fields, fn(field) {
       list.try_each(field, fn(value) { schema.validate_subtree(stored, value) })
@@ -297,17 +307,13 @@ pub fn encode_summary_with_context(
   )
   case encode_compressed_fields(fields, stored, ids) {
     Ok(encoded) -> Ok(encoded)
-    Error(Nil) -> encode_with_context_generic(fields, stored, ids)
-  }
-}
-
-fn contains_handle(value: TreeValue) -> Bool {
-  case value {
-    HandleValue(_) -> True
-    ObjectValue(_, fields) | MapValue(_, fields) ->
-      list.any(fields, fn(field) { contains_handle(field.1) })
-    ArrayValue(_, elements) -> list.any(elements, contains_handle)
-    StringValue(_) | NumberValue(_) | BooleanValue(_) | NullValue -> False
+    Error(Nil) -> {
+      use encoded <- result.try(encode_with_context_generic(fields, stored, ids))
+      json_ot.parse_json(json.to_string(encoded))
+      |> result.map_error(fn(_) {
+        CorruptData("fieldBatch", "encoded batch is not valid JSON")
+      })
+    }
   }
 }
 
@@ -386,7 +392,7 @@ fn encode_compressed_fields(
   fields: List(List(TreeValue)),
   stored: schema.StoredSchema,
   ids: IdContext,
-) -> Result(Json, Nil) {
+) -> Result(JsonValue, Nil) {
   use encoded_fields <- result.try(
     list.try_map(fields, fn(field) {
       case field {
@@ -432,8 +438,7 @@ fn encode_compressed_fields(
         ),
       ),
       #("data", VArray(data)),
-    ])
-    |> json_ot.to_json,
+    ]),
   )
 }
 
@@ -736,33 +741,33 @@ fn encode_nested_data(data: List(JsonValue), count: Int) -> JsonValue {
 }
 
 fn discover_shapes(roots: List(EncodeShape)) -> List(EncodeShape) {
-  let shapes = discover_shape_children(list.unique(roots), list.unique(roots))
-  list.append(
-    list.filter(shapes, is_nested_shape),
-    list.filter(shapes, fn(shape) { !is_nested_shape(shape) }),
-  )
-}
-
-fn is_nested_shape(shape: EncodeShape) -> Bool {
-  case shape {
-    EncodeNestedArray(_) -> True
-    EncodeNode(_, _, _, _) -> False
-  }
+  let found = list.unique(roots)
+  let counts = discover_shape_children(list.reverse(found), found, roots)
+  list.unique(counts)
+  |> list.sort(fn(left, right) {
+    int.compare(
+      list.count(counts, fn(shape) { shape == right }),
+      list.count(counts, fn(shape) { shape == left }),
+    )
+  })
 }
 
 fn discover_shape_children(
   remaining: List(EncodeShape),
   found: List(EncodeShape),
+  counts: List(EncodeShape),
 ) -> List(EncodeShape) {
   case remaining {
-    [] -> found
+    [] -> counts
     [shape, ..rest] -> {
       let children = shape_children(shape)
       let new_children =
         list.filter(children, fn(child) { !list.contains(found, child) })
+        |> list.unique
       discover_shape_children(
-        list.append(rest, new_children),
+        list.append(list.reverse(new_children), rest),
         list.append(found, new_children),
+        list.append(counts, children),
       )
     }
   }

@@ -90,6 +90,26 @@ pub fn decode(
   session: fluid_ids.SessionId,
   context: codec.DecodeContext,
 ) -> Result(TreeSummaryData, TreeError) {
+  decode_with_revision_mode(entry, previous, session, context, False)
+}
+
+/// Decode a SharedTree channel attachment that can contain local revisions.
+pub fn decode_attach(
+  entry: fluid_summary.SummaryEntry,
+  previous: Option(fluid_summary.SummaryEntry),
+  session: fluid_ids.SessionId,
+  context: codec.DecodeContext,
+) -> Result(TreeSummaryData, TreeError) {
+  decode_with_revision_mode(entry, previous, session, context, True)
+}
+
+fn decode_with_revision_mode(
+  entry: fluid_summary.SummaryEntry,
+  previous: Option(fluid_summary.SummaryEntry),
+  session: fluid_ids.SessionId,
+  context: codec.DecodeContext,
+  allow_local_revisions: Bool,
+) -> Result(TreeSummaryData, TreeError) {
   use resolved <- result.try(
     fluid_summary.resolve(entry, previous)
     |> result.map_error(fn(error) {
@@ -210,6 +230,7 @@ pub fn decode(
     history_raw,
     context,
     stored,
+    allow_local_revisions,
   ))
   use _ <- result.try(validate_tree_summary(stored, forest, detached))
   Ok(TreeSummaryData(stored, forest, detached, history))
@@ -522,7 +543,7 @@ pub fn decode_edit_manager(
   encoded: Json,
   context: codec.DecodeContext,
 ) -> Result(EditManagerSummary, TreeError) {
-  decode_edit_manager_value(encoded, context, None)
+  decode_edit_manager_value(encoded, context, None, False)
 }
 
 /// Decode EditManager V7 content with its active stored schema.
@@ -531,13 +552,14 @@ pub fn decode_edit_manager_with_schema(
   context: codec.DecodeContext,
   stored: schema.StoredSchema,
 ) -> Result(EditManagerSummary, TreeError) {
-  decode_edit_manager_value(encoded, context, Some(stored))
+  decode_edit_manager_value(encoded, context, Some(stored), False)
 }
 
 fn decode_edit_manager_value(
   encoded: Json,
   context: codec.DecodeContext,
   stored: Option(schema.StoredSchema),
+  allow_local_revisions: Bool,
 ) -> Result(EditManagerSummary, TreeError) {
   use value <- result.try(json_value(encoded, "editManager"))
   use members <- result.try(object(value, "editManager"))
@@ -564,6 +586,7 @@ fn decode_edit_manager_value(
         context,
         UnknownHistorySchema,
         "editManager.trunk",
+        allow_local_revisions,
       ))
       rewind_history_schema(
         structural,
@@ -578,6 +601,7 @@ fn decode_edit_manager_value(
     context,
     initial,
     "editManager.trunk",
+    allow_local_revisions,
   ))
   use trunk_contexts <- result.try(commit_schema_contexts(
     trunk,
@@ -598,6 +622,7 @@ fn decode_edit_manager_value(
         initial,
         trunk_contexts,
         "editManager.branches[" <> int.to_string(index) <> "]",
+        allow_local_revisions,
       )
     }),
   )
@@ -668,9 +693,15 @@ fn decode_edit_manager_string_with_schema(
   raw: String,
   context: codec.DecodeContext,
   stored: schema.StoredSchema,
+  allow_local_revisions: Bool,
 ) -> Result(EditManagerSummary, TreeError) {
   use value <- result.try(parse(raw, "editManager"))
-  decode_edit_manager_with_schema(json_ot.to_json(value), context, stored)
+  decode_edit_manager_value(
+    json_ot.to_json(value),
+    context,
+    Some(stored),
+    allow_local_revisions,
+  )
 }
 
 // ponytail: Replace bools with custom types (suggestion). The sequenced Bool
@@ -681,6 +712,7 @@ fn decode_commits(
   context: codec.DecodeContext,
   stored: HistorySchemaContext,
   location: String,
+  allow_local_revisions: Bool,
 ) -> Result(#(List(SummaryCommit), HistorySchemaContext), TreeError) {
   use #(commits, stored, _) <- result.try(
     list.try_fold(
@@ -694,6 +726,7 @@ fn decode_commits(
           context,
           UnknownHistorySchema,
           item_location,
+          allow_local_revisions,
         ))
         let revision = revision_id(structural)
         let previous = list.key_find(state.2, revision)
@@ -704,6 +737,7 @@ fn decode_commits(
           context,
           authoring,
           item_location,
+          allow_local_revisions,
         ))
         Ok(
           #(
@@ -814,6 +848,7 @@ fn decode_commit(
   context: codec.DecodeContext,
   stored: HistorySchemaContext,
   location: String,
+  allow_local_revisions: Bool,
 ) -> Result(#(SummaryCommit, HistorySchemaContext), TreeError) {
   use members <- result.try(object(value, location))
   let allowed = case sequenced {
@@ -850,6 +885,7 @@ fn decode_commit(
     session,
     context,
     location <> ".revision",
+    allow_local_revisions,
   ))
   use changes_value <- result.try(required(
     members,
@@ -1028,6 +1064,7 @@ fn decode_branch(
   root_context: HistorySchemaContext,
   trunk_contexts: List(#(fluid_ids.StableId, HistorySchemaContext)),
   location: String,
+  allow_local_revisions: Bool,
 ) -> Result(PeerBranch, TreeError) {
   use pair <- result.try(array(value, location))
   use #(session_value, branch_value) <- result.try(two(pair, location))
@@ -1074,6 +1111,7 @@ fn decode_branch(
     context,
     base_context,
     location <> "[1].commits",
+    allow_local_revisions,
   ))
   Ok(PeerBranch(session, base, commits))
 }
@@ -1169,14 +1207,14 @@ fn decode_authored_revision(
   session: fluid_ids.SessionId,
   context: codec.DecodeContext,
   location: String,
+  allow_local_revisions: Bool,
 ) -> Result(fluid_ids.StableId, TreeError) {
-  use revision <- result.try(decode_summary_revision(
-    value,
-    session,
-    context,
-    location,
-    False,
-  ))
+  use revision <- result.try(case value {
+    VNumber(NInt(value)) if value < 0 && allow_local_revisions ->
+      codec.decode_stable_revision(value, session, context, location)
+      |> result.map(StableRevision)
+    _ -> decode_summary_revision(value, session, context, location, False)
+  })
   case revision {
     StableRevision(revision) -> Ok(revision)
     RootRevision ->
