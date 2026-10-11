@@ -3,9 +3,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { constants, inflateRawSync } from "node:zlib";
@@ -607,7 +606,9 @@ export async function startClient(target, descriptor, environment, options = {})
   const instanceId = randomUUID();
   let directory;
   try {
-    directory = await mkdtemp(join(tmpdir(), "watershed-tree-client-"));
+    const output = join(repository, "tools/shared-tree-oracle/.output");
+    await mkdir(output, { recursive: true });
+    directory = await mkdtemp(join(output, "native-client-"));
     const file = join(directory, "descriptor.json");
     const socketUrl = `ws://127.0.0.1:${gate.port}/socket/websocket?vsn=2.0.0`;
     await writeFile(file, JSON.stringify({

@@ -562,6 +562,9 @@ pub fn shared_tree_runtime_datastore_attach_batch_keeps_later_allocation_test() 
     allocation_count(attach_batch) + allocation_count(edit_batch),
   )
   grouped.in_flight |> list.length |> expect.to_equal(1)
+  let assert Ok(_) =
+    runtime_core.handle_sequenced(grouped, map_message(grouped, outbound, 1))
+  Nil
 }
 
 pub fn shared_tree_runtime_settles_satisfied_local_commit_test() {

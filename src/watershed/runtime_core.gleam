@@ -6869,10 +6869,22 @@ fn merge_creation_range(
           first_ids.first_gen_count,
           first_ids.count + second_ids.count,
           first_ids.requested_cluster_size,
-          list.append(first_ids.local_id_ranges, second_ids.local_id_ranges),
+          merge_local_ranges(list.append(
+            first_ids.local_id_ranges,
+            second_ids.local_id_ranges,
+          )),
         )),
       ))
     _, _ -> None
+  }
+}
+
+fn merge_local_ranges(ranges: List(#(Int, Int))) -> List(#(Int, Int)) {
+  case ranges {
+    [] | [_] -> ranges
+    [#(start, count), #(next, next_count), ..rest] if next == start + count ->
+      merge_local_ranges([#(start, count + next_count), ..rest])
+    [first, ..rest] -> [first, ..merge_local_ranges(rest)]
   }
 }
 
