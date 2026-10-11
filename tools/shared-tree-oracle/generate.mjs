@@ -5312,12 +5312,20 @@ function lifecycleDecodeFieldBatch(value, keys, detail) {
     assert(object(nodeShape)
       && Object.keys(nodeShape).every((key) =>
         ["type", "value", "fields", "extraFields"].includes(key))
-      && nodeShape.type !== undefined
+      && (nodeShape.type !== undefined
+        || (Object.keys(nodeShape).length === 1 && nodeShape.extraFields !== undefined))
       && (nodeShape.fields === undefined || Array.isArray(nodeShape.fields)),
     `${detail}: unsupported node shape`);
-    const type = lifecycleFieldBatchIdentifier(nodeShape.type, value.identifiers, detail);
+    const generic = nodeShape.type === undefined;
+    const type = lifecycleFieldBatchIdentifier(
+      generic ? read(stream) : nodeShape.type, value.identifiers, detail,
+    );
     let nodeValue;
-    if (nodeShape.value === true) {
+    if (generic) {
+      const hasValue = read(stream);
+      assert(typeof hasValue === "boolean", `${detail}: invalid generic node value flag`);
+      if (hasValue) nodeValue = read(stream);
+    } else if (nodeShape.value === true) {
       nodeValue = read(stream);
     } else if (nodeShape.value === false) {
       nodeValue = undefined;
@@ -5872,7 +5880,7 @@ function lifecycleGraphStoredEnvelope(live, stored) {
   return isDeepStrictEqual(liveWire, storedWire);
 }
 
-function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
+function lifecycleHistoryTreeEdit(edit, data, detached, detail, resolveRevision) {
   assert(edit.changeset?.length === 1 && object(edit.changeset[0].data),
     `${detail}: history tree changeset`);
   const change = edit.changeset[0].data;
@@ -5883,6 +5891,8 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
     && root.change?.length === 1 && root.change[0][0] === 0
     && nonemptyArray(root.change[0][1]?.fieldChanges),
   `${detail}: history root field changes`);
+  const label = root.change[0][1].fieldChanges.length === 1
+    && root.change[0][1].fieldChanges[0].fieldKey === "label";
   const built = new Map();
   for (const kind of ["builds", "refreshers"]) {
     const batch = change[kind];
@@ -5901,10 +5911,12 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
       const field = fields.get(String(index));
       assert(Number.isSafeInteger(id) && id >= 0 && id <= change.maxId
         && Number.isSafeInteger(index) && !indexes.has(index)
-        && field?.length === 1 && field[0].type === lifecycleHandleType
+        && field?.length === 1
+        && field[0].type === (label ? lifecycleStringType : lifecycleHandleType)
         && field[0].fields.size === 0, `${detail}: history ${kind} leaf`);
-      const key = `${revision}:${id}`;
-      const path = lifecycleGraphHandle(field[0].value, detail);
+      const key = `${resolveRevision(revision)}:${id}`;
+      const path = label ? field[0].value : lifecycleGraphHandle(field[0].value, detail);
+      assert(typeof path === "string", `${detail}: history leaf value`);
       assert(!built.has(key), `${detail}: duplicate history build identity`);
       if (kind === "refreshers") {
         assert(detached.get(key) === path, `${detail}: history refresher removed revision`);
@@ -5917,7 +5929,7 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
     const [id, revision] = Array.isArray(atom) ? atom : [atom, edit.revision];
     assert(Number.isSafeInteger(id) && Number.isSafeInteger(revision),
       `${detail}: history restore atom`);
-    const key = `${revision}:${id}`;
+    const key = `${resolveRevision(revision)}:${id}`;
     const value = built.get(key);
     assert(value !== undefined, `${detail}: history restore/build association`);
     built.delete(key);
@@ -5926,13 +5938,13 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
   const effects = [];
   const optional = (field, old, set, name) => {
     const replacement = field.change?.r;
-    assert(field.fieldKind === "Optional" && object(replacement)
+    assert(field.fieldKind === (label ? "Value" : "Optional") && object(replacement)
       && Object.keys(replacement).every((key) => ["e", "d", "s"].includes(key))
       && replacement.e === (old === undefined)
       && Number.isSafeInteger(replacement.d)
       && replacement.d >= 0 && replacement.d <= change.maxId,
     `${detail}: history optional presence and identity`);
-    if (old !== undefined) detached.set(`${edit.revision}:${replacement.d}`, old);
+    if (old !== undefined) detached.set(`${resolveRevision(edit.revision)}:${replacement.d}`, old);
     if (replacement.s === undefined) {
       assert(old !== undefined && name === "link", `${detail}: history optional clear`);
       set(undefined);
@@ -5941,13 +5953,18 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
       const value = use(replacement.s);
       set(value.path);
       effects.push({
-        type: value.kind === "refreshers" ? "tree-restore-handle"
+        type: label ? value.kind === "refreshers" ? "tree-restore-string" : "tree-set-string"
+          : value.kind === "refreshers" ? "tree-restore-handle"
           : name === "link" ? "tree-set-handle" : "tree-map-set-handle",
         field: name, value: value.path,
       });
     }
   };
   for (const field of root.change[0][1].fieldChanges) {
+    if (label) {
+      optional(field, data.label, (value) => { data.label = value; }, "label");
+      continue;
+    }
     if (field.fieldKey === "link") {
       optional(field, data.link, (path) => {
         if (path === undefined) delete data.link;
@@ -5987,7 +6004,78 @@ function lifecycleHistoryTreeEdit(edit, data, detached, detail) {
   return effects;
 }
 
-// Decode only the finite attachment and optional-handle edits captured here.
+function lifecycleCommitProjection(data, revision, resolveRevision, detail) {
+  assert(object(data) && Number.isSafeInteger(data.maxId)
+    && nonemptyArray(data.changes), `${detail}: invalid commit data`);
+  if (data.revisions !== undefined) {
+    assert.deepEqual(data.revisions, [{ revision }], `${detail}: commit revision list`);
+  }
+  const atom = (value) => {
+    const [id, source = revision] = Array.isArray(value) ? value : [value];
+    assert(Number.isSafeInteger(id) && id >= 0 && Number.isSafeInteger(source),
+      `${detail}: invalid commit atom`);
+    return { id, revision: resolveRevision(source) };
+  };
+  const fields = [];
+  const field = (value, keys = []) => {
+    assert(keys.length <= 2 && typeof value.fieldKey === "string", `${detail}: commit field depth`);
+    const path = [...keys, value.fieldKey];
+    if (value.fieldKind === "ModularEditBuilder.Generic") {
+      assert(value.change?.length === 1 && value.change[0][0] === 0
+        && nonemptyArray(value.change[0][1]?.fieldChanges), `${detail}: commit generic field`);
+      for (const child of value.change[0][1].fieldChanges) field(child, path);
+    } else if (value.fieldKind === "Optional" || value.fieldKind === "Value") {
+      const r = value.change?.r;
+      assert(object(r) && typeof r.e === "boolean"
+        && Object.keys(r).every((key) => ["e", "d", "s"].includes(key)),
+      `${detail}: commit replacement`);
+      fields.push({ path, kind: value.fieldKind, replacement: {
+        e: r.e, d: atom(r.d), ...(r.s === undefined ? {} : { s: atom(r.s) }),
+      } });
+    } else {
+      const mark = value.change?.[0];
+      assert(value.fieldKind === "Sequence" && value.change.length === 1
+        && mark.count === 1 && object(mark.effect?.insert),
+      `${detail}: commit sequence insertion`);
+      const insert = atom([mark.effect.insert.id, mark.effect.insert.revision ?? revision]);
+      assert.deepEqual(atom(mark.cellId), insert, `${detail}: commit sequence cell identity`);
+      fields.push({ path, kind: "Sequence", insert });
+    }
+  };
+  for (const change of data.changes) field(change);
+  const builds = [];
+  if (data.builds !== undefined) {
+    const batch = data.builds;
+    assert(batch.builds?.length === 1 && Array.isArray(batch.trees?.data),
+      `${detail}: commit build mapping`);
+    const decoded = lifecycleDecodeFieldBatch(batch.trees,
+      batch.trees.data.map((_, index) => String(index)), detail);
+    const [mapping, source = revision] = batch.builds[0];
+    assert(Array.isArray(mapping) && mapping.length === decoded.size
+      && new Set(mapping.map(([, index]) => index)).size === mapping.length,
+    `${detail}: commit build cardinality`);
+    for (const [id, index] of mapping) {
+      const nodes = decoded.get(String(index));
+      assert(nodes?.length === 1, `${detail}: commit build field`);
+      builds.push({ atom: atom([id, source]), nodes: lifecyclePlainNodes(nodes) });
+    }
+  }
+  return { maxId: data.maxId, fields, builds };
+}
+
+function lifecycleEventProjection(event, compressor, detail) {
+  assert(event?.local === true && event.change?.version === 1
+    && event.change.originatorId === compressor.localSessionId
+    && Number.isSafeInteger(event.change.revision)
+    && nonemptyArray(event.change.change), `${detail}: actual local commit event`);
+  const stable = (revision) => compressor.decompress(revision);
+  assert(event.stableRevision === stable(event.change.revision), `${detail}: event stable revision`);
+  const data = event.change.change.filter((item) => object(item.data));
+  assert(data.length === 1, `${detail}: event commit data`);
+  return lifecycleCommitProjection(data[0].data, event.change.revision, stable, detail);
+}
+
+// Decode only the finite attachment, handle and label edits captured here.
 // This is an evidence validator, not a CRDT replay implementation.
 function lifecycleGraphTransport(input, detail, reader, history = false) {
   const graph = new Map([["/A/root", { channelType: lifecycleMapChannelType, data: {} }]]);
@@ -5999,9 +6087,11 @@ function lifecycleGraphTransport(input, detail, reader, history = false) {
   const detached = new Map();
   const members = new Map();
   const proposals = new Map();
-  let nextGeneration = 1;
+  const commits = new Map();
+  const nextGenerations = new Map();
   for (const message of input.deliveryPrefix) {
     effects.set(message.sequenceNumber, []);
+    commits.set(message.sequenceNumber, []);
     const effect = (value) => effects.get(message.sequenceNumber).push({
       ...value, clientId: message.clientId,
     });
@@ -6062,11 +6152,14 @@ function lifecycleGraphTransport(input, detail, reader, history = false) {
     for (const runtime of runtimes) {
       if (runtime.type === "idAllocation") {
         assertCreationRange(runtime.contents, detail);
-        assert(message.clientId === input.sessions.writerClientId
-          && runtime.contents.sessionId === input.sessions.writer.sessionId
-          && runtime.contents.ids.firstGenCount === nextGeneration,
+        const session = message.clientId === input.sessions.writerClientId
+          ? input.sessions.writer.sessionId
+          : message.clientId === input.sessions.receiverWriteClientId
+            ? input.sessions.receiverWriter?.sessionId : undefined;
+        assert(session !== undefined && runtime.contents.sessionId === session
+          && runtime.contents.ids.firstGenCount === (nextGenerations.get(session) ?? 1),
         `${detail}: document compressor allocation order`);
-        nextGeneration += runtime.contents.ids.count;
+        nextGenerations.set(session, runtime.contents.ids.firstGenCount + runtime.contents.ids.count);
         assert.doesNotThrow(() => reader.finalizeCreationRange(runtime.contents),
           `${detail}: invalid document compressor allocation`);
         continue;
@@ -6079,6 +6172,29 @@ function lifecycleGraphTransport(input, detail, reader, history = false) {
         if (history) {
           assert(allocations.length === 1, `${detail}: history attachment allocation`);
           effect({ type: "attach-channel", path, ...channel });
+          if (type === lifecycleTreeChannelType) {
+            const indexes = lifecycleSummaryEntry(snapshot.entries, "indexes", "Tree", detail).value.entries;
+            const forest = lifecycleSummaryEntry(indexes, "Forest", "Tree", detail).value.entries;
+            const encoded = lifecycleSummaryJsonBlob(forest, "contents", detail);
+            const fields = lifecycleDecodeFieldBatch(encoded.fields, encoded.keys, detail);
+            const index = lifecycleSummaryEntry(indexes, "DetachedFieldIndex", "Tree", detail).value.entries;
+            const detachedIndex = lifecycleSummaryJsonBlob(index, "DetachedFieldIndexBlob", detail);
+            assert(detachedIndex.version === 2 && Array.isArray(detachedIndex.data),
+              `${detail}: attachment detached field index`);
+            for (const [revision, id, field] of detachedIndex.data) {
+              const stable = typeof revision === "string" ? revision : reader.decompress(
+                reader.normalizeToSessionSpace(revision, input.sessions.writer.sessionId),
+              );
+              assert.doesNotThrow(() => reader.recompress(stable),
+                `${detail}: detached revision allocation`);
+              const nodes = fields.get(`repair-${field}`);
+              assert(nodes?.length === 1 && nodes[0].fields.size === 0
+                && [lifecycleHandleType, lifecycleStringType].includes(nodes[0].type)
+                && Number.isSafeInteger(id), `${detail}: attachment repair field`);
+              detached.set(`${stable}:${id}`, nodes[0].type === lifecycleHandleType
+                ? lifecycleGraphHandle(nodes[0].value, detail) : nodes[0].value);
+            }
+          }
         }
       };
       if (runtime.type === "attach") {
@@ -6147,19 +6263,29 @@ function lifecycleGraphTransport(input, detail, reader, history = false) {
         channel.data[edit.key] = edit.value.value;
         continue;
       }
-      assert(edit.version === 7 && edit.originatorId === input.sessions.writer.sessionId
+      const originator = message.clientId === input.sessions.writerClientId
+        ? input.sessions.writer.sessionId : history ? input.sessions.receiverWriter?.sessionId : undefined;
+      assert(edit.version === 7 && edit.originatorId === originator
         && Number.isSafeInteger(edit.revision) && edit.changeset?.length === 1,
       `${detail}: tree edit identity`);
       assert.doesNotThrow(() => reader.decompress(
         reader.normalizeToSessionSpace(edit.revision, edit.originatorId),
       ), `${detail}: tree edit revision allocation`);
       if (history) {
-        assert(message.clientId === input.sessions.writerClientId && allocations.length === 1,
+        assert(originator !== undefined && allocations.length === 1,
           `${detail}: history tree edit writer allocation`);
+        const resolveRevision = (revision) => reader.decompress(
+          reader.normalizeToSessionSpace(revision, edit.originatorId),
+        );
+        commits.get(message.sequenceNumber).push({
+          path, clientId: message.clientId, stableRevision: resolveRevision(edit.revision),
+          projection: lifecycleCommitProjection(edit.changeset[0].data,
+            edit.revision, resolveRevision, detail),
+        });
         for (const change of lifecycleHistoryTreeEdit(
-          edit, channel.data, detached, `${detail} ${path}`,
+          edit, channel.data, detached, `${detail} ${path}`, resolveRevision,
         )) {
-          if (change.value !== undefined) {
+          if (change.value !== undefined && change.field !== "label") {
             assert(graph.has(change.value), `${detail}: history reference precedes attachment`);
           }
           effect({ ...change, target: path });
@@ -6204,7 +6330,7 @@ function lifecycleGraphTransport(input, detail, reader, history = false) {
     checkpoints.set(message.sequenceNumber, structuredClone(graph));
     compressors.set(message.sequenceNumber, reader.serialize(false));
   }
-  return { checkpoints, attachments, effects, compressors };
+  return { checkpoints, attachments, effects, compressors, commits };
 }
 
 function lifecycleReplayCreate(path, channelType = lifecycleMapChannelType) {
@@ -6264,10 +6390,356 @@ function validateLifecycleActiveReplay(active, input, observation, check) {
   }
 }
 
+function lifecycleAssertEventStream(stream, specs, compressor, detail, acquired = false) {
+  assert(object(stream) && Array.isArray(stream.events)
+    && Array.isArray(stream.settlements) && Array.isArray(stream.handles),
+  `${detail}: missing actual event/settlement records`);
+  assert(stream.events.length === specs.length, `${detail}: event commit coverage`);
+  for (const [index, spec] of specs.entries()) {
+    const event = stream.events[index];
+    assert(event.index === index && event.target === spec.path
+      && event.kind === spec.kind && event.local === spec.local
+      && event.factory === (spec.local && !spec.schema),
+    `${detail}: event commit kind/locality/factory`);
+    if (!spec.local) {
+      assert(event.change === null && event.stableRevision === undefined,
+        `${detail}: remote event cannot supply local change/factory`);
+      continue;
+    }
+    const projection = lifecycleEventProjection(event, compressor, detail);
+    assert.equal(event.stableRevision, spec.stableRevision, `${detail}: event stable revision`);
+    assert.deepEqual(projection, spec.projection, `${detail}: event decoded commit payload`);
+    const schemas = event.change.change.filter((change) => change.schema !== undefined);
+    assert(schemas.length === (spec.schema ? 2 : 0), `${detail}: event schema/factory relationship`);
+    if (spec.schema) {
+      assert.deepEqual(schemas[0].schema.old,
+        { version: 2, nodes: {}, root: { kind: "Forbidden", types: [] } },
+        `${detail}: schema event initial state`);
+      validateLifecycleStoredSchema(schemas[0].schema.new, "Optional", [lifecycleRootType], detail);
+      validateLifecycleStoredSchema(schemas[1].schema.old, "Optional", [lifecycleRootType], detail);
+      validateLifecycleStoredSchema(schemas[1].schema.new, "Value", [lifecycleRootType], detail);
+    }
+  }
+  assert.deepEqual(stream.settlements, specs.flatMap((spec, index) =>
+    spec.local && spec.settled !== false ? [{ index, outcome: "FullyApplied" }] : []),
+  `${detail}: actual settlement outcomes`);
+  const expected = acquired ? specs.filter((spec) => spec.local && !spec.schema) : [];
+  assert(stream.handles.length === expected.length, `${detail}: application-owned handle coverage`);
+  for (const [index, spec] of expected.entries()) {
+    const handle = stream.handles[index];
+    assert(handle.revision === spec.stableRevision && handle.status === (spec.status ?? "Valid")
+      && typeof handle.duplicateError === "string" && /same revertible more than once/.test(handle.duplicateError)
+      && typeof handle.lateError === "string" && /outside of the context/.test(handle.lateError)
+      && (handle.status === "Disposed" ? handle.disposedSameHandle === true
+        : handle.disposedSameHandle === undefined),
+    `${detail}: factory acquisition window and same-handle disposal`);
+  }
+}
+
+function validateLifecycleHistoryEvents(value, checkpoint, scenario, transport, end, treePath,
+  branchRevisions, check) {
+  check(object(checkpoint.events), "missing actual history event/settlement checkpoint");
+  const compressor = deserializeIdCompressor(checkpoint.compressor.compressor);
+  const commits = [...transport.commits].filter(([sequence]) => sequence <= end)
+    .flatMap(([, commits]) => commits).filter((commit) => commit.path === treePath);
+  const local = commits.map((commit) => ({
+    ...commit, local: true,
+    kind: commit.projection.fields.some((field) => field.replacement?.s
+      && field.replacement.s.revision !== commit.stableRevision) ? "Undo" : "Default",
+  }));
+  lifecycleAssertEventStream(checkpoint.events.writer, local, compressor, `${value.id} writer`);
+  lifecycleAssertEventStream(checkpoint.events.receiver, local.map((event) => ({
+    ...event, local: false, kind: "Default",
+  })), compressor, `${value.id} receiver`);
+  check(isDeepStrictEqual(checkpoint.identity, {
+    channel: treePath, sameRoot: true, sameCheckout: true, sameAnchor: true,
+    rootAnchor: { field: "rootFieldKey", index: 0 },
+  }), "history root/checkout/anchor identity");
+  const branchIds = value.id === "handle-transaction-branch"
+    ? ["working", "dropped", "disposed"] : ["retaining"];
+  const commands = scenario.commands;
+  const present = branchIds.filter((id) => commands.some((command) =>
+    command.type === "fork" && command.checkout === id));
+  check(isDeepStrictEqual(checkpoint.events.branches?.map((branch) => branch.id), present),
+    "history branch event coverage");
+  for (const branch of checkpoint.events.branches) {
+    if (branch.id === "retaining") {
+      lifecycleAssertEventStream(branch, [], compressor, "retaining branch");
+      continue;
+    }
+    const event = branch.events?.[0];
+    check(event !== undefined && branch.events.length === 1, "branch actual commit event");
+    check(event.stableRevision === branchRevisions.get(branch.id),
+      "branch commit revision from document allocation order");
+    const projection = lifecycleEventProjection(event, compressor, "branch commit");
+    const target = commands.find((command) =>
+      command.type === "tree-set-handle" && command.checkout === branch.id)?.value.value;
+    check(isDeepStrictEqual(projection, {
+      maxId: 2,
+      fields: [{ path: ["rootFieldKey", "link"], kind: "Optional", replacement: {
+        e: false, d: { id: 0, revision: event.stableRevision },
+        s: { id: 1, revision: event.stableRevision },
+      } }],
+      builds: [{ atom: { id: 1, revision: event.stableRevision },
+        nodes: [{ type: lifecycleHandleType, value: target, fields: {} }] }],
+    }), "branch event handle payload association");
+    const disposed = commands.some((command) =>
+      ["merge", "dispose-checkout"].includes(command.type) && command.checkout === branch.id);
+    lifecycleAssertEventStream(branch, [{
+      path: treePath, stableRevision: event.stableRevision, projection,
+      local: true, kind: "Default", settled: false, status: disposed ? "Disposed" : "Valid",
+    }], compressor, "branch factory lifetime", true);
+    if (branch.id === "working" && disposed) {
+      check(commits.some((commit) =>
+        commit.stableRevision === event.stableRevision
+          && isDeepStrictEqual(commit.projection, projection)),
+      "merged branch revision retains source commit identity");
+    }
+  }
+}
+
+function validateLifecycleIdentityReplay(value, records, check) {
+  const detail = "multi-tree identity replay";
+  const input = value.input.identityReplay;
+  const reader = lifecycleGraphInput(input, detail);
+  check(input.documentId !== value.input.decoderInput.documentId, `${detail} distinct document`);
+  const observation = value.expected.observations.find((item) => item.id === "successful-transaction");
+  const evidence = observation.evidence.map((item) => records.get(item.id));
+  const proof = observation.value.identityLifecycle;
+  check(object(proof) && isDeepStrictEqual(proof, evidence.find((item) =>
+    item?.section === "serialization" && item.item.kind === "identity-lifecycle")?.item.value),
+  `${detail} actual identity checkpoints`);
+  const raw = evidence.find((item) =>
+    item?.section === "messages" && item.item.kind === "identity-transport")?.item.value;
+  check(Array.isArray(raw)
+    && isDeepStrictEqual(raw.map((message) => message.sequenceNumber),
+      input.deliveryPrefix.map((message) => message.sequenceNumber)),
+  `${detail} raw transport coverage`);
+  for (const message of raw) {
+    check(lifecycleGraphStoredEnvelope(message, input.deliveryPrefix[message.sequenceNumber - 1]),
+      `${detail} actual raw transport`);
+  }
+  const transport = lifecycleGraphTransport(input, detail, reader, true);
+  const ids = ["initial", "left-created", "right-created", "left-edited", "right-edited",
+    "right-attached", "left-interleaved", "left-attached", "writer-live-edit",
+    "peer-live-edit", "detached-edit-undo", "disposed"];
+  check(isDeepStrictEqual(proof.checkpoints?.map((checkpoint) => checkpoint.id), ids),
+    `${detail} lifetime checkpoint coverage`);
+  const sequences = [0, 0, 0, 0, 0, 2, 2, 3, 4, 6, 7, 7];
+  const writer = deserializeIdCompressor(input.sessions.writer.compressor);
+  let peer;
+  const owners = [];
+  const commands = [];
+  let previousSequence = 0;
+  const atom = (id, revision) => ({ id, revision });
+  const rootNodes = [{
+    type: lifecycleRootType, fields: {
+      label: [{ type: lifecycleStringType, value: "root", fields: {} }],
+      link: [],
+      links: [{ type: lifecycleLinksType, fields: {} }],
+      sequence: [{ type: lifecycleSequenceType, fields: { "": [] } }],
+    },
+  }];
+  const appendLabel = (owner, compressor, label, insertId, local = true, undoSource) => {
+    const revision = compressor.decompress(compressor.generateCompressedId());
+    const projection = {
+      maxId: undoSource ? 6 : insertId + 2,
+      fields: [{
+        path: ["rootFieldKey", "label"], kind: "Value",
+        replacement: {
+          e: false, d: atom(undoSource ? 6 : insertId + 1, revision),
+          s: undoSource ?? atom(insertId, revision),
+        },
+      }],
+      builds: undoSource ? [] : [{
+        atom: atom(insertId, revision),
+        nodes: [{ type: lifecycleStringType, value: label, fields: {} }],
+      }],
+    };
+    owner.events.push({
+      path: owner.path, stableRevision: revision, projection, local,
+      kind: undoSource ? "Undo" : "Default",
+    });
+    owner.data.label = label;
+    return owner.events.at(-1);
+  };
+  for (const [index, checkpoint] of proof.checkpoints.entries()) {
+    const id = ids[index];
+    check(checkpoint.sequenceNumber === sequences[index], `${detail} checkpoint sequence/order`);
+    let expectedEffects = [];
+    let newEvent;
+    if (index === 1 || index === 2) {
+      const path = `/A/${writer.decompress(writer.generateCompressedId())}`;
+      const revision = writer.decompress(writer.generateCompressedId());
+      owners.push({
+        path, attached: false, data: { label: "root", links: [], sequence: [] },
+        events: [{
+          path, stableRevision: revision, local: true, kind: "Default", schema: true,
+          projection: {
+            maxId: 1,
+            fields: [{ path: ["rootFieldKey"], kind: "Optional",
+              replacement: { e: true, d: atom(0, revision), s: atom(1, revision) } }],
+            builds: [{ atom: atom(1, revision), nodes: rootNodes }],
+          },
+        }],
+      });
+      commands.push(lifecycleReplayCreate(path, lifecycleTreeChannelType),
+        { type: "subscribe-revertibles", target: path,
+          id: index === 1 ? "identity-left" : "identity-right" },
+        lifecycleReplayInitialize(path, checkpoint.commands, detail));
+    } else if ([3, 4, 6, 8, 9].includes(index)) {
+      if (index === 8) {
+        peer = deserializeIdCompressor(input.sessions.receiverWriter?.compressor);
+        check(peer.localSessionId === input.sessions.receiverWriter.sessionId
+          && peer.localSessionId !== writer.localSessionId
+          && peer.serialize(false) === transport.compressors.get(3)
+          && deserializeIdCompressor(peer.serialize(true)).takeUnfinalizedCreationRange().ids === undefined,
+        `${detail} initial peer compressor`);
+      }
+      const owner = owners[index === 4 || index === 8 ? 1 : 0];
+      const label = {
+        3: "left-detached", 4: "right-detached", 6: "left-interleaved",
+        8: "right-live", 9: "left-peer",
+      }[index];
+      newEvent = appendLabel(owner, index === 9 ? peer : writer, label,
+        index === 6 || index === 8 ? 3 : 0, index !== 9);
+      commands.push({ type: "tree-set-string", ...(index === 9 ? { client: "receiver" } : {}),
+        target: owner.path, field: "label", value: label });
+      if (owner.attached) expectedEffects.push({
+        type: "tree-set-string", target: owner.path, field: "label", value: label,
+        clientId: index === 9 ? input.sessions.receiverWriteClientId : input.sessions.writerClientId,
+      });
+    } else if (index === 5 || index === 7) {
+      const owner = owners[index === 5 ? 1 : 0];
+      owner.attached = true;
+      const key = index === 5 ? "right" : "left";
+      commands.push({ type: "map-set", target: "/A/root", key,
+        value: lifecycleReplayHandle(owner.path) });
+      expectedEffects = [
+        { type: "attach-channel", path: owner.path, channelType: lifecycleTreeChannelType,
+          data: owner.data, clientId: input.sessions.writerClientId },
+        { type: "map-set", target: "/A/root", key, value: lifecycleReplayHandle(owner.path).value,
+          clientId: input.sessions.writerClientId },
+      ];
+    } else if (index === 10) {
+      const owner = owners[0];
+      const source = owner.events[2];
+      source.status = "Disposed";
+      newEvent = appendLabel(owner, writer, "left-detached", 0, true,
+        source.projection.fields[0].replacement.d);
+      commands.push({ type: "revert", target: owner.path, eventIndex: 2, dispose: true });
+      expectedEffects.push({
+        type: "tree-restore-string", target: owner.path, field: "label", value: "left-detached",
+        clientId: input.sessions.writerClientId,
+      });
+    } else if (index === 11) {
+      commands.push({ type: "dispose-all-revertibles" });
+      for (const owner of owners) {
+        for (const event of owner.events) event.status = "Disposed";
+      }
+    }
+    if (index !== 0) commands.push({ type: "settle", checkpoint: id });
+    check(isDeepStrictEqual(checkpoint.commands, commands), `${detail} exact cumulative commands`);
+    const messages = input.deliveryPrefix.filter((message) =>
+      message.sequenceNumber > previousSequence && message.sequenceNumber <= checkpoint.sequenceNumber);
+    for (const message of messages) {
+      for (const runtime of lifecycleRuntimeMessages([message], detail)) {
+        if (runtime.type !== "idAllocation") continue;
+        const originator = runtime.contents.sessionId === writer.localSessionId ? writer : peer;
+        check(originator !== undefined
+          && isDeepStrictEqual(originator.takeUnfinalizedCreationRange(), runtime.contents),
+        `${detail} local reservations match sequenced allocations`);
+        writer.finalizeCreationRange(runtime.contents);
+        peer?.finalizeCreationRange(runtime.contents);
+      }
+    }
+    check(isDeepStrictEqual(messages.flatMap((message) =>
+      transport.effects.get(message.sequenceNumber)), expectedEffects),
+    `${detail} commands bound to decoded transport`);
+    if (newEvent && index >= 8) {
+      check(isDeepStrictEqual(transport.commits.get(checkpoint.sequenceNumber), [{
+        path: newEvent.path,
+        clientId: index === 9 ? input.sessions.receiverWriteClientId : input.sessions.writerClientId,
+        stableRevision: newEvent.stableRevision, projection: newEvent.projection,
+      }]), `${detail} stable revision and actual live commit`);
+    }
+    check(checkpoint.compressor?.sessionId === writer.localSessionId
+      && checkpoint.compressor.ongoing === writer.serialize(true)
+      && checkpoint.compressor.summary === writer.serialize(false)
+      && isDeepStrictEqual(checkpoint.compressor.reservation,
+        deserializeIdCompressor(writer.serialize(true)).takeUnfinalizedCreationRange()),
+    `${detail} exact ongoing/summary compressor and unfinalized allocation`);
+    check(checkpoint.trees.length === owners.length, `${detail} object coverage`);
+    for (const [position, owner] of owners.entries()) {
+      const tree = checkpoint.trees[position];
+      check(tree.path === owner.path && tree.attached === owner.attached
+        && tree.sameRoot === true && tree.sameCheckout === true && tree.sameAnchor === true
+        && tree.sharedDocumentCompressor === true
+        && isDeepStrictEqual(tree.anchor, { field: "rootFieldKey", index: 0 })
+        && isDeepStrictEqual(tree.data, owner.data),
+      `${detail} stable channel/root/checkout/anchor identity`);
+      check(summary(tree.summary), `${detail} checkpoint summary bytes`);
+      const indexes = tree.summary.tree?.indexes?.tree;
+      validateLifecycleStoredSchema(JSON.parse(indexes?.Schema?.tree?.SchemaString?.content),
+        "Value", [lifecycleRootType], detail);
+      const decoded = { channelType: lifecycleTreeChannelType,
+        data: lifecycleGraphTreeData(lifecycleRootNode(
+          JSON.parse(indexes?.Forest?.tree?.contents?.content), detail), detail) };
+      check(isDeepStrictEqual(decoded.data, owner.data), `${detail} decoded checkpoint forest`);
+      if (owner.attached) {
+        check(isDeepStrictEqual(transport.checkpoints.get(checkpoint.sequenceNumber).get(owner.path), decoded),
+          `${detail} receiver checkpoint`);
+      }
+      lifecycleAssertEventStream(tree.events, owner.events, writer, detail, true);
+    }
+    if (index === 5 || index === 7) {
+      const owner = owners[index === 5 ? 1 : 0];
+      const runtime = messages.flatMap((message) => lifecycleRuntimeMessages([message], detail))
+        .find((runtime) => runtime.type === "component" && runtime.contents.contents.type === "attach");
+      const indexes = lifecycleSummaryEntry(runtime.contents.contents.content.snapshot.entries,
+        "indexes", "Tree", detail).value.entries;
+      const history = lifecycleSummaryEntry(indexes, "EditManager", "Tree", detail).value.entries;
+      const trunk = lifecycleSummaryJsonBlob(history, "String", detail).trunk;
+      check(trunk?.length === 1 && trunk[0].sessionId === writer.localSessionId
+        && writer.decompress(trunk[0].revision) === owner.events.at(-1).stableRevision,
+      `${detail} detached commit survives channel attachment`);
+      const data = trunk[0].change.filter((change) => object(change.data));
+      check(data.length === 1 && isDeepStrictEqual(lifecycleCommitProjection(data[0].data,
+        trunk[0].revision, (revision) => writer.decompress(revision), detail),
+      owner.events.at(-1).projection), `${detail} actual detached history payload`);
+    }
+    previousSequence = checkpoint.sequenceNumber;
+  }
+  check(previousSequence === input.deliveryPrefix.length
+    && proof.peer?.initialClientId === input.sessions.receiverClientId
+    && proof.peer.writeClientId === input.sessions.receiverWriteClientId
+    && proof.peer.writeClientId !== proof.peer.initialClientId
+    && proof.peer.sequenceNumber === sequences[9],
+  `${detail} peer lifetime and complete delivery prefix`);
+  for (const [name, sequence] of [["trees", sequences[9]], ["finalTrees", previousSequence]]) {
+    check(proof.peer[name]?.length === 2, `${detail} peer object coverage`);
+    for (const [position, tree] of proof.peer[name].entries()) {
+      const owner = owners[position];
+      check(tree.path === owner.path && tree.sameRoot === true && tree.sameCheckout === true
+        && isDeepStrictEqual(tree.data, transport.checkpoints.get(sequence).get(owner.path).data),
+      `${detail} peer object identity and decoded state`);
+      const commits = [...transport.commits].filter(([seq]) => seq >= 4 && seq <= sequence)
+        .flatMap(([, commits]) => commits).filter((commit) => commit.path === owner.path);
+      lifecycleAssertEventStream(tree.events, commits.map((commit) => ({
+        ...commit, local: commit.clientId === input.sessions.receiverWriteClientId, kind: "Default",
+      })), peer, `${detail} peer event/settlement`);
+    }
+  }
+  check(isDeepStrictEqual(proof.revertible, {
+    sourceEventIndex: 2, target: owners[0].path, before: "Valid", after: "Disposed", sameHandle: true,
+  }), `${detail} original detached revertible lifetime`);
+}
+
 function validateLifecycleHistoryReplay(value, records, check) {
   const input = value.input.decoderInput;
   const reader = lifecycleGraphInput(input, value.id);
   const transport = lifecycleGraphTransport(input, value.id, reader, true);
+  const branchRevisions = new Map();
   const treePath = [...transport.attachments].find(([, channel]) =>
     channel.channelType === lifecycleTreeChannelType)?.[0];
   check(typeof treePath === "string", "history initial tree attachment");
@@ -6348,7 +6820,8 @@ function validateLifecycleHistoryReplay(value, records, check) {
         `${id} history delivery prefix raw transport`);
     }
     for (const item of evidence.filter((item) =>
-      item.section === "messages" && Array.isArray(item.item.value))) {
+      item.section === "messages" && item.item.kind !== "identity-transport"
+        && Array.isArray(item.item.value))) {
       for (const message of item.item.value) {
         check(message.sequenceNumber > previousSequence && message.sequenceNumber <= end
           && lifecycleGraphStoredEnvelope(message,
@@ -6414,11 +6887,14 @@ function validateLifecycleHistoryReplay(value, records, check) {
     switch (id) {
       case "successful-transaction":
       case "aborted-transaction": {
-        const path = newMap();
+        const path = newMap(id === "aborted-transaction" ? { independent: "survives-rollback" } : {});
         stageTarget = path;
-        commands.push(treeAction("begin-transaction"), set(path),
-          treeAction(id === "successful-transaction" ? "commit-transaction" : "rollback-transaction"),
-          settle(id));
+        commands.push(treeAction("begin-transaction"), set(path));
+        if (id === "aborted-transaction") {
+          commands.push(mapSet(path, "independent", { kind: "string", value: "survives-rollback" }));
+        }
+        commands.push(treeAction(id === "successful-transaction" ? "commit-transaction"
+          : "rollback-transaction"), settle(id));
         const edited = { ...structuredClone(before), link: path };
         if (id === "successful-transaction") {
           successPath = path;
@@ -6430,7 +6906,9 @@ function validateLifecycleHistoryReplay(value, records, check) {
         } else {
           stageTrees = [before, edited, before];
           check(observation.value.result === "rollback" && observation.value.attached === false
-            && observation.value.referringPath === successPath, `${id} rollback target association`);
+            && observation.value.referringPath === successPath
+            && isDeepStrictEqual(observation.value.targetData, maps.get(path)),
+          `${id} rollback independent target association`);
         }
         break;
       }
@@ -6468,7 +6946,17 @@ function validateLifecycleHistoryReplay(value, records, check) {
         const path = newMap();
         const checkout = id === "branch-before-merge" ? "working"
           : id === "branch-dropped" ? "dropped" : "disposed";
-        commands.push({ ...treeAction("fork"), checkout }, set(path, checkout));
+        const previous = value.expected.observations.find((item) =>
+          item.id === (id === "branch-before-merge" ? "nested-transaction"
+            : id === "branch-dropped" ? "branch-after-merge" : "branch-dropped"));
+        const allocation = deserializeIdCompressor(previous.value.checkpoint.compressor.compressor);
+        allocation.generateCompressedId();
+        branchRevisions.set(checkout, allocation.decompress(allocation.generateCompressedId()));
+        check(allocation.serialize(true) === checkpoint.compressor.compressor,
+          `${id} fork and edit reserve document identities without finalization`);
+        commands.push({ ...treeAction("fork"), checkout },
+          { ...treeAction("capture-next-revertible"), checkout, id: `${checkout}-edit` },
+          set(path, checkout));
         if (checkout === "working") {
           branchPath = path;
           working = { ...structuredClone(tree), link: path };
@@ -6476,6 +6964,11 @@ function validateLifecycleHistoryReplay(value, records, check) {
           check(observation.value.branchPath === path
             && observation.value.mainPath === tree.link,
           `${id} branch-only reference association`);
+          commands.push({ ...treeAction("serialize-checkout-channel-handle"), checkout });
+          check(isDeepStrictEqual(observation.value.branchHandle, {
+            marker: lifecycleReplayHandle(treePath).value, sameDocumentChannel: true,
+            branchData: working, resolvedData: tree,
+          }), `${id} branch handle resolves document channel state`);
         } else {
           commands.push({ ...treeAction("dispose-checkout"), checkout });
           branches = [{ id: checkout, disposed: true }];
@@ -6515,6 +7008,13 @@ function validateLifecycleHistoryReplay(value, records, check) {
           && isDeepStrictEqual(observation.value.revertibleStatus, {
             before: 0, after: 1,
           }), `${id} original revertible lifetime`);
+        const lifetime = observation.value.factoryLifetime;
+        check(typeof lifetime?.duplicateError === "string"
+          && /same revertible more than once/.test(lifetime.duplicateError)
+          && typeof lifetime?.lateError === "string" && /outside of the context/.test(lifetime.lateError)
+          && lifetime.disposedSameHandle === true && lifetime.sameTargetBeforeUndo === true
+          && lifetime.sameTargetAfterUndo === true && lifetime.targetAttachedAfterUndo === true,
+        `${id} actual inverse factory and target identity lifetime`);
         break;
       }
       case "before-removal":
@@ -6576,6 +7076,10 @@ function validateLifecycleHistoryReplay(value, records, check) {
         maps.get(targetPath).continued = true;
         commands.push(set(targetPath), settle("before-fresh-publication"));
         expectedEffects.push(treeEffect("tree-set-handle", targetPath));
+        check(isDeepStrictEqual(observation.value.freshLocalLifetime, {
+          events: { events: [], settlements: [], handles: [] },
+          revertibles: 0, revertibleBranches: 0,
+        }), `${id} fresh local lifetime excludes old revertibles and branches`);
         break;
       default:
         check(false, `${id} unknown history checkpoint`);
@@ -6627,11 +7131,17 @@ function validateLifecycleHistoryReplay(value, records, check) {
     check(compressor.localSessionId === checkpoint.compressor.sessionId
       && compressor.serialize(false) === transport.compressors.get(end),
     `${id} checkpoint sequenced compressor state`);
+    validateLifecycleHistoryEvents(value, checkpoint, scenario, transport, end, treePath,
+      branchRevisions, check);
     check(checkpoint.stages.length === stageTrees.length, `${id} transaction stage coverage`);
     for (const [index, stage] of checkpoint.stages.entries()) {
       check(stage.target === stageTarget && stage.attached === false
         && stage.transportLength === 0 && isDeepStrictEqual(stage.tree, stageTrees[index])
-        && stage.compressor.sessionId === input.sessions.writer.sessionId,
+        && stage.compressor.sessionId === input.sessions.writer.sessionId
+        && isDeepStrictEqual(stage.eventCounts, {
+          writer: id === "successful-transaction" ? 0 : 1,
+          receiver: id === "successful-transaction" ? 0 : 1,
+        }),
       `${id} transaction stage visibility and deferred binding`);
       const local = deserializeIdCompressor(stage.compressor.compressor);
       check(local.localSessionId === stage.compressor.sessionId
@@ -7698,6 +8208,9 @@ export function validateLifecycleCase(value) {
   }
   if (value.id === "handle-transaction-branch" || value.id === "handle-retention") {
     validateLifecycleHistoryReplay(value, records, check);
+  }
+  if (value.id === "handle-transaction-branch") {
+    validateLifecycleIdentityReplay(value, records, check);
   }
 }
 

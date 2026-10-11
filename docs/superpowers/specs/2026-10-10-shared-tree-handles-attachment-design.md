@@ -1,9 +1,8 @@
 # SharedTree Handles and Live Attachment Design
 
-**Status:** Execution started on 2026-10-10. Preliminary pinned-source discovery
-is recorded below. The complete Task 1 discovery gate is still open; native
-implementation and acceptance have not started. The interfaces below remain
-proposed until that gate closes.
+**Status:** Task 1 pinned-source discovery is complete on 2026-10-10. The
+checked contract is recorded below. Native implementation and acceptance
+(Tasks 2-9) have not started; M7 remains partial.
 
 **Parent:** [Native SharedTree design](2026-09-21-shared-tree-design.md),
 M7 application and container lifecycle.
@@ -76,8 +75,8 @@ an executable observation.
 
 These observations come from the registered
 `packages/dds/tree/src/test/watershedLifecycle.spec.ts` injection. The generated
-cases record its digest under `raw.source`. They establish only the specific
-checkpoints listed here, not the complete lifecycle contract.
+cases record its digest under `raw.source`. They establish the bounded Task 1
+contract below, not native lifecycle support or arbitrary Fluid behavior.
 
 | Case / scenario | Measured result | Raw evidence |
 | --- | --- | --- |
@@ -91,14 +90,19 @@ checkpoints listed here, not the complete lifecycle contract.
 | `live-channel-attachment`, `cross-datastore-attachment` / replay input | Each case includes the actual initial document snapshot, base64 blob bytes, protocol sequence, stored compressor, writer's ongoing compressor/session, runtime registry, entry point, and gap-free sequenced prefix. Each positive scenario has cumulative typed commands and an inclusive prefix checkpoint. These are attachment-snapshot inputs, not published-summary evidence. | `input.decoderInput`; `input.scenarios[].commands` and `.replay`; matching `raw.messages` slices |
 | `cross-datastore-attachment` / all four scenarios | The receiving client reads the secondary map, resolves both sides of unpublished map/tree cycles, and resolves a secondary tree through both the primary tree and secondary entry-point map to the same DDS instance. Datastore snapshots carry the declared package and root channel; the later secondary tree arrives as a channel attach after that datastore is visible. | `raw.serialization` kind `receiver-graph`; datastore/channel snapshot metadata and live FieldBatch roots in `input.decoderInput.deliveryPrefix` |
 | `cross-datastore-attachment` / `map-cycle`, `tree-cycle` | Two unpublished declared stores can reference each other. The captured batch contains allocation, the dependency store attach, the referring store attach, then the visible DDS operation. Each cycle has two genuine datastore attaches. | `raw.messages`; `expected.observations[].value.attachOrder` is checked against the actual nested message envelopes |
-| `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | Intermediate local reads contain the new handles while targets remain unattached and transport stays empty. Successful/nested commit attaches the target and the receiver sees the committed state. Rollback restores the prior reference, leaves its target unattached, and preserves the local compressor advancement made by the aborted edit. The nested map/array edits publish in one tree operation. | `history-checkpoint.stages` in `raw.serialization`; actual `replay-transport` or empty `checkpoint` in `raw.messages`; `checkpoint-tree` in `raw.summaries` |
+| `handle-transaction-branch` / `successful-transaction`, `aborted-transaction`, `nested-transaction` | Intermediate local reads contain the new handles while targets remain unattached and transport stays empty. Event counts do not advance before outer commit. Successful/nested commit attaches the target and the receiver sees the committed state. Rollback restores the prior reference, leaves its target unattached, and preserves the local compressor advancement made by the aborted edit. The target map's independent `independent: "survives-rollback"` edit survives. The nested map/array edits publish in one tree operation. | `history-checkpoint.stages`, `.events` and `.targets` in `raw.serialization`; actual `replay-transport` or empty `checkpoint` in `raw.messages`; `checkpoint-tree` in `raw.summaries`; `aborted-transaction.value.targetData` |
 | `handle-transaction-branch` / `branch-before-merge`, `branch-after-merge`, `branch-dropped`, `branch-disposal` | Branch-only references are absent from the main and receiving trees, with no target attachment or transport. Merge attaches the target and updates both trees; disposing an unmerged checkout leaves its target unattached. | Typed named-checkout commands; `history-checkpoint.branches`, `.targets` and `.receiver`; matching sequenced slices |
 | `handle-transaction-branch` / `handle-undo-peer-edit` | A separately loaded client edits the target map after changing from its read connection to a new write connection. Undo restores the parent's previous reference without removing the peer's target edit. The originally acquired insertion revertible changes from status `0` (valid) to `1` (disposed) through default revert; it is not acquired again or disposed a second time. | `input.decoderInput.sessions.receiverClientId` and `.receiverWriteClientId`; two DDS authors in `raw.messages`; revision-keyed refresher; `revertibleStatus` and `history-checkpoint` |
 | `handle-transaction-branch`, `handle-retention` / history replay input | Both cases have the actual initial snapshot/blob/compressor/runtime input, exact cumulative creation/edit/transaction/checkout/revertible/publication commands, and contiguous sequenced prefixes. Sixteen checkpoints record actual writer, receiver, target and relevant branch state. Every retained publication's map/tree bytes match its sequenced graph, and fresh continuation is a later peer-authored map edit. | `input.decoderInput`; `input.scenarios[].commands` and `.replay`; `raw.serialization` kind `history-checkpoint`; `raw.summaries` kind `checkpoint-tree` and `published-document` |
+| `handle-transaction-branch` / separate multi-tree identity document | Two actual trees share the document compressor. Channel creation reserves generations 1 and 3; schema commits reserve 2 and 4. Detached edits reserve 5 and 6. Attaching the right tree first finalizes all six reservations; an intervening detached left edit reserves generation 7 without finalizing it until left attachment. Subsequent writer and peer edits allocate in their respective sessions; undo uses the original detached edit's revision. | `input.identityReplay`; `successful-transaction.value.identityLifecycle.checkpoints[].compressor`; `raw.serialization` kind `identity-lifecycle`; `raw.messages` kind `identity-transport` |
+| `handle-transaction-branch` / twelve identity checkpoints | The same channel, root node, checkout and anchor survive promotion, writer/peer edits and undo. The anchor remains at `rootFieldKey`, index 0. Independent checkpoint summaries decode to the measured tree state; attached checkpoints also match the sequenced receiver graph. | `identityLifecycle.checkpoints[].trees`: `.path`, `.sharedDocumentCompressor`, `.sameRoot`, `.sameCheckout`, `.sameAnchor`, `.anchor`, `.summary`; `.peer.trees` and `.peer.finalTrees` |
+| Both history cases / local and receiver events | Local changed events contain actual encoded changes, stable revisions, `Default` or `Undo` kind and inverse-factory availability. Remote events are `Default`, nonlocal, with no factory or local change. Every measured main local commit settles `FullyApplied`; abort and nested intermediate stages add no commits. | `history-checkpoint.events.writer` and `.receiver`; `history-checkpoint.stages[].eventCounts`; source-local changes structurally compared with actual Message V7 commits |
+| `handle-transaction-branch` / branch factory and channel-marker lifetime | Branch edits have one local event, an acquired inverse and no settlement, including after merge/disposal. Working inverses remain valid before merge and dispose on merge; dropped/disposed checkout inverses dispose immediately with the same-handle callback. Duplicate acquisition fails during the event; late acquisition fails outside it. The serialized branch marker resolves the existing document tree, not unmerged branch content. | `history-checkpoint.events.branches[].events`, `.settlements`, `.handles`; `branch-before-merge.value.branchHandle`; fork/edit reservation checks against preceding ongoing compressor state |
+| `handle-transaction-branch` / detached inverse lifetime | Detached data edits expose an inverse factory and settle locally; schema initialization has no factory. The original acquired left-edit inverse survives both attachments and a peer edit, restores `left-detached`, and auto-disposes. Explicit final disposal disposes all remaining application-owned inverses without transport. | `identityLifecycle.checkpoints[].trees[].events`; `.revertible`; `.peer`; exact subscription/revert/disposal commands and the undo's revision-keyed string refresher |
 | `live-channel-attachment` / `active-transaction`; `handle-transaction-branch` / `active-target` | A real document graph publication attempt throws the exact active-transaction error after submitting allocation and channel-attach transport. The target becomes attached, while both target and parent tree views enter the measured invalid state. The refusal is not atomic. | `raw.messages` records of kind `document-attachment`, including the target attach snapshot and sequenced transport |
 | `handle-retention` / removal, undo, retained repair, branch disposal, revertible disposal | Each checkpoint publishes a full document summary. Stored GC bytes continue to route to the referenced target through the captured retention states. | `raw.summaries` records of kind `published-document`, with fetched tree/blob bytes, parsed GC, component metadata, and sequence boundaries |
 | `handle-retention` / `unreferenced-datastore` | The removed secondary datastore remains non-root metadata with retained GC nodes and the frozen `1700000000000` unreferenced timestamp on both datastore and root-channel routes. | The published snapshot's `/gc/__gc_root` and `/.channels/P/.component` bytes |
-| `handle-retention` / `fresh-load` | A fresh upstream client loads the named published version, resolves the target path from those stored bytes, and writes `continued: true`; the original writer observes the edit. | Published handle and stored snapshot/blob bytes plus the continuation observation |
+| `handle-retention` / `fresh-load` | A fresh upstream client loads the named published version, resolves the target path from those stored bytes, and writes `continued: true`; the original writer observes the edit. The fresh checkout has no restored local events, inverses or revertible branches. | Published handle and stored snapshot/blob bytes plus the continuation observation and `freshLocalLifetime` |
 
 Native active-target attachment will enforce a stronger refusal boundary than
 the measured upstream failure. Whole-candidate validation must reject the
@@ -135,10 +139,26 @@ command sequences are checked against independently decoded transport and
 checkpoint forests, not a scan for handle marker text. Published snapshots
 are checked at their own reference sequence, before fresh-client edits.
 
-The discovery gate still needs multi-tree document-compressor identity and the
-remaining commit/factory/revertible/event-lifetime observations required by
-Task 1, followed by the original checklist audit. Do not derive the complete
-native lifecycle contract from this table alone.
+Identity validation replays the exact twelve-checkpoint schedule through the
+pinned compressor. It compares ongoing and summary serialization, cloned
+unfinalized ranges, stable channel/revision IDs, detached attach-history
+payloads, and writer/peer allocation messages. IDs come from compressor
+allocation order, never UUID sorting or timestamps. Root and checkout
+comparisons are actual source-object references bound to those channels.
+
+Local event metadata uses SerializedChange V1 with session-space revisions;
+the message stream uses Message V7 with originator-relative op-space
+revisions. Validation resolves both to stable revisions and decodes generic
+and schema-aware FieldBatch builds before comparing commit atoms and values.
+An isolated unattached serializer sink captures event handles without
+publishing branch-only bindings. Branch-only settlements remain empty rather
+than borrowing the main merge event's settlement.
+
+The original Task 1 checklist has been audited against all five cases.
+Seven non-skipping source probes, 239 source/generator/codec tests and all 68
+byte-reproduced cases close the discovery gate. The original 63 cases,
+manifest and native profile are unchanged. Tasks 2-9 must still implement and
+prove the native APIs, codecs, persistence and service matrices.
 
 ## 3. Global constraints
 

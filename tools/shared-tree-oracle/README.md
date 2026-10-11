@@ -127,7 +127,9 @@ transport slices.
 
 The transaction stages show local handle edits before attachment or transport.
 Rollback restores the prior tree reference while preserving local compressor
-advancement. A receiver changes connection ID when its first target edit
+advancement; an independent target-map edit survives tree rollback. Stage
+event counts stay unchanged until outer commit. A receiver changes connection
+ID when its first target edit
 promotes it from read to write mode; `sessions.receiverClientId` and
 `receiverWriteClientId` preserve both measured identities. Undo restores the
 prior reference, auto-disposes the original revertible, and leaves the peer's
@@ -136,13 +138,34 @@ and sequence edits and revision-keyed undo refreshers. It also checks summary
 proposals/acknowledgements and compares published map/tree bytes with their
 sequenced checkpoint, including the fresh-client continuation.
 
-This is still discovery, not Task 1 acceptance. Published storage, leaf
-codec/resolution proof, all four graph/history replay inputs and their
-receiver checkpoints are complete. Multi-tree document-compressor identity
-and the remaining commit/factory/revertible/event lifetime evidence remain
-required by the
+Every history checkpoint also records actual local/remote events and local
+settlements. Local changes carry stable revisions and inverse-factory
+availability; remote events carry neither local changes nor factories.
+Branch inverses have measured single-acquisition/event-window errors and
+same-handle disposal callbacks, but no branch-only settlement. A serialized
+branch channel marker resolves the main document tree rather than its
+unmerged checkout. Fresh publication loads do not revive local inverse or
+branch stacks.
+
+The transaction case's separate `input.identityReplay` starts another actual
+document. Twelve cumulative command/checkpoint pairs create two trees with a
+shared compressor, attach them in reverse creation order, interleave detached
+and writer/peer edits, undo an original detached edit, and dispose remaining
+inverses. Checkpoints include ongoing/summary compressor bytes, cloned local
+reservations, real root/checkout/anchor comparisons, independently decoded
+summaries, events and lifetime status. Its `identity-transport` record binds
+the complete prefix. Validation replays allocations through the pinned
+compressor and compares stable revisions across session-space event metadata
+and op-space Message V7 commits; it never sorts UUIDs to infer order.
+
+Task 1 of the
 [handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
-before native implementation proceeds.
+is complete: all five source cases, replay inputs, storage, identity/event
+proof and the original checklist audit are checked. Seven source probes and
+239 source/generator/codec tests pass without skips; all 68 cases reproduce
+byte-for-byte. The original 63 cases, manifest and native profile remain
+unchanged. Native lifecycle implementation and acceptance are still Tasks
+2-9, not claims made by these source fixtures.
 
 The `just shared-tree-interop` command is the combined SharedTree acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,

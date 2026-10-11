@@ -11,7 +11,10 @@ import { performance } from "node:perf_hooks";
 import type { IFluidHandle, IFluidLoadable } from "@fluidframework/core-interfaces";
 import type { IFluidHandleInternal } from "@fluidframework/core-interfaces/internal";
 import type { ISequencedDocumentMessage } from "@fluidframework/driver-definitions/internal";
-import { createIdCompressor } from "@fluidframework/id-compressor/internal";
+import type { IIdCompressor, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import {
+	createIdCompressor, deserializeIdCompressor, serializeIdCompressor, toIdCompressorWithCore,
+} from "@fluidframework/id-compressor/internal";
 import { startEphemeralService } from "@fluidframework/local-driver/internal";
 import { MapFactory, type ISharedMap } from "@fluidframework/map/internal";
 import {
@@ -28,7 +31,8 @@ import {
 
 import { asAlpha } from "../api.js";
 import { FluidClientVersion } from "../codec/index.js";
-import { RevertibleStatus, type RevertibleAlpha } from "../core/index.js";
+import { CommitKind, CommitOutcome, RevertibleStatus, type RevertibleAlpha } from "../core/index.js";
+import { getKernel } from "../simple-tree/core/index.js";
 import {
 	SchemaFactory,
 	TreeViewConfiguration,
@@ -753,6 +757,81 @@ function graphWriter(root: ISharedMap) {
 	};
 }
 
+function documentCompressor(root: ISharedMap): IIdCompressor {
+	const runtime = Reflect.get(root, "runtime") as { idCompressor: IIdCompressor };
+	assert(runtime.idCompressor !== undefined, "Missing document compressor");
+	return runtime.idCompressor;
+}
+
+function compressorCheckpoint(root: ISharedMap) {
+	const compressor = documentCompressor(root);
+	const ongoing = serializeIdCompressor(compressor, true);
+	return {
+		sessionId: compressor.localSessionId, ongoing, summary: serializeIdCompressor(compressor, false),
+		reservation: toIdCompressorWithCore(deserializeIdCompressor(ongoing)).takeUnfinalizedCreationRange(),
+	};
+}
+
+function watchLifecycle(view: RootView, tree: ITree, compressor: IIdCompressor, acquire = false) {
+	// Keep evidence serialization from publishing a branch-only handle binding.
+	const sink = new MapFactory().create(new MockFluidDataStoreRuntime({
+		id: "event-capture", registry: [SharedMapAlpha.getFactory()],
+	}), "sink");
+	const events: { index: number; target: string; kind: string; local: boolean;
+		factory: boolean; change: unknown; stableRevision?: string }[] = [];
+	const settlements: unknown[] = [];
+	const handles: { revision: string; handle: RevertibleAlpha; duplicateError: string;
+		disposedSameHandle?: boolean }[] = [];
+	const factories: (() => RevertibleAlpha)[] = [];
+	const off = view.events.on("changed", (metadata, getRevertible) => {
+		const index = events.length;
+		const change = metadata.isLocal ? copy(serializerFor(tree.handle).encode(
+			metadata.getChange(), internalHandle(sink.handle),
+		)) : null;
+		const revision = change === null ? undefined
+			: Reflect.get(change as object, "revision") as SessionSpaceCompressedId;
+		const stableRevision = revision === undefined ? undefined : compressor.decompress(revision);
+		events.push({
+			index, target: pathOf(tree.handle), kind: CommitKind[metadata.kind],
+			local: metadata.isLocal, factory: getRevertible !== undefined,
+			change, ...(stableRevision === undefined ? {} : { stableRevision }),
+		});
+		if (metadata.isLocal) {
+			metadata.events.on("settled", (outcome) => {
+				settlements.push({ index, outcome: CommitOutcome[outcome] });
+			});
+		}
+		if (acquire && getRevertible !== undefined) {
+			assert(stableRevision !== undefined);
+			let acquired: RevertibleAlpha;
+			const handle = getRevertible((disposed) => {
+				const record = handles.find((item) => item.handle === disposed);
+				if (record !== undefined) record.disposedSameHandle = disposed === acquired;
+			});
+			acquired = handle;
+			handles.push({
+				revision: stableRevision, handle,
+				duplicateError: errorOf(() => getRevertible()),
+			});
+			factories.push(getRevertible);
+		}
+	});
+	return {
+		events, settlements, handles, off,
+		snapshot: () => ({
+			events: copy(events), settlements: copy(settlements),
+			handles: handles.map((item, index) => ({
+				revision: item.revision, status: RevertibleStatus[item.handle.status],
+				duplicateError: item.duplicateError,
+				lateError: errorOf(() => factories[index]()),
+				...(item.disposedSameHandle === undefined ? {} : {
+					disposedSameHandle: item.disposedSameHandle,
+				}),
+			})),
+		}),
+	};
+}
+
 async function resolveGraphTarget(root: ISharedMap, path: string) {
 	const handle = serializerFor(root.handle).decode({
 		type: "__fluid_handle__",
@@ -847,6 +926,12 @@ function historyCapture(
 	];
 	const targets: ISharedMap[] = [];
 	const receiverClientId = graphClientId(peer.container);
+	const writerEvents = watchLifecycle(view, tree, documentCompressor(graph.container.data.root));
+	const receiverEvents = watchLifecycle(peerView, peerTree, documentCompressor(peer.data.root));
+	const sourceRoot = view.root;
+	const sourceCheckout = Reflect.get(view, "checkout");
+	const sourceAnchor = getKernel(sourceRoot).anchorNode;
+	const branchEvents = new Map<string, ReturnType<typeof watchLifecycle>>();
 	let previousSequence = 0;
 	const checkpoints = async (
 		id: string,
@@ -881,6 +966,19 @@ function historyCapture(
 			})),
 			compressor: graphWriter(graph.container.data.root),
 			stages,
+			events: {
+				writer: writerEvents.snapshot(), receiver: receiverEvents.snapshot(),
+				branches: [...branchEvents].map(([id, watcher]) => ({ id, ...watcher.snapshot() })),
+			},
+			identity: {
+				channel: pathOf(tree.handle),
+				sameRoot: view.root === sourceRoot,
+				sameCheckout: Reflect.get(view, "checkout") === sourceCheckout,
+				sameAnchor: getKernel(view.root).anchorNode === sourceAnchor,
+				rootAnchor: {
+					field: sourceAnchor?.parentField, index: sourceAnchor?.parentIndex,
+				},
+			},
 		};
 		const observation = observations.find((item) => item.id === id);
 		const scenario = scenarios.find((item) => item.id === id);
@@ -903,7 +1001,15 @@ function historyCapture(
 		previousSequence = prefixEndSequenceNumber;
 		return prefix;
 	};
-	return { commands, targets, receiverClientId, checkpoint: checkpoints };
+	return {
+		commands, targets, receiverClientId, checkpoint: checkpoints,
+		watchBranch: (id: string, branch: RootView) => {
+			const watcher = watchLifecycle(branch, tree, documentCompressor(graph.container.data.root), true);
+			branchEvents.set(id, watcher);
+			return watcher;
+		},
+		eventCounts: () => ({ writer: writerEvents.events.length, receiver: receiverEvents.events.length }),
+	};
 }
 
 async function publishDocument(
@@ -2758,6 +2864,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 				tree: visible(view.root), target: pathOf(target.handle),
 				attached: isAttached(target), compressor: graphWriter(container.data.root),
 				transportLength: messages.length,
+				eventCounts: history.eventCounts(),
 			});
 			messages.length = 0;
 
@@ -2788,12 +2895,15 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const abortedStages: unknown[] = [stage(aborted)];
 			const abortedResult = Tree.runTransaction(view, () => {
 				view.root.link = aborted.handle;
+				aborted.set("independent", "survives-rollback");
 				abortedStages.push(stage(aborted));
 				return Tree.runTransaction.rollback;
 			});
 			abortedStages.push(stage(aborted));
 			history.commands.push(createChannelCommand(aborted),
 				{ type: "begin-transaction", target: pathOf(tree.handle) }, setHandle(aborted),
+				{ type: "map-set", target: pathOf(aborted.handle), key: "independent",
+					value: { kind: "string", value: "survives-rollback" } },
 				{ type: "rollback-transaction", target: pathOf(tree.handle) },
 				{ type: "settle", checkpoint: "aborted-transaction" });
 			observations.push({
@@ -2802,6 +2912,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 					result: abortedResult === Tree.runTransaction.rollback ? "rollback" : "commit",
 					attached: isAttached(aborted),
 					referringPath: view.root.link === undefined ? undefined : pathOf(view.root.link),
+					targetData: mapValue(aborted),
 				},
 				evidence: [record("messages", raw, "aborted-transaction", "checkpoint", messages.splice(0), "after-rollback")],
 			});
@@ -2848,17 +2959,30 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const branchTarget = await container.data.createMap();
 			history.targets.push(branchTarget);
 			const branch = view.fork() as RootView;
+			history.watchBranch("working", branch);
 			branch.root.link = branchTarget.handle;
 			history.commands.push(createChannelCommand(branchTarget),
 				{ type: "fork", target: pathOf(tree.handle), checkout: "working" },
+				{ type: "capture-next-revertible", target: pathOf(tree.handle),
+					checkout: "working", id: "working-edit" },
 				setHandle(branchTarget, "working"),
+				{ type: "serialize-checkout-channel-handle", target: pathOf(tree.handle), checkout: "working" },
 				{ type: "settle", checkpoint: "branch-before-merge" });
+			const branchMarker = serializerFor(tree.handle).encode(tree.handle,
+				internalHandle(container.data.root.handle));
+			const branchChannelHandle = serializerFor(container.data.root.handle)
+				.decode(branchMarker) as IFluidHandle;
+			const branchChannel = await branchChannelHandle.get() as ITree;
 			observations.push({
 				id: "branch-before-merge",
 				value: {
 					branchPath: branch.root.link === undefined ? undefined : pathOf(branch.root.link),
 					mainPath: view.root.link === undefined ? undefined : pathOf(view.root.link),
 					attached: isAttached(branchTarget),
+					branchHandle: {
+						marker: branchMarker, sameDocumentChannel: branchChannel === tree,
+						branchData: visible(branch.root), resolvedData: visible(view.root),
+					},
 				},
 				evidence: [record("messages", raw, "branch-before-merge", "checkpoint", messages.splice(0), "before-merge")],
 			});
@@ -2877,10 +3001,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const droppedTarget = await container.data.createMap();
 			history.targets.push(droppedTarget);
 			const dropped = view.fork() as RootView;
+			history.watchBranch("dropped", dropped);
 			dropped.root.link = droppedTarget.handle;
 			dropped.dispose();
 			history.commands.push(createChannelCommand(droppedTarget),
 				{ type: "fork", target: pathOf(tree.handle), checkout: "dropped" },
+				{ type: "capture-next-revertible", target: pathOf(tree.handle),
+					checkout: "dropped", id: "dropped-edit" },
 				setHandle(droppedTarget, "dropped"),
 				{ type: "dispose-checkout", target: pathOf(tree.handle), checkout: "dropped" },
 				{ type: "settle", checkpoint: "branch-dropped" });
@@ -2894,10 +3021,13 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const disposedTarget = await container.data.createMap();
 			history.targets.push(disposedTarget);
 			const disposed = view.fork() as RootView;
+			history.watchBranch("disposed", disposed);
 			disposed.root.link = disposedTarget.handle;
 			disposed.dispose();
 			history.commands.push(createChannelCommand(disposedTarget),
 				{ type: "fork", target: pathOf(tree.handle), checkout: "disposed" },
+				{ type: "capture-next-revertible", target: pathOf(tree.handle),
+					checkout: "disposed", id: "disposed-edit" },
 				setHandle(disposedTarget, "disposed"),
 				{ type: "dispose-checkout", target: pathOf(tree.handle), checkout: "disposed" },
 				{ type: "settle", checkpoint: "branch-disposal" });
@@ -2911,20 +3041,31 @@ describe("Watershed handle and attachment lifecycle", () => {
 			const undoTarget = await container.data.createMap();
 			history.targets.push(undoTarget);
 			let revertible: RevertibleAlpha | undefined;
+			let insertionFactory: (() => RevertibleAlpha) | undefined;
+			let insertionDuplicateError = "";
+			let insertionDisposedSameHandle = false;
 			const off = view.events.on("changed", (metadata, getRevertible) => {
 				if (metadata.isLocal && getRevertible !== undefined && revertible === undefined) {
-					revertible = getRevertible();
+					revertible = getRevertible((handle) => {
+						insertionDisposedSameHandle = handle === revertible;
+					});
+					insertionFactory = getRevertible;
+					insertionDuplicateError = errorOf(() => getRevertible());
 				}
 			});
 			view.root.link = undoTarget.handle;
 			await service.synchronize();
 			off();
+			assert(insertionFactory !== undefined);
+			const acquiredFactory = insertionFactory;
+			const insertionLateError = errorOf(() => acquiredFactory());
 			assert(peerView.root.link !== undefined);
 			const peerTarget = await peerView.root.link.get() as ISharedMap;
 			peerTarget.set("peer", "survives");
 			await service.synchronize();
 			assert(revertible !== undefined, "Handle insertion must produce a revertible");
 			const beforeRevert = revertible.status;
+			const sameTargetBeforeUndo = await view.root.link!.get() === undoTarget;
 			revertible.revert();
 			await service.synchronize();
 			const afterRevert = revertible.status;
@@ -2949,6 +3090,14 @@ describe("Watershed handle and attachment lifecycle", () => {
 					targetPath: pathOf(undoTarget.handle),
 					targetValue: undoTarget.get("peer"),
 					revertibleStatus: { before: beforeRevert, after: afterRevert },
+					factoryLifetime: {
+						duplicateError: insertionDuplicateError, lateError: insertionLateError,
+						disposedSameHandle: insertionDisposedSameHandle,
+						sameTargetBeforeUndo,
+						sameTargetAfterUndo: await resolveGraphTarget(container.data.root,
+							pathOf(undoTarget.handle)) === undoTarget,
+						targetAttachedAfterUndo: isAttached(undoTarget),
+					},
 				},
 				evidence: [
 					record("messages", raw, "handle-undo-peer-edit", "undo", messages.splice(0)),
@@ -3102,6 +3251,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 			await history.checkpoint("after-undo");
 
 			const retaining = view.fork() as RootView;
+			history.watchBranch("retaining", retaining);
 			view.root.link = undefined;
 			history.commands.push(
 				{ type: "fork", target: pathOf(tree.handle), checkout: "retaining" },
@@ -3228,6 +3378,12 @@ describe("Watershed handle and attachment lifecycle", () => {
 				const loadedTargetPath = pathOf(loadedView.root.link as IFluidHandle);
 				const loadedTargetBefore = Object.fromEntries(loadedTarget.entries());
 				const writerTargetBefore = Object.fromEntries(target.entries());
+				const loadedEvents = watchLifecycle(loadedView, loadedTree,
+					documentCompressor(loaded.data.root));
+				const loadedCheckout = Reflect.get(loadedView, "checkout") as {
+					revertibles: Map<unknown, unknown>;
+					revertibleCommitBranches: Map<unknown, unknown>;
+				};
 				loadedTarget.set("continued", true);
 				history.commands.push(
 					{
@@ -3277,6 +3433,11 @@ describe("Watershed handle and attachment lifecycle", () => {
 							...continuation,
 							publicationHandle: freshPublication.published.publication.handle,
 						},
+						freshLocalLifetime: {
+							events: loadedEvents.snapshot(),
+							revertibles: loadedCheckout.revertibles.size,
+							revertibleBranches: loadedCheckout.revertibleCommitBranches.size,
+						},
 					},
 					evidence: [
 						record("summaries", raw, "fresh-load", "loaded-tree", (await summarize(loadedTree)).summary),
@@ -3286,6 +3447,7 @@ describe("Watershed handle and attachment lifecycle", () => {
 					],
 				});
 				await history.checkpoint("fresh-load");
+				loadedEvents.off();
 			} finally {
 				loaded.container.dispose();
 			}
@@ -3397,5 +3559,162 @@ describe("Watershed handle and attachment lifecycle", () => {
 		}
 		assert(deferredHandleLeaves !== undefined, "handle-leaves: deferred case");
 		await deferredHandleLeaves();
+	});
+
+	it("captures multi-tree compressor and object identity through attachment", async () => {
+		assert(deferredTransactionBranch !== undefined);
+		const deferred = deferredTransactionBranch;
+		const graph = await attachedGraph();
+		const { container, service } = graph;
+		let peer: Awaited<ReturnType<typeof openGraphContainer>> | undefined;
+		try {
+			const commands: unknown[] = [];
+			const checkpoints: unknown[] = [];
+			const trees: { tree: ITree; view: RootView; root: Root; checkout: unknown;
+				anchor: unknown; watch: ReturnType<typeof watchLifecycle> }[] = [];
+			const identity = async (id: string) => {
+				await service.synchronize();
+				const prefix = await graphMessages(service, graph.resolvedUrl);
+				checkpoints.push({
+					id, commands: copy(commands), sequenceNumber: prefix.at(-1)?.sequenceNumber ?? 0,
+					compressor: compressorCheckpoint(container.data.root),
+					trees: await Promise.all(trees.map(async ({ tree, view, root, checkout, anchor, watch }) => ({
+						path: pathOf(tree.handle), attached: isAttached(tree), data: visible(view.root),
+						sameRoot: view.root === root, sameCheckout: Reflect.get(view, "checkout") === checkout,
+						sameAnchor: getKernel(view.root).anchorNode === anchor,
+						sharedDocumentCompressor: Reflect.get(tree, "runtime").idCompressor
+							=== documentCompressor(container.data.root),
+						anchor: {
+							field: getKernel(view.root).anchorNode?.parentField,
+							index: getKernel(view.root).anchorNode?.parentIndex,
+						},
+						events: watch.snapshot(),
+						summary: (await summarize(tree)).summary,
+					}))),
+				});
+			};
+			await identity("initial");
+			for (const id of ["left-created", "right-created"]) {
+				const tree = await container.data.createTree();
+				const view = existingRoot(tree);
+				const watch = watchLifecycle(view, tree, documentCompressor(container.data.root), true);
+				view.initialize(new Root({ label: "root", links: new Links(), sequence: new Sequence() }));
+				trees.push({
+					tree, view, root: view.root, checkout: Reflect.get(view, "checkout"),
+					anchor: getKernel(view.root).anchorNode, watch,
+				});
+				commands.push(createChannelCommand(tree),
+					{ type: "subscribe-revertibles", target: pathOf(tree.handle),
+						id: id === "left-created" ? "identity-left" : "identity-right" },
+					initializeTreeCommand(tree),
+					{ type: "settle", checkpoint: id });
+				await identity(id);
+			}
+			const [left, right] = trees;
+			for (const [owner, label, id] of [
+				[left, "left-detached", "left-edited"],
+				[right, "right-detached", "right-edited"],
+			] as const) {
+				owner.view.root.label = label;
+				commands.push({ type: "tree-set-string", target: pathOf(owner.tree.handle),
+					field: "label", value: label }, { type: "settle", checkpoint: id });
+				await identity(id);
+			}
+			container.data.root.set("right", right.tree.handle);
+			commands.push({ type: "map-set", target: "/A/root", key: "right",
+				value: graphHandle(pathOf(right.tree.handle)) },
+			{ type: "settle", checkpoint: "right-attached" });
+			await identity("right-attached");
+			left.view.root.label = "left-interleaved";
+			commands.push({ type: "tree-set-string", target: pathOf(left.tree.handle),
+				field: "label", value: "left-interleaved" },
+			{ type: "settle", checkpoint: "left-interleaved" });
+			await identity("left-interleaved");
+			container.data.root.set("left", left.tree.handle);
+			commands.push({ type: "map-set", target: "/A/root", key: "left",
+				value: graphHandle(pathOf(left.tree.handle)) },
+			{ type: "settle", checkpoint: "left-attached" });
+			await identity("left-attached");
+			peer = await openGraphContainer(service, container.id);
+			const peerViews = await Promise.all(["left", "right"].map(async (key) => {
+				const tree = await (peer!.data.root.get(key) as IFluidHandle).get() as ITree;
+				const view = existingRoot(tree);
+				return { tree, view, root: view.root, checkout: Reflect.get(view, "checkout"),
+					watch: watchLifecycle(view, tree, documentCompressor(peer!.data.root)) };
+			}));
+			const receiverClientId = graphClientId(peer.container);
+			const receiverWriter = graphWriter(peer.data.root);
+			right.view.root.label = "right-live";
+			commands.push({ type: "tree-set-string", target: pathOf(right.tree.handle),
+				field: "label", value: "right-live" },
+			{ type: "settle", checkpoint: "writer-live-edit" });
+			await identity("writer-live-edit");
+			peerViews[0].view.root.label = "left-peer";
+			commands.push({ type: "tree-set-string", client: "receiver", target: pathOf(left.tree.handle),
+				field: "label", value: "left-peer" },
+			{ type: "settle", checkpoint: "peer-live-edit" });
+			await identity("peer-live-edit");
+			const peerState = peerViews.map(({ tree, view, root, checkout, watch }) => ({
+				path: pathOf(tree.handle), data: visible(view.root),
+				sameRoot: view.root === root, sameCheckout: Reflect.get(view, "checkout") === checkout,
+				events: watch.snapshot(),
+			}));
+			const peerSequenceNumber = (await graphMessages(service, graph.resolvedUrl))
+				.at(-1)?.sequenceNumber ?? 0;
+			const handle = left.watch.handles.find((item) =>
+				item.revision === left.watch.events[2].stableRevision)?.handle;
+			assert(handle !== undefined, "Detached label edit must have a revertible");
+			const before = RevertibleStatus[handle.status];
+			handle.revert();
+			commands.push({ type: "revert", target: pathOf(left.tree.handle),
+				eventIndex: 2, dispose: true }, { type: "settle", checkpoint: "detached-edit-undo" });
+			await identity("detached-edit-undo");
+			const after = RevertibleStatus[handle.status];
+			for (const owner of trees) {
+				for (const record of owner.watch.handles) {
+					if (record.handle.status === RevertibleStatus.Valid) record.handle.dispose();
+				}
+			}
+			commands.push({ type: "dispose-all-revertibles" },
+				{ type: "settle", checkpoint: "disposed" });
+			await identity("disposed");
+			const finalMessages = await graphMessages(service, graph.resolvedUrl);
+			const observation = deferred.observations.find((item) => item.id === "successful-transaction")!;
+			const proof = {
+				checkpoints, peer: {
+					initialClientId: receiverClientId, writeClientId: graphClientId(peer.container),
+					sequenceNumber: peerSequenceNumber, trees: peerState,
+					finalTrees: peerViews.map(({ tree, view, root, checkout, watch }) => ({
+						path: pathOf(tree.handle), data: visible(view.root),
+						sameRoot: view.root === root, sameCheckout: Reflect.get(view, "checkout") === checkout,
+						events: watch.snapshot(),
+					})),
+				},
+				revertible: {
+					sourceEventIndex: 2, target: pathOf(left.tree.handle), before, after,
+					sameHandle: left.watch.handles.some((item) => item.handle === handle),
+				},
+			};
+			observation.value = { ...(observation.value as object), identityLifecycle: proof };
+			observation.evidence.push(record("serialization", deferred.raw,
+				"successful-transaction", "identity-lifecycle", proof));
+			observation.evidence.push(record("messages", deferred.raw,
+				"successful-transaction", "identity-transport", copy(graph.messages), "identity-final"));
+			const identityReplay = graphDecoderInput(container, graph.initial, graph.writer,
+				peer.container, finalMessages, receiverClientId);
+			deferred.input = {
+				...deferred.input,
+				identityReplay: {
+					...identityReplay, sessions: { ...identityReplay.sessions, receiverWriter },
+				},
+			};
+			for (const owner of trees) owner.watch.off();
+			for (const owner of peerViews) owner.watch.off();
+			await writeCase("handle-transaction-branch", deferred.scenarios,
+				deferred.observations, deferred.raw, deferred.input);
+		} finally {
+			peer?.container.dispose();
+			await service.close();
+		}
 	});
 });

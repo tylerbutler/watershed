@@ -476,6 +476,147 @@ test("history published target bytes must match the sequenced map state", async 
   assert.throws(() => validateLifecycleCase(value), /published.*state|snapshot.*map/i);
 });
 
+test("lifecycle identity proof requires executable multi-tree allocation and object evidence", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  validateLifecycleCase(value);
+  const changed = structuredClone(value);
+  delete changed.input.identityReplay;
+  assert.throws(() => validateLifecycleCase(changed), /identity.*replay|multi-tree/i);
+});
+
+test("history checkpoints require actual local and remote commit event and settlement records", async () => {
+  for (const id of ["handle-transaction-branch", "handle-retention"]) {
+    const value = await lifecycleCapture(id);
+    validateLifecycleCase(value);
+    delete value.expected.observations[0].value.checkpoint.events;
+    value.raw.serialization.find((item) => item.kind === "history-checkpoint").value =
+      structuredClone(value.expected.observations[0].value.checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /event|settlement/i);
+  }
+});
+
+test("lifecycle event proof rejects fabricated locality, factories, revisions and settlement", async () => {
+  for (const mutate of [
+    (checkpoint) => { checkpoint.events.writer.events[0].local = false; },
+    (checkpoint) => { checkpoint.events.receiver.events[0].factory = true; },
+    (checkpoint) => { checkpoint.events.writer.events[0].change = { descriptor: "commit" }; },
+    (checkpoint) => { checkpoint.events.writer.events[0].stableRevision = "invented"; },
+    (checkpoint) => { checkpoint.events.writer.settlements[0].outcome = "FullyDropped"; },
+    (checkpoint) => { checkpoint.events.writer.events = []; },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const checkpoint = value.expected.observations[0].value.checkpoint;
+    mutate(checkpoint);
+    value.raw.serialization.find((item) => item.kind === "history-checkpoint").value =
+      structuredClone(checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /event|commit|revision|settlement/i);
+  }
+});
+
+test("lifecycle branch proof rejects expired-factory and disposed-handle substitutions", async () => {
+  for (const mutate of [
+    (checkpoint) => { checkpoint.events.branches[0].handles[0].lateError = ""; },
+    (checkpoint) => { checkpoint.events.branches[0].handles[0].duplicateError = ""; },
+    (checkpoint) => { checkpoint.events.branches[0].handles[0].status = "Valid"; },
+    (checkpoint) => { checkpoint.events.branches[0].handles[0].disposedSameHandle = false; },
+    (checkpoint) => { checkpoint.events.branches[0].settlements = [{ index: 0, outcome: "FullyApplied" }]; },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    const observation = value.expected.observations.find((item) => item.id === "branch-after-merge");
+    mutate(observation.value.checkpoint);
+    value.raw.serialization.find((item) =>
+      item.scenarioId === observation.id && item.kind === "history-checkpoint").value =
+      structuredClone(observation.value.checkpoint);
+    assert.throws(() => validateLifecycleCase(value), /factory|handle|branch|settlement/i);
+  }
+});
+
+test("lifecycle multi-tree proof rejects replacement objects and invented allocation order", async () => {
+  for (const mutate of [
+    (value) => { value.input.identityReplay.deliveryPrefix.splice(1, 1); },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[5].trees[0].sameRoot = false; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[5].trees[0].sameCheckout = false; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[5].trees[0].sameAnchor = false; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[3].compressor.reservation.ids.count = 0; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[5].trees.reverse(); },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[3].commands.pop(); },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    mutate(value);
+    value.raw.serialization.find((item) => item.kind === "identity-lifecycle").value =
+      structuredClone(value.expected.observations[0].value.identityLifecycle);
+    assert.throws(() => validateLifecycleCase(value), /identity|multi-tree|allocation|prefix|commands/i);
+  }
+});
+
+test("branch channel markers resolve document state rather than unmerged checkout state", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const branch = value.expected.observations.find((item) => item.id === "branch-before-merge");
+  branch.value.branchHandle.resolvedData = branch.value.branchHandle.branchData;
+  assert.throws(() => validateLifecycleCase(value), /branch.*handle|document.*channel/i);
+});
+
+test("fresh load cannot revive application-owned revertibles or local branch stacks", async () => {
+  const value = await lifecycleCapture("handle-retention");
+  value.expected.observations.at(-1).value.freshLocalLifetime.revertibles = 1;
+  assert.throws(() => validateLifecycleCase(value), /fresh.*lifetime|revertible/i);
+});
+
+test("transaction rollback preserves independent target edits outside its tree scope", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const observation = value.expected.observations.find((item) => item.id === "aborted-transaction");
+  assert.deepEqual(observation.value.targetData, { independent: "survives-rollback" });
+  observation.value.targetData = {};
+  assert.throws(() => validateLifecycleCase(value), /rollback.*target|independent/i);
+});
+
+test("transaction stage event counts cannot publish before outer commit", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const observation = value.expected.observations.find((item) => item.id === "nested-transaction");
+  observation.value.checkpoint.stages[1].eventCounts.writer++;
+  value.raw.serialization.find((item) =>
+    item.scenarioId === observation.id && item.kind === "history-checkpoint").value =
+    structuredClone(observation.value.checkpoint);
+  assert.throws(() => validateLifecycleCase(value), /transaction stage|event/i);
+});
+
+test("unmerged branch commits require their own allocated revision, not another valid revision", async () => {
+  const value = await lifecycleCapture("handle-transaction-branch");
+  const observation = value.expected.observations.find((item) => item.id === "branch-dropped");
+  const branch = observation.value.checkpoint.events.branches.find((item) => item.id === "dropped");
+  const event = branch.events[0];
+  const other = observation.value.checkpoint.events.writer.events[0];
+  const revision = event.change.revision;
+  event.change = JSON.parse(JSON.stringify(event.change,
+    (_, item) => item === revision ? other.change.revision : item));
+  event.stableRevision = other.stableRevision;
+  branch.handles[0].revision = other.stableRevision;
+  value.raw.serialization.find((item) =>
+    item.scenarioId === observation.id && item.kind === "history-checkpoint").value =
+    structuredClone(observation.value.checkpoint);
+  assert.throws(() => validateLifecycleCase(value), /branch.*revision|allocation/i);
+});
+
+test("multi-tree event and lifetime mutations cannot replace real transport associations", async () => {
+  for (const mutate of [
+    (value) => { value.input.identityReplay.sessions.receiverWriter.sessionId = "invented"; },
+    (value) => { value.raw.messages.find((item) => item.kind === "identity-transport").value.pop(); },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[6].trees[0].sharedDocumentCompressor = false; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[6].trees[0].events.events[2].change.change[0].data.builds.trees.data[0][1][2] = "fake"; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.checkpoints[10].trees[0].events.handles[1].status = "Valid"; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.peer.trees[0].events.settlements = []; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.peer.finalTrees[0].sameCheckout = false; },
+    (value) => { value.expected.observations[0].value.identityLifecycle.revertible.sameHandle = false; },
+  ]) {
+    const value = await lifecycleCapture("handle-transaction-branch");
+    validateLifecycleCase(value);
+    mutate(value);
+    value.raw.serialization.find((item) => item.kind === "identity-lifecycle").value =
+      structuredClone(value.expected.observations[0].value.identityLifecycle);
+    assert.throws(() => validateLifecycleCase(value), /identity|multi-tree|event|revision|lifetime|handle/i);
+  }
+});
+
 test("lifecycle validator rejects a missing scenario and its observation", async () => {
   const value = await lifecycleCapture("cross-datastore-attachment");
   value.input.scenarios = value.input.scenarios.filter((item) => item.id !== "map-cycle");

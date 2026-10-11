@@ -12,37 +12,37 @@
       "documentId": "0",
       "initialSnapshot": {
         "version": {
-          "id": "387c5707-d636-497f-a058-fc089bb2591c",
-          "treeId": "387c5707-d636-497f-a058-fc089bb2591c"
+          "id": "00b5c973-5712-4f27-be0c-1ffcff6bee8e",
+          "treeId": "00b5c973-5712-4f27-be0c-1ffcff6bee8e"
         },
         "tree": {
-          "id": "387c5707-d636-497f-a058-fc089bb2591c",
+          "id": "00b5c973-5712-4f27-be0c-1ffcff6bee8e",
           "blobs": {
-            ".metadata": "80281d77a645b145cdbc8a0ce53d1d77a8939c01",
+            ".metadata": "624268ca42c1d24888cd93b47d63d995d68c98d5",
             ".idCompressor": "ff7f6176d80bc7a89838365974dbfa1142f6bfa4",
             ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740",
             ".electedSummarizer": "281a05982b6d4d03bc3df509ecdbc22a196cc69a"
           },
           "trees": {
             ".channels": {
-              "id": "f1afdacc-2325-4197-aab7-bc7bc452da29",
+              "id": "d36187c5-52ab-416e-aff8-a0ff7b9ec654",
               "blobs": {},
               "commits": {},
               "trees": {
                 "A": {
-                  "id": "303fee18-27ad-42a8-8f7c-5d9225bc4f62",
+                  "id": "ddac0c5b-3737-409f-9702-976f91989fc1",
                   "blobs": {
                     ".component": "9ea535ce2d45a02295d62f4c78dcceef4d9b9d42"
                   },
                   "commits": {},
                   "trees": {
                     ".channels": {
-                      "id": "e9039425-4ab6-4741-9c89-c56b6d26466a",
+                      "id": "e93a1861-a3a1-459b-b17b-c3e8ccdcf550",
                       "blobs": {},
                       "commits": {},
                       "trees": {
                         "root": {
-                          "id": "12d1c3e1-d131-451b-a0ab-509313a96b46",
+                          "id": "7b33ec14-042d-41b8-a520-301cc3e7fd5c",
                           "blobs": {
                             "header": "f39311cc21cd0c2ebf40677800a8033b1fd02404",
                             ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
@@ -57,7 +57,7 @@
               }
             },
             ".protocol": {
-              "id": "d1b2f661-0bb6-4e98-a9c3-412b67e1664b",
+              "id": "a43f4d66-4cf9-4ea5-8096-52f073c46c16",
               "blobs": {
                 "quorumMembers": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
                 "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
@@ -70,7 +70,7 @@
           }
         },
         "blobs": {
-          "80281d77a645b145cdbc8a0ce53d1d77a8939c01": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiJiNzNkY2ZkMC0yNzYxLTQ1OGQtOGE0ZS00YzkzMzA1ZGVlZGIiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiY29tcHJlc3Npb25MejQiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+          "624268ca42c1d24888cd93b47d63d995d68c98d5": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiI3Zjc5MWRlMC02OGY2LTQ2OGYtOTcyYi00ZTQxZTE1Njk0NTIiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiY29tcHJlc3Npb25MejQiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
           "ff7f6176d80bc7a89838365974dbfa1142f6bfa4": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9Ig==",
           "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
           "281a05982b6d4d03bc3df509ecdbc22a196cc69a": "eyJlbGVjdGlvblNlcXVlbmNlTnVtYmVyIjowfQ==",
@@ -100,15 +100,15 @@
           "timestamp": 1700000000000,
           "traces": [],
           "type": "join",
-          "data": "{\"clientId\":\"b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:9ad3a0a5-935e-4933-b5b4-f73f04c2a546\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"07b7e09b-937b-4ca2-b97c-95b3a77be770\",\"name\":\"07b7e09b-937b\"}}}",
-          "expHash1": "-270c473c"
+          "data": "{\"clientId\":\"b3b971e8-307d-43be-a05a-bdd07c335ad5\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:2c1c81e7-a043-40e3-afbd-b0f0269ee09c\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"f1e5a23d-4e55-48de-a96b-da58fc13b21d\",\"name\":\"f1e5a23d-4e55\"}}}",
+          "expHash1": "-1c2e4724"
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 1,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":1,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[[1,2]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"00b5c973-5712-4f27-be0c-1ffcff6bee8e_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/0f15c276-8dd0-4545-8094-cc4de5945023\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":1,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[[1,2]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"d048adbf-15b6-4a0d-b5f7-063abe69702e_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/bd278748-2615-469e-b4f9-a4c976119517\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
-            "batchId": "00b5c973-5712-4f27-be0c-1ffcff6bee8e_[1]",
+            "batchId": "d048adbf-15b6-4a0d-b5f7-063abe69702e_[1]",
             "groupedOpCount": 3
           },
           "minimumSequenceNumber": 1,
@@ -116,13 +116,13 @@
           "sequenceNumber": 2,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "7f638cb6",
+          "expHash1": "351e10a5",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 2,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":3,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"local\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"map-edit\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":3,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":3,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"local\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"map-edit\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":3,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 3
           },
@@ -131,13 +131,13 @@
           "sequenceNumber": 3,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "-6a19a720",
+          "expHash1": "-3ae99455",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 3,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":5,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_J\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"detached-tree-edit\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":7,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"tree\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":3,\"s\":4}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_J\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":5,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_J\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"detached-tree-edit\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":7,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"tree\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":3,\"s\":4}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_J\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 3
           },
@@ -146,13 +146,13 @@
           "sequenceNumber": 4,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "-595d68dd",
+          "expHash1": "94a4c46",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 4,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":9,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_R\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_T\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":10,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":10,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"removed-owner\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_T\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":9,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_R\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_T\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":10,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":10,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"removed-owner\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_T\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 4
           },
@@ -161,13 +161,13 @@
           "sequenceNumber": 5,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "5f406852",
+          "expHash1": "-bd583e4",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 5,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":12,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_Z\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"value\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"nested\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_X\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"inner\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_Z\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_Z\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":13,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":14,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"nested\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":11,\"s\":12}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[12,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_X\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":12,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_Z\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"value\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"nested\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_X\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"inner\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_Z\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_Z\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":13,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":14,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"nested\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":11,\"s\":12}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[12,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_X\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 4
           },
@@ -176,13 +176,13 @@
           "sequenceNumber": 6,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "714943f3",
+          "expHash1": "-6723588b",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 6,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":15,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_c\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"self\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_c\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_c\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":15,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":18,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"self\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":15,\"s\":16}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[16,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":15,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_c\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"self\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_c\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_c\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":15,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":18,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"self\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":15,\"s\":16}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[16,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 3
           },
@@ -191,13 +191,13 @@
           "sequenceNumber": 7,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "-235d4795",
+          "expHash1": "4f7d077",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 7,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":17,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_i\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_g\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_g\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_g\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_i\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_i\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":18,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":22,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"cycle\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":19,\"s\":20}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[20,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_g\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":17,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_i\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_g\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_g\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_g\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_i\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_i\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":18,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":22,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"cycle\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":19,\"s\":20}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[20,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_g\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 4
           },
@@ -206,13 +206,13 @@
           "sequenceNumber": 8,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "-581993c0",
+          "expHash1": "330084f6",
           "traces": []
         },
         {
-          "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+          "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
           "clientSequenceNumber": 8,
-          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":20,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_m\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"committed\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":22,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":26,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"completed\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":23,\"s\":24}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[24,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_m\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":20,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_m\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"committed\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":22,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":26,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"completed\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":23,\"s\":24}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[24,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_m\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
           "metadata": {
             "groupedOpCount": 3
           },
@@ -221,7 +221,7 @@
           "sequenceNumber": 9,
           "timestamp": 1700000000000,
           "type": "op",
-          "expHash1": "-6982d7c",
+          "expHash1": "679757ee",
           "traces": []
         }
       ],
@@ -248,11 +248,11 @@
         }
       },
       "sessions": {
-        "writerClientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
-        "receiverClientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+        "writerClientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
+        "receiverClientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
         "writer": {
-          "sessionId": "0f15c276-8dd0-4545-8094-cc4de5945023",
-          "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAjUJTlTcyUQFFBN9oJVzwAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+          "sessionId": "bd278748-2615-469e-b4f9-a4c976119517",
+          "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAXlRF2yaT5tKdVmCAdnvQCAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
         }
       }
     },
@@ -264,12 +264,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -381,7 +381,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -406,7 +406,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -437,12 +437,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -554,7 +554,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -579,7 +579,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -716,7 +716,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -745,12 +745,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -862,7 +862,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -887,7 +887,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -1024,7 +1024,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -1074,7 +1074,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "removed-owner",
             "value": {
@@ -1103,12 +1103,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -1220,7 +1220,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -1245,7 +1245,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -1382,7 +1382,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -1432,7 +1432,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "removed-owner",
             "value": {
@@ -1482,7 +1482,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "nested",
             "value": {
@@ -1511,12 +1511,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -1628,7 +1628,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -1653,7 +1653,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -1790,7 +1790,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -1840,7 +1840,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "removed-owner",
             "value": {
@@ -1890,7 +1890,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "nested",
             "value": {
@@ -1925,7 +1925,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "self",
             "value": {
@@ -1954,12 +1954,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -2071,7 +2071,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -2096,7 +2096,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -2233,7 +2233,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -2283,7 +2283,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "removed-owner",
             "value": {
@@ -2333,7 +2333,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "nested",
             "value": {
@@ -2368,7 +2368,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "self",
             "value": {
@@ -2421,7 +2421,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "cycle",
             "value": {
@@ -2450,12 +2450,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "0f15c276-8dd0-4545-8094-cc4de5945023",
+            "channelId": "bd278748-2615-469e-b4f9-a4c976119517",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -2567,7 +2567,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/0f15c276-8dd0-4545-8094-cc4de5945023"
+                "url": "/A/bd278748-2615-469e-b4f9-a4c976119517"
               }
             }
           },
@@ -2592,7 +2592,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -2729,7 +2729,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "tree",
             "value": {
@@ -2779,7 +2779,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "removed-owner",
             "value": {
@@ -2829,7 +2829,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "nested",
             "value": {
@@ -2864,7 +2864,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "self",
             "value": {
@@ -2917,7 +2917,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "cycle",
             "value": {
@@ -3060,7 +3060,7 @@
           },
           {
             "type": "tree-map-set-handle",
-            "target": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "target": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "field": "links",
             "key": "completed",
             "value": {
@@ -3090,37 +3090,37 @@
             "documentId": "4",
             "initialSnapshot": {
               "version": {
-                "id": "a2e689cd-e83b-4caf-9a5a-34a40a8b7819",
-                "treeId": "a2e689cd-e83b-4caf-9a5a-34a40a8b7819"
+                "id": "acbe215f-ff20-4bb7-b6ca-6b7e63b3cd18",
+                "treeId": "acbe215f-ff20-4bb7-b6ca-6b7e63b3cd18"
               },
               "tree": {
-                "id": "a2e689cd-e83b-4caf-9a5a-34a40a8b7819",
+                "id": "acbe215f-ff20-4bb7-b6ca-6b7e63b3cd18",
                 "blobs": {
-                  ".metadata": "b078350027e1a494a937c9a17169556de5f3944f",
+                  ".metadata": "df6a92bb49eae9da37418ff0aacf09aeebe2206e",
                   ".idCompressor": "ff7f6176d80bc7a89838365974dbfa1142f6bfa4",
                   ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740",
                   ".electedSummarizer": "281a05982b6d4d03bc3df509ecdbc22a196cc69a"
                 },
                 "trees": {
                   ".channels": {
-                    "id": "71ddee28-6135-4177-8339-381e038bc25f",
+                    "id": "6add78ca-cf80-4ab1-b2aa-cbf84f88f011",
                     "blobs": {},
                     "commits": {},
                     "trees": {
                       "A": {
-                        "id": "835144a4-243c-4e20-9215-99ad85adf545",
+                        "id": "1076af22-b124-42e4-9967-7c8ec32c5e43",
                         "blobs": {
                           ".component": "9ea535ce2d45a02295d62f4c78dcceef4d9b9d42"
                         },
                         "commits": {},
                         "trees": {
                           ".channels": {
-                            "id": "5495b079-d047-4f6d-ba0e-00c0a36fe1be",
+                            "id": "4029f242-26a9-4b47-97eb-cd1c0c6905f4",
                             "blobs": {},
                             "commits": {},
                             "trees": {
                               "root": {
-                                "id": "1cfb99c6-44d9-4de6-bd01-4d8e011ab927",
+                                "id": "88a4208b-ecab-4262-b7a8-565973ea6839",
                                 "blobs": {
                                   "header": "f39311cc21cd0c2ebf40677800a8033b1fd02404",
                                   ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
@@ -3135,7 +3135,7 @@
                     }
                   },
                   ".protocol": {
-                    "id": "91dc1518-5422-4be7-b92e-8df06f6b2728",
+                    "id": "1d9d76a7-ea67-4112-98ea-a81472095a67",
                     "blobs": {
                       "quorumMembers": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
                       "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
@@ -3148,7 +3148,7 @@
                 }
               },
               "blobs": {
-                "b078350027e1a494a937c9a17169556de5f3944f": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiI5ODE2NGQzZC00YmFmLTQ5NWUtYjllZi0wMTI0ODM1ZjQ5YTQiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiY29tcHJlc3Npb25MejQiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+                "df6a92bb49eae9da37418ff0aacf09aeebe2206e": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiIzM2Y0ODZmZi03ZjM5LTQxOTMtODc4NS0wNTJhNDYyMzVmYTIiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiY29tcHJlc3Npb25MejQiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
                 "ff7f6176d80bc7a89838365974dbfa1142f6bfa4": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE9Ig==",
                 "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
                 "281a05982b6d4d03bc3df509ecdbc22a196cc69a": "eyJlbGVjdGlvblNlcXVlbmNlTnVtYmVyIjowfQ==",
@@ -3178,15 +3178,15 @@
                 "timestamp": 1700000000000,
                 "traces": [],
                 "type": "join",
-                "data": "{\"clientId\":\"b6461ff4-7123-4d6a-99f6-006d1dfcb38a\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:4a6becba-8417-4192-b5f9-56ebcb015d41\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"4b024873-69e9-4b27-b74f-115ebcbee175\",\"name\":\"4b024873-69e9\"}}}",
-                "expHash1": "4c64388b"
+                "data": "{\"clientId\":\"13d36340-ea81-4bb2-a67b-61c19d09ebeb\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:92b1934b-5cf4-4954-9ad4-a046a1e0237b\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"d9cfda01-ce79-4d2b-bbf8-3e995ee327d5\",\"name\":\"d9cfda01-ce79\"}}}",
+                "expHash1": "6bd7ce41"
               },
               {
-                "clientId": "b6461ff4-7123-4d6a-99f6-006d1dfcb38a",
+                "clientId": "13d36340-ea81-4bb2-a67b-61c19d09ebeb",
                 "clientSequenceNumber": 1,
-                "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\",\"ids\":{\"firstGenCount\":1,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[[1,2]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"dc7b5ad2-c745-4819-b703-f1099c5427f0_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+                "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\",\"ids\":{\"firstGenCount\":1,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[[1,2]]}}},\"metadata\":{\"batch\":true,\"batchId\":\"02041d75-b977-44ae-9cad-223c5373dd83_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"root\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":0}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\"}}}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
                 "metadata": {
-                  "batchId": "dc7b5ad2-c745-4819-b703-f1099c5427f0_[1]",
+                  "batchId": "02041d75-b977-44ae-9cad-223c5373dd83_[1]",
                   "groupedOpCount": 3
                 },
                 "minimumSequenceNumber": 1,
@@ -3194,13 +3194,13 @@
                 "sequenceNumber": 2,
                 "timestamp": 1700000000000,
                 "type": "op",
-                "expHash1": "5691f5ca",
+                "expHash1": "-670acdfb",
                 "traces": []
               },
               {
-                "clientId": "b6461ff4-7123-4d6a-99f6-006d1dfcb38a",
+                "clientId": "13d36340-ea81-4bb2-a67b-61c19d09ebeb",
                 "clientSequenceNumber": 2,
-                "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
+                "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
                 "metadata": {
                   "groupedOpCount": 2
                 },
@@ -3209,15 +3209,15 @@
                 "sequenceNumber": 3,
                 "timestamp": 1700000000000,
                 "type": "op",
-                "expHash1": "-29f99e0c",
+                "expHash1": "-65880d6d",
                 "traces": []
               }
             ],
             "sessions": {
-              "writerClientId": "b6461ff4-7123-4d6a-99f6-006d1dfcb38a",
+              "writerClientId": "13d36340-ea81-4bb2-a67b-61c19d09ebeb",
               "writer": {
-                "sessionId": "f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67",
-                "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAABn3S/f7MCrCmHjJXjTz9oDAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+                "sessionId": "32487e7f-b51a-4fe9-a1a8-0cb7ce64704e",
+                "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAABOcGTOtwyoYfpr1P75IckAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
               }
             }
           }
@@ -3226,12 +3226,12 @@
           {
             "type": "create-channel",
             "datastoreId": "A",
-            "channelId": "f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67",
+            "channelId": "32487e7f-b51a-4fe9-a1a8-0cb7ce64704e",
             "channelType": "https://graph.microsoft.com/types/tree"
           },
           {
             "type": "initialize-tree",
-            "target": "/A/f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67",
+            "target": "/A/32487e7f-b51a-4fe9-a1a8-0cb7ce64704e",
             "storedSchema": {
               "version": 2,
               "nodes": {
@@ -3343,7 +3343,7 @@
               "kind": "handle",
               "value": {
                 "type": "__fluid_handle__",
-                "url": "/A/f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67"
+                "url": "/A/32487e7f-b51a-4fe9-a1a8-0cb7ce64704e"
               }
             }
           },
@@ -3475,7 +3475,7 @@
           },
           {
             "type": "tree-set-handle",
-            "target": "/A/f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67",
+            "target": "/A/32487e7f-b51a-4fe9-a1a8-0cb7ce64704e",
             "field": {
               "kind": "optional",
               "name": "link"
@@ -3508,13 +3508,13 @@
           "transportOrder": [
             "id-allocation",
             "channel-attach:A/_F",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
-                "path": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+                "path": "/A/bd278748-2615-469e-b4f9-a4c976119517",
                 "channelType": "https://graph.microsoft.com/types/tree",
                 "data": {
                   "label": "root",
@@ -3532,7 +3532,7 @@
               }
             ],
             "graph": {
-              "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+              "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
               "edge": "link",
               "target": "/A/_F",
               "targetData": {
@@ -3560,13 +3560,13 @@
           "transportOrder": [
             "id-allocation",
             "channel-attach:A/_J",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
-                "path": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+                "path": "/A/bd278748-2615-469e-b4f9-a4c976119517",
                 "channelType": "https://graph.microsoft.com/types/tree",
                 "data": {
                   "label": "root",
@@ -3591,7 +3591,7 @@
               }
             ],
             "graph": {
-              "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+              "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
               "edge": "links/tree",
               "target": "/A/_J",
               "targetData": {
@@ -3624,10 +3624,10 @@
             "id-allocation",
             "channel-attach:A/_R",
             "channel-attach:A/_T",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
                 "path": "/A/_T",
@@ -3672,10 +3672,10 @@
             "id-allocation",
             "channel-attach:A/_Z",
             "channel-attach:A/_X",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
                 "path": "/A/_X",
@@ -3724,10 +3724,10 @@
           "transportOrder": [
             "id-allocation",
             "channel-attach:A/_c",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
                 "path": "/A/_c",
@@ -3768,10 +3768,10 @@
             "id-allocation",
             "channel-attach:A/_i",
             "channel-attach:A/_g",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
                 "path": "/A/_g",
@@ -3824,10 +3824,10 @@
           "transportOrder": [
             "id-allocation",
             "channel-attach:A/_m",
-            "component:A/0f15c276-8dd0-4545-8094-cc4de5945023"
+            "component:A/bd278748-2615-469e-b4f9-a4c976119517"
           ],
           "receiver": {
-            "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+            "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
             "targets": [
               {
                 "path": "/A/_m",
@@ -3840,7 +3840,7 @@
               }
             ],
             "graph": {
-              "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+              "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
               "edge": "links/completed",
               "target": "/A/_m",
               "targetData": {
@@ -3900,9 +3900,9 @@
           },
           "transport": [
             {
-              "clientId": "b6461ff4-7123-4d6a-99f6-006d1dfcb38a",
+              "clientId": "13d36340-ea81-4bb2-a67b-61c19d09ebeb",
               "clientSequenceNumber": 2,
-              "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
+              "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
               "metadata": {
                 "groupedOpCount": 2
               },
@@ -3911,7 +3911,7 @@
               "sequenceNumber": 3,
               "timestamp": 1700000000000,
               "type": "op",
-              "expHash1": "-29f99e0c"
+              "expHash1": "-65880d6d"
             }
           ],
           "allocation": [
@@ -3935,9 +3935,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 2,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":3,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"local\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"map-edit\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":3,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":3,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"local\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"map-edit\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":3,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"link\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}]}]]}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_F\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 3
             },
@@ -3946,7 +3946,7 @@
             "sequenceNumber": 3,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-6a19a720"
+            "expHash1": "-3ae99455"
           }
         ]
       },
@@ -3956,9 +3956,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 3,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":5,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_J\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"detached-tree-edit\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":7,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"tree\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":3,\"s\":4}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_J\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":5,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_J\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"detached-tree-edit\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":7,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":6,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"tree\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":3,\"s\":4}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[4,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_J\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 3
             },
@@ -3967,7 +3967,7 @@
             "sequenceNumber": 4,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-595d68dd"
+            "expHash1": "94a4c46"
           }
         ]
       },
@@ -3977,9 +3977,9 @@
         "kind": "attach-then-remove",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 4,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":9,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_R\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_T\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":10,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":10,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"removed-owner\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_T\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":9,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_R\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_T\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":10,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":10,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"removed-owner\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":7,\"s\":8}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[8,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_T\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
@@ -3988,7 +3988,7 @@
             "sequenceNumber": 5,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "5f406852"
+            "expHash1": "-bd583e4"
           }
         ]
       },
@@ -3998,9 +3998,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 5,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":12,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_Z\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"value\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"nested\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_X\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"inner\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_Z\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_Z\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":13,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":14,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"nested\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":11,\"s\":12}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[12,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_X\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":12,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_Z\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"value\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":\\\"nested\\\"}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_X\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"inner\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_Z\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_Z\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":13,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":14,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"nested\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":11,\"s\":12}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[12,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_X\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
@@ -4009,7 +4009,7 @@
             "sequenceNumber": 6,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "714943f3"
+            "expHash1": "-6723588b"
           }
         ]
       },
@@ -4019,9 +4019,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 6,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":15,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_c\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"self\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_c\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_c\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":15,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":18,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"self\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":15,\"s\":16}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[16,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":15,\"count\":2,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_c\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"self\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_c\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_c\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":15,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":18,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"self\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":15,\"s\":16}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[16,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_c\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 3
             },
@@ -4030,7 +4030,7 @@
             "sequenceNumber": 7,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-235d4795"
+            "expHash1": "4f7d077"
           }
         ]
       },
@@ -4040,9 +4040,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 7,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":17,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_i\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_g\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_g\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_g\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_i\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_i\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":18,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":22,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"cycle\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":19,\"s\":20}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[20,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_g\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":17,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_i\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"left\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_g\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_g\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_g\",\"snapshot\":{\"entries\":[{\"path\":\"header\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"blobs\\\":[],\\\"content\\\":{\\\"right\\\":{\\\"type\\\":\\\"Plain\\\",\\\"value\\\":{\\\"type\\\":\\\"__fluid_handle__\\\",\\\"url\\\":\\\"/A/_i\\\"}}}}\",\"encoding\":\"utf-8\"}},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/map\\\",\\\"snapshotFormatVersion\\\":\\\"0.2\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[\\\"/A/_i\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/map\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":18,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":22,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"cycle\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":19,\"s\":20}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[20,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_g\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 4
             },
@@ -4051,7 +4051,7 @@
             "sequenceNumber": 8,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-581993c0"
+            "expHash1": "330084f6"
           }
         ]
       },
@@ -4061,9 +4061,9 @@
         "kind": "attach",
         "value": [
           {
-            "clientId": "b9dd320f-c4c7-49be-adc3-e0a5c0a03f4b",
+            "clientId": "b3b971e8-307d-43be-a05a-bdd07c335ad5",
             "clientSequenceNumber": 8,
-            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"ids\":{\"firstGenCount\":20,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_m\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"committed\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"contents\":{\"revision\":22,\"originatorId\":\"0f15c276-8dd0-4545-8094-cc4de5945023\",\"changeset\":[{\"data\":{\"maxId\":26,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"completed\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":23,\"s\":24}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[24,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_m\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+            "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"ids\":{\"firstGenCount\":20,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_m\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",2],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[1,\\\"committed\\\",0,[],0]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"contents\":{\"revision\":22,\"originatorId\":\"bd278748-2615-469e-b4f9-a4c976119517\",\"changeset\":[{\"data\":{\"maxId\":26,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"links\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"completed\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":23,\"s\":24}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[24,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.handle\",\"value\":true}}],\"data\":[[0,{\"type\":\"__fluid_handle__\",\"url\":\"/A/_m\"}]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
             "metadata": {
               "groupedOpCount": 3
             },
@@ -4072,7 +4072,7 @@
             "sequenceNumber": 9,
             "timestamp": 1700000000000,
             "type": "op",
-            "expHash1": "-6982d7c"
+            "expHash1": "679757ee"
           }
         ]
       },
@@ -4116,9 +4116,9 @@
           },
           "transport": [
             {
-              "clientId": "b6461ff4-7123-4d6a-99f6-006d1dfcb38a",
+              "clientId": "13d36340-ea81-4bb2-a67b-61c19d09ebeb",
               "clientSequenceNumber": 2,
-              "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"f6b3f4de-0978-4d84-8aab-c0ecdf2fdd67\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
+              "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\",\"ids\":{\"firstGenCount\":3,\"count\":4,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"id\":\"_F\",\"snapshot\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"indexes\",\"value\":{\"entries\":[{\"path\":\"EditManager\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"String\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"trunk\\\":[{\\\"change\\\":[{\\\"data\\\":{\\\"maxId\\\":2,\\\"changes\\\":[{\\\"fieldKey\\\":\\\"rootFieldKey\\\",\\\"fieldKind\\\":\\\"ModularEditBuilder.Generic\\\",\\\"change\\\":[[0,{\\\"fieldChanges\\\":[{\\\"fieldKey\\\":\\\"label\\\",\\\"fieldKind\\\":\\\"Value\\\",\\\"change\\\":{\\\"r\\\":{\\\"e\\\":false,\\\"d\\\":1,\\\"s\\\":0}}}]}]]}],\\\"builds\\\":{\\\"builds\\\":[[[[0,0]]]],\\\"trees\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}}],\\\"data\\\":[[0,\\\"active-target\\\"]]}}}}],\\\"revision\\\":4,\\\"sessionId\\\":\\\"32487e7f-b51a-4fe9-a1a8-0cb7ce64704e\\\",\\\"sequenceNumber\\\":-9007199254740989}],\\\"branches\\\":[],\\\"version\\\":7}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Schema\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"SchemaString\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"nodes\\\":{\\\"com.fluidframework.leaf.handle\\\":{\\\"kind\\\":{\\\"leaf\\\":3}},\\\"com.fluidframework.leaf.string\\\":{\\\"kind\\\":{\\\"leaf\\\":1}},\\\"org.watershed.shared-tree.handles.Links\\\":{\\\"kind\\\":{\\\"map\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}},\\\"org.watershed.shared-tree.handles.Root\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"label\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.string\\\"]},\\\"link\\\":{\\\"kind\\\":\\\"Optional\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]},\\\"links\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Links\\\"]},\\\"sequence\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Sequence\\\"]}}}},\\\"org.watershed.shared-tree.handles.Sequence\\\":{\\\"kind\\\":{\\\"object\\\":{\\\"\\\":{\\\"kind\\\":\\\"Sequence\\\",\\\"types\\\":[\\\"com.fluidframework.leaf.handle\\\"]}}}}},\\\"root\\\":{\\\"kind\\\":\\\"Value\\\",\\\"types\\\":[\\\"org.watershed.shared-tree.handles.Root\\\"]}}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"Forest\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":3}\",\"encoding\":\"utf-8\"}},{\"path\":\"contents\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"keys\\\":[\\\"rootFieldKey\\\",\\\"repair-2\\\"],\\\"fields\\\":{\\\"version\\\":2,\\\"identifiers\\\":[],\\\"shapes\\\":[{\\\"a\\\":5},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.string\\\",\\\"value\\\":true}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Root\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"label\\\",1],[\\\"link\\\",0],[\\\"links\\\",3],[\\\"sequence\\\",4]]}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Links\\\",\\\"value\\\":false,\\\"extraFields\\\":0}},{\\\"c\\\":{\\\"type\\\":\\\"org.watershed.shared-tree.handles.Sequence\\\",\\\"value\\\":false,\\\"fields\\\":[[\\\"\\\",0]]}},{\\\"c\\\":{\\\"type\\\":\\\"com.fluidframework.leaf.handle\\\",\\\"value\\\":true}}],\\\"data\\\":[[2,\\\"active-target\\\",0,[],0],[1,\\\"root\\\"]]},\\\"version\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\"DetachedFieldIndex\",\"value\":{\"entries\":[{\"path\":\".metadata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2}\",\"encoding\":\"utf-8\"}},{\"path\":\"DetachedFieldIndexBlob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"version\\\":2,\\\"data\\\":[[4,1,2]],\\\"maxId\\\":2}\",\"encoding\":\"utf-8\"}}]},\"mode\":\"040000\",\"type\":\"Tree\"}]},\"mode\":\"040000\",\"type\":\"Tree\"},{\"path\":\".attributes\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"type\\\":\\\"https://graph.microsoft.com/types/tree\\\",\\\"snapshotFormatVersion\\\":\\\"0.0.0\\\",\\\"packageVersion\\\":\\\"3.1.0\\\"}\",\"encoding\":\"utf-8\"}},{\"path\":\".gcdata\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"contents\":\"{\\\"gcNodes\\\":{\\\"/\\\":[]}}\",\"encoding\":\"utf-8\"}}]},\"type\":\"https://graph.microsoft.com/types/tree\"},\"type\":\"attach\"}}},\"metadata\":{\"batch\":false}}]}",
               "metadata": {
                 "groupedOpCount": 2
               },
@@ -4127,7 +4127,7 @@
               "sequenceNumber": 3,
               "timestamp": 1700000000000,
               "type": "op",
-              "expHash1": "-29f99e0c"
+              "expHash1": "-65880d6d"
             }
           ],
           "allocation": [
@@ -4143,10 +4143,10 @@
         "scenarioId": "detached-map",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
-              "path": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+              "path": "/A/bd278748-2615-469e-b4f9-a4c976119517",
               "channelType": "https://graph.microsoft.com/types/tree",
               "data": {
                 "label": "root",
@@ -4164,7 +4164,7 @@
             }
           ],
           "graph": {
-            "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "edge": "link",
             "target": "/A/_F",
             "targetData": {
@@ -4178,10 +4178,10 @@
         "scenarioId": "detached-tree",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
-              "path": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+              "path": "/A/bd278748-2615-469e-b4f9-a4c976119517",
               "channelType": "https://graph.microsoft.com/types/tree",
               "data": {
                 "label": "root",
@@ -4206,7 +4206,7 @@
             }
           ],
           "graph": {
-            "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "edge": "links/tree",
             "target": "/A/_J",
             "targetData": {
@@ -4222,7 +4222,7 @@
         "scenarioId": "serialize-remove",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
               "path": "/A/_T",
@@ -4248,7 +4248,7 @@
         "scenarioId": "nested-dependency",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
               "path": "/A/_X",
@@ -4283,7 +4283,7 @@
         "scenarioId": "self-reference",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
               "path": "/A/_c",
@@ -4309,7 +4309,7 @@
         "scenarioId": "two-channel-cycle",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
               "path": "/A/_g",
@@ -4347,7 +4347,7 @@
         "scenarioId": "completed-transaction",
         "kind": "receiver-graph",
         "value": {
-          "clientId": "a2f56367-2091-42f8-9a72-a0bc4f5c30e9",
+          "clientId": "2c1af262-5bfe-4c7f-af47-527e130288a8",
           "targets": [
             {
               "path": "/A/_m",
@@ -4360,7 +4360,7 @@
             }
           ],
           "graph": {
-            "source": "/A/0f15c276-8dd0-4545-8094-cc4de5945023",
+            "source": "/A/bd278748-2615-469e-b4f9-a4c976119517",
             "edge": "links/completed",
             "target": "/A/_m",
             "targetData": {
@@ -4471,7 +4471,7 @@
       "path": "packages/dds/tree/src/test/watershedLifecycle.spec.ts",
       "version": "3.1.0",
       "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
-      "digest": "ea304d77716906fc6ecc041200c323a9640ec327308b43527b0c14b3dc39ae58"
+      "digest": "a94f2f737efdf417ea2f15e0e7bdb77bd828b55c8bf2137b1cf162fdda3625ca"
     }
   }
 }

@@ -4,8 +4,9 @@
 > `subagent-driven-development` or `executing-plans` to implement this plan
 > task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > Execution started on 2026-10-10 with user authorization to work on `main`
-> and make task commits. Task 1 is incomplete; the dated execution record below
-> distinguishes preliminary source discovery from acceptance.
+> and make task commits. Task 1 discovery is complete; native Tasks 2-9
+> remain pending. The dated execution record below separates source proof
+> from native acceptance.
 > Do not restart completed M0-M6 or Lustre tasks.
 
 **Goal:** Interoperate with pinned upstream handle-valued SharedTree leaves and
@@ -173,7 +174,7 @@ do not edit its tracked source.
   `tree-cross-datastore` and `tree-cycle`. This lets Task 3 compare complete
   map scenarios without claiming Task 4's tree behavior.
 
-- [ ] Add Node regressions for missing injection, incorrect source digest,
+- [x] Add Node regressions for missing injection, incorrect source digest,
   absent raw serialization/attach/summary evidence, and omitted observations.
   Require validation of a measured positive source capture as well as mutations:
 
@@ -199,7 +200,7 @@ do not edit its tracked source.
   missing validator, not an unrelated file-not-found error. Add source registry
   REDs first so the probe can generate that positive capture.
 
-- [ ] Register the injector and write source probes with the existing
+- [x] Register the injector and write source probes with the existing
   `SchemaFactory`, map/tree factory registry and raw-message capture helpers.
   Use this schema in the source probe and export the equivalent service schema
   in Task 8:
@@ -216,29 +217,29 @@ do not edit its tracked source.
   }) {}
   ```
 
-- [ ] Probe required/optional root leaves; object/map/array handle edits;
+- [x] Probe required/optional root leaves; object/map/array handle edits;
   different handle instances for the same object; relative and escaped paths;
   uncompressed and schema-aware V2 encoding; malformed/unsupported markers.
   Record both serialized paths and resolved target identities.
-- [ ] Probe detached map/tree edits, serialize-then-remove bindings,
+- [x] Probe detached map/tree edits, serialize-then-remove bindings,
   nested dependencies, self-references, two-channel cycles, and completed
   transactions before tree attachment. Capture raw attach summaries, ID ranges,
   local visibility, submitted messages and a receiving client's loaded values.
-- [ ] Create the declared secondary graph datastore with the existing upstream
+- [x] Create the declared secondary graph datastore with the existing upstream
   runtime factory mechanism. Probe a reference to its map and to its tree;
   attach a second channel after datastore visibility; probe mutual references
   across two datastores. Record package/component metadata and the actual
   datastore/channel attach order, including entry-point membership.
-- [ ] Probe successful/aborted/nested handle transactions; attempting to attach
+- [x] Probe successful/aborted/nested handle transactions; attempting to attach
   an actively transacting target tree; branch-only references before/after
   merge, dropped changes, branch disposal; handle undo while a peer edits the
   referenced target. Record actual binding timing and all data/lifecycle
   side effects. Do not assert that abort detaches a target unless measured.
-- [ ] Capture summary/GC before and after removal, undo, retained repair data,
+- [x] Capture summary/GC before and after removal, undo, retained repair data,
   branch disposal and revertible disposal. Include an attached, then
   unreferenced secondary datastore. Load summaries through fresh upstream
   clients and record resolution/continuation.
-- [ ] Run the bounded source capture, then its validators:
+- [x] Run the bounded source capture, then its validators:
 
   ```sh
   node tools/shared-tree-oracle/source.mjs lifecycle-capture \
@@ -253,7 +254,7 @@ do not edit its tracked source.
   skipped probe. Copy the observed outcome table into the spec with fixture
   IDs and raw paths. A source helper change must not alter existing captures'
   deterministic ID stream; give this probe its own process/test batch.
-- [ ] Review the source observations and contract before Task 2. Commit the
+- [x] Review the source observations and contract before Task 2. Commit the
   producer, validators, generated output and checked contract as
   `test(tree): capture handle attachment lifecycle`.
 
@@ -1004,3 +1005,65 @@ remaining commit/factory/revertible/event lifetime evidence precede the final
 original-checklist audit and contract review. Tasks 2-9 have not started. The
 generated profile and native semantic runners still exclude this lifecycle
 support; M7 remains partial.
+
+### Task 1 completion: identity/events and contract audit
+
+The final source probe records twelve checkpoints in a separate actual
+document. Two trees share its compressor, attach in reverse creation order,
+retain root/checkout/anchor identity, accept interleaved detached and
+writer/peer edits, and undo an original detached edit through the same
+application-owned inverse. Every checkpoint has exact cumulative commands,
+ongoing/summary compressor bytes, cloned reservations, actual events and
+independent summary bytes. The complete raw prefix binds writer and peer
+allocations, attach snapshots, string edits and revision-keyed undo repair.
+
+The sixteen history checkpoints now include actual local/remote changed
+events, stable revisions, factory availability, local settlements and branch
+inverse lifetimes. Aborted and nested intermediate stages produce no commits;
+an independent target-map edit survives referring-tree rollback. Branch-only
+inverses do not settle, dispose with the same-handle callback after merge or
+checkout disposal, and enforce the single-acquisition/event-window boundary.
+Serialized local-checkout markers resolve the existing document channel,
+not unmerged content. Fresh loads restore no application-owned inverse or
+local branch stacks.
+
+Finite validation replays the pinned compressor and structurally compares
+session-space local events with originator-relative Message V7 commits.
+Detached history is checked against attach snapshots; string undo refreshers
+must identify the field removed by the original detached event. Branch fork
+and edit reservations are checked against the prior ongoing compressor,
+including discarded commits that never publish.
+
+| Original Task 1 checklist | Checked evidence |
+| --- | --- |
+| Registry, digest and missing-evidence regressions | `source.test.mjs` owned-injection checks; positive and mutation checks in `generate.test.mjs`; all five cases have `raw.source` and observation associations. |
+| Registered pinned producer and declared schema | `source.mjs` lifecycle injector and isolated `--fail-zero` runner; `upstream-lifecycle.spec.ts` `Root`, `Links`, `Sequence` and declared graph factory. |
+| Leaf values, identity, paths, codecs and refusals | `handle-leaves`: executable per-edit inputs; live wrapper/relative/escaped resolution; structurally decoded V2 codecs; actual serializer/assignment outcomes and explicit native refusals. |
+| Detached edits, removed bindings, nested/self/cyclic graphs, completed transactions | `live-channel-attachment`: exact commands, attach summaries/ranges and real receiver graphs; `input.identityReplay` adds stable multi-tree promotion and inverse lifetime. |
+| Declared secondary datastore, metadata, membership and order | `cross-datastore-attachment`: complete map-only and tree scenarios, receiver identity, component/package metadata and decoded datastore/channel attach order. |
+| Transactions, active target, branch merge/drop/disposal and peer undo | `handle-transaction-branch`: stage reads/counts, target state, actual events/settlements/factories, branch marker resolution and peer-owned target edit; separate active-target failure replay. |
+| Published summaries, retained GC, unreferenced datastore and fresh continuation | `handle-retention`: eight named fetched publications, stored hierarchical bytes, exact GC/component metadata, fresh load and continuing edit with empty restored local lifetime. |
+| Non-skipping capture, complete generation and byte reproduction | Seven source probes; 239 covering Node tests; all 68 cases generated and reproduced; original 63 cases, manifest and native profile byte-identical against `d0c23704`. |
+| Contract review before Task 2 | Direct source/validator self-review and coherent mutation regressions; checked spec and README preserve stronger native atomic preflight refusal and bounded supported scope. |
+
+| Command | Final Task 1 result |
+| --- | --- |
+| Bounded `source.mjs lifecycle-capture` | Seven source tests executed and passed, no skips. |
+| `just shared-tree-oracle` | All 68 cases generated. |
+| Source/generate/codec Node suites | 239 passed, 0 failures or skips. |
+| Focused lifecycle/history/identity/event selections | 55 passed, 0 failures or skips. |
+| `just shared-tree-oracle-check` | All 68 cases reproduced byte-for-byte. |
+| Existing native fixture-loader selections | 22 Erlang and 22 JavaScript tests passed; input-loader checks only, not lifecycle semantic support. |
+| Artifact boundary and whitespace checks | Original 63 cases, manifest and native profile unchanged; `git diff --check` clean. |
+
+Self-review caught an initially unbound dropped-branch revision: a different
+valid compressor revision could impersonate that commit if all event copies
+were changed together. The regression failed before the fix; validation now
+replays the fork/edit reservations and checks the exact commit atoms. Missing
+identity input, replaced objects, fabricated reservations, intermediate event
+publication, false factories/settlements and revived fresh-load stacks also
+have real-fixture mutation checks.
+
+**Task 1 is complete.** Its nine checklist items and the final identity/event
+brief are checked against source evidence. Native Tasks 2-9 have not started,
+the lifecycle support profile is not promoted, and M7 remains partial.
