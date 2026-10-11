@@ -1774,14 +1774,25 @@ fn restamp_attachment_batch(
   entry: InFlight,
   csn: Int,
 ) -> Result(#(InFlight, wire.OutboundOperation), CoreError) {
-  let assert InFlightBatch(items: items, pending: pending, ..) = entry
-  let batch_id = core.client_id <> "_[" <> int.to_string(csn) <> "]"
+  let assert InFlightBatch(
+    items: items,
+    pending: pending,
+    batch_id: original_batch_id,
+    ..,
+  ) = entry
+  let batch_id =
+    option.map(original_batch_id, fn(_) {
+      core.client_id <> "_[" <> int.to_string(csn) <> "]"
+    })
   let metadata =
     Some(
-      json.object([
-        #("batchId", json.string(batch_id)),
-        #("groupedOpCount", json.int(list.length(items))),
-      ]),
+      json.object(case batch_id {
+        Some(batch_id) -> [
+          #("batchId", json.string(batch_id)),
+          #("groupedOpCount", json.int(list.length(items))),
+        ]
+        None -> [#("groupedOpCount", json.int(list.length(items)))]
+      }),
     )
   let last = list.length(items) - 1
   use contents <- result.try(
@@ -1792,10 +1803,13 @@ fn restamp_attachment_batch(
         let boundary = case index {
           0 ->
             Some(
-              json.object([
-                #("batch", json.bool(True)),
-                #("batchId", json.string(batch_id)),
-              ]),
+              json.object(case batch_id {
+                Some(batch_id) -> [
+                  #("batch", json.bool(True)),
+                  #("batchId", json.string(batch_id)),
+                ]
+                None -> [#("batch", json.bool(True))]
+              }),
             )
           index if index == last ->
             Some(json.object([#("batch", json.bool(False))]))
@@ -1835,7 +1849,7 @@ fn restamp_attachment_batch(
       csn,
       core.last_seen_sequence_number,
       True,
-      Some(batch_id),
+      batch_id,
       items,
       pending,
     )
@@ -8349,6 +8363,7 @@ pub fn prepare_attachments(
 ) -> Result(#(Core, List(fluid_container.MessageKind)), CoreError) {
   use source_address <- result.try(resolve_alias(core, source_address))
   use _ <- result.try(locate_channel(core, source_address))
+  let visible_datastores = dict.keys(core.routing.datastores)
   let core =
     Core(
       ..core,
@@ -8369,6 +8384,7 @@ pub fn prepare_attachments(
         core,
         reference,
         visited,
+        visible_datastores,
       ))
       Ok(#(core, list.append(messages, next), visited))
     }),
@@ -8390,6 +8406,7 @@ fn prepare_reference(
   core: Core,
   reference: handle.Reference,
   visited: List(String),
+  visible_datastores: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
   use address <- result.try(
     handle.routed_address(handle.reference_to_json(reference), "/")
@@ -8433,19 +8450,21 @@ fn prepare_reference(
             route.data_store_id,
             store,
             visited,
+            visible_datastores,
           )
         _, _ -> {
           use #(core, messages, visited) <- result.try(prepare_bound_references(
             core,
             address,
             visited,
+            visible_datastores,
           ))
           case dict.get(core.detached, address) {
             Error(_) -> Ok(#(core, messages, visited))
             Ok(state) ->
-              case dict.has_key(core.local_datastores, route.data_store_id) {
-                True -> Ok(#(core, messages, visited))
-                False -> {
+              case list.contains(visible_datastores, route.data_store_id) {
+                False -> Ok(#(core, messages, visited))
+                True -> {
                   use snapshot <- result.try(
                     channel.attach_snapshot(state)
                     |> result.map_error(ChannelBoundaryFailed),
@@ -8481,6 +8500,7 @@ fn prepare_local_datastore(
   data_store_id: String,
   store: LocalDatastore,
   visited: List(String),
+  visible_datastores: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
   let channels =
     core.detached
@@ -8503,6 +8523,7 @@ fn prepare_local_datastore(
         core,
         entry.0,
         visited,
+        visible_datastores,
       ))
       Ok(#(core, list.append(messages, next), visited))
     }),
@@ -8516,13 +8537,14 @@ fn prepare_local_datastore(
       Ok(#(entry.1, snapshot))
     }),
   )
-  let routes =
+  use routes <- result.try(
     channels
-    |> list.flat_map(fn(entry) {
-      references_for(core, entry.0)
-      |> list.map(handle.reference_path)
+    |> list.try_fold([], fn(routes, entry) {
+      use references <- result.try(references_for(core, entry.0))
+      Ok(list.append(routes, list.map(references, handle.reference_path)))
     })
-    |> list.unique
+    |> result.map(list.unique),
+  )
   use attach <- result.try(
     wire_op.encode_datastore_attach(
       data_store_id,
@@ -8553,8 +8575,9 @@ fn prepare_bound_references(
   core: Core,
   address: String,
   visited: List(String),
+  visible_datastores: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
-  let references = references_for(core, address)
+  use references <- result.try(references_for(core, address))
   let core =
     Core(..core, bindings: dict.insert(core.bindings, address, references))
   list.try_fold(references, #(core, [], visited), fn(acc, reference) {
@@ -8563,27 +8586,36 @@ fn prepare_bound_references(
       core,
       reference,
       visited,
+      visible_datastores,
     ))
     Ok(#(core, list.append(messages, next), visited))
   })
 }
 
-fn references_for(core: Core, address: String) -> List(handle.Reference) {
+fn references_for(
+  core: Core,
+  address: String,
+) -> Result(List(handle.Reference), CoreError) {
   let retained = dict.get(core.bindings, address) |> result.unwrap([])
-  let current = case locate_channel(core, address) {
-    Ok(Detached(state)) | Ok(Attached(state)) ->
-      case handle_context(address) {
-        Ok(context) ->
-          channel.routed_handle_addresses(state, context)
-          |> result.unwrap([])
-          |> list.filter_map(fn(address) {
-            handle.reference_from_path("/" <> address)
-          })
-        Error(_) -> []
-      }
-    Error(_) -> []
-  }
-  merge_references(retained, current)
+  use state <- result.try(case locate_channel(core, address) {
+    Ok(Detached(state)) | Ok(Attached(state)) -> Ok(state)
+    Error(error) -> Error(error)
+  })
+  use context <- result.try(handle_context(address))
+  use addresses <- result.try(
+    channel.routed_handle_addresses(state, context)
+    |> result.map_error(fn(error) {
+      ContainerOperationFailed(fluid_container.InvalidRoute(
+        "handle dependencies",
+        string.inspect(error),
+      ))
+    }),
+  )
+  let current =
+    list.filter_map(addresses, fn(address) {
+      handle.reference_from_path("/" <> address)
+    })
+  Ok(merge_references(retained, current))
 }
 
 fn merge_references(
@@ -8783,13 +8815,25 @@ fn stamp_attachment_batch(
       fluid_container.ChannelOperation(route, encoded_operation),
     ])
   let csn = core.next_client_sequence_number
-  let batch_id = core.client_id <> "_[" <> int.to_string(csn) <> "]"
+  let batch_id = case prepared {
+    [
+      fluid_container.IdAllocation(fluid_ids.CreationRange(
+        ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+        ..,
+      )),
+      ..
+    ] -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+    _ -> None
+  }
   let metadata =
     Some(
-      json.object([
-        #("batchId", json.string(batch_id)),
-        #("groupedOpCount", json.int(list.length(kinds))),
-      ]),
+      json.object(case batch_id {
+        Some(batch_id) -> [
+          #("batchId", json.string(batch_id)),
+          #("groupedOpCount", json.int(list.length(kinds))),
+        ]
+        None -> [#("groupedOpCount", json.int(list.length(kinds)))]
+      }),
     )
   let last = list.length(kinds) - 1
   use contents <- result.try(
@@ -8800,10 +8844,13 @@ fn stamp_attachment_batch(
         let boundary = case index {
           0 ->
             Some(
-              json.object([
-                #("batch", json.bool(True)),
-                #("batchId", json.string(batch_id)),
-              ]),
+              json.object(case batch_id {
+                Some(batch_id) -> [
+                  #("batch", json.bool(True)),
+                  #("batchId", json.string(batch_id)),
+                ]
+                None -> [#("batch", json.bool(True))]
+              }),
             )
           index if index == last ->
             Some(json.object([#("batch", json.bool(False))]))
@@ -8840,7 +8887,7 @@ fn stamp_attachment_batch(
       csn,
       core.last_seen_sequence_number,
       True,
-      Some(batch_id),
+      batch_id,
       kinds,
       list.append(placeholders, [
         InFlightOperation(core.client_id, csn, address, operation, meta),
