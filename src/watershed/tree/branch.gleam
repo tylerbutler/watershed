@@ -195,7 +195,9 @@ pub fn fork(
       locals: [
         LocalState(
           id,
-          tree_kernel.with_branch_history(source_state, branch_history),
+          source_state
+            |> tree_kernel.fork_authoring
+            |> tree_kernel.with_branch_history(branch_history),
         ),
         ..sync_local_histories(state.locals, branch_history)
       ],
@@ -594,13 +596,8 @@ pub fn revert(
   let history.RevertAuthoring(_, inverse, kind) = authored
   use #(forest, inverse, changes) <- result.try(case selector {
     DocumentCheckout -> {
-      use #(checkout_state, inverse, changes) <- result.try(
-        tree_kernel.apply_local_change(
-          checkout_state,
-          revision,
-          order,
-          inverse.change,
-        ),
+      use #(checkout_state, inverse, _, changes) <- result.try(
+        tree_kernel.revert(checkout_state, revertible.id, revision, order),
       )
       use #(forest, Nil) <- result.try(
         update_document(state, fn(_) { Ok(#(checkout_state, Nil)) }),

@@ -69,6 +69,13 @@ fn acknowledge(
 ) -> runtime_core.Core {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) -> {
+      let assert Ok(value) = json.parse(json.to_string(value), decode.dynamic)
+      Some(value)
+    }
+  }
   let assert Ok(#(core, ingested)) =
     runtime_core.handle_sequenced(
       core,
@@ -80,7 +87,7 @@ fn acknowledge(
         reference_sequence_number: outbound.reference_sequence_number,
         message_type: outbound.operation_type,
         contents: contents,
-        metadata: None,
+        metadata: metadata,
         server_metadata: None,
         origin: None,
         traces: None,

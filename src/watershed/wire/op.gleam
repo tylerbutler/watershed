@@ -115,7 +115,10 @@ pub fn attachment_message(
 ) -> Result(fluid_container.MessageKind, fluid_container.ContainerError) {
   use route <- result.try(fluid_container.route_from_path("/" <> address))
   let kind = channel.snapshot_type(snapshot)
-  use snapshot <- result.try(channel_attach_snapshot(snapshot))
+  use snapshot <- result.try(channel_attach_snapshot(
+    snapshot,
+    Some("/" <> fluid_summary.encode_component(route.data_store_id)),
+  ))
   Ok(fluid_container.ChannelAttach(
     route,
     channel.fluid_type_to_string(kind),
@@ -296,7 +299,7 @@ fn encode_datastore_attach_context(
           Error(fluid_container.UnsupportedMessage(
             "tree attach requires document context",
           ))
-        snapshot, _ -> channel_attach_snapshot(snapshot)
+        snapshot, _ -> channel_attach_snapshot(snapshot, None)
       })
       Ok(attach_tree_entry(entry.0, snapshot))
     }),
@@ -357,6 +360,7 @@ fn encode_datastore_attach_context(
 
 fn channel_attach_snapshot(
   snapshot: channel.Snapshot,
+  source_context: Option(String),
 ) -> Result(Json, fluid_container.ContainerError) {
   let kind = channel.snapshot_type(snapshot)
   let attributes = channel.fluid_attributes(kind)
@@ -369,15 +373,43 @@ fn channel_attach_snapshot(
         fluid_container.MalformedMessage("attach", string.inspect(error))
       })
   })
+  use gc <- result.try(case snapshot, source_context {
+    channel.MapSnapshot(entries), Some(context) -> {
+      use addresses <- result.try(
+        entries
+        |> list.try_map(fn(entry) {
+          handle.collect_routed_addresses(entry.1, context)
+          |> result.map_error(fn(error) {
+            fluid_container.InvalidRoute(
+              "SharedMap attach GC",
+              string.inspect(error),
+            )
+          })
+        }),
+      )
+      let routes =
+        list.flatten(addresses)
+        |> list.unique
+        |> list.map(fn(address) { "/" <> address })
+      Ok([
+        attach_blob(
+          ".gcdata",
+          json.object([
+            #("gcNodes", json.object([#("/", json.array(routes, json.string))])),
+          ]),
+        ),
+      ])
+    }
+    _, _ -> Ok([])
+  })
   Ok(
     json.object([
       #(
         "entries",
-        json.preprocessed_array(
-          list.append(blobs, [
-            attach_blob(".attributes", attributes),
-          ]),
-        ),
+        json.preprocessed_array(list.append(
+          list.append(blobs, [attach_blob(".attributes", attributes)]),
+          gc,
+        )),
       ),
     ]),
   )
@@ -2672,10 +2704,35 @@ fn decode_map_attach(
   header: String,
 ) -> Result(List(#(String, Json)), String) {
   use #(names, _) <- result.try(decode_map_header_parts(header))
+  let metadata = case dict.has_key(blobs, ".gcdata") {
+    True -> [".gcdata"]
+    False -> []
+  }
+  use _ <- result.try(case metadata {
+    [] -> Ok(Nil)
+    _ -> {
+      use gc <- result.try(
+        attach_blob_contents(blobs, ".gcdata")
+        |> result.map_error(string.inspect),
+      )
+      json.parse(gc, {
+        use nodes <- decode.field(
+          "gcNodes",
+          decode.dict(decode.string, decode.list(decode.string)),
+        )
+        decode.success(nodes)
+      })
+      |> result.replace(Nil)
+      |> result.map_error(fn(_) { "invalid SharedMap attach GC metadata" })
+    }
+  })
   use _ <- result.try(
     case
       list.sort(dict.keys(blobs), string.compare)
-      == list.sort([".attributes", "header", ..names], string.compare)
+      == list.sort(
+        list.append([".attributes", "header", ..names], metadata),
+        string.compare,
+      )
     {
       True -> Ok(Nil)
       False -> Error("SharedMap blob references do not match its snapshot")

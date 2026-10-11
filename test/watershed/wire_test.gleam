@@ -1602,6 +1602,167 @@ pub fn attach_codec_round_trip_test() -> Nil {
   }
 }
 
+fn map_attach_fixture(gc: option.Option(json.Json)) -> String {
+  let blob = fn(name, value) {
+    json.object([
+      #("path", json.string(name)),
+      #("mode", json.string("100644")),
+      #("type", json.string("Blob")),
+      #(
+        "value",
+        json.object([
+          #("contents", json.string(json.to_string(value))),
+          #("encoding", json.string("utf-8")),
+        ]),
+      ),
+    ])
+  }
+  let entries = [
+    blob(
+      "header",
+      json.object([
+        #("blobs", json.preprocessed_array([])),
+        #(
+          "content",
+          json.object([
+            #(
+              "k",
+              json.object([
+                #("type", json.string("Plain")),
+                #("value", json.int(4)),
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    ),
+    blob(
+      ".attributes",
+      json.object([
+        #("type", json.string("https://graph.microsoft.com/types/map")),
+        #("snapshotFormatVersion", json.string("0.2")),
+        #("packageVersion", json.string("3.1.0")),
+      ]),
+    ),
+  ]
+  let entries = case gc {
+    None -> entries
+    Some(value) -> list.append(entries, [blob(".gcdata", value)])
+  }
+  fluid_container.encode(fluid_container.ChannelAttach(
+    fluid_container.Route("A", "child"),
+    "https://graph.microsoft.com/types/map",
+    json.object([#("entries", json.preprocessed_array(entries))]),
+  ))
+  |> expect.to_be_ok
+  |> json.to_string
+}
+
+pub fn map_attach_accepts_legacy_snapshot_without_gc_metadata_test() {
+  let encoded = map_attach_fixture(None)
+  wire_op.decode_operation_contents(parse(encoded, decode.dynamic))
+  |> expect.to_equal(
+    Ok(wire_op.AttachOperation(
+      "A/child",
+      channel.MapSnapshot([#("k", json.int(4))]),
+    )),
+  )
+}
+
+pub fn map_attach_accepts_structural_gc_metadata_test() {
+  let gc =
+    json.object([
+      #(
+        "gcNodes",
+        json.object([#("/", json.array(["/A/target"], json.string))]),
+      ),
+    ])
+  let encoded = map_attach_fixture(Some(gc))
+  wire_op.decode_operation_contents(parse(encoded, decode.dynamic))
+  |> expect.to_equal(
+    Ok(wire_op.AttachOperation(
+      "A/child",
+      channel.MapSnapshot([#("k", json.int(4))]),
+    )),
+  )
+}
+
+pub fn map_attach_rejects_malformed_gc_metadata_test() {
+  let invalid = [
+    json.object([]),
+    json.object([#("gcNodes", json.string("invalid"))]),
+    json.object([#("gcNodes", json.object([#("/", json.array([4], json.int))]))]),
+  ]
+  list.each(invalid, fn(gc) {
+    let encoded = map_attach_fixture(Some(gc))
+    let _ =
+      wire_op.decode_operation_contents(parse(encoded, decode.dynamic))
+      |> expect.to_be_error
+    Nil
+  })
+}
+
+fn map_attach_outgoing_routes(address: String, values: List(json.Json)) {
+  let entries =
+    list.index_map(values, fn(value, index) { #(string.inspect(index), value) })
+  let assert Ok(fluid_container.ChannelAttach(_, _, snapshot)) =
+    wire_op.attachment_message(address, channel.MapSnapshot(entries))
+  let assert Ok(entries) =
+    json.parse(
+      json.to_string(snapshot),
+      decode.at(["entries"], decode.list(decode.dynamic)),
+    )
+  let assert Ok(gc) =
+    list.find(entries, fn(entry) {
+      decode.run(entry, decode.at(["path"], decode.string)) == Ok(".gcdata")
+    })
+  let assert Ok(contents) =
+    decode.run(gc, decode.at(["value", "contents"], decode.string))
+  json.parse(contents, decode.at(["gcNodes", "/"], decode.list(decode.string)))
+  |> expect.to_be_ok
+}
+
+pub fn map_attach_gc_resolves_relative_routes_in_source_datastore_test() {
+  let relative =
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.string("target")),
+    ])
+  let absolute =
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.string("/A/other")),
+    ])
+  map_attach_outgoing_routes("A/source", [relative, absolute, relative])
+  |> expect.to_equal(["/A/target", "/A/other"])
+  map_attach_outgoing_routes("B/source", [relative, absolute, relative])
+  |> expect.to_equal(["/B/target", "/A/other"])
+}
+
+pub fn map_attach_gc_rejects_unsupported_handle_routes_test() {
+  let invalid = [
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.string("/A/target")),
+      #("payloadPending", json.bool(True)),
+    ]),
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.string("/A/../target")),
+    ]),
+  ]
+  list.each(invalid, fn(value) {
+    let assert Error(fluid_container.InvalidRoute("SharedMap attach GC", _)) =
+      wire_op.attachment_message(
+        "A/source",
+        channel.MapSnapshot([
+          #("link", value),
+        ]),
+      )
+    Nil
+  })
+}
+
 pub fn decode_operation_contents_discrimination_test() -> Nil {
   // A map envelope decodes as ChannelOperation, its payload left for stage-two
   // decoding against the addressed channel's registered type.

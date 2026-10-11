@@ -1479,6 +1479,10 @@ pub fn adopt_reconnect(
     Core(
       ..core,
       client_id: connected.client_id,
+      next_client_sequence_number: case core.client_id == connected.client_id {
+        True -> core.next_client_sequence_number
+        False -> 1
+      },
       reconnect_barrier: case core.reconnect_barrier, has_pending_tree(core) {
         Some(barrier), _ ->
           Some(ReconnectBarrier(
@@ -1784,21 +1788,26 @@ pub fn resubmit(
   ))
 }
 
+fn resubmitted_batch_id(entry: InFlight) -> String {
+  let assert InFlightBatch(
+    client_id: original_client,
+    client_sequence_number: original_sequence,
+    batch_id: batch_id,
+    ..,
+  ) = entry
+  option.unwrap(
+    batch_id,
+    original_client <> "_[" <> int.to_string(original_sequence) <> "]",
+  )
+}
+
 fn restamp_grouped_batch(
   core: Core,
   entry: InFlight,
   csn: Int,
 ) -> Result(#(InFlight, wire.OutboundOperation), CoreError) {
-  let assert InFlightBatch(
-    items: items,
-    pending: pending,
-    batch_id: original_batch_id,
-    ..,
-  ) = entry
-  let batch_id =
-    option.map(original_batch_id, fn(_) {
-      core.client_id <> "_[" <> int.to_string(csn) <> "]"
-    })
+  let assert InFlightBatch(items: items, pending: pending, ..) = entry
+  let batch_id = Some(resubmitted_batch_id(entry))
   let metadata =
     Some(
       json.object(case batch_id {
@@ -1896,12 +1905,7 @@ fn resubmit_coalesced_tree_batch(
   ),
   CoreError,
 ) {
-  let assert InFlightBatch(
-    batch_id: original_batch_id,
-    items: items,
-    pending: pending,
-    ..,
-  ) = entry
+  let assert InFlightBatch(items: items, pending: pending, ..) = entry
   use _ <- result.try(seed_requirement(
     list.length(items) == list.length(pending),
     "outbound items do not match pending state",
@@ -1971,10 +1975,8 @@ fn resubmit_coalesced_tree_batch(
   let kinds = list.map(rebuilt, fn(item) { item.0 })
   let pending = list.map(rebuilt, fn(item) { item.1 })
   let grouped = list.length(kinds) > 1
-  let batch_id = case grouped, original_batch_id {
-    True, Some(_) -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
-    _, _ -> None
-  }
+  let id = resubmitted_batch_id(entry)
+  let batch_id = Some(id)
   let metadata = case grouped {
     True ->
       Some(
@@ -1986,7 +1988,7 @@ fn resubmit_coalesced_tree_batch(
           None -> [#("groupedOpCount", json.int(list.length(kinds)))]
         }),
       )
-    False -> None
+    False -> Some(json.object([#("batchId", json.string(id))]))
   }
   let last = list.length(kinds) - 1
   use contents <- result.try(
@@ -2163,21 +2165,10 @@ fn resubmit_tree_batch(
   ),
   CoreError,
 ) {
-  let assert InFlightBatch(
-    grouped: grouped,
-    batch_id: batch_id,
-    items: items,
-    ..,
-  ) = entry
+  let assert InFlightBatch(items: items, ..) = entry
   use compressor <- result.try(case compressor {
     Some(compressor) -> Ok(compressor)
     None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
-  })
-  use _ <- result.try(case grouped, batch_id {
-    True, _ -> Ok(Nil)
-    False, None -> Ok(Nil)
-    _, _ ->
-      Error(AckMismatch("pending tree submission has an invalid batch identity"))
   })
   let #(compressor, creation) = case last_tree_batch {
     True -> fluid_ids.take_creation_range(compressor)
@@ -2255,11 +2246,8 @@ fn resubmit_tree_batch(
     }
   }
   let grouped = list.length(rebuilt) > 1
-  let batch_id = case grouped, batch_id {
-    True, Some(batch_id) -> Some(batch_id)
-    True, None -> None
-    False, _ -> None
-  }
+  let id = resubmitted_batch_id(entry)
+  let batch_id = Some(id)
   let metadata = case grouped {
     True ->
       Some(
@@ -2271,7 +2259,7 @@ fn resubmit_tree_batch(
           None -> [#("groupedOpCount", json.int(list.length(rebuilt)))]
         }),
       )
-    False -> None
+    False -> Some(json.object([#("batchId", json.string(id))]))
   }
   let last = list.length(rebuilt) - 1
   use contents <- result.try(
@@ -2335,8 +2323,21 @@ fn restamp_in_flight(
   List(Result(wire.OutboundOperation, fluid_container.ContainerError)),
 ) {
   case entry {
-    InFlightBatch(pending: [item], ..) ->
-      restamp_in_flight(core, item, client_sequence_number)
+    InFlightBatch(pending: [item], ..) -> {
+      let #(core, next, pending, outbound) =
+        restamp_in_flight(core, item, client_sequence_number)
+      let id = resubmitted_batch_id(entry)
+      let outbound =
+        list.map(outbound, fn(operation) {
+          result.map(operation, fn(operation) {
+            wire.OutboundOperation(
+              ..operation,
+              metadata: Some(json.object([#("batchId", json.string(id))])),
+            )
+          })
+        })
+      #(core, next, pending, outbound)
+    }
     InFlightBatch(..) -> #(core, client_sequence_number, [entry], [])
     InFlightOperation(
       address: address,
@@ -2720,20 +2721,32 @@ fn pending_submission(
   case batch {
     fluid_container.DecodedBatch(
       False,
-      None,
+      metadata,
       [fluid_container.ContainerMessage(kind, 0, _)],
-    ) ->
+    ) -> {
+      use batch_id <- result.try(case metadata {
+        None -> Ok(None)
+        Some(metadata) ->
+          json.parse(json.to_string(metadata), {
+            use id <- decode.field("batchId", decode.string)
+            decode.success(Some(id))
+          })
+          |> result.map_error(fn(_) {
+            AckMismatch("invalid singleton batch identity")
+          })
+      })
       Ok(
         InFlightBatch(
           client_id,
           client_sequence_number,
           reference_sequence_number,
           False,
-          None,
+          batch_id,
           [kind],
           [pending],
         ),
       )
+    }
     _ -> Error(AckMismatch("singleton outbound is not one outer operation"))
   }
 }

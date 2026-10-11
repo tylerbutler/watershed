@@ -1,10 +1,8 @@
 import gleam/dict
 import gleam/dynamic/decode
-import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/string
 import spillway/types
 import startest/expect
 import watershed/channel
@@ -59,6 +57,32 @@ pub fn shared_tree_cross_datastore_raw_evidence_test() {
 
 pub fn shared_tree_multiple_tree_identity_lifecycle_test() {
   lifecycle_fixture.assert_identity_replay("handle-transaction-branch")
+}
+
+pub fn shared_tree_handle_publication_boundary_replay_test() {
+  lifecycle_fixture.assert_publication_replay("handle-transaction-branch")
+}
+
+pub fn shared_tree_handle_publication_active_target_preflight_test() {
+  lifecycle_fixture.assert_publication_active_target_preflight(
+    "handle-transaction-branch",
+  )
+}
+
+pub fn shared_tree_handle_transient_reference_publication_test() {
+  lifecycle_fixture.assert_transient_reference_publication(
+    "handle-transaction-branch",
+  )
+}
+
+pub fn shared_tree_handle_publication_corrupt_last_dependency_test() {
+  lifecycle_fixture.assert_publication_corrupt_last_dependency(
+    "handle-transaction-branch",
+  )
+}
+
+pub fn shared_tree_map_attachment_gc_outgoing_routes_test() {
+  lifecycle_fixture.assert_map_attach_gc_routes("live-channel-attachment")
 }
 
 pub fn shared_tree_attachment_refuses_mismatched_attributes_atomically_test() {
@@ -227,7 +251,6 @@ pub fn shared_tree_attachment_reconnect_resubmits_prepared_graph_test() {
       "secondary",
       handle.encode_handle("D/root"),
     )
-  let original_client_id = core.client_id
   let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
@@ -248,30 +271,81 @@ pub fn shared_tree_attachment_reconnect_resubmits_prepared_graph_test() {
   outbound.reference_sequence_number
   |> expect.to_equal(original.reference_sequence_number)
   outbound.operation_type |> expect.to_equal(original.operation_type)
-  let old_batch_id =
-    original_client_id
-    <> "_["
-    <> int.to_string(original.client_sequence_number)
-    <> "]"
-  let new_batch_id =
-    core.client_id
-    <> "_["
-    <> int.to_string(outbound.client_sequence_number)
-    <> "]"
   json.to_string(original.contents)
-  |> string.replace(old_batch_id, new_batch_id)
   |> expect.to_equal(json.to_string(outbound.contents))
   let assert Some(original_metadata) = original.metadata
   let assert Some(outbound_metadata) = outbound.metadata
   json.to_string(original_metadata)
-  |> string.replace(old_batch_id, new_batch_id)
   |> expect.to_equal(json.to_string(outbound_metadata))
+  let assert Ok(core) =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected(
+        "reconnected-again",
+        [],
+        core.last_seen_sequence_number,
+      ),
+    )
+  let assert Ok(#(core, [again])) = runtime_core.resubmit(core)
+  json.to_string(again.contents)
+  |> expect.to_equal(json.to_string(original.contents))
+  again.metadata |> expect.to_equal(original.metadata)
   let assert Ok(#(core, _)) =
-    runtime_core.handle_sequenced(core, sequenced(outbound, core.client_id, 3))
+    runtime_core.handle_sequenced(core, sequenced(again, core.client_id, 3))
   core.in_flight |> expect.to_equal([])
   let assert Ok(value) = runtime_core.get(core, "A/root", "secondary")
   runtime_core.resolve_handle_address(core, value)
   |> expect.to_equal(Ok("D/root"))
+}
+
+pub fn shared_tree_attachment_reconnect_derives_unstamped_batch_identity_test() {
+  let core = attachment_core()
+  let assert Ok(core) = runtime_core.create_detached_data_store(core, "D")
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.set(
+      core,
+      "A/root",
+      "secondary",
+      handle.encode_handle("D/root"),
+    )
+  let assert [runtime_core.InFlightBatch(..) as pending] = core.in_flight
+  let core =
+    runtime_core.Core(..core, in_flight: [
+      runtime_core.InFlightBatch(..pending, batch_id: None),
+    ])
+  let assert Ok(core) =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected(
+        "reconnected",
+        [],
+        core.last_seen_sequence_number,
+      ),
+    )
+  let assert Ok(#(core, [first])) = runtime_core.resubmit(core)
+  let assert Some(metadata) = first.metadata
+  json.parse(json.to_string(metadata), decode.at(["batchId"], decode.string))
+  |> expect.to_equal(Ok("reader_[1]"))
+  let assert Ok(batch) = fluid_container.decode(first.contents, first.metadata)
+  let assert [fluid_container.ContainerMessage(_, 0, Some(metadata)), ..] =
+    batch.messages
+  json.parse(json.to_string(metadata), decode.at(["batchId"], decode.string))
+  |> expect.to_equal(Ok("reader_[1]"))
+  let assert Ok(core) =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected(
+        "reconnected-again",
+        [],
+        core.last_seen_sequence_number,
+      ),
+    )
+  let assert Ok(#(core, [second])) = runtime_core.resubmit(core)
+  first.contents |> expect.to_equal(second.contents)
+  first.metadata |> expect.to_equal(second.metadata)
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(core, sequenced(second, core.client_id, 3))
+  core.in_flight |> expect.to_equal([])
 }
 
 pub fn shared_tree_attachment_published_store_child_attaches_before_reference_test() {

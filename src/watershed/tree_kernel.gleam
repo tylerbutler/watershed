@@ -337,6 +337,11 @@ pub fn with_branch_history(
   TreeState(..state, history: branch_history)
 }
 
+@internal
+pub fn fork_authoring(state: TreeState) -> TreeState {
+  TreeState(..state, next_local_id: 0)
+}
+
 pub fn apply_branch_effects(
   state: TreeState,
   effects: List(shared_change.Effect),
@@ -842,11 +847,7 @@ pub fn commit_local_preview(
     replacements,
   ))
   Ok(#(
-    TreeState(
-      ..committed,
-      visible:,
-      next_local_id: int_max(committed.next_local_id, preview.next_local_id),
-    ),
+    TreeState(..committed, visible:, next_local_id: base.next_local_id),
     commit,
     events,
   ))

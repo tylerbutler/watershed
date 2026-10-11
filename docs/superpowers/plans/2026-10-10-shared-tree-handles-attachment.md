@@ -579,52 +579,79 @@ and `lifecycle_fixture.gleam`.
 **Interfaces:** Consume Task 3's candidate preparation and Task 4's contextual
 tree attachment. Preserve `submit_tree_commits`, `tree_transaction`, checkout
 selectors, commit kinds and retained handles. Produce the full
-`handle-transaction-branch` runner; all tree publication paths use the same
-binding rule.
+`handle-transaction-branch` native proof; all tree publication paths use the
+same binding rule. Compose the source-backed publication and identity runners,
+the separate active-target preflight runner, and actual JS/BEAM facade lifetime
+tests. Do not return copied expected observations to manufacture a full JSON
+result: the spec explicitly excludes upstream failure-side-effect parity.
 
-- [ ] Add the failing source-backed boundary test:
+- [x] Add the failing source-backed boundary tests:
 
   ```gleam
-  import watershed/tree/fixtures
   import watershed/tree/lifecycle_fixture
 
-  pub fn shared_tree_handle_transaction_branch_lifecycle_test() {
-    fixtures.assert_case(
+  pub fn shared_tree_handle_publication_boundary_replay_test() {
+    lifecycle_fixture.assert_publication_replay("handle-transaction-branch")
+  }
+
+  pub fn shared_tree_multiple_tree_identity_lifecycle_test() {
+    lifecycle_fixture.assert_identity_replay("handle-transaction-branch")
+  }
+
+  pub fn shared_tree_handle_publication_active_target_preflight_test() {
+    lifecycle_fixture.assert_publication_active_target_preflight(
       "handle-transaction-branch",
-      lifecycle_fixture.run_case("handle-transaction-branch", _),
     )
   }
   ```
 
-- [ ] Run on both targets. Trace every tree commit producer: direct edits,
+  Publication replay must compare the complete emitted transport prefix,
+  cumulative transaction/branch values, compressor state, local serialized
+  changes, remote events and scoped settlements. Identity replay must compare
+  all twelve captured summaries and identity checkpoints. Actual facade tests
+  must prove duplicate/late inverse acquisition refusal, same-handle disposal
+  callbacks and branch-marker resolution to the document channel. A pure-core
+  inverse status check is not a substitute for those runtime observations.
+
+- [x] Run on both targets. Trace every tree commit producer: direct edits,
   outer transaction commits, undo/redo, branch merge, reconnect resubmission
   and schema operations. Route supported handle-bearing publications through
   the shared planner. Do not bind on an optimistic UI update or by reading only
   the final root.
-- [ ] Prepare attachment messages and tree edits before stamping a submission.
+- [x] Prepare attachment messages and tree edits before stamping a submission.
   Use existing group metadata, CSNs, in-flight equality and reconnect barriers.
   Follow measured cyclic order and allocation context; do not reorder messages
   to satisfy an assumed acyclic algorithm.
-- [ ] Implement the measured successful/aborted/nested transaction behavior.
+- [x] Implement the measured successful/aborted/nested transaction behavior.
   Keep data rollback and lifecycle side effects separate. Test failure of a
   target's active transaction and a corrupt last dependency before a parent
   submission; preserve error visibility and existing compressor rollback rules.
-- [ ] Implement measured branch binding before/after merge and disposal.
+- [x] Implement measured branch binding before/after merge and disposal.
   Preserve `tree_handle_of`'s existing channel-address behavior for a local
   checkout. Resolving that marker opens the document channel, not the fork;
   it does not create a channel or publish the fork's unmerged edits.
   Schema authoring on branches and cross-tree transactions remain excluded.
-- [ ] Verify that undo removes/replaces the parent reference but leaves the
+- [x] Verify that undo removes/replaces the parent reference but leaves the
   attached target and peer-authored target edits intact. Check commit kind,
   inverse factory acquisition, target identity and disposal, not only values.
-- [ ] Run:
+- [x] Run:
 
   ```sh
   gleam test --target erlang -- shared_tree_attachment shared_tree_transaction shared_tree_branch shared_tree_undo
   gleam test --target javascript -- shared_tree_attachment shared_tree_transaction shared_tree_branch shared_tree_undo
   ```
 
-- [ ] Commit as `feat(runtime): bind tree handles at publication boundaries`.
+- [x] Commit as `feat(runtime): bind tree handles at publication boundaries`.
+
+Task 5 accepted after scoped publication and facade reviews. Final integrated
+gate: 1152 Erlang and 1124 JavaScript SharedTree tests, all three native storage,
+bootstrap and creation smokes; generic core/wire/LWW coverage: 274 per target;
+pinned codec interoperability: 38 items per target. Exact standalone map GC
+and original logical batch IDs now survive source-backed comparison and
+repeated reconnects. Lint and whitespace checks passed. Twenty unrelated
+legacy Sluice/workspace failures reproduce on unchanged HEAD; the two
+metadata-dropping acknowledgement helpers found during the full run are fixed.
+This is local evidence, not hosted acceptance.
 
 ### Task 6: Expose matching JS and BEAM lifecycle APIs
 

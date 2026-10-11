@@ -220,6 +220,26 @@ fn reconnect_connected(
   message.ConnectedMessage(..base, client_id: client_id)
 }
 
+fn echo_outbound(
+  client_id: String,
+  outbound: wire.OutboundOperation,
+  sequence: Int,
+) -> types.SequencedDocumentMessage {
+  let base =
+    sequenced_message(
+      Some(client_id),
+      sequence,
+      outbound.client_sequence_number,
+      outbound.operation_type,
+      json_to_dynamic(outbound.contents),
+    )
+  types.SequencedDocumentMessage(
+    ..base,
+    reference_sequence_number: outbound.reference_sequence_number,
+    metadata: option.map(outbound.metadata, json_to_dynamic),
+  )
+}
+
 fn apply(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
@@ -1398,16 +1418,16 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 3,
+      client_sequence_number: 1,
       address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
   ])
-  core.next_client_sequence_number |> expect.to_equal(4)
+  core.next_client_sequence_number |> expect.to_equal(2)
   case outbound {
     [operation] -> {
-      operation.client_sequence_number |> expect.to_equal(3)
+      operation.client_sequence_number |> expect.to_equal(1)
       operation.reference_sequence_number |> expect.to_equal(3)
     }
     _ -> panic as "expected exactly one resubmitted op"
@@ -1418,11 +1438,10 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   let #(core, _) =
     apply(
       core,
-      map_operation_message(
-        client_id: reconnect_client_id,
-        sequence_number: 4,
-        client_sequence_number: 3,
-        operation: Set("b", json.int(2)),
+      echo_outbound(
+        reconnect_client_id,
+        expect.to_be_ok(list.first(outbound)),
+        4,
       ),
     )
   core.in_flight |> expect.to_equal([])
@@ -1524,26 +1543,26 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
   let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
   // Fresh sequential CSNs, new client id, order preserved, RSN = last_seen.
-  core.next_client_sequence_number |> expect.to_equal(7)
+  core.next_client_sequence_number |> expect.to_equal(4)
   pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 4,
+      client_sequence_number: 1,
       address: "watershed/root",
       operation: channel.MapOperation(Set("a", json.int(1))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 5,
+      client_sequence_number: 2,
       address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 6,
+      client_sequence_number: 3,
       address: "watershed/root",
       operation: channel.MapOperation(Delete("a")),
       meta: channel.NoMeta,
@@ -1552,11 +1571,38 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
   list.length(outbound) |> expect.to_equal(3)
   case outbound {
     [first, ..] -> {
-      first.client_sequence_number |> expect.to_equal(4)
+      first.client_sequence_number |> expect.to_equal(1)
       first.reference_sequence_number |> expect.to_equal(5)
     }
     [] -> panic as "expected resubmitted ops"
   }
+}
+
+pub fn reconnect_preserves_logical_batch_identity_across_connections_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _, _) = root_set(core, "pending", json.int(7))
+  let core =
+    runtime_core.adopt_reconnect(core, reconnect_connected("first", 1))
+    |> expect.to_be_ok
+  let assert #(core, [first]) = runtime_core.resubmit(core) |> expect.to_be_ok
+  first.client_sequence_number |> expect.to_equal(1)
+  let identity =
+    Some(json.object([#("batchId", json.string("default_dice_2_[1]"))]))
+  first.metadata |> expect.to_equal(identity)
+
+  let core =
+    runtime_core.adopt_reconnect(core, reconnect_connected("second", 1))
+    |> expect.to_be_ok
+  let assert #(core, [second]) = runtime_core.resubmit(core) |> expect.to_be_ok
+  second.client_sequence_number |> expect.to_equal(1)
+  second.metadata |> expect.to_equal(identity)
+  let core =
+    runtime_core.adopt_reconnect(core, reconnect_connected("second", 1))
+    |> expect.to_be_ok
+  core.next_client_sequence_number |> expect.to_equal(2)
+  let #(core, _) = apply(core, echo_outbound("second", second, 2))
+  core.in_flight |> expect.to_equal([])
+  root_get(core, "pending") |> expect.to_equal(Ok(json.int(7)))
 }
 
 pub fn remote_attach_creates_channel_and_subsequent_operations_apply_with_tagged_events_test() -> Nil {
@@ -2172,13 +2218,13 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: reconnect_client_id,
-      client_sequence_number: 4,
+      client_sequence_number: 1,
       address: "watershed/child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 5,
+      client_sequence_number: 2,
       address: "watershed/root",
       operation: channel.MapOperation(Set(
         "ref",
@@ -2188,7 +2234,7 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      client_sequence_number: 6,
+      client_sequence_number: 3,
       address: "watershed/child",
       operation: channel.MapOperation(Set("a", json.int(2))),
       meta: channel.NoMeta,
@@ -2829,7 +2875,12 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
   let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
   list.map(outbound, fn(operation) { operation.client_sequence_number })
-  |> expect.to_equal([3, 4])
+  |> expect.to_equal([1, 2])
+  list.map(outbound, fn(operation) { operation.metadata })
+  |> expect.to_equal([
+    Some(json.object([#("batchId", json.string("default_dice_2_[1]"))])),
+    Some(json.object([#("batchId", json.string("default_dice_2_[2]"))])),
+  ])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
     DecodedChannelOperation(
@@ -2844,28 +2895,11 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
   runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(3))
 
   // The restamped echoes ack cleanly under the new client id.
+  let assert [first, second] = outbound
   let #(core, _) =
-    apply_tagged(
-      core,
-      counter_operation_message(
-        address: "watershed/tally",
-        client_id: reconnect_client_id,
-        sequence_number: 3,
-        client_sequence_number: 3,
-        operation: counter_kernel.Increment(1),
-      ),
-    )
+    apply_tagged(core, echo_outbound(reconnect_client_id, first, 3))
   let #(core, _) =
-    apply_tagged(
-      core,
-      counter_operation_message(
-        address: "watershed/tally",
-        client_id: reconnect_client_id,
-        sequence_number: 4,
-        client_sequence_number: 4,
-        operation: counter_kernel.Increment(2),
-      ),
-    )
+    apply_tagged(core, echo_outbound(reconnect_client_id, second, 4))
   core.in_flight |> expect.to_equal([])
   runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(3))
 }
@@ -2957,7 +2991,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
   let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
   let assert [resubmitted] = outbound
-  resubmitted.client_sequence_number |> expect.to_equal(2)
+  resubmitted.client_sequence_number |> expect.to_equal(1)
   resubmitted.reference_sequence_number |> expect.to_equal(3)
   decode_outbound_contents(resubmitted)
   |> expect.to_equal(DecodedChannelOperation(
@@ -2969,14 +3003,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     )),
   ))
 
-  let ack =
-    claim_operation_message(
-      address: "watershed/locks",
-      client_id: reconnect_client_id,
-      sequence_number: 4,
-      client_sequence_number: 2,
-      operation: claims_kernel.Claim("owner", json.string("alice"), 2),
-    )
+  let ack = echo_outbound(reconnect_client_id, resubmitted, 4)
   let assert Ok(#(core, ingested)) =
     runtime_core.handle_sequenced(core, with_pending_rsn(core, ack))
   ingested.events
@@ -3588,12 +3615,10 @@ fn ack_mv_or_map_outbound(
   let #(core, events) =
     apply_tagged(
       core,
-      sequenced_message(
-        client_id: Some(core.client_id),
-        sequence_number: core.last_seen_sequence_number + 1,
-        client_sequence_number: outbound.client_sequence_number,
-        message_type: outbound.operation_type,
-        contents: json_to_dynamic(outbound.contents),
+      echo_outbound(
+        core.client_id,
+        outbound,
+        core.last_seen_sequence_number + 1,
       ),
     )
   events |> expect.to_equal([])

@@ -1616,6 +1616,50 @@ pub fn shared_tree_resubmit_preserves_grouped_and_separate_batches_test() -> Nil
   first_batch.metadata |> expect.to_equal(original.metadata)
 }
 
+pub fn shared_tree_resubmit_derives_unstamped_tree_batch_identity_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("pending")),
+    ])
+  let assert [runtime_core.InFlightBatch(..) as pending] = core.in_flight
+  let core =
+    runtime_core.Core(..core, in_flight: [
+      runtime_core.InFlightBatch(..pending, batch_id: None),
+    ])
+  let assert Ok(core) =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected("rejoined", [], core.last_seen_sequence_number),
+    )
+  let assert Ok(#(core, [first])) =
+    runtime_core.resubmit(runtime_core.go_live(core))
+  let assert Ok(batch) = fluid_container.decode(first.contents, first.metadata)
+  let assert Some(metadata) = batch.metadata
+  json.parse(json.to_string(metadata), decode.at(["batchId"], decode.string))
+  |> expect.to_equal(Ok("reader_[1]"))
+  let assert [fluid_container.ContainerMessage(_, 0, Some(metadata)), ..] =
+    batch.messages
+  json.parse(json.to_string(metadata), decode.at(["batchId"], decode.string))
+  |> expect.to_equal(Ok("reader_[1]"))
+  let assert Ok(core) =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected(
+        "rejoined-again",
+        [],
+        core.last_seen_sequence_number,
+      ),
+    )
+  let assert Ok(#(core, [second])) =
+    runtime_core.resubmit(runtime_core.go_live(core))
+  second.contents |> expect.to_equal(first.contents)
+  second.metadata |> expect.to_equal(first.metadata)
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(core, map_message(core, second, 3))
+  core.in_flight |> expect.to_equal([])
+}
+
 pub fn shared_tree_resubmit_does_not_duplicate_old_session_ack_test() -> Nil {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(#(pending, _, [outbound])) =
@@ -4340,9 +4384,21 @@ pub fn shared_tree_runtime_second_merge_publishes_without_allocation_test() {
   resent.client_sequence_number
   |> expect.to_equal(reconnected.next_client_sequence_number)
   resent.reference_sequence_number |> expect.to_equal(1)
-  resent.metadata |> expect.to_equal(None)
+  resent.metadata
+  |> expect.to_equal(
+    Some(
+      json.object([
+        #("batchId", json.string("reader_[2]")),
+      ]),
+    ),
+  )
   let assert [
-    runtime_core.InFlightBatch(grouped: False, batch_id: None, items: [_], ..),
+    runtime_core.InFlightBatch(
+      grouped: False,
+      batch_id: Some("reader_[2]"),
+      items: [_],
+      ..,
+    ),
   ] = resubmitted.in_flight
   let assert Some(after_reconnect) = resubmitted.compressor
   fluid_ids.local_session(after_reconnect) |> expect.to_equal(session)
@@ -4391,7 +4447,12 @@ pub fn shared_tree_runtime_second_merge_publishes_without_allocation_test() {
     ),
   ] = regrouped_batch.messages
   let assert [
-    runtime_core.InFlightBatch(grouped: True, batch_id: None, items: [_, _], ..),
+    runtime_core.InFlightBatch(
+      grouped: True,
+      batch_id: Some("reader_[2]"),
+      items: [_, _],
+      ..,
+    ),
   ] = regrouped.in_flight
   let #(regrouped, _) =
     runtime_core.handle_sequenced(
