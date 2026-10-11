@@ -8,14 +8,15 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/tree/schema
 import watershed/tree/types.{
   type TreeError, type TreeValue, ArrayValue, BooleanValue, CorruptData,
-  MapValue, NullValue, NumberValue, ObjectValue, StringValue, UnsupportedFeature,
-  UnsupportedFormat,
+  HandleValue, MapValue, NullValue, NumberValue, ObjectValue, StringValue,
+  UnsupportedFeature, UnsupportedFormat,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -83,10 +84,12 @@ type EncodeValueShape {
 }
 
 type EncodeShape {
+  EncodeNestedArray(shape: EncodeShape)
   EncodeNode(
     type_id: String,
     value: EncodeValueShape,
     fields: List(#(String, EncodeShape)),
+    extra_fields: Option(EncodeShape),
   )
 }
 
@@ -267,7 +270,10 @@ pub fn encode_with_context(
           })
         }),
       )
-      case schema.has_identifier_fields(stored) {
+      case
+        schema.has_identifier_fields(stored)
+        || list.any(list.flatten(fields), contains_handle)
+      {
         False -> encode_with_context_generic(fields, stored, ids)
         True ->
           case encode_compressed_fields(fields, stored, ids) {
@@ -276,6 +282,16 @@ pub fn encode_with_context(
           }
       }
     }
+  }
+}
+
+fn contains_handle(value: TreeValue) -> Bool {
+  case value {
+    HandleValue(_) -> True
+    ObjectValue(_, fields) | MapValue(_, fields) ->
+      list.any(fields, fn(field) { contains_handle(field.1) })
+    ArrayValue(_, elements) -> list.any(elements, contains_handle)
+    StringValue(_) | NumberValue(_) | BooleanValue(_) | NullValue -> False
   }
 }
 
@@ -410,6 +426,7 @@ fn inferred_field_schema(value: TreeValue) -> schema.FieldSchema {
     StringValue(_) -> string_leaf
     NumberValue(_) -> number_leaf
     BooleanValue(_) -> boolean_leaf
+    HandleValue(_) -> handle_leaf
     NullValue -> null_leaf
     ObjectValue(type_id, _) | MapValue(type_id, _) | ArrayValue(type_id, _) ->
       type_id
@@ -418,6 +435,21 @@ fn inferred_field_schema(value: TreeValue) -> schema.FieldSchema {
 }
 
 fn encode_compressed_tree(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+  definition: schema.FieldSchema,
+  ids: IdContext,
+) -> Result(EncodedTree, Nil) {
+  let schema.FieldSchema(cardinality, _) = definition
+  use tree <- result.try(encode_compressed_node(value, stored, definition, ids))
+  case cardinality {
+    schema.Optional | schema.Sequence ->
+      Ok(EncodedTree(EncodeNestedArray(tree.shape), [VArray(tree.data)]))
+    schema.Required | schema.Identifier -> Ok(tree)
+  }
+}
+
+fn encode_compressed_node(
   value: TreeValue,
   stored: schema.StoredSchema,
   definition: schema.FieldSchema,
@@ -437,14 +469,14 @@ fn encode_compressed_tree(
             |> result.map_error(fn(_) { Nil }),
           )
           Ok(
-            EncodedTree(EncodeNode(type_id, EncodeIdentifierValue, []), [
+            EncodedTree(EncodeNode(type_id, EncodeIdentifierValue, [], None), [
               encoded,
             ]),
           )
         }
         _ ->
           Ok(
-            EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [
+            EncodedTree(EncodeNode(type_id, EncodePresentValue, [], None), [
               VString(value),
             ]),
           )
@@ -452,16 +484,27 @@ fn encode_compressed_tree(
     }
     schema.Leaf(schema.NumberLeaf), NumberValue(value) ->
       Ok(
-        EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [
+        EncodedTree(EncodeNode(type_id, EncodePresentValue, [], None), [
           VNumber(NFloat(value)),
         ]),
       )
     schema.Leaf(schema.BooleanLeaf), BooleanValue(value) ->
       Ok(
-        EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [VBool(value)]),
+        EncodedTree(EncodeNode(type_id, EncodePresentValue, [], None), [
+          VBool(value),
+        ]),
       )
+    schema.Leaf(schema.HandleLeaf), HandleValue(reference) -> {
+      use marker <- result.try(
+        json_ot.parse_json(json.to_string(handle.reference_to_json(reference)))
+        |> result.map_error(fn(_) { Nil }),
+      )
+      Ok(
+        EncodedTree(EncodeNode(type_id, EncodePresentValue, [], None), [marker]),
+      )
+    }
     schema.Leaf(schema.NullLeaf), NullValue ->
-      Ok(EncodedTree(EncodeNode(type_id, EncodeNullValue, []), []))
+      Ok(EncodedTree(EncodeNode(type_id, EncodeNullValue, [], None), []))
     schema.Object(definitions), ObjectValue(value_type, fields)
       if value_type == type_id
     -> {
@@ -485,16 +528,87 @@ fn encode_compressed_tree(
           type_id,
           EncodeAbsentValue,
           list.map(encoded, fn(entry) { #(entry.0, entry.1.shape) }),
+          None,
         ),
         list.flat_map(encoded, fn(entry) { entry.1.data }),
       ))
+    }
+    schema.Map(entries), MapValue(value_type, fields) if value_type == type_id -> {
+      use encoded <- result.try(
+        list.try_map(fields, fn(field) {
+          encode_compressed_tree(field.1, stored, entries, ids)
+          |> result.map(fn(tree) { #(field.0, tree) })
+        }),
+      )
+      use shape <- result.try(
+        encoded
+        |> list.first
+        |> result.map(fn(entry) { entry.1.shape }),
+      )
+      use _ <- result.try(
+        case list.all(encoded, fn(entry) { entry.1.shape == shape }) {
+          True -> Ok(Nil)
+          False -> Error(Nil)
+        },
+      )
+      Ok(
+        EncodedTree(EncodeNode(type_id, EncodeAbsentValue, [], Some(shape)), [
+          VArray(
+            list.flat_map(encoded, fn(entry) {
+              [VString(entry.0), ..entry.1.data]
+            }),
+          ),
+        ]),
+      )
+    }
+    schema.Array(elements), ArrayValue(value_type, values)
+      if value_type == type_id
+    -> {
+      use encoded <- result.try(
+        list.try_map(values, fn(value) {
+          encode_compressed_node(value, stored, elements, ids)
+        }),
+      )
+      use shape <- result.try(
+        encoded
+        |> list.first
+        |> result.map(fn(tree) { tree.shape }),
+      )
+      use _ <- result.try(
+        case list.all(encoded, fn(tree) { tree.shape == shape }) {
+          True -> Ok(Nil)
+          False -> Error(Nil)
+        },
+      )
+      Ok(
+        EncodedTree(
+          EncodeNode(
+            type_id,
+            EncodeAbsentValue,
+            [#("", EncodeNestedArray(shape))],
+            None,
+          ),
+          [VArray(list.flat_map(encoded, fn(tree) { tree.data }))],
+        ),
+      )
     }
     _, _ -> Error(Nil)
   }
 }
 
 fn discover_shapes(roots: List(EncodeShape)) -> List(EncodeShape) {
-  discover_shape_children(list.unique(roots), list.unique(roots))
+  let shapes = discover_shape_children(list.unique(roots), list.unique(roots))
+  list.append(
+    list.filter(shapes, is_nested_shape),
+    list.filter(shapes, fn(shape) { !is_nested_shape(shape) }),
+  )
+}
+
+fn is_nested_shape(shape: EncodeShape) -> Bool {
+  case shape {
+    EncodeNestedArray(_) -> True
+    EncodeNode(_, _, _, _) -> False
+  }
 }
 
 fn discover_shape_children(
@@ -516,13 +630,26 @@ fn discover_shape_children(
 }
 
 fn shape_children(shape: EncodeShape) -> List(EncodeShape) {
-  let EncodeNode(_, _, fields) = shape
-  list.map(fields, fn(field) { field.1 })
+  case shape {
+    EncodeNestedArray(child) -> [child]
+    EncodeNode(_, _, fields, extra_fields) -> {
+      let extra_fields = case extra_fields {
+        None -> []
+        Some(shape) -> [shape]
+      }
+      list.append(list.map(fields, fn(field) { field.1 }), extra_fields)
+    }
+  }
 }
 
 fn shape_identifiers(shape: EncodeShape) -> List(String) {
-  let EncodeNode(type_id, _, fields) = shape
-  [type_id, ..list.map(fields, fn(field) { field.0 })]
+  case shape {
+    EncodeNestedArray(_) -> []
+    EncodeNode(type_id, _, fields, _) -> [
+      type_id,
+      ..list.map(fields, fn(field) { field.0 })
+    ]
+  }
 }
 
 fn counted_identifiers(values: List(String)) -> List(String) {
@@ -541,38 +668,52 @@ fn encode_compressed_shape(
   shapes: List(EncodeShape),
   identifiers: List(String),
 ) -> JsonValue {
-  let EncodeNode(type_id, value, fields) = shape
-  let value_members = case value {
-    EncodePresentValue -> [#("value", VBool(True))]
-    EncodeAbsentValue -> [#("value", VBool(False))]
-    EncodeNullValue -> [#("value", VArray([VNull]))]
-    EncodeIdentifierValue -> [#("value", VNumber(NInt(0)))]
-  }
-  let field_members = case fields {
-    [] -> []
-    _ -> [
-      #(
-        "fields",
-        VArray(
-          list.map(fields, fn(field) {
-            VArray([
-              encode_identifier_token(field.0, identifiers),
-              VNumber(NInt(shape_index(shapes, field.1))),
-            ])
-          }),
-        ),
-      ),
-    ]
-  }
-  VObject([
-    #(
-      "c",
+  case shape {
+    EncodeNestedArray(child) ->
+      VObject([#("a", VNumber(NInt(shape_index(shapes, child))))])
+    EncodeNode(type_id, value, fields, extra_fields) -> {
+      let value_members = case value {
+        EncodePresentValue -> [#("value", VBool(True))]
+        EncodeAbsentValue -> [#("value", VBool(False))]
+        EncodeNullValue -> [#("value", VArray([VNull]))]
+        EncodeIdentifierValue -> [#("value", VNumber(NInt(0)))]
+      }
+      let field_members = case fields {
+        [] -> []
+        _ -> [
+          #(
+            "fields",
+            VArray(
+              list.map(fields, fn(field) {
+                VArray([
+                  encode_identifier_token(field.0, identifiers),
+                  VNumber(NInt(shape_index(shapes, field.1))),
+                ])
+              }),
+            ),
+          ),
+        ]
+      }
+      let extra_members = case extra_fields {
+        None -> []
+        Some(shape) -> [
+          #("extraFields", VNumber(NInt(shape_index(shapes, shape)))),
+        ]
+      }
       VObject([
-        #("type", encode_identifier_token(type_id, identifiers)),
-        ..list.append(value_members, field_members)
-      ]),
-    ),
-  ])
+        #(
+          "c",
+          VObject([
+            #("type", encode_identifier_token(type_id, identifiers)),
+            ..list.append(
+              value_members,
+              list.append(field_members, extra_members),
+            )
+          ]),
+        ),
+      ])
+    }
+  }
 }
 
 fn encode_identifier_token(
@@ -1257,14 +1398,8 @@ fn raw_node(
   fields: List(#(String, List(RawNode))),
   location: String,
 ) -> Result(RawNode, TreeError) {
-  case type_id == handle_leaf || type_id == identifier_node {
-    True ->
-      Error(
-        UnsupportedFeature(location, case type_id == handle_leaf {
-          True -> "handle leaves"
-          False -> "identifier nodes"
-        }),
-      )
+  case type_id == identifier_node {
+    True -> Error(UnsupportedFeature(location, "identifier nodes"))
     False -> Ok(RawNode(type_id, value, fields))
   }
 }
@@ -1322,8 +1457,38 @@ fn raw_value(
         _ -> Error(CorruptData(location, "null leaf has an invalid value"))
       }
     }
-    type_id if type_id == handle_leaf ->
-      Error(UnsupportedFeature(location, "handle leaves"))
+    type_id if type_id == handle_leaf -> {
+      use _ <- result.try(no_fields(fields, location))
+      use _ <- result.try(case stored {
+        None -> Ok(Nil)
+        Some(stored) ->
+          case schema.node_schema(stored, handle_leaf) {
+            Ok(schema.Leaf(schema.HandleLeaf)) -> Ok(Nil)
+            Ok(_) ->
+              Error(CorruptData(
+                location,
+                "handle leaf has the wrong stored schema kind",
+              ))
+            Error(_) ->
+              Error(CorruptData(
+                location,
+                "handle leaf is not declared by the stored schema",
+              ))
+          }
+      })
+      use marker <- result.try(case value {
+        Some(VObject(_) as marker) -> Ok(marker)
+        _ -> Error(CorruptData(location, "handle leaf has an invalid value"))
+      })
+      handle.reference_from_json(json_ot.to_json(marker), "")
+      |> result.map(HandleValue)
+      |> result.map_error(fn(error) {
+        CorruptData(location, case error {
+          handle.InvalidHandle(detail) | handle.UnsupportedHandle(detail) ->
+            detail
+        })
+      })
+    }
     type_id if type_id == identifier_node ->
       Error(UnsupportedFeature(location, "identifier nodes"))
     _ ->
@@ -1462,6 +1627,21 @@ fn encode_node(
         VArray([]),
       ])
     NullValue -> Ok([VNumber(NInt(3))])
+    HandleValue(reference) -> {
+      use marker <- result.try(
+        json_ot.parse_json(json.to_string(handle.reference_to_json(reference)))
+        |> result.map_error(fn(_) {
+          CorruptData(location, "handle leaf has an invalid value")
+        }),
+      )
+      Ok([
+        VNumber(NInt(0)),
+        VString(handle_leaf),
+        VBool(True),
+        marker,
+        VArray([]),
+      ])
+    }
     ObjectValue(type_id, fields) ->
       encode_structural_node(type_id, fields, location)
     MapValue(type_id, entries) ->
@@ -1642,9 +1822,11 @@ fn classify_value(
           Error(CorruptData(location, "leaf node uses an array shape"))
       }
     }
-    // ponytail: Match all variants. This catch-all also takes any new TreeValue
-    // variant without a compiler error. Name the remaining variants.
-    other -> Ok(other)
+    StringValue(_)
+    | NumberValue(_)
+    | BooleanValue(_)
+    | HandleValue(_)
+    | NullValue -> Ok(value)
   }
 }
 
@@ -1671,7 +1853,14 @@ fn validate_value_kind(
       Error(CorruptData(location, "object node uses a map schema"))
     MapValue(_, _), ObjectValue(_, _) ->
       Error(CorruptData(location, "map node uses an object schema"))
-    _, _ -> Ok(Nil)
+    StringValue(_), StringValue(_)
+    | NumberValue(_), NumberValue(_)
+    | BooleanValue(_), BooleanValue(_)
+    | HandleValue(_), HandleValue(_)
+    | NullValue, NullValue
+    -> Ok(Nil)
+    _, _ ->
+      Error(CorruptData(location, "value uses the wrong stored schema kind"))
   }
 }
 

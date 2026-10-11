@@ -10,6 +10,7 @@ import spillway/types as spillway_types
 import watershed/canonical_json
 import watershed/channel
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -2594,6 +2595,7 @@ fn visible_json(value: types.TreeValue) -> json.Json {
     types.NumberValue(value) -> json.float(value)
     types.BooleanValue(value) -> json.bool(value)
     types.NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     types.ObjectValue(_, fields) ->
       json.object(
         list.map(fields, fn(entry) { #(entry.0, visible_json(entry.1)) }),

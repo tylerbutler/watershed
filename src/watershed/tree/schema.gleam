@@ -18,8 +18,8 @@ import watershed/json_ot.{
 }
 import watershed/tree/types.{
   type FieldPath, type TreeError, type TreeValue, ArrayValue, BooleanValue,
-  CorruptData, InvalidEdit, InvalidSchema, MapValue, NullValue, NumberValue,
-  ObjectValue, StringValue, UnsupportedFormat,
+  CorruptData, HandleValue, InvalidEdit, InvalidSchema, MapValue, NullValue,
+  NumberValue, ObjectValue, StringValue, UnsupportedFormat,
 }
 
 pub type Cardinality {
@@ -37,6 +37,7 @@ pub type LeafKind {
   StringLeaf
   NumberLeaf
   BooleanLeaf
+  HandleLeaf
   NullLeaf
 }
 
@@ -214,6 +215,7 @@ fn value_identifier(value: TreeValue) -> String {
     StringValue(_) -> leaf_identifier(StringLeaf)
     NumberValue(_) -> leaf_identifier(NumberLeaf)
     BooleanValue(_) -> leaf_identifier(BooleanLeaf)
+    HandleValue(_) -> leaf_identifier(HandleLeaf)
     NullValue -> leaf_identifier(NullLeaf)
     ObjectValue(identifier, _) -> identifier
     MapValue(identifier, _) -> identifier
@@ -378,6 +380,7 @@ fn validate_node(
   case node, value {
     Leaf(StringLeaf), StringValue(_)
     | Leaf(BooleanLeaf), BooleanValue(_)
+    | Leaf(HandleLeaf), HandleValue(_)
     | Leaf(NullLeaf), NullValue
     -> Ok(Nil)
     Leaf(NumberLeaf), NumberValue(number) ->
@@ -711,9 +714,10 @@ fn field_allows_superset(
 
 fn public_leaf_kind(kind: ComparisonLeafKind) -> LeafKind {
   case kind {
-    ComparisonStringLeaf | ComparisonHandleLeaf -> StringLeaf
+    ComparisonStringLeaf -> StringLeaf
     ComparisonNumberLeaf -> NumberLeaf
     ComparisonBooleanLeaf -> BooleanLeaf
+    ComparisonHandleLeaf -> HandleLeaf
     ComparisonNullLeaf -> NullLeaf
   }
 }
@@ -749,7 +753,6 @@ fn repository_view_supported(repository: Repository) -> Bool {
 
 fn comparison_node_view_supported(node: ComparisonNode) -> Bool {
   case node {
-    ComparisonLeaf(ComparisonHandleLeaf) -> False
     ComparisonLeaf(_) -> True
     ComparisonObject(fields) ->
       list.all(fields, fn(field) {
@@ -815,7 +818,6 @@ fn comparison_node_types(node: ComparisonNode) -> List(ComparisonField) {
 
 fn comparison_node_supported(node: ComparisonNode) -> Bool {
   case node {
-    ComparisonLeaf(ComparisonHandleLeaf) -> False
     ComparisonLeaf(_) -> True
     ComparisonObject(fields) ->
       list.all(fields, fn(field) {
@@ -912,11 +914,9 @@ fn decode_comparison_field_kind(
 fn decode_comparison_leaf_kind(
   value: JsonValue,
   path: String,
-  allow_excluded: Bool,
+  _allow_excluded: Bool,
 ) -> Result(ComparisonLeafKind, TreeError) {
   case comparison_leaf_kind(value) {
-    Ok(ComparisonHandleLeaf) if !allow_excluded ->
-      Error(InvalidSchema(path <> ": unsupported leaf kind"))
     Ok(kind) -> Ok(kind)
     Error(Nil) ->
       case value {
@@ -931,10 +931,12 @@ fn leaf_identifier_matches(
   kind: ComparisonLeafKind,
 ) -> Bool {
   case kind {
-    ComparisonHandleLeaf -> True
-    // ponytail: Match all variants. This catch-all also takes any new leaf kind
-    // variant without a compiler error. Name the remaining variants.
-    _ -> identifier == leaf_identifier(public_leaf_kind(kind))
+    ComparisonStringLeaf
+    | ComparisonNumberLeaf
+    | ComparisonBooleanLeaf
+    | ComparisonHandleLeaf
+    | ComparisonNullLeaf ->
+      identifier == leaf_identifier(public_leaf_kind(kind))
   }
 }
 
@@ -1221,6 +1223,7 @@ fn leaf_identifier(kind: LeafKind) -> String {
     StringLeaf -> "com.fluidframework.leaf.string"
     NumberLeaf -> "com.fluidframework.leaf.number"
     BooleanLeaf -> "com.fluidframework.leaf.boolean"
+    HandleLeaf -> "com.fluidframework.leaf.handle"
     NullLeaf -> "com.fluidframework.leaf.null"
   }
 }

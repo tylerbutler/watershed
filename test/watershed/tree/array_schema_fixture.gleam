@@ -7,6 +7,7 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -414,6 +415,7 @@ fn value_json(value: types.TreeValue, root: Bool) -> Json {
     types.NumberValue(value) -> json.float(value)
     types.BooleanValue(value) -> json.bool(value)
     types.NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     types.ArrayValue(_, elements) -> json.array(elements, value_json(_, False))
     types.MapValue(_, entries) ->
       json.object([

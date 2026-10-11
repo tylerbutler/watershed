@@ -4,6 +4,7 @@ import gleam/option.{None, Some}
 import gleam/result
 import watershed/canonical_json
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{type JsonValue, VArray, VString}
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/fixtures
@@ -154,6 +155,7 @@ fn schema_value_to_json(value: types.TreeValue) -> Json {
     types.BooleanValue(value) -> json.bool(value)
     types.NumberValue(value) -> json.float(value)
     types.NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     types.ObjectValue(schema_id, fields) ->
       json.object([
         #("kind", json.string("object")),

@@ -121,6 +121,7 @@ fn materialize(
     types.StringValue(_)
     | types.NumberValue(_)
     | types.BooleanValue(_)
+    | types.HandleValue(_)
     | types.NullValue -> Ok(#(value, compressor))
   }
 }

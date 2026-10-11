@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{type JsonValue, NInt, VNumber, VObject, VString}
 import watershed/tree/array_change_fixture
 import watershed/tree/change_fixture_codec as fixture_codec
@@ -370,6 +371,7 @@ pub fn visible_value(value: types.TreeValue) -> Json {
       }
     types.BooleanValue(value) -> json.bool(value)
     types.NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     types.ArrayValue(_, elements) -> json.array(elements, visible_value)
     types.MapValue(_, entries) ->
       json.object([

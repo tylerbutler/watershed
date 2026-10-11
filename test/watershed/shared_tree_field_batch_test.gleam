@@ -1471,20 +1471,6 @@ pub fn shared_tree_codec_field_batch_refuses_excluded_content_test() {
           #(
             "c",
             json.object([
-              #("type", json.string("com.fluidframework.leaf.handle")),
-              #("value", json.bool(True)),
-            ]),
-          ),
-        ]),
-      ],
-      [stream([json.int(0), json.string("/handle")])],
-    ),
-    encoded_batch(
-      [
-        json.object([
-          #(
-            "c",
-            json.object([
               #("type", json.string("com.fluidframework.node.identifier")),
               #("value", json.int(0)),
             ]),

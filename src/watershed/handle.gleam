@@ -16,6 +16,84 @@ pub type HandleError {
   UnsupportedHandle(detail: String)
 }
 
+pub opaque type Reference {
+  Reference(path: String)
+}
+
+pub fn reference_from_path(path: String) -> Result(Reference, HandleError) {
+  use path <- result.try(validate_path(path, True))
+  case string.split(path, "/") {
+    ["", _, _] -> Ok(Reference(path))
+    _ -> Error(InvalidHandle("expected a datastore and channel path"))
+  }
+}
+
+pub fn reference_from_json(
+  value: Json,
+  context_path: String,
+) -> Result(Reference, HandleError) {
+  use path <- result.try(resolve_path(value, context_path))
+  reference_from_path(path)
+}
+
+pub fn reference_path(reference: Reference) -> String {
+  reference.path
+}
+
+pub fn reference_to_json(reference: Reference) -> Json {
+  json.object([
+    #("type", json.string(fluid_handle_type)),
+    #("url", json.string(reference.path)),
+  ])
+}
+
+pub fn bind_serialized_references(
+  value: Json,
+  context_path: String,
+) -> Result(Json, HandleError) {
+  use value <- result.try(
+    json.parse(json.to_string(value), json_ot.decoder())
+    |> result.map_error(fn(_) { InvalidHandle("invalid JSON value") }),
+  )
+  bind_serialized_value(value, context_path)
+  |> result.map(json_ot.to_json)
+}
+
+fn bind_serialized_value(
+  value: json_ot.JsonValue,
+  context_path: String,
+) -> Result(json_ot.JsonValue, HandleError) {
+  case value {
+    json_ot.VObject(entries) ->
+      case list.key_find(entries, "type") {
+        Ok(json_ot.VString(marker)) if marker == fluid_handle_type -> {
+          use reference <- result.try(reference_from_json(
+            json_ot.to_json(value),
+            context_path,
+          ))
+          json.parse(
+            json.to_string(reference_to_json(reference)),
+            json_ot.decoder(),
+          )
+          |> result.map_error(fn(_) { InvalidHandle("invalid handle marker") })
+        }
+        _ ->
+          list.try_map(entries, fn(entry) {
+            bind_serialized_value(entry.1, context_path)
+            |> result.map(fn(value) { #(entry.0, value) })
+          })
+          |> result.map(json_ot.VObject)
+      }
+    json_ot.VArray(values) ->
+      list.try_map(values, bind_serialized_value(_, context_path))
+      |> result.map(json_ot.VArray)
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_) -> Ok(value)
+  }
+}
+
 pub fn handle_url(address: String) -> String {
   "/" <> address
 }
@@ -91,6 +169,8 @@ pub fn resolve_path(
   })
   case string.starts_with(url, "/") {
     True -> validate_path(url, True)
+    False if context_path == "" ->
+      Error(InvalidHandle("relative handle requires source-channel context"))
     False -> {
       use context <- result.try(validate_path(context_path, True))
       use relative <- result.try(validate_path(url, False))

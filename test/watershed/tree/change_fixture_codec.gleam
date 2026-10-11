@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import watershed/canonical_json
 import watershed/fluid_ids.{type StableId}
+import watershed/handle
 import watershed/json_ot.{type JsonValue, VArray, VBool, VNull, VObject, VString}
 import watershed/tree/change
 import watershed/tree/fixtures
@@ -1058,6 +1059,15 @@ fn wire_tree(value: types.TreeValue) -> Result(Json, String) {
           json.string("com.fluidframework.leaf.null"),
           json.bool(True),
           json.null(),
+          array([]),
+        ]),
+      )
+    types.HandleValue(reference) ->
+      Ok(
+        array([
+          json.string("com.fluidframework.leaf.handle"),
+          json.bool(True),
+          handle.reference_to_json(reference),
           array([]),
         ]),
       )

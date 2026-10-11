@@ -36,7 +36,6 @@ pub fn shared_tree_schema_evolution_compatibility_test() -> Nil {
     "\"id\":\"optional-to-required\",\"classification\":\"upstream-refusal\",\"compatibility\":{\"canView\":false,\"canUpgrade\":false,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
     "\"id\":\"node-kind-replacement\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
     "\"id\":\"sequence\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
-    "\"id\":\"handle\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
     "\"id\":\"metadata\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":true,\"canUpgrade\":true,\"isEquivalent\":true}",
     "\"id\":\"duplicate-keys\",\"parsed\":false,\"classification\":\"stored-decode-refusal\",\"error\":",
     "\"id\":\"ordering\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":true,\"canUpgrade\":true,\"isEquivalent\":true}",

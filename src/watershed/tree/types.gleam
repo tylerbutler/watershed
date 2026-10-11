@@ -5,6 +5,7 @@
 // watershed/tree.
 import gleam/option.{type Option}
 import watershed/fluid_ids.{type StableId}
+import watershed/handle
 
 pub type AtomId {
   AtomId(revision: Option(StableId), local_id: Int)
@@ -18,6 +19,7 @@ pub type TreeValue {
   NumberValue(Float)
   BooleanValue(Bool)
   NullValue
+  HandleValue(handle.Reference)
   ObjectValue(schema_id: String, fields: List(#(String, TreeValue)))
   MapValue(schema_id: String, entries: List(#(String, TreeValue)))
   ArrayValue(schema_id: String, elements: List(TreeValue))

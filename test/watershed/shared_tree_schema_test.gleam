@@ -455,20 +455,9 @@ pub fn shared_tree_schema_classifies_excluded_profile_expansions_test() -> Nil {
       "\"types\":[\"Root\"]}}",
       "\"types\":[\"Root\",\"Sequence\"]}}",
     )
-  let handle =
-    object_schema
-    |> string.replace(
-      "\"nodes\":{",
-      "\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},",
-    )
-    |> string.replace(
-      "\"types\":[\"Root\"]}}",
-      "\"types\":[\"Root\",\"com.fluidframework.leaf.handle\"]}}",
-    )
   let assert Ok(stored) = schema.stored_from_string(object_schema)
   schema.stored_from_string(sequence) |> expect.to_be_ok
-  schema.stored_from_string(handle) |> expect.to_be_error
-  [sequence, handle]
+  [sequence]
   |> list.each(fn(raw) {
     let assert Ok(view) = schema.view_from_string(raw)
     schema.compatibility(stored, view)
@@ -498,15 +487,17 @@ pub fn shared_tree_schema_preserves_excluded_comparison_semantics_test() -> Nil 
       "\"note\":{\"kind\":\"Optional\"",
       "\"note\":{\"kind\":\"Sequence\"",
     )
-  let handle = string.replace(object_schema, "\"leaf\":1", "\"leaf\":3")
+  let mismatched_handle =
+    string.replace(object_schema, "\"leaf\":1", "\"leaf\":3")
   let assert Ok(stored) = schema.stored_from_string(object_schema)
 
-  [identifier, handle]
-  |> list.each(fn(raw) {
-    let assert Ok(view) = schema.view_from_string(raw)
-    schema.compatibility(stored, view)
-    |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
-  })
+  let assert Ok(identifier_view) = schema.view_from_string(identifier)
+  schema.compatibility(stored, identifier_view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+  let assert Error(types.InvalidSchema(detail)) =
+    schema.view_from_string(mismatched_handle)
+  string.contains(detail, "leaf identifier does not match its kind")
+  |> expect.to_be_true
 
   let assert Ok(forbidden_view) = schema.view_from_string(forbidden)
   schema.compatibility(stored, forbidden_view)

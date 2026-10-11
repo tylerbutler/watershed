@@ -10,6 +10,7 @@ import gleam/result
 import gleam/set
 import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -1036,6 +1037,11 @@ fn canonical_tree_value(value: types.TreeValue) -> JsonValue {
     types.BooleanValue(value) ->
       VObject([#("type", VString("boolean")), #("value", VBool(value))])
     types.NullValue -> VObject([#("type", VString("null")), #("value", VNull)])
+    types.HandleValue(reference) -> {
+      let assert Ok(marker) =
+        json_ot.parse_json(json.to_string(handle.reference_to_json(reference)))
+      VObject([#("type", VString("handle")), #("value", marker)])
+    }
     ObjectValue(identifier, fields) ->
       VObject([
         #("type", VString(identifier)),
@@ -3418,6 +3424,13 @@ fn history_tree_value_json(value: types.TreeValue) -> Result(Json, String) {
         json.object([
           #("type", json.string("com.fluidframework.leaf.null")),
           #("value", json.null()),
+        ]),
+      )
+    types.HandleValue(reference) ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.handle")),
+          #("value", handle.reference_to_json(reference)),
         ]),
       )
     types.ObjectValue(identifier, fields) -> {

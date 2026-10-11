@@ -8,6 +8,7 @@ import gleam/result
 import gleam/string
 import watershed/canonical_json
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNull, VNumber, VObject, VString,
 }
@@ -1936,6 +1937,7 @@ fn callback_visible_value(value: types.TreeValue) -> Result(Json, String) {
       })
     types.BooleanValue(value) -> Ok(json.bool(value))
     types.NullValue -> Ok(json.null())
+    types.HandleValue(reference) -> Ok(handle.reference_to_json(reference))
     types.ArrayValue(_, values) ->
       list.try_map(values, callback_visible_value)
       |> result.map(fixture_codec.array)

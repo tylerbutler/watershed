@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import watershed/canonical_json
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -1036,6 +1037,13 @@ fn content_json(value: TreeValue) -> Result(Json, String) {
         json.object([
           #("type", json.string("com.fluidframework.leaf.null")),
           #("value", json.null()),
+        ]),
+      )
+    types.HandleValue(reference) ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.handle")),
+          #("value", handle.reference_to_json(reference)),
         ]),
       )
     ObjectValue(identifier, fields) -> {

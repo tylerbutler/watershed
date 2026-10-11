@@ -8,11 +8,12 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/canonical_json
+import watershed/handle
 import watershed/runtime_core
 import watershed/tree/schema
 import watershed/tree/types.{
-  type FieldPath, type TreeValue, ArrayValue, BooleanValue, MapValue, NullValue,
-  NumberValue, ObjectValue, StringValue,
+  type FieldPath, type TreeValue, ArrayValue, BooleanValue, HandleValue,
+  MapValue, NullValue, NumberValue, ObjectValue, StringValue,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -665,6 +666,20 @@ fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
     "boolean" ->
       required(value, "value", decode.bool) |> result.map(BooleanValue)
     "null" -> Ok(NullValue)
+    "handle" ->
+      required(value, "value", {
+        use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
+        use marker_type <- decode.field("type", decode.string)
+        use url <- decode.field("url", decode.string)
+        case dict.size(fields) == 2 && marker_type == handle.fluid_handle_type {
+          False -> decode.failure(NullValue, "valid handle marker")
+          True ->
+            case handle.reference_from_path(url) {
+              Ok(reference) -> decode.success(HandleValue(reference))
+              Error(_) -> decode.failure(NullValue, "valid handle marker")
+            }
+        }
+      })
     "object" -> {
       use schema_id <- result.try(required(value, "schemaId", decode.string))
       use _ <- result.try(case string.is_empty(schema_id) {
@@ -792,6 +807,11 @@ pub fn encode_value(value: TreeValue) -> Json {
         #("value", json.bool(value)),
       ])
     NullValue -> json.object([#("kind", json.string("null"))])
+    HandleValue(reference) ->
+      json.object([
+        #("kind", json.string("handle")),
+        #("value", handle.reference_to_json(reference)),
+      ])
     ObjectValue(schema_id, fields) ->
       json.object([
         #("kind", json.string("object")),

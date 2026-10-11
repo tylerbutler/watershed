@@ -636,9 +636,10 @@ fn validate_retained(
           location <> "[" <> int.to_string(element.1) <> "]",
         )
       })
-    // ponytail: Match all variants. This catch-all also takes any new TreeValue
-    // variant without a compiler error. Name the remaining variants.
-    _ -> Ok(Nil)
+    types.StringValue(_)
+    | types.BooleanValue(_)
+    | types.HandleValue(_)
+    | types.NullValue -> Ok(Nil)
   }
 }
 
@@ -1798,10 +1799,11 @@ fn allocate(
           )
           Ok(#(state, Array(schema_id, list.reverse(elements))))
         }
-        // ponytail: Match all variants. This catch-all also takes any new
-        // TreeValue variant without a compiler error. Name the remaining
-        // variants.
-        _ -> Ok(#(state, Leaf(value)))
+        types.StringValue(_)
+        | NumberValue(_)
+        | types.BooleanValue(_)
+        | types.HandleValue(_)
+        | types.NullValue -> Ok(#(state, Leaf(value)))
       })
       Ok(#(Forest(..state, nodes: dict.insert(state.nodes, id, node)), id))
     }

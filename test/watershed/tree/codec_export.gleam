@@ -12,6 +12,7 @@ import gleam/string
 import simplifile
 import watershed/channel
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNumber, VObject, VString,
 }
@@ -208,6 +209,7 @@ fn continuation_visible_json(value: types.TreeValue) -> Json {
       }
     types.BooleanValue(value) -> json.bool(value)
     types.NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     types.ArrayValue(_, elements) ->
       json.array(elements, continuation_visible_json)
     types.MapValue(_, entries) ->

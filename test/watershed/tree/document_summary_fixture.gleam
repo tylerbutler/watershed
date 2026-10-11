@@ -7,6 +7,7 @@ import gleam/string
 import spillway/types as spillway_types
 import watershed/channel
 import watershed/fluid_ids
+import watershed/handle
 import watershed/runtime_core
 import watershed/tree/runtime_fixture
 import watershed/tree/types.{
@@ -188,6 +189,7 @@ fn value_json(value: TreeValue) -> Json {
     NumberValue(value) -> json.float(value)
     BooleanValue(value) -> json.bool(value)
     NullValue -> json.null()
+    types.HandleValue(reference) -> handle.reference_to_json(reference)
     ObjectValue(_, fields) ->
       json.object(
         list.map(fields, fn(entry) { #(entry.0, value_json(entry.1)) }),

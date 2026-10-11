@@ -11,6 +11,7 @@ import gleam/set
 import gleam/string
 import simplifile
 import watershed/canonical_json
+import watershed/handle
 import watershed/json_ot.{
   type JsonValue, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -206,6 +207,30 @@ pub fn tree_value_decoder() -> Decoder(types.TreeValue) {
         types.NullValue,
         decode.success(types.NullValue),
       )
+    "handle" ->
+      exact_decoder(fields, ["kind", "value"], types.NullValue, {
+        use value <- decode.field("value", {
+          use marker_fields <- decode.then(decode.dict(
+            decode.string,
+            decode.dynamic,
+          ))
+          use marker_type <- decode.field("type", decode.string)
+          use url <- decode.field("url", decode.string)
+          case
+            dict.size(marker_fields) == 2
+            && marker_type == handle.fluid_handle_type
+          {
+            False -> decode.failure(types.NullValue, "valid handle marker")
+            True ->
+              case handle.reference_from_path(url) {
+                Ok(reference) -> decode.success(types.HandleValue(reference))
+                Error(_) ->
+                  decode.failure(types.NullValue, "valid handle marker")
+              }
+          }
+        })
+        decode.success(value)
+      })
     "object" ->
       exact_decoder(fields, ["kind", "type", "fields"], types.NullValue, {
         use identifier <- decode.field("type", decode.string)
@@ -296,6 +321,11 @@ pub fn tree_value_to_json(value: types.TreeValue) -> Json {
         #("value", json.bool(value)),
       ])
     types.NullValue -> json.object([#("kind", json.string("null"))])
+    types.HandleValue(reference) ->
+      json.object([
+        #("kind", json.string("handle")),
+        #("value", handle.reference_to_json(reference)),
+      ])
     types.ObjectValue(identifier, fields) ->
       json.object([
         #("kind", json.string("object")),

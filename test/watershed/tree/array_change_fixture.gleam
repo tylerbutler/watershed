@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/json_ot.{type JsonValue, VNull, VObject}
 import watershed/tree/change
 import watershed/tree/change_fixture_codec as codec
@@ -628,6 +629,11 @@ pub fn source_tree_json(value: types.TreeValue) -> Json {
       ])
     types.NullValue ->
       json.object([#("type", json.string("com.fluidframework.leaf.null"))])
+    types.HandleValue(reference) ->
+      json.object([
+        #("type", json.string("com.fluidframework.leaf.handle")),
+        #("value", handle.reference_to_json(reference)),
+      ])
     types.ObjectValue(identifier, fields)
     | types.MapValue(identifier, fields) ->
       json.object([
