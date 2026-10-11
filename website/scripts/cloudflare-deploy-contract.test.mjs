@@ -1,46 +1,27 @@
-// ──────────────────────────────────────────────────────────────────────────
-// Netlify deploy contract — dependency-free, offline checks that the deploy
-// configuration can actually run the source-snippet prebuild.
-//
-// The deploy needs exactly two runtimes: Node, which Netlify's build image
-// guarantees, and the Gleam compiler, which it does not ship and which
-// netlify-build.sh installs. Nothing here needs the BEAM. That is the whole
-// point of the JavaScript target: Netlify's image documents Erlang/OTP 22.2,
-// gleam_json 3.1 needs OTP 27, and installing a second runtime to generate a
-// JSON file for an Astro build would be the tail wagging the dog.
-//
-// The chain from netlify.toml to the generated manifest is four files long
-// and every link is silent when it breaks. These tests pin the links that are
-// checkable without a deploy:
-//
-//   1. netlify.toml points the build at website/ and at our own build script
-//   2. the build script exists, is executable, and installs Gleam when absent
-//   3. the generator defaults to the JavaScript target and compiles there
-//   4. every canonical generator command runs on that default
-//   5. the prebuild generates the manifest before Astro reads it
-//   6. nothing in the deploy path asks for Erlang
-//   7. netlify.toml declares no build plugin this repository has not installed
-//
-// (7) is the one with teeth: a `[[plugins]]` entry naming a package that is
-// neither vendored in-tree nor a declared dependency fails plugin resolution
-// before the build command ever runs, and Netlify's log for that is easy to
-// misread as a build failure.
-//
-// Run: node scripts/netlify-deploy-contract.test.mjs
-// ──────────────────────────────────────────────────────────────────────────
+// Offline deployment checks. Gleam compiles the runtime, samples, and snippet
+// generator to JavaScript before Astro builds the assets served by Workers.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync, accessSync, constants } from "node:fs";
-import { resolve, dirname } from "node:path";
+import {
+  readFileSync,
+  existsSync,
+  accessSync,
+  constants,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(__dirname, "..");
 const repoRoot = resolve(websiteRoot, "..");
 
-const buildScriptPath = resolve(websiteRoot, "scripts", "netlify-build.sh");
-const buildScript = readFileSync(buildScriptPath, "utf8");
-const netlifyToml = readFileSync(resolve(repoRoot, "netlify.toml"), "utf8");
+const buildScriptPath = resolve(websiteRoot, "scripts", "cloudflare-build.sh");
 const justfile = readFileSync(resolve(repoRoot, "justfile"), "utf8");
 const testFiles = readFileSync(
   resolve(websiteRoot, "scripts", "test-files.mjs"),
@@ -58,47 +39,56 @@ const generatorReadme = readFileSync(
   "utf8",
 );
 
-// ── Minimal TOML reader ────────────────────────────────────────────────────
-// Enough of TOML for this file's shape: `[table]` headers, `[[array]]`
-// headers, and `key = "string"` pairs. A real parser would be a dependency,
-// and netlify.toml is ours to keep simple.
-function parseToml(source) {
-  const tables = new Map();
-  const arrays = new Map();
-  let current = {};
-  tables.set("", current);
-
-  for (const rawLine of source.split("\n")) {
-    const line = rawLine.replace(/(^|\s)#.*$/, "").trim();
-    if (!line) continue;
-
-    const arrayHeader = line.match(/^\[\[([^\]]+)\]\]$/);
-    if (arrayHeader) {
-      const name = arrayHeader[1].trim();
-      current = {};
-      if (!arrays.has(name)) arrays.set(name, []);
-      arrays.get(name).push(current);
-      continue;
-    }
-
-    const tableHeader = line.match(/^\[([^\]]+)\]$/);
-    if (tableHeader) {
-      const name = tableHeader[1].trim();
-      current = {};
-      tables.set(name, current);
-      continue;
-    }
-
-    const pair = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"$/);
-    if (pair) current[pair[1]] = pair[2];
-  }
-
-  return { tables, arrays };
+function readWebsiteFile(path) {
+  const absolute = resolve(websiteRoot, path);
+  assert.ok(existsSync(absolute), `deployment file is missing: ${path}`);
+  return readFileSync(absolute, "utf8");
 }
 
-const toml = parseToml(netlifyToml);
-const buildTable = toml.tables.get("build") ?? {};
-const plugins = toml.arrays.get("plugins") ?? [];
+function runBuild(
+  t,
+  { installed = true, downloadFails = false, buildFails = false } = {},
+) {
+  assert.ok(existsSync(buildScriptPath), "Cloudflare build script is missing");
+  const root = mkdtempSync(join(tmpdir(), "watershed-cloudflare-build-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const log = join(root, "commands.log");
+  const command = (name, source) => {
+    writeFileSync(join(bin, name), `#!/bin/bash\nset -eu\n${source}\n`, {
+      mode: 0o755,
+    });
+  };
+  const gleam = 'printf "gleam %s\\n" "$*" >> "$COMMAND_LOG"';
+  command(
+    "pnpm",
+    `printf "pnpm %s\\n" "$*" >> "$COMMAND_LOG"\nexit ${buildFails ? 7 : 0}`,
+  );
+  if (installed) command("gleam", gleam);
+  command("mkdir", '/bin/mkdir "$@"');
+  command(
+    "curl",
+    `printf "curl %s\\n" "$*" >> "$COMMAND_LOG"\nexit ${downloadFails ? 22 : 0}`,
+  );
+  command(
+    "tar",
+    `while [ "$1" != "-C" ]; do shift; done\nshift\nprintf '%s\\n' '#!/bin/bash' '${gleam}' > "$1/gleam"\n/bin/chmod +x "$1/gleam"`,
+  );
+
+  const result = spawnSync("/bin/bash", [buildScriptPath], {
+    cwd: websiteRoot,
+    encoding: "utf8",
+    env: {
+      HOME: root,
+      PATH: bin,
+      COMMAND_LOG: log,
+      GLEAM_VERSION: "1.18.1",
+    },
+  });
+  assert.ifError(result.error);
+  return { ...result, commands: readFileSync(log, "utf8") };
+}
 
 // ── The canonical ways to run the generator ────────────────────────────────
 // Three files spell out the same command, and a target flag added to one of
@@ -137,7 +127,7 @@ const canonicalCommands = [
   },
 ];
 
-describe("Netlify deploy contract", () => {
+describe("Cloudflare deploy contract", () => {
   it("defines the website integration gates", () => {
     assert.equal(
       websitePackage.scripts?.["test:unit"],
@@ -160,62 +150,47 @@ describe("Netlify deploy contract", () => {
     assert.match(justfile, /pnpm test:integration:browser/);
   });
 
-  // ── netlify.toml ────────────────────────────────────────────────────────
-
-  it("builds from website/ and publishes website/dist", () => {
-    assert.equal(
-      buildTable.base,
-      "website",
-      "netlify.toml [build].base must be website/, the package that owns the site",
-    );
-    assert.equal(
-      buildTable.publish,
-      "dist",
-      "netlify.toml [build].publish is relative to base and must be dist/, Astro's output",
-    );
+  it("serves Astro output as static assets without an SSR entry point", () => {
+    const config = JSON.parse(readWebsiteFile("wrangler.json"));
+    assert.equal(config.name, "watershed-website");
+    assert.equal(config.workers_dev, true);
+    assert.equal(config.main, undefined);
+    assert.deepEqual(config.previews, {});
+    assert.deepEqual(config.assets, {
+      directory: "./dist",
+      html_handling: "drop-trailing-slash",
+      not_found_handling: "404-page",
+    });
+    assert.match(config.compatibility_date, /^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("runs the repository's own build script as the build command", () => {
+  it("exposes build, deploy, preview deployment, and local Workers commands", () => {
     assert.equal(
-      buildTable.command,
-      "./scripts/netlify-build.sh",
-      "netlify.toml [build].command must be the checked-in script, resolved against base",
+      websitePackage.scripts["build:cloudflare"],
+      "./scripts/cloudflare-build.sh",
     );
-    assert.ok(
-      existsSync(buildScriptPath),
-      `the build command must exist on disk: ${buildScriptPath}`,
-    );
+    assert.equal(websitePackage.scripts.deploy, "wrangler deploy");
+    assert.equal(websitePackage.scripts["deploy:preview"], "wrangler preview");
+    assert.equal(websitePackage.scripts["preview:worker"], "wrangler dev");
+    assert.ok(websitePackage.devDependencies.wrangler);
+    assert.equal(readWebsiteFile(".node-version").trim(), "24");
     assert.doesNotThrow(
       () => accessSync(buildScriptPath, constants.X_OK),
-      "the build command must be executable; Netlify runs it directly",
+      "Cloudflare must be able to execute the build command",
     );
   });
 
-  it("declares no build plugin the repository has not installed", () => {
-    const declared = new Set([
-      ...Object.keys(websitePackage.dependencies ?? {}),
-      ...Object.keys(websitePackage.devDependencies ?? {}),
+  it("redirects the four retired guide URLs at the asset boundary", () => {
+    const redirects = readWebsiteFile("public/_redirects")
+      .trim()
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/));
+    assert.deepEqual(redirects, [
+      ["/guide/schema", "/guide/notes", "301"],
+      ["/guide/structures", "/guide/notes", "301"],
+      ["/guide/ripples", "/guide/presence", "301"],
+      ["/guide/ui", "/guide/connect", "301"],
     ]);
-
-    for (const plugin of plugins) {
-      const pkg = plugin.package;
-      assert.ok(pkg, `every [[plugins]] entry must name a package: ${JSON.stringify(plugin)}`);
-
-      if (pkg.startsWith(".") || pkg.startsWith("/")) {
-        assert.ok(
-          existsSync(resolve(repoRoot, pkg)),
-          `local plugin "${pkg}" does not exist; Netlify resolves plugins before the build command runs`,
-        );
-        continue;
-      }
-
-      assert.ok(
-        declared.has(pkg),
-        `plugin "${pkg}" is not a dependency of website/package.json. Netlify installs registry ` +
-          `plugins during plugin resolution, which happens before the build command; an unresolvable ` +
-          `name fails the deploy with no build output at all.`,
-      );
-    }
   });
 
   // ── The generator's target ─────────────────────────────────────────────
@@ -224,8 +199,7 @@ describe("Netlify deploy contract", () => {
     assert.match(
       generatorToml,
       /^\s*target\s*=\s*"javascript"\s*$/m,
-      "tools/source-snippets/gleam.toml must set target = \"javascript\". Netlify guarantees Node and " +
-        "documents Erlang/OTP 22.2; gleam_json 3.1 needs OTP 27, so the BEAM is not an option here.",
+      "tools/source-snippets/gleam.toml must set target = \"javascript\"; deployment needs only Node and Gleam.",
     );
   });
 
@@ -356,31 +330,41 @@ describe("Netlify deploy contract", () => {
 
   // ── No BEAM anywhere in the deploy path ────────────────────────────────
 
-  it("the build script installs Gleam and checks nothing else", () => {
-    assert.match(
-      buildScript,
-      /command -v gleam/,
-      "netlify-build.sh must probe PATH for gleam rather than assume a fixed install path",
-    );
-    assert.match(
-      buildScript,
-      /releases\/download\/v\$\{GLEAM_VERSION\}/,
-      "netlify-build.sh must install the pinned Gleam release when the image does not carry one",
-    );
+  it("uses an installed Gleam compiler before the normal website build", (t) => {
+    const result = runBuild(t);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.commands, "gleam --version\npnpm build\n");
+  });
 
-    const invocation = buildScript.match(/^pnpm build\b.*$/m);
-    assert.ok(invocation, "netlify-build.sh must run pnpm build");
-    assert.ok(
-      buildScript.indexOf("command -v gleam") < invocation.index,
-      "the Gleam install must come before pnpm build, not after it",
+  it("installs Gleam when the build image does not provide it", (t) => {
+    const result = runBuild(t, { installed: false });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.commands,
+      /releases\/download\/v1\.18\.1\/gleam-v1\.18\.1-x86_64-unknown-linux-musl\.tar\.gz/,
     );
+    assert.match(result.commands, /gleam --version\npnpm build\n$/);
+  });
+
+  it("stops before Astro when the compiler download fails", (t) => {
+    const result = runBuild(t, { installed: false, downloadFails: true });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.commands, /pnpm build/);
+  });
+
+  it("propagates a failed website build", (t) => {
+    const result = runBuild(t, { buildFails: true });
+    assert.equal(result.status, 7);
   });
 
   it("nothing in the deploy path asks for Erlang", () => {
     const beam = /escript|erlc|esl-erlang|rebar3|\bOTP\b|\bBEAM\b/;
     for (const [name, source] of [
-      ["website/scripts/netlify-build.sh", buildScript],
-      ["netlify.toml", netlifyToml],
+      [
+        "website/scripts/cloudflare-build.sh",
+        readWebsiteFile("scripts/cloudflare-build.sh"),
+      ],
+      ["website/wrangler.json", readWebsiteFile("wrangler.json")],
     ]) {
       assert.doesNotMatch(
         source,
@@ -395,8 +379,7 @@ describe("Netlify deploy contract", () => {
   it("no Aptfile implies an install step that nothing performs", () => {
     assert.ok(
       !existsSync(resolve(websiteRoot, "Aptfile")),
-      "website/Aptfile is inert: Netlify's build image reads no Aptfile and no plugin is configured to. " +
-        "An Aptfile here would read as a working install step and hide a real missing dependency.",
+      "website/Aptfile is not consumed by the build; compiler installation belongs in cloudflare-build.sh.",
     );
   });
 });

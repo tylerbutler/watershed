@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# Netlify build script: installs the Gleam compiler, which is the one thing
-# the build image does not already have, then runs the normal site build.
-#
-# `pnpm build` triggers the `prebuild` hook, which:
-#   1. Compiles the Gleam kernel to JavaScript for the live demo.
-#   2. Generates the source-snippet manifest (`pnpm generate:snippets`) by
-#      running tools/source-snippets, a JavaScript-target Gleam CLI. It
-#      compiles to plain ES modules and runs on the Node the image supplies,
-#      so this deploy needs no second language runtime.
+# Workers Builds supplies Node, but not Gleam. Install the compiler before
+# pnpm's prebuild compiles the runtime, samples, and snippet generator.
 set -euo pipefail
 
-GLEAM_VERSION="${GLEAM_VERSION:-1.16.0}"
+GLEAM_VERSION="${GLEAM_VERSION:-1.18.1}"
 
 if ! command -v gleam >/dev/null 2>&1; then
   echo "Installing gleam v${GLEAM_VERSION}..."

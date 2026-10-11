@@ -1,6 +1,6 @@
 export const nodeTestFiles = [
   "scripts/browser-workflow-contract.test.mjs",
-  "scripts/netlify-deploy-contract.test.mjs",
+  "scripts/cloudflare-deploy-contract.test.mjs",
   "scripts/run-browser-tests.test.mjs",
   "scripts/snippet-config.test.mjs",
   "scripts/test-files.test.mjs",

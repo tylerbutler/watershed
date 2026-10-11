@@ -18,6 +18,9 @@ Fluid-compatible sequencing service — [floodgate](https://floodgate.tylerbutle
 **[Data structures](https://watershed.tylerbutler.com/structures)** ·
 **[Live demos](https://watershed.tylerbutler.com)**
 
+For website builds and Cloudflare Workers deployment, see
+[`website/README.md`](website/README.md).
+
 ## Install
 
 watershed is not on Hex yet. Add it to your `gleam.toml` as a git dependency,

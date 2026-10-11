@@ -11,6 +11,10 @@
     "dev": "astro dev",
     "prebuild": "pnpm check:types && pnpm test:unit",
     "build": "astro build",
+    "build:cloudflare": "./scripts/cloudflare-build.sh",
+    "deploy": "wrangler deploy",
+    "deploy:preview": "wrangler preview",
+    "preview:worker": "wrangler dev",
     "preview": "astro preview",
     "check:types": "pnpm build:gleam && pnpm build:samples && pnpm generate:snippets && astro sync && tsc --noEmit",
     "og:image": "node scripts/og-image.mjs",
@@ -34,7 +38,7 @@
     "test:drift-gates": "node --strip-types --test src/data/drift-gates.test.ts",
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",
     "test:global-styles": "node --test src/styles/global.test.mjs",
-    "test:netlify-contract": "node scripts/netlify-deploy-contract.test.mjs",
+    "test:cloudflare-contract": "node scripts/cloudflare-deploy-contract.test.mjs",
     "test:snippet-config": "node scripts/snippet-config.test.mjs"
   },
   "dependencies": {
@@ -49,6 +53,7 @@
   "devDependencies": {
     "@types/node": "^24.13.3",
     "puppeteer-core": "^25.3.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "^4.149.0"
   }
 }
