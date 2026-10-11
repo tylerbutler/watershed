@@ -1006,7 +1006,7 @@ pub fn ordered_acquire_with_outcome(
             immediate_outcome,
           )
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(runtime.cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -1770,7 +1770,7 @@ pub fn task_manager_volunteer(
             State(..state, phase: Ready(core, resubmit_at)),
           )
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(runtime.cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -1835,7 +1835,7 @@ pub fn task_manager_complete(
             State(..state, phase: Ready(core, resubmit_at)),
           )
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(runtime.cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -2055,7 +2055,7 @@ fn claim_submit(
             immediate_outcome,
           )
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(cell, outbound)
             Some(_) -> Nil
           }
           Pending(promise_outcome)
@@ -2890,7 +2890,7 @@ pub fn commit_tree_transaction_on(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           prime_scoped_tree_commit_deliveries(cell, events)
-          send_outbound(state.channel, core.client_id, outbound)
+          queue_outbound(cell, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
               fan_out_scoped(
@@ -3024,7 +3024,7 @@ pub fn tree_upgrade_schema_on(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           prime_scoped_tree_commit_deliveries(cell, events)
-          send_outbound(state.channel, core.client_id, outbound)
+          queue_outbound(cell, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
               fan_out_scoped(
@@ -3280,7 +3280,7 @@ pub fn tree_revert(
       })
       cell_set(cell, State(..state, phase: Ready(core, None)))
       prime_scoped_tree_commit_deliveries(cell, events)
-      send_outbound(state.channel, core.client_id, outbound)
+      queue_outbound(cell, outbound)
       case cell_get(cell).phase {
         Ready(_, _) | Reconnecting(_) -> {
           fan_out_scoped(
@@ -3421,7 +3421,10 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
       let phase = Reconnecting(core)
-      cell_set(runtime.cell, State(..state, phase: phase))
+      cell_set(
+        runtime.cell,
+        State(..discard_pending_outbound(state), phase: phase),
+      )
       notify_session_lost(runtime.cell, state.phase)
       channel.drop()
     }
@@ -3454,7 +3457,10 @@ pub fn go_offline(runtime: Runtime) -> Nil {
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
       let phase = Reconnecting(core)
-      cell_set(runtime.cell, State(..state, phase: phase))
+      cell_set(
+        runtime.cell,
+        State(..discard_pending_outbound(state), phase: phase),
+      )
       notify_session_lost(runtime.cell, state.phase)
       channel.hold()
     }
@@ -4029,7 +4035,7 @@ fn on_join(cell: Cell(State)) -> Nil {
         Ready(core, _) -> {
           // Rejoin without an intervening close event; treat as reconnect.
           let phase = Reconnecting(core)
-          cell_set(cell, State(..state, phase: phase))
+          cell_set(cell, State(..discard_pending_outbound(state), phase: phase))
           notify_session_lost(cell, state.phase)
           let current = cell_get(cell)
           use <- bool.guard(
@@ -4055,7 +4061,14 @@ fn on_close(cell: Cell(State)) -> Nil {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
     Ready(core, _) | Reconnecting(core) -> {
       let phase = Reconnecting(core)
-      cell_set(cell, State(..state, phase: phase, pending_summary: None))
+      cell_set(
+        cell,
+        State(
+          ..discard_pending_outbound(state),
+          phase: phase,
+          pending_summary: None,
+        ),
+      )
       abort_pending_summary(state)
       notify_session_lost(cell, state.phase)
     }
@@ -4441,6 +4454,7 @@ fn on_connect_error(cell: Cell(State), payload: String) -> Nil {
 
 @target(javascript)
 fn on_operation(cell: Cell(State), payload: String) -> Nil {
+  flush_outbound(cell)
   let state = cell_get(cell)
   case state.bootstrap {
     Some(bootstrap) -> buffer_bootstrap(cell, state, bootstrap, payload)
@@ -4506,7 +4520,7 @@ fn apply_received_operations(
             // well puts two copies of each on the wire; the server
             // sequences both and the stale ack fails the FIFO match.
             Some(_) -> Nil
-            None -> send_outbound(state.channel, core.client_id, released)
+            None -> queue_outbound(cell, released)
           }
           case resubmit_at {
             Some(_) -> Nil
@@ -4541,7 +4555,10 @@ fn on_nack(cell: Cell(State), payload: String) -> Nil {
           case state.phase, state.channel {
             Ready(core, _), Some(channel) -> {
               let phase = Reconnecting(core)
-              cell_set(cell, State(..state, phase: phase))
+              cell_set(
+                cell,
+                State(..discard_pending_outbound(state), phase: phase),
+              )
               notify_session_lost(cell, state.phase)
               channel.drop()
             }
@@ -4573,7 +4590,7 @@ fn settle_reconnect(
       case runtime_core.resubmit(runtime_core.go_live(core)) {
         Ok(#(core, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
-          send_outbound(state.channel, core.client_id, outbound)
+          queue_outbound(cell, outbound)
         }
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
@@ -4935,7 +4952,7 @@ fn edit_sequence_with_result(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -4993,7 +5010,7 @@ fn edit_text_with_result(
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
           case resubmit_at {
-            None -> send_outbound(state.channel, core.client_id, outbound)
+            None -> queue_outbound(cell, outbound)
             Some(_) -> Nil
           }
           fan_out(
@@ -5091,27 +5108,45 @@ fn queue_outbound(
   case state.phase, outbound {
     _, [] -> Nil
     Ready(core, None), _ -> {
-      let defer =
+      case
         state.pending_outbound != []
-        || runtime_core.outbound_has_attachment(outbound)
-        |> result.unwrap(False)
-      case defer {
-        False -> send_outbound(state.channel, core.client_id, outbound)
+        && !runtime_core.outbound_contexts_compatible(
+          state.pending_outbound,
+          outbound,
+        )
+      {
         True -> {
-          let arm = !state.outbound_flush_armed
-          cell_set(
-            cell,
-            State(
-              ..state,
-              pending_outbound: list.append(state.pending_outbound, outbound),
-              outbound_flush_armed: True,
-            ),
-          )
-          case arm {
-            False -> Nil
+          flush_outbound(cell)
+          queue_outbound(cell, outbound)
+        }
+        False -> {
+          let defer =
+            state.pending_outbound != []
+            || runtime_core.outbound_has_attachment(outbound)
+            |> result.unwrap(False)
+          case defer {
+            False -> send_outbound(state.channel, core.client_id, outbound)
             True -> {
-              let _ = state.scheduler.schedule(fn() { flush_outbound(cell) }, 0)
-              Nil
+              let arm = !state.outbound_flush_armed
+              cell_set(
+                cell,
+                State(
+                  ..state,
+                  pending_outbound: list.append(
+                    state.pending_outbound,
+                    outbound,
+                  ),
+                  outbound_flush_armed: True,
+                ),
+              )
+              case arm {
+                False -> Nil
+                True -> {
+                  let _ =
+                    state.scheduler.schedule(fn() { flush_outbound(cell) }, 0)
+                  Nil
+                }
+              }
             }
           }
         }
@@ -5119,6 +5154,11 @@ fn queue_outbound(
     }
     _, _ -> Nil
   }
+}
+
+@target(javascript)
+fn discard_pending_outbound(state: State) -> State {
+  State(..state, pending_outbound: [], outbound_flush_armed: False)
 }
 
 @target(javascript)

@@ -6071,7 +6071,7 @@ pub fn coalesce_outbound_operations(
   outbound: List(wire.OutboundOperation),
 ) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
   case outbound {
-    [] | [_] -> Ok(#(core, outbound))
+    [] -> Ok(#(core, outbound))
     [first, ..] -> {
       use batches <- result.try(
         list.try_map(outbound, fn(operation) {
@@ -6085,114 +6085,364 @@ pub fn coalesce_outbound_operations(
           |> result.map_error(ContainerOperationFailed)
         }),
       )
-      let kinds =
-        batches
-        |> list.flat_map(fn(batch) {
-          list.map(batch.messages, fn(message) { message.kind })
-        })
-        |> deduplicate_allocations
-      let count = list.length(kinds)
-      let batch_id = case kinds {
-        [
-          fluid_container.IdAllocation(fluid_ids.CreationRange(
-            ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
-            ..,
-          )),
-          ..
-        ] ->
-          Some(
-            core.client_id
-            <> "_["
-            <> int.to_string(first.client_sequence_number)
-            <> "]",
-          )
-        _ -> None
+      use #(prefix, selected, suffix) <- result.try(select_outbound_in_flight(
+        core,
+        list.zip(outbound, batches),
+      ))
+      case outbound {
+        [_] -> Ok(#(core, outbound))
+        [_, _, ..] ->
+          coalesce_selected_outbound(core, first, prefix, selected, suffix)
+        [] -> Ok(#(core, outbound))
       }
-      let metadata =
-        Some(
-          json.object(case batch_id {
-            Some(batch_id) -> [
-              #("batchId", json.string(batch_id)),
-              #("groupedOpCount", json.int(count)),
-            ]
-            None -> [#("groupedOpCount", json.int(count))]
-          }),
-        )
-      use contents <- result.try(
-        fluid_container.encode_batch(fluid_container.DecodedBatch(
-          True,
-          metadata,
-          list.index_map(kinds, fn(kind, index) {
-            let boundary = case index {
-              0 ->
-                Some(
-                  json.object(case batch_id {
-                    Some(batch_id) -> [
-                      #("batch", json.bool(True)),
-                      #("batchId", json.string(batch_id)),
-                    ]
-                    None -> [#("batch", json.bool(True))]
-                  }),
-                )
-              index if index == count - 1 ->
-                Some(json.object([#("batch", json.bool(False))]))
-              _ -> None
-            }
-            fluid_container.ContainerMessage(kind, index, boundary)
-          }),
-        ))
-        |> result.map_error(ContainerOperationFailed),
+    }
+  }
+}
+
+fn coalesce_selected_outbound(
+  core: Core,
+  first: wire.OutboundOperation,
+  prefix: List(InFlight),
+  selected: List(InFlight),
+  suffix: List(InFlight),
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  use items <- result.try(coalesced_pending_items(
+    core,
+    selected,
+    first.client_sequence_number,
+  ))
+  let items = deduplicate_allocation_pending(items)
+  let kinds = list.map(items, fn(item) { item.0 })
+  let count = list.length(kinds)
+  let batch_id = case kinds {
+    [
+      fluid_container.IdAllocation(fluid_ids.CreationRange(
+        ids: Some(fluid_ids.RangeIds(local_id_ranges: [_, ..], ..)),
+        ..,
+      )),
+      ..
+    ] ->
+      Some(
+        core.client_id
+        <> "_["
+        <> int.to_string(first.client_sequence_number)
+        <> "]",
       )
-      let selected_count = list.length(outbound)
-      let prefix_count = list.length(core.in_flight) - selected_count
-      let prefix = list.take(core.in_flight, prefix_count)
-      let selected = list.drop(core.in_flight, prefix_count)
-      use pending <- result.try(
-        selected
-        |> list.try_fold([], fn(pending, entry) {
-          case entry {
-            InFlightBatch(pending: children, ..) ->
-              Ok(list.append(
-                pending,
-                list.map(children, restamp_coalesced_in_flight(
-                  _,
-                  first.client_sequence_number,
-                )),
-              ))
-            _ ->
-              Error(AckMismatch("outbound operation has no batch pending state"))
-          }
-        }),
-      )
-      let combined =
-        InFlightBatch(
-          core.client_id,
+    _ -> None
+  }
+  let metadata =
+    Some(
+      json.object(case batch_id {
+        Some(batch_id) -> [
+          #("batchId", json.string(batch_id)),
+          #("groupedOpCount", json.int(count)),
+        ]
+        None -> [#("groupedOpCount", json.int(count))]
+      }),
+    )
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      metadata,
+      list.index_map(kinds, fn(kind, index) {
+        let boundary = case index {
+          0 ->
+            Some(
+              json.object(case batch_id {
+                Some(batch_id) -> [
+                  #("batch", json.bool(True)),
+                  #("batchId", json.string(batch_id)),
+                ]
+                None -> [#("batch", json.bool(True))]
+              }),
+            )
+          index if index == count - 1 ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        }
+        fluid_container.ContainerMessage(kind, index, boundary)
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let pending = list.map(items, fn(item) { item.1 })
+  let combined =
+    InFlightBatch(
+      core.client_id,
+      first.client_sequence_number,
+      first.reference_sequence_number,
+      True,
+      batch_id,
+      kinds,
+      pending,
+    )
+  Ok(
+    #(
+      Core(
+        ..core,
+        next_client_sequence_number: case suffix {
+          [] -> first.client_sequence_number + 1
+          [_, ..] -> core.next_client_sequence_number
+        },
+        in_flight: list.append(prefix, [combined, ..suffix]),
+      ),
+      [
+        wire.OutboundOperation(
           first.client_sequence_number,
           first.reference_sequence_number,
-          True,
-          batch_id,
-          kinds,
-          pending,
-        )
-      Ok(
-        #(
-          Core(
-            ..core,
-            next_client_sequence_number: first.client_sequence_number + 1,
-            in_flight: list.append(prefix, [combined]),
-          ),
-          [
-            wire.OutboundOperation(
-              first.client_sequence_number,
-              first.reference_sequence_number,
-              first.operation_type,
-              contents,
-              metadata,
-            ),
-          ],
+          first.operation_type,
+          contents,
+          metadata,
         ),
+      ],
+    ),
+  )
+}
+
+fn coalesced_pending_items(
+  core: Core,
+  selected: List(InFlight),
+  csn: Int,
+) -> Result(List(#(fluid_container.MessageKind, InFlight)), CoreError) {
+  selected
+  |> list.try_fold([], fn(items, entry) {
+    case entry {
+      InFlightBatch(items: kinds, pending: [], ..) -> {
+        use pending <- result.try(
+          list.try_map(kinds, pending_tree_batch_item(core, csn, _)),
+        )
+        Ok(list.append(items, list.zip(kinds, pending)))
+      }
+      InFlightBatch(items: kinds, pending: pending, ..) -> {
+        use _ <- result.try(seed_requirement(
+          list.length(kinds) == list.length(pending),
+          "outbound items do not match pending state",
+        ))
+        Ok(list.append(
+          items,
+          list.map(list.zip(kinds, pending), fn(item) {
+            #(item.0, pending_with_kind(item.1, item.0, csn))
+          }),
+        ))
+      }
+      _ -> Error(AckMismatch("outbound operation has no batch pending state"))
+    }
+  })
+}
+
+fn pending_with_kind(
+  entry: InFlight,
+  kind: fluid_container.MessageKind,
+  csn: Int,
+) -> InFlight {
+  case entry {
+    InFlightBatch(
+      client_id,
+      _,
+      reference_sequence_number,
+      grouped,
+      batch_id,
+      _,
+      pending,
+    ) ->
+      InFlightBatch(
+        client_id,
+        csn,
+        reference_sequence_number,
+        grouped,
+        batch_id,
+        [kind],
+        list.map(pending, restamp_coalesced_in_flight(_, csn)),
+      )
+    _ -> restamp_coalesced_in_flight(entry, csn)
+  }
+}
+
+fn deduplicate_allocation_pending(
+  items: List(#(fluid_container.MessageKind, InFlight)),
+) -> List(#(fluid_container.MessageKind, InFlight)) {
+  let #(allocations, operations) =
+    list.partition(items, fn(item) {
+      case item.0 {
+        fluid_container.IdAllocation(_) -> True
+        _ -> False
+      }
+    })
+  let has_attachment =
+    list.any(operations, fn(item) {
+      case item.0 {
+        fluid_container.ChannelAttach(_, _, _)
+        | fluid_container.DatastoreAttach(_, _) -> True
+        _ -> False
+      }
+    })
+  case allocations {
+    [] -> operations
+    _ if has_attachment ->
+      list.append(merge_allocation_pending(allocations), operations)
+    _ -> items
+  }
+}
+
+fn merge_allocation_pending(
+  items: List(#(fluid_container.MessageKind, InFlight)),
+) -> List(#(fluid_container.MessageKind, InFlight)) {
+  case items {
+    [] | [_] -> items
+    [
+      #(fluid_container.IdAllocation(first), first_pending),
+      #(fluid_container.IdAllocation(second), second_pending),
+      ..rest
+    ] ->
+      case merge_creation_range(first, second) {
+        Some(merged) -> {
+          let kind = fluid_container.IdAllocation(merged)
+          merge_allocation_pending([
+            #(
+              kind,
+              pending_with_kind(
+                first_pending,
+                kind,
+                in_flight_csn(first_pending),
+              ),
+            ),
+            ..rest
+          ])
+        }
+        None -> [
+          #(fluid_container.IdAllocation(first), first_pending),
+          ..merge_allocation_pending([
+            #(fluid_container.IdAllocation(second), second_pending),
+            ..rest
+          ])
+        ]
+      }
+    [first, ..rest] -> [first, ..merge_allocation_pending(rest)]
+  }
+}
+
+fn in_flight_csn(entry: InFlight) -> Int {
+  case entry {
+    InFlightBatch(client_sequence_number: csn, ..)
+    | InFlightOperation(client_sequence_number: csn, ..)
+    | InFlightAttach(client_sequence_number: csn, ..) -> csn
+  }
+}
+
+fn select_outbound_in_flight(
+  core: Core,
+  expected: List(#(wire.OutboundOperation, fluid_container.DecodedBatch)),
+) -> Result(#(List(InFlight), List(InFlight), List(InFlight)), CoreError) {
+  select_outbound_start(core, [], core.in_flight, expected)
+}
+
+fn select_outbound_start(
+  core: Core,
+  prefix: List(InFlight),
+  remaining: List(InFlight),
+  expected: List(#(wire.OutboundOperation, fluid_container.DecodedBatch)),
+) -> Result(#(List(InFlight), List(InFlight), List(InFlight)), CoreError) {
+  case remaining, expected {
+    _, [] -> Ok(#(list.reverse(prefix), [], remaining))
+    [], [_, ..] -> Error(AckMismatch("outbound operation has no pending state"))
+    [entry, ..rest], [#(operation, batch), ..] ->
+      case outbound_matches_in_flight(core, operation, batch, entry) {
+        Error(error) -> Error(error)
+        Ok(True) -> select_outbound_rest(core, prefix, [], remaining, expected)
+        Ok(False) ->
+          select_outbound_start(core, [entry, ..prefix], rest, expected)
+      }
+  }
+}
+
+fn select_outbound_rest(
+  core: Core,
+  prefix: List(InFlight),
+  selected: List(InFlight),
+  remaining: List(InFlight),
+  expected: List(#(wire.OutboundOperation, fluid_container.DecodedBatch)),
+) -> Result(#(List(InFlight), List(InFlight), List(InFlight)), CoreError) {
+  case remaining, expected {
+    _, [] -> Ok(#(list.reverse(prefix), list.reverse(selected), remaining))
+    [], [_, ..] -> Error(AckMismatch("outbound operation has no pending state"))
+    [entry, ..rest], [#(operation, batch), ..expected_rest] -> {
+      use matches <- result.try(outbound_matches_in_flight(
+        core,
+        operation,
+        batch,
+        entry,
+      ))
+      use _ <- result.try(seed_requirement(
+        matches,
+        "outbound pending states are not contiguous",
+      ))
+      select_outbound_rest(
+        core,
+        prefix,
+        [entry, ..selected],
+        rest,
+        expected_rest,
       )
     }
+  }
+}
+
+fn outbound_matches_in_flight(
+  core: Core,
+  operation: wire.OutboundOperation,
+  batch: fluid_container.DecodedBatch,
+  entry: InFlight,
+) -> Result(Bool, CoreError) {
+  case entry {
+    InFlightBatch(
+      client_id,
+      client_sequence_number,
+      reference_sequence_number,
+      grouped,
+      batch_id,
+      items,
+      _,
+    ) -> {
+      let actual = list.map(batch.messages, fn(item) { item.kind })
+      use same_items <- result.try(same_batch_items(core, actual, items))
+      use actual_id <- result.try(case batch.metadata {
+        None -> Ok(None)
+        Some(value) ->
+          json.parse(json.to_string(value), {
+            use id <- decode.optional_field(
+              "batchId",
+              None,
+              decode.map(decode.string, Some),
+            )
+            decode.success(id)
+          })
+          |> result.map_error(fn(_) {
+            AckMismatch("invalid outer batch identity")
+          })
+      })
+      Ok(
+        client_id == core.client_id
+        && operation.client_sequence_number == client_sequence_number
+        && operation.reference_sequence_number == reference_sequence_number
+        && operation.operation_type == "op"
+        && batch.grouped == grouped
+        && actual_id == batch_id
+        && same_items,
+      )
+    }
+    InFlightOperation(..) | InFlightAttach(..) -> Ok(False)
+  }
+}
+
+pub fn outbound_contexts_compatible(
+  queued: List(wire.OutboundOperation),
+  outbound: List(wire.OutboundOperation),
+) -> Bool {
+  case queued, outbound {
+    [], _ | _, [] -> True
+    [first, ..], [next, ..] ->
+      first.operation_type == next.operation_type
+      && first.reference_sequence_number == next.reference_sequence_number
   }
 }
 
@@ -6216,54 +6466,6 @@ pub fn outbound_has_attachment(
       }),
     )
   })
-}
-
-fn deduplicate_allocations(
-  kinds: List(fluid_container.MessageKind),
-) -> List(fluid_container.MessageKind) {
-  let #(allocations, operations) =
-    list.partition(kinds, fn(kind) {
-      case kind {
-        fluid_container.IdAllocation(_) -> True
-        _ -> False
-      }
-    })
-  let has_channel_attachment =
-    list.any(operations, fn(kind) {
-      case kind {
-        fluid_container.ChannelAttach(_, _, _) -> True
-        _ -> False
-      }
-    })
-  let has_datastore_attachment = has_datastore_attach(operations)
-  case allocations {
-    [] -> operations
-    _ if has_datastore_attachment || has_channel_attachment ->
-      list.append(merge_creation_ranges(allocations), operations)
-    _ -> kinds
-  }
-}
-
-fn merge_creation_ranges(
-  allocations: List(fluid_container.MessageKind),
-) -> List(fluid_container.MessageKind) {
-  case allocations {
-    [] | [_] -> allocations
-    [
-      fluid_container.IdAllocation(first),
-      fluid_container.IdAllocation(second),
-      ..rest
-    ] ->
-      case merge_creation_range(first, second) {
-        Some(merged) ->
-          merge_creation_ranges([fluid_container.IdAllocation(merged), ..rest])
-        None -> [
-          fluid_container.IdAllocation(first),
-          ..merge_creation_ranges([fluid_container.IdAllocation(second), ..rest])
-        ]
-      }
-    [first, ..rest] -> [first, ..merge_creation_ranges(rest)]
-  }
 }
 
 fn merge_creation_range(

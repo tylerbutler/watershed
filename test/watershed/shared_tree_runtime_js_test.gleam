@@ -164,6 +164,104 @@ fn sequenced_submission(
 }
 
 @target(javascript)
+fn ready_scheduled_runtime(push: fn(String, json.Json) -> Nil) {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks = transport_js.new_cell(None)
+  let scheduled = transport_js.new_cell([])
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: push,
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  runtime.set_scheduler(
+    owner,
+    transport_js.Scheduler(
+      now_milliseconds: fn() { 0 },
+      schedule: fn(action, _) {
+        transport_js.set_cell(scheduled, [
+          action,
+          ..transport_js.get_cell(scheduled)
+        ])
+        fn() { Nil }
+      },
+    ),
+  )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  #(owner, callbacks, view.view, scheduled)
+}
+
+@target(javascript)
+fn run_scheduled(scheduled) {
+  let actions = transport_js.get_cell(scheduled)
+  transport_js.set_cell(scheduled, [])
+  actions |> list.reverse |> list.each(fn(action) { action() })
+}
+
+@target(javascript)
+fn peer_map_set(sequence_number: Int) -> String {
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(
+            fluid_container.Route("A", "root"),
+            wire_op.encode_map_operation(map_kernel.Set(
+              "peer",
+              json.string("received"),
+            )),
+          ),
+          0,
+          None,
+        ),
+      ]),
+    )
+  frame.encode_operation_event([
+    frame.Sequenced(
+      client_id: Some("peer"),
+      sequence_number: sequence_number,
+      minimum_sequence_number: 0,
+      client_sequence_number: 1,
+      reference_sequence_number: 0,
+      operation_type: "op",
+      contents: contents,
+      metadata: None,
+      timestamp: 0,
+      data: None,
+    ),
+  ])
+  |> json.to_string
+}
+
+@target(javascript)
 pub fn assert_pending_multi_edit_transaction_resubmit() {
   let sender_callbacks = transport_js.new_cell(None)
   let receiver_callbacks = transport_js.new_cell(None)
@@ -2752,6 +2850,120 @@ pub fn reentrant_tree_subscriber_preserves_submission_order_test() {
   )
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(pushed) |> list.reverse |> expect.to_equal([1, 2])
+  runtime.close(owner)
+}
+
+@target(javascript)
+pub fn queued_attachment_and_transaction_share_exact_submission_test() {
+  let submissions = transport_js.new_cell([])
+  let #(owner, callbacks, view, scheduled) =
+    ready_scheduled_runtime(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          transport_js.set_cell(submissions, [
+            submitted,
+            ..transport_js.get_cell(submissions)
+          ])
+        }
+        _ -> Nil
+      }
+    })
+  let child = runtime.create_map(owner) |> expect.to_be_ok()
+  runtime.set(owner, child, "local", json.string("kept"))
+  runtime.set(owner, "A/root", "child", handle.encode_handle(child))
+  runtime.begin_tree_transaction(owner, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit(
+    owner,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("transaction")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.commit_tree_transaction(owner, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+
+  transport_js.get_cell(submissions) |> expect.to_equal([])
+  run_scheduled(scheduled)
+  runtime.diagnostics(owner).phase |> expect.to_equal("ready")
+  let sent = transport_js.get_cell(submissions)
+  list.length(sent) |> expect.to_equal(1)
+  let submitted = list.first(sent) |> expect.to_be_ok()
+  submitted.client_sequence_number |> expect.to_equal(1)
+  submitted.reference_sequence_number |> expect.to_equal(0)
+  runtime.diagnostics(owner).next_client_sequence_number
+  |> expect.to_equal(Some(2))
+  runtime.diagnostics(owner).in_flight_count |> expect.to_equal(1)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ])
+      |> json.to_string,
+  )
+  runtime.diagnostics(owner).phase |> expect.to_equal("ready")
+  runtime.diagnostics(owner).in_flight_count |> expect.to_equal(0)
+  runtime.tree_read(owner, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
+  runtime.get(owner, "A/root", "child")
+  |> expect.to_equal(Ok(handle.encode_handle(child)))
+  runtime.close(owner)
+}
+
+@target(javascript)
+pub fn queued_attachment_splits_before_peer_reference_change_test() {
+  let submissions = transport_js.new_cell([])
+  let #(owner, callbacks, _, scheduled) =
+    ready_scheduled_runtime(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          transport_js.set_cell(submissions, [
+            submitted,
+            ..transport_js.get_cell(submissions)
+          ])
+        }
+        _ -> Nil
+      }
+    })
+  let child = runtime.create_map(owner) |> expect.to_be_ok()
+  runtime.set(owner, "A/root", "child", handle.encode_handle(child))
+  callbacks.on_event("op", peer_map_set(1))
+  runtime.tree_edit(
+    owner,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("after peer")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  run_scheduled(scheduled)
+
+  let submissions = transport_js.get_cell(submissions) |> list.reverse
+  let assert [attach, edit] = submissions
+  [attach.client_sequence_number, edit.client_sequence_number]
+  |> expect.to_equal([1, 2])
+  [attach.reference_sequence_number, edit.reference_sequence_number]
+  |> expect.to_equal([0, 1])
+  runtime.diagnostics(owner).phase |> expect.to_equal("ready")
+  runtime.diagnostics(owner).next_client_sequence_number
+  |> expect.to_equal(Some(3))
+  runtime.diagnostics(owner).in_flight_count |> expect.to_equal(2)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(attach, "reader", 2),
+      sequenced_submission(edit, "reader", 3),
+    ])
+      |> json.to_string,
+  )
+  runtime.diagnostics(owner).in_flight_count |> expect.to_equal(0)
+  runtime.tree_read(owner, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("after peer"))))
   runtime.close(owner)
 }
 

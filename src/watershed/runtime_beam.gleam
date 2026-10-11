@@ -3092,12 +3092,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
               actor.continue(state)
             }
             Ok(#(core, events, outbound)) -> {
-              let #(next, outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
+              let #(next, outcome) = queue_or_send(state, core, None, outbound)
               let next = case dispose_source {
                 True -> cleanup_tree_scope(next, address, source)
                 False -> next
@@ -3615,15 +3610,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                 }
                 Ok(#(core, events, outbound)) -> {
                   let #(next, outcome) =
-                    send_or_suspend(
-                      State(..state, phase: Ready(core, None)),
-                      core,
-                      send_outbound_checked(
-                        state.channel,
-                        core.client_id,
-                        outbound,
-                      ),
-                    )
+                    queue_or_send(state, core, None, outbound)
                   process.send(reply, case next.phase {
                     Reconnecting(_) -> Ok(Nil)
                     _ -> outcome
@@ -4612,11 +4599,7 @@ fn handle_tree_transaction_commit(
               }
             Ok(#(core, events, outbound)) -> {
               let #(state, send_outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
+                queue_or_send(state, core, None, outbound)
               let state = fan_out_scoped(state, events)
               case state.active_tree_commit_delivery {
                 Some(_) -> {
@@ -5167,7 +5150,8 @@ fn handle_inbound(
         }
       }
 
-    "op" ->
+    "op" -> {
+      let #(state, _) = flush_outbound_now(state)
       case state.phase {
         Ready(core, _) ->
           case runtime_core.tree_transaction_depth(core) > 0 {
@@ -5203,6 +5187,7 @@ fn handle_inbound(
         Connecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
           actor.continue(state)
       }
+    }
 
     "nack" -> {
       let nacks =
@@ -5407,7 +5392,7 @@ fn handle_operation_delivery(
                   settle_reconnect_state(state, core, checkpoint)
                 _, None -> {
                   let #(state, outcome) =
-                    send_ready(state, core, None, released)
+                    queue_or_send(state, core, None, released)
                   case state.phase {
                     Ready(_, _) -> #(arm_summary(state, core), outcome)
                     _ -> #(state, outcome)
@@ -5469,7 +5454,7 @@ fn settle_reconnect_state(
   case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
-        Ok(#(core, outbound)) -> send_ready(state, core, None, outbound)
+        Ok(#(core, outbound)) -> queue_or_send(state, core, None, outbound)
         Error(error) -> {
           let reason = string.inspect(error)
           let state = case runtime_core.has_pending_tree(core) {
@@ -5913,7 +5898,7 @@ fn handle_task_volunteer(
           actor.continue(state)
         }
         Ok(#(core, events, outbound, outcome)) -> {
-          let #(state, sent) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, sent) = queue_or_send(state, core, resubmit_at, outbound)
           process.send(reply, case sent {
             Ok(Nil) -> outcome
             Error(_) -> task_manager_kernel.DisconnectedBeforeAssignment
@@ -6030,7 +6015,8 @@ fn edit_sequence_with_result(
     Ready(core, resubmit_at) ->
       case operate(core) {
         Ok(#(core, events, outbound)) -> {
-          let #(state, outcome) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, outcome) =
+            queue_or_send(state, core, resubmit_at, outbound)
           process.send(reply, outcome)
           actor.continue(fan_out(state, events))
         }
@@ -6096,7 +6082,8 @@ fn edit_text_with_result(
     Ready(core, resubmit_at) ->
       case operate(core) {
         Ok(#(core, events, outbound)) -> {
-          let #(state, outcome) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, outcome) =
+            queue_or_send(state, core, resubmit_at, outbound)
           process.send(reply, outcome)
           actor.continue(fan_out(state, events))
         }
@@ -6173,7 +6160,8 @@ fn edit_with_result(
           actor.continue(state)
         }
         Ok(#(core, events, outbound)) -> {
-          let #(state, outcome) = send_ready(state, core, resubmit_at, outbound)
+          let #(state, outcome) =
+            queue_or_send(state, core, resubmit_at, outbound)
           process.send(reply, outcome)
           actor.continue(fan_out(state, events))
         }
@@ -6262,6 +6250,7 @@ fn transaction_tree_access(
 /// and start a new receiver. That receiver does the handshake again, with the
 /// last sequence number that this client saw.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
+  let state = discard_pending_outbound(state)
   let generation = state.generation + 1
   case state.channel {
     Some(channel) -> channel.close()
@@ -6282,6 +6271,7 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
 
 @target(erlang)
 fn connection_failed(state: State, reason: String) -> State {
+  let state = discard_pending_outbound(state)
   case state.phase {
     Ready(core, _) | Reconnecting(core) ->
       case runtime_core.has_pending_tree(core) {
@@ -6325,6 +6315,7 @@ fn connection_failed(state: State, reason: String) -> State {
 
 @target(erlang)
 fn suspend_or_fail(state: State, reason: String) -> State {
+  let state = discard_pending_outbound(state)
   case state.phase {
     Ready(core, _) | Reconnecting(core) ->
       case runtime_core.has_pending_tree(core) {
@@ -6356,6 +6347,7 @@ fn suspend_or_fail(state: State, reason: String) -> State {
 /// phase. The `ChannelClosed` message from the receiver then drives the
 /// reconnect, so this function does not start a second receiver.
 fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
+  let state = discard_pending_outbound(state)
   let generation = state.generation + 1
   connect_transport(state.transport, state.self, generation)
   case state.channel {
@@ -6769,57 +6761,91 @@ fn queue_or_send(
   resubmit_at: Option(Int),
   outbound: List(wire.OutboundOperation),
 ) -> #(State, Result(Nil, String)) {
-  let defer =
+  case
+    resubmit_at,
+    outbound,
     state.pending_outbound != []
-    || runtime_core.outbound_has_attachment(outbound)
-    |> result.unwrap(False)
-  case resubmit_at, outbound, defer {
+    && !runtime_core.outbound_contexts_compatible(
+      state.pending_outbound,
+      outbound,
+    )
+  {
     _, [], _ -> #(State(..state, phase: Ready(core, resubmit_at)), Ok(Nil))
     Some(_), _, _ -> #(State(..state, phase: Ready(core, resubmit_at)), Ok(Nil))
-    None, _, False -> send_ready(state, core, None, outbound)
     None, _, True -> {
-      let arm = !state.outbound_flush_armed
-      let state =
-        State(
-          ..state,
-          phase: Ready(core, None),
-          pending_outbound: list.append(state.pending_outbound, outbound),
-          outbound_flush_armed: True,
-        )
-      case arm {
-        False -> Nil
+      let #(state, outcome) =
+        flush_outbound_now(State(..state, phase: Ready(core, None)))
+      case outcome, state.phase {
+        Error(_), _ -> #(state, outcome)
+        Ok(Nil), Ready(current, None) ->
+          queue_or_send(state, current, None, outbound)
+        Ok(Nil), _ -> #(state, Ok(Nil))
+      }
+    }
+    None, _, False -> {
+      let defer =
+        state.pending_outbound != []
+        || runtime_core.outbound_has_attachment(outbound)
+        |> result.unwrap(False)
+      case defer {
+        False -> send_ready(state, core, None, outbound)
         True -> {
-          let _ = process.send_after(state.self, 1, FlushOutbound)
-          Nil
+          let arm = !state.outbound_flush_armed
+          let state =
+            State(
+              ..state,
+              phase: Ready(core, None),
+              pending_outbound: list.append(state.pending_outbound, outbound),
+              outbound_flush_armed: True,
+            )
+          case arm {
+            False -> Nil
+            True -> {
+              let _ = process.send_after(state.self, 1, FlushOutbound)
+              Nil
+            }
+          }
+          #(state, Ok(Nil))
         }
       }
-      #(state, Ok(Nil))
     }
   }
 }
 
 @target(erlang)
 fn flush_outbound(state: State) -> actor.Next(State, Msg) {
+  actor.continue(flush_outbound_now(state).0)
+}
+
+@target(erlang)
+fn flush_outbound_now(state: State) -> #(State, Result(Nil, String)) {
   let pending = state.pending_outbound
   let state = State(..state, pending_outbound: [], outbound_flush_armed: False)
   case state.phase, pending {
-    _, [] -> actor.continue(state)
+    _, [] -> #(state, Ok(Nil))
     Ready(core, None), _ ->
       case runtime_core.coalesce_outbound_operations(core, pending) {
-        Error(error) ->
-          actor.continue(State(..state, phase: Failed(string.inspect(error))))
+        Error(error) -> {
+          let reason = string.inspect(error)
+          #(State(..state, phase: Failed(reason)), Error(reason))
+        }
         Ok(#(core, outbound)) -> {
-          let #(state, _) =
+          let #(state, outcome) =
             send_or_suspend(
               State(..state, phase: Ready(core, None)),
               core,
               send_outbound_checked(state.channel, core.client_id, outbound),
             )
-          actor.continue(state)
+          #(state, outcome)
         }
       }
-    _, _ -> actor.continue(state)
+    _, _ -> #(state, Ok(Nil))
   }
+}
+
+@target(erlang)
+fn discard_pending_outbound(state: State) -> State {
+  State(..state, pending_outbound: [], outbound_flush_armed: False)
 }
 
 @target(erlang)
@@ -7284,12 +7310,7 @@ fn handle_revert_tree(
               actor.continue(state)
             }
             Ok(core) -> {
-              let #(next, outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
+              let #(next, outcome) = queue_or_send(state, core, None, outbound)
               case outcome {
                 Error(error) -> {
                   process.send(reply, Error(error))

@@ -1716,6 +1716,142 @@ pub fn identifier_refusals_preserve_installed_runtime_test() {
 }
 
 @target(erlang)
+pub fn queued_attachment_and_transaction_share_exact_submission_test() {
+  let submissions = process.new_subject()
+  let #(actor, callbacks, view) =
+    ready_tree_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          process.send(submissions, submitted)
+        }
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let created = process.new_subject()
+  process.send(actor, runtime_beam.CreateMap(created))
+  let child =
+    process.receive(created, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  process.send(actor, runtime_beam.Put(child, "local", json.string("kept")))
+  process.send(
+    actor,
+    runtime_beam.Put("A/root", "child", handle.encode_handle(child)),
+  )
+  let begun = process.new_subject()
+  let edited = process.new_subject()
+  let committed = process.new_subject()
+  process.send(
+    actor,
+    runtime_beam.TreeTransactionBegin(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      view,
+      [],
+      begun,
+    ),
+  )
+  process.send(
+    actor,
+    runtime_beam.TreeEdit(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      tree_types.SetField(["title"], tree_types.StringValue("transaction")),
+      edited,
+    ),
+  )
+  process.send(
+    actor,
+    runtime_beam.TreeTransactionCommit(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      committed,
+    ),
+  )
+  process.receive(begun, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(edited, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(committed, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  submitted.client_sequence_number |> expect.to_equal(1)
+  submitted.reference_sequence_number |> expect.to_equal(0)
+  process.sleep(10)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ]),
+  )
+  runtime_beam.is_synced(actor) |> expect.to_equal(True)
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("transaction"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn queued_attachment_splits_before_peer_reference_change_test() {
+  let submissions = process.new_subject()
+  let #(actor, callbacks, _) =
+    ready_tree_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> {
+          let assert Ok(dynamic) =
+            json.parse(json.to_string(payload), decode.dynamic)
+          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+            frame.decode_submit_operation(dynamic)
+          process.send(submissions, submitted)
+        }
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let created = process.new_subject()
+  process.send(actor, runtime_beam.CreateMap(created))
+  let child =
+    process.receive(created, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  process.send(
+    actor,
+    runtime_beam.Put("A/root", "child", handle.encode_handle(child)),
+  )
+  callbacks.on_event("op", peer_map_set_payload(1))
+  let edited = process.new_subject()
+  process.send(
+    actor,
+    runtime_beam.TreeEdit(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      tree_types.SetField(["title"], tree_types.StringValue("after peer")),
+      edited,
+    ),
+  )
+  process.receive(edited, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+
+  let first = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let second = process.receive(submissions, 1000) |> expect.to_be_ok()
+  [first.client_sequence_number, second.client_sequence_number]
+  |> expect.to_equal([1, 2])
+  [first.reference_sequence_number, second.reference_sequence_number]
+  |> expect.to_equal([0, 1])
+  process.sleep(10)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(first, "reader", 2),
+      sequenced_submission(second, "reader", 3),
+    ]),
+  )
+  runtime_beam.is_synced(actor) |> expect.to_equal(True)
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("after peer"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 fn membership_frame(
   sequence_number: Int,
   operation_type: String,
@@ -1780,6 +1916,40 @@ fn sequenced_submission(
     timestamp: 0,
     data: None,
   )
+}
+
+@target(erlang)
+fn peer_map_set_payload(sequence_number: Int) -> json.Json {
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(
+            fluid_container.Route("A", "root"),
+            wire_op.encode_map_operation(map_kernel.Set(
+              "peer",
+              json.string("received"),
+            )),
+          ),
+          0,
+          None,
+        ),
+      ]),
+    )
+  frame.encode_operation_event([
+    frame.Sequenced(
+      client_id: Some("peer"),
+      sequence_number: sequence_number,
+      minimum_sequence_number: 0,
+      client_sequence_number: 1,
+      reference_sequence_number: 0,
+      operation_type: "op",
+      contents: contents,
+      metadata: None,
+      timestamp: 0,
+      data: None,
+    ),
+  ])
 }
 
 @target(erlang)
