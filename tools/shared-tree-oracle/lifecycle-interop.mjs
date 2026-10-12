@@ -33,6 +33,12 @@ import {
   handleTreeConfig,
   initialHandleRoot,
 } from "./schema.mjs";
+import {
+  reference as sourceReference,
+  validateCapture,
+  verifyCheckout,
+  verifyPackages,
+} from "./source.mjs";
 import { lifecycleDecodeFieldBatch } from "./generate.mjs";
 import { DeliveryGate, storageResponseIdentity } from "./delivery-gate.mjs";
 
@@ -55,6 +61,13 @@ const matrixCheckpoints = [
 const matrixCellIds = writers.flatMap((writer) =>
   matrixCheckpoints.flatMap((checkpoint) =>
     writers.map((reader) => `${writer}:${checkpoint}:${reader}`)));
+const lifecycleScheduleSeed = 42;
+const lifecycleScheduleCount = 300;
+const lifecycleScheduleBatchSize = 25;
+const sourceCapturePath = join(
+  import.meta.dirname,
+  ".output/source/source-smoke.json",
+);
 const reference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -89,6 +102,59 @@ const channelAttributes = {
     packageVersion: "3.1.0",
   },
 };
+
+export async function verifyLifecyclePrerequisites({
+  capturePath = sourceCapturePath,
+  checkoutRoot,
+  packagesRoot,
+} = {}) {
+  const packages = await (packagesRoot === undefined
+    ? verifyPackages()
+    : verifyPackages(packagesRoot));
+  const source = await (checkoutRoot === undefined
+    ? verifyCheckout()
+    : verifyCheckout(checkoutRoot));
+  const bytes = await readFile(capturePath);
+  const capture = JSON.parse(bytes);
+  validateCapture(capture);
+  assert.equal(capture.minVersionForCollab, oldestSupportedClient,
+    "Source capture minimum collaboration version changed");
+  return {
+    packages,
+    source,
+    capture: {
+      reference: capture.reference,
+      minVersionForCollab: capture.minVersionForCollab,
+      sha256: hash(bytes),
+    },
+  };
+}
+
+function lifecycleSchedulePlans() {
+  let state = lifecycleScheduleSeed;
+  const random = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>> 0;
+  };
+  return Array.from({ length: lifecycleScheduleCount }, (_, index) => {
+    const reconnect = index % 50;
+    const mode = reconnect === 0
+      ? "disconnect-before-acceptance"
+      : reconnect === 25
+        ? "disconnect-after-acceptance"
+        : ["outbound-held", "inbound-held", "unheld"][random() % 3];
+    return {
+      id: `lifecycle-${index.toString().padStart(3, "0")}-${random().toString(16).padStart(8, "0")}`,
+      index,
+      writer: writers[index % writers.length],
+      mode,
+      releaseOrder: random() % 2 === 0 ? "fifo" : "reverse",
+      operationOrder: random() % 2 === 0 ? "target-first" : "parent-first",
+    };
+  });
+}
 
 function hash(value) {
   const bytes = typeof value === "string" || Buffer.isBuffer(value)
@@ -333,6 +399,145 @@ function dependencyEvidence(messages, targets) {
       allocations: submission.allocations,
     })));
   return { source: "sequenced", allocations, targets: targetOccurrences, commits };
+}
+
+function scheduleHandleReferences(messages) {
+  const references = [];
+  for (const submission of decodeTreeSubmissions(messages)) {
+    const message = messages.find(({ sequenceNumber, clientSequenceNumber, clientId }) =>
+      sequenceNumber === submission.outerSequenceNumber
+        && clientSequenceNumber === submission.clientSequenceNumber
+        && clientId === submission.clientId);
+    assert(message, "Schedule decoded submission lacks its sequenced operation");
+    for (const commit of submission.commits) {
+      for (const change of commit.changeset) {
+        const data = change?.data;
+        if (!Array.isArray(data?.builds?.builds)
+          || !Array.isArray(data.builds?.trees?.data)) continue;
+        const fields = lifecycleDecodeFieldBatch(
+          data.builds.trees,
+          data.builds.trees.data.map((_, index) => String(index)),
+          `schedule sequence ${message.sequenceNumber}`,
+        );
+        const replacements = matchingObjects(
+          data.changes,
+          (value) => typeof value.fieldKey === "string"
+            && Number.isSafeInteger(value.change?.r?.s),
+        );
+        for (const replacement of replacements) {
+          const source = replacement.change.r.s;
+          const built = data.builds.builds.flatMap(([mapping]) => mapping)
+            .find(([id]) => id === source);
+          if (!built) continue;
+          const nodes = fields.get(String(built[1]));
+          if (nodes?.length !== 1
+            || nodes[0].type !== "com.fluidframework.leaf.handle"
+            || nodes[0].value?.type !== "__fluid_handle__"
+            || typeof nodes[0].value.url !== "string") continue;
+          references.push({
+            key: replacement.fieldKey,
+            path: nodes[0].value.url,
+            sequenceNumber: message.sequenceNumber,
+            clientSequenceNumber: message.clientSequenceNumber,
+            innerIndex: commit.innerIndex,
+            revision: commit.revision,
+            originatorId: commit.originatorId,
+            allocations: jsonClone(submission.allocations),
+            message: jsonClone(message),
+          });
+        }
+      }
+    }
+  }
+  return references;
+}
+
+function scheduleMapSets(messages, targetPath) {
+  const effects = [];
+  for (const message of messages) {
+    for (const { contents } of operationItems(message)) {
+      if (contents?.type !== "component") continue;
+      const datastore = contents.contents;
+      const channel = datastore?.contents;
+      if (channel?.type !== "op") continue;
+      const addressed = channel.content;
+      if (`/${datastore.address}/${addressed?.address}` !== targetPath) continue;
+      const edit = addressed.contents;
+      if (edit?.type === "set" && edit.value?.type === "Plain") {
+        effects.push({
+          target: targetPath,
+          key: edit.key,
+          value: jsonClone(edit.value.value),
+          sequenceNumber: message.sequenceNumber,
+          clientSequenceNumber: message.clientSequenceNumber,
+          message: jsonClone(message),
+        });
+      }
+    }
+  }
+  return effects;
+}
+
+function scheduleOperationEvidence(messages, plan, target, value) {
+  const stageKey = `${plan.id}:stage`;
+  const references = scheduleHandleReferences(messages)
+    .filter((reference) => reference.path === target.path);
+  const attachment = references.filter(({ key }) => key === stageKey);
+  const parentReference = references.filter(({ key }) => key === plan.id);
+  const targetState = scheduleMapSets(messages, target.path)
+    .filter((effect) => effect.key === "value" && effect.value === value);
+  assert.equal(attachment.length, 1,
+    `${plan.id} lacks one decoded typed-handle channel attachment`);
+  assert.equal(parentReference.length, 1,
+    `${plan.id} lacks one decoded typed-handle parent reference`);
+  assert.equal(targetState.length, 1,
+    `${plan.id} lacks one decoded SharedMap state operation`);
+  const routes = operationItems(attachment[0].message)
+    .flatMap(({ contents }) => attachmentRoutes(contents))
+    .filter(({ path }) => path === target.path);
+  assert.equal(routes.length, 1,
+    `${plan.id} attachment operation lacks the exact channel route`);
+  assert(attachment[0].allocations.length > 0,
+    `${plan.id} attachment operation lacks decoded allocation evidence`);
+  const positions = {
+    attachment: position(attachment[0].sequenceNumber, attachment[0].innerIndex),
+    "parent-reference": position(
+      parentReference[0].sequenceNumber,
+      parentReference[0].innerIndex,
+    ),
+    "target-state": position(targetState[0].sequenceNumber, 0),
+  };
+  const order = Object.keys(positions).sort((left, right) =>
+    comparePosition(positions[left], positions[right]));
+  const planned = plan.operationOrder === "target-first"
+    ? ["target-state", "parent-reference"]
+    : ["parent-reference", "target-state"];
+  const reverseAcceptance = plan.mode === "outbound-held"
+    && plan.releaseOrder === "reverse";
+  const expectedOrder = [
+    "attachment",
+    ...(reverseAcceptance ? [...planned].reverse() : planned),
+  ];
+  assert.equal(order[0], "attachment",
+    `${plan.id} target operations preceded channel attachment`);
+  assert.deepEqual([...order.slice(1)].sort(), [...planned].sort(),
+    `${plan.id} executed lifecycle operation set changed`);
+  if (plan.mode === "outbound-held") {
+    assert.deepEqual(order, expectedOrder,
+      `${plan.id} outbound release order differs from its schedule`);
+  }
+  assert.equal(new Set([
+    attachment[0].sequenceNumber,
+    parentReference[0].sequenceNumber,
+    targetState[0].sequenceNumber,
+  ]).size, 3, `${plan.id} lifecycle schedule lacks three accepted operations`);
+  return {
+    sequenced: jsonClone(messages),
+    attachment: attachment[0],
+    parentReference: parentReference[0],
+    targetState: targetState[0],
+    order,
+  };
 }
 
 function snapshotBlob(snapshotValue, node, name) {
@@ -3133,6 +3338,7 @@ async function authorReconnectUpstream(environment, label) {
   environment.upstreamSession.data.view.root.link = map.handle;
   return {
     target: {
+      documentId: environment.documentId,
       path: map.handle.absolutePath,
       attributes: attributes(map),
     },
@@ -3369,6 +3575,558 @@ async function runReconnectWindow(config, context, writer, id) {
   } finally {
     await closeEnvironment(environment, failure);
   }
+}
+
+async function createScheduleTarget(environment, writer, plan) {
+  const value = `schedule-value-${plan.id}`;
+  if (writer === "upstream") {
+    const map = await environment.upstreamSession.data.createMap();
+    map.set("self", map.handle);
+    return {
+      value,
+      target: {
+        documentId: environment.documentId,
+        path: map.handle.absolutePath,
+        attributes: attributes(map),
+      },
+      attach(key) {
+        environment.upstreamSession.data.view.root.links.set(key, map.handle);
+      },
+      cleanup(key) {
+        environment.upstreamSession.data.view.root.links.delete(key);
+      },
+      writeValue() {
+        map.set("value", value);
+      },
+      localValue() {
+        return map.get("value");
+      },
+    };
+  }
+  const adapter = environment.adapters[writer];
+  const name = `schedule-${plan.index}`;
+  const target = await nativeCommand(adapter, {
+    command: "create-map",
+    name,
+  });
+  await nativeCommand(adapter, {
+    command: "shared-map-set",
+    name,
+    key: "self",
+    value: target,
+  });
+  return {
+    value,
+    target: {
+      documentId: environment.documentId,
+      path: target.url,
+      attributes: channelAttributes.map,
+    },
+    async attach(key) {
+      await nativeCommand(adapter, {
+        command: "map-set",
+        path: ["links"],
+        key,
+        value: taggedHandle(target),
+      });
+    },
+    async cleanup(key) {
+      await nativeCommand(adapter, {
+        command: "map-delete",
+        path: ["links"],
+        key,
+      });
+    },
+    async writeValue() {
+      await nativeCommand(adapter, {
+        command: "shared-map-set",
+        name,
+        key: "value",
+        value,
+      });
+    },
+    async localValue() {
+      return (await adapter.client.sharedMapGet(name, "value")).value;
+    },
+  };
+}
+
+async function observeScheduleTarget(environment, observer, plan, target, value) {
+  const upstreamHandle =
+    environment.peerSession.data.view.root.links.get(plan.id);
+  assert(upstreamHandle, `${plan.id} upstream peer lacks the target handle`);
+  const upstreamMap = await upstreamHandle.get();
+  const observedHandle = handleValue(
+    await observer.client.mapGet(["links"], plan.id),
+  );
+  await observer.client.openMap(`schedule-peer-${plan.index}`, observedHandle);
+  const observedValue = (await observer.client.sharedMapGet(
+    `schedule-peer-${plan.index}`,
+    "value",
+  )).value;
+  assert.equal(upstreamHandle.absolutePath, target.path,
+    `${plan.id} upstream peer resolved another target`);
+  assert.equal(observedHandle.url, target.path,
+    `${plan.id} native peer resolved another target`);
+  assert.equal(upstreamMap.get("value"), value,
+    `${plan.id} upstream peer read another value`);
+  assert.equal(observedValue, value,
+    `${plan.id} native peer read another value`);
+  const peerClientId = environment.peerSession.container.clientId;
+  const peerProcessedSequenceNumber =
+    environment.peerSession.container.deltaManager.lastSequenceNumber;
+  const peerTransport = environment.peerSession.transportEvidence();
+  return {
+    target: observedHandle.url,
+    value: observedValue,
+    native: {
+      instanceId: observer.instanceId,
+      clientIds: [...observer.clientIds],
+      target: observedHandle.url,
+      value: observedValue,
+    },
+    upstream: {
+      instanceId: peerClientId,
+      clientIds: [peerClientId],
+      processedSequenceNumber: peerProcessedSequenceNumber,
+      observation: {
+        clientId: peerClientId,
+        lastSequenceNumber: peerProcessedSequenceNumber,
+      },
+      transport: {
+        connections: peerTransport.connections,
+      },
+      target: upstreamHandle.absolutePath,
+      value: upstreamMap.get("value"),
+    },
+  };
+}
+
+async function openScheduleTarget(adapter, plan) {
+  const handle = handleValue(await adapter.client.mapGet(
+    ["links"],
+    `${plan.id}:stage`,
+  ));
+  const name = `schedule-author-${plan.index}`;
+  await adapter.client.openMap(name, handle);
+  return {
+    adapter,
+    name,
+    target: handle.url,
+    async write(value) {
+      await nativeCommand(adapter, {
+        command: "shared-map-set",
+        name,
+        key: "value",
+        value,
+      });
+    },
+  };
+}
+
+async function resetScheduleGate(gate, direction, id) {
+  try {
+    await gate.release(direction);
+  } catch (error) {
+    assert.match(error.message, /dropped while disconnected/,
+      `${id} delivery gate reset failed`);
+  }
+}
+
+async function disconnectScheduleActor(environment, actor, plan) {
+  if (actor.name === "writer" && plan.writer === "upstream") {
+    await actor.gate.disconnect();
+    await until(
+      () => !environment.upstreamSession.container.connected,
+      `${plan.id} upstream schedule disconnect`,
+    );
+  } else {
+    await actor.adapter.disconnect();
+  }
+}
+
+async function reconnectScheduleActor(environment, actor, plan) {
+  if (actor.name === "writer" && plan.writer === "upstream") {
+    await actor.gate.reconnect();
+    environment.upstreamSession.container.connect();
+    await until(
+      () => environment.upstreamSession.container.connected,
+      `${plan.id} upstream schedule reconnect`,
+    );
+    await actor.adapter.checkpoint();
+  } else {
+    await actor.adapter.reconnect();
+  }
+}
+
+async function runLifecycleSchedule(environment, scheduler, observer, plan) {
+  const writerAdapter = environment.scheduleWriterAdapter;
+  const writerGate = reconnectGate(environment, plan.writer);
+  const writerGateBefore = writerGate.evidence();
+  const historyBefore = await serverHistory(environment.creator);
+  const target = await createScheduleTarget(environment, plan.writer, plan);
+  const stageKey = `${plan.id}:stage`;
+  await target.attach(stageKey);
+  await writerAdapter.awaitSynced();
+  await scheduler.awaitSynced();
+  let targetAuthor;
+  await until(async () => {
+    try {
+      targetAuthor = await openScheduleTarget(scheduler, plan);
+      return true;
+    } catch {
+      return false;
+    }
+  }, `${plan.id} scheduler target load`);
+  assert.equal(targetAuthor.target, target.target.path,
+    `${plan.id} target author resolved another map`);
+  const writerActor = {
+    name: "writer",
+    adapter: writerAdapter,
+    gate: writerGate,
+  };
+  const targetActor = {
+    name: "target",
+    adapter: scheduler,
+    gate: scheduler.client.gate,
+  };
+  const disconnectMode = plan.mode === "disconnect-before-acceptance"
+    || plan.mode === "disconnect-after-acceptance";
+  const actors = disconnectMode ? [writerActor] : [writerActor, targetActor];
+  const operationActors = {
+    "parent-reference": writerActor,
+    "target-state": disconnectMode ? writerActor : targetActor,
+  };
+  const operationRuns = {
+    "parent-reference": () => target.attach(plan.id),
+    "target-state": () => disconnectMode
+      ? target.writeValue()
+      : targetAuthor.write(target.value),
+  };
+  const gateBefore = Object.fromEntries(
+    actors.map((actor) => [
+      actor.name,
+      actor.name === "writer" ? writerGateBefore : actor.gate.evidence(),
+    ]),
+  );
+  const direction = plan.mode === "outbound-held"
+      || plan.mode === "disconnect-before-acceptance"
+    ? "outbound"
+    : plan.mode === "inbound-held"
+        || plan.mode === "disconnect-after-acceptance"
+      ? "inbound"
+      : undefined;
+  if (direction) {
+    for (const actor of actors) actor.gate.hold(direction, "op");
+  }
+  const issueOrder = plan.operationOrder === "target-first"
+    ? ["target-state", "parent-reference"]
+    : ["parent-reference", "target-state"];
+  for (const operation of issueOrder) {
+    const actor = operationActors[operation];
+    await operationRuns[operation]();
+    await new Promise((resolve) => setImmediate(resolve));
+    if (direction === undefined) await actor.adapter.awaitSynced();
+  }
+  const releaseActors = plan.releaseOrder === "reverse"
+    ? issueOrder.toReversed().map((operation) => operationActors[operation])
+    : issueOrder.map((operation) => operationActors[operation]);
+  const uniqueReleaseActors = [...new Map(
+    releaseActors.map((actor) => [actor.name, actor]),
+  ).values()];
+  const held = (actor, heldDirection) =>
+    actor.gate.evidence().held
+      .slice(gateBefore[actor.name].held.length)
+      .filter(({ direction: candidate, kind }) =>
+        candidate === heldDirection && kind === "op");
+  const heldReady = (actor, heldDirection) => {
+    const entries = held(actor, heldDirection);
+    const messages = heldDirection === "outbound"
+      ? scheduleOutboundMessages(entries)
+      : scheduleInboundMessages(entries);
+    const requireBoth = heldDirection === "inbound";
+    const parentReady = !requireBoth && actor.name !== "writer"
+      || scheduleHandleReferences(messages).some(({ key, path }) =>
+        key === plan.id && path === target.target.path);
+    const targetReady = !requireBoth
+        && actor.name !== "target" && !disconnectMode
+      || scheduleMapSets(messages, target.target.path)
+        .some(({ key, value }) => key === "value" && value === target.value);
+    return parentReady && targetReady;
+  };
+  if (plan.operationOrder === "target-first") {
+    assert.equal(issueOrder[0], "target-state");
+  }
+  if (plan.mode === "outbound-held") {
+    await until(() => actors.every((actor) =>
+      heldReady(actor, "outbound")), `${plan.id} outbound holds`);
+    for (const actor of releaseActors) {
+      await actor.gate.release("outbound");
+      await actor.adapter.awaitSynced();
+    }
+  } else if (plan.mode === "disconnect-before-acceptance") {
+    await until(() => actors.every((actor) =>
+      heldReady(actor, "outbound")), `${plan.id} preaccept holds`);
+    for (const actor of actors) {
+      await disconnectScheduleActor(environment, actor, plan);
+    }
+    for (const actor of uniqueReleaseActors) {
+      await reconnectScheduleActor(environment, actor, plan);
+      if (actor.name === "writer" && plan.writer === "upstream") {
+        await resetScheduleGate(actor.gate, "outbound", plan.id);
+      }
+    }
+  } else if (plan.mode === "inbound-held"
+    || plan.mode === "disconnect-after-acceptance") {
+    await until(() => actors.every((actor) =>
+      heldReady(actor, "inbound")), `${plan.id} inbound holds`);
+    if (plan.mode === "disconnect-after-acceptance") {
+      for (const actor of actors) {
+        await disconnectScheduleActor(environment, actor, plan);
+      }
+      for (const actor of uniqueReleaseActors) {
+        await reconnectScheduleActor(environment, actor, plan);
+        if (actor.name === "writer" && plan.writer === "upstream") {
+          await resetScheduleGate(actor.gate, "inbound", plan.id);
+        }
+      }
+    } else {
+      for (const actor of releaseActors) await actor.gate.release("inbound");
+    }
+  }
+  await writerAdapter.awaitSynced();
+  const schedulerObservation = await scheduler.awaitSynced();
+  await target.cleanup(stageKey);
+  const writerSync = await writerAdapter.awaitSynced();
+  await synchronize(environment);
+  const writerObservation = plan.writer === "upstream"
+    ? await writerAdapter.checkpoint()
+    : {
+      implementation: plan.writer,
+      instanceId: writerAdapter.instanceId,
+      sequenceNumber: writerSync.sequenceNumber,
+      pendingTreeCount: writerSync.observation.pendingTreeCount,
+      inflightSubmissionCount: writerSync.observation.inFlightCount,
+      clientId: writerSync.observation.clientId,
+      observation: writerSync.observation,
+      readError: null,
+    };
+  const localValue = await target.localValue();
+  assert.equal(localValue, target.value, `${plan.id} local target value changed`);
+  const history = await serverHistory(environment.creator);
+  const sequenced = deltaEvidence(
+    history.slice(historyBefore.length)
+      .filter(({ type, clientId }) =>
+        type === "op" && actors.some((actor) => actor.adapter.clientIds.has(clientId))),
+  );
+  const dependencies = dependencyEvidence(sequenced, {
+    target: target.target,
+  });
+  const operations = scheduleOperationEvidence(
+    sequenced,
+    plan,
+    target.target,
+    target.value,
+  );
+  const accepted = operations.parentReference.message;
+  const throughSequenceNumber = Math.max(
+    ...operations.sequenced.map(({ sequenceNumber }) => sequenceNumber),
+  );
+  const peer = await observeScheduleTarget(
+    environment,
+    observer,
+    plan,
+    target.target,
+    target.value,
+  );
+  const observerObservation = await observer.awaitSynced(throughSequenceNumber);
+  const actorDelivery = Object.fromEntries(actors.map((actor) => {
+    const before = gateBefore[actor.name];
+    const after = actor.gate.evidence();
+    const held = after.held.slice(before.held.length);
+    const heldConnections = new Set(held.map(({ connectionId }) => connectionId));
+    return [actor.name, {
+      instanceId: actor.adapter.instanceId,
+      clientIds: [...actor.adapter.clientIds],
+      observation: actor.name === "writer"
+        ? jsonClone(writerObservation)
+        : jsonClone(schedulerObservation),
+      held,
+      controls: after.controls.slice(before.controls.length),
+      delivered: after.delivered.slice(before.delivered.length),
+      handshakes: after.handshakes.slice(before.handshakes.length),
+      connections: after.connections.slice(before.connections.length),
+      submitted: after.outboundOccurrences.slice(before.outboundOccurrences.length),
+      ...(disconnectMode ? {
+        preWindow: {
+          connections: before.connections.filter(({ connectionId }) =>
+            heldConnections.has(connectionId)),
+          handshakes: before.handshakes.filter(({ connectionId }) =>
+            heldConnections.has(connectionId)),
+        },
+      } : {}),
+      errorsBefore: before.errors.length,
+      errorsAfter: after.errors.length,
+    }];
+  }));
+  const submitted = Object.values(actorDelivery)
+    .flatMap(({ submitted: occurrences }) => occurrences);
+  assert(submissionMessages(submitted).some((message) =>
+    operationIdentityKey(message) === operationIdentityKey(accepted)),
+  `${plan.id} accepted operation differs from actual outbound identity`);
+  return {
+    id: plan.id,
+    index: plan.index,
+    writer: plan.writer,
+    seed: lifecycleScheduleSeed,
+    target: target.target,
+    local: {
+      value: localValue,
+      handlePath: target.target.path,
+      writerInstanceId: writerAdapter.instanceId,
+      writerClientIds: [...writerAdapter.clientIds],
+      writerObservation,
+    },
+    delivery: {
+      mode: plan.mode,
+      releaseOrder: plan.releaseOrder,
+      operationOrder: plan.operationOrder,
+      issueOrder,
+      releaseActors: uniqueReleaseActors.map(({ name }) => name),
+      actors: actorDelivery,
+      held: Object.entries(actorDelivery)
+        .flatMap(([actor, evidence]) =>
+          evidence.held.map((item) => ({ actor, ...item }))),
+      controls: Object.entries(actorDelivery)
+        .flatMap(([actor, evidence]) =>
+          evidence.controls.map((item) => ({ actor, ...item }))),
+      delivered: Object.entries(actorDelivery)
+        .flatMap(([actor, evidence]) =>
+          evidence.delivered.map((item) => ({ actor, ...item }))),
+      handshakes: Object.entries(actorDelivery)
+        .flatMap(([actor, evidence]) =>
+          evidence.handshakes.map((item) => ({ actor, ...item }))),
+      connections: Object.entries(actorDelivery)
+        .flatMap(([actor, evidence]) =>
+          evidence.connections.map((item) => ({ actor, ...item }))),
+      submitted,
+      errorsBefore: Object.values(actorDelivery)
+        .reduce((sum, evidence) => sum + evidence.errorsBefore, 0),
+      errorsAfter: Object.values(actorDelivery)
+        .reduce((sum, evidence) => sum + evidence.errorsAfter, 0),
+    },
+    accepted,
+    dependencies,
+    operations,
+    peer,
+    observer: {
+      implementation: observer.implementation,
+      instanceId: observer.instanceId,
+      acceptedSequenceNumber: throughSequenceNumber,
+      processedSequenceNumber: observerObservation.sequenceNumber,
+      observation: observerObservation.observation,
+    },
+    skipped: false,
+    actualHandleWork: true,
+    divergence: false,
+  };
+}
+
+async function runLifecycleSchedules(config, context) {
+  const plans = lifecycleSchedulePlans();
+  const records = [];
+  const observers = [];
+  for (const writer of writers) {
+    const writerPlans = plans.filter((candidate) => candidate.writer === writer);
+    for (let offset = 0; offset < writerPlans.length;
+      offset += lifecycleScheduleBatchSize) {
+      const batch = writerPlans.slice(offset, offset + lifecycleScheduleBatchSize);
+      const environment = await createEnvironment(
+        config,
+        context.runId,
+        "handleReconnectSchedules",
+        writer,
+        context.constructors,
+      );
+      let failure;
+      try {
+        environment.scheduleWriterAdapter = writer === "upstream"
+          ? upstreamAdapter(environment.upstreamSession)
+          : environment.adapters[writer];
+        const observerImplementation = writer === "javascript"
+          ? "erlang"
+          : "javascript";
+        const scheduler = await openNativePeer(
+          environment,
+          config,
+          observerImplementation,
+          context.constructors,
+        );
+        environment.natives.push(scheduler);
+        const observer = await openNativePeer(
+          environment,
+          config,
+          observerImplementation,
+          context.constructors,
+        );
+        environment.natives.push(observer);
+        for (const plan of batch) {
+          try {
+            records.push(await runLifecycleSchedule(
+              environment,
+              scheduler,
+              observer,
+              plan,
+            ));
+          } catch (error) {
+            error.message = `${plan.id}: ${error.message}`;
+            throw error;
+          }
+        }
+        const synchronized = await observer.awaitSynced();
+        observers.push({
+          writer,
+          batch: offset / lifecycleScheduleBatchSize,
+          implementation: observerImplementation,
+          instanceId: observer.instanceId,
+          clientIds: [...observer.clientIds],
+          processedSequenceNumber: synchronized.sequenceNumber,
+          observation: synchronized.observation,
+          transport: observer.evidence(),
+        });
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        await closeEnvironment(environment, failure);
+      }
+    }
+  }
+  records.sort((left, right) => left.index - right.index);
+  const section = {
+    name: "handleSchedules",
+    formatVersion: 1,
+    runId: context.runId,
+    contract,
+    skipped: false,
+    seed: lifecycleScheduleSeed,
+    requested: lifecycleScheduleCount,
+    expectedIds: plans.map(({ id }) => id),
+    records,
+    observers,
+    artifacts: [],
+  };
+  const relative = "handleSchedules/schedules.json";
+  const artifact = {
+    ...section,
+    artifacts: undefined,
+  };
+  const bytes = `${JSON.stringify(artifact)}\n`;
+  await mkdir(join(context.output, "handleSchedules"), { recursive: true });
+  await writeFile(join(context.output, relative), bytes, { mode: 0o600 });
+  context.artifacts.files[relative] = { sha256: hash(bytes) };
+  section.artifacts.push({ path: relative, sha256: hash(bytes) });
+  return section;
 }
 
 async function authorMatrixUpstream(environment, label) {
@@ -7201,12 +7959,748 @@ async function validateRow(name, row, artifacts) {
   validateStoredEvidence(name, row, artifact.snapshot);
 }
 
+function scheduleRequiredMessages(operations) {
+  return [
+    operations.attachment.message,
+    operations.parentReference.message,
+    operations.targetState.message,
+  ];
+}
+
+function scheduleOutboundMessages(entries) {
+  return submissionMessages(entries.filter(({ direction }) =>
+    direction === undefined || direction === "outbound"));
+}
+
+function scheduleInboundMessages(entries) {
+  return entries.filter(({ direction }) => direction === "inbound")
+    .flatMap(({ sequencedMessages = [] }) => sequencedMessages)
+    .filter(({ type }) => type === "op");
+}
+
+function coversScheduleMessages(actual, expected, key = operationIdentityKey) {
+  const keys = new Set(actual.map(key));
+  return expected.every((message) => keys.has(key(message)));
+}
+
+function typedOperationIdentityKey(message) {
+  return `${message.type}:${operationIdentityKey(message)}`;
+}
+
+function sequencedOperationIdentityKey(message) {
+  return [
+    message.sequenceNumber,
+    typedOperationIdentityKey(message),
+  ].join(":");
+}
+
+function scheduleLifecycleLogicalOperations(messages, record) {
+  const parent = [];
+  for (const message of messages) {
+    const references = scheduleHandleReferences([message])
+      .filter(({ key, path }) =>
+        key === record.id && path === record.target.path);
+    for (const submission of decodeTreeSubmissions([message])) {
+      for (const commit of submission.commits) {
+        const reference = references.find((candidate) =>
+          candidate.innerIndex === commit.innerIndex
+            && candidate.revision === commit.revision
+            && candidate.originatorId === commit.originatorId);
+        if (!reference) continue;
+        parent.push({
+          key: reference.key,
+          path: reference.path,
+          revision: commit.revision,
+          originatorId: commit.originatorId,
+          changeset: jsonClone(commit.changeset),
+          allocations: jsonClone(submission.allocations),
+        });
+      }
+    }
+  }
+  return {
+    parent,
+    target: scheduleMapSets(messages, record.target.path)
+      .filter(({ key, value }) =>
+        key === "value" && value === record.local.value)
+      .map(({ target, key, value }) => ({ target, key, value })),
+  };
+}
+
+function validateScheduleRetryLineage(
+  originalMessages,
+  acceptedMessages,
+  record,
+  label,
+) {
+  const original = scheduleLifecycleLogicalOperations(originalMessages, record);
+  const accepted = scheduleLifecycleLogicalOperations(acceptedMessages, record);
+  assert.equal(original.parent.length, 1,
+    `${label} original retry lineage lacks one parent commit`);
+  assert.equal(accepted.parent.length, 1,
+    `${label} accepted retry lineage lacks one parent commit`);
+  assert.equal(original.target.length, 1,
+    `${label} original retry lineage lacks one target command`);
+  assert.equal(accepted.target.length, 1,
+    `${label} accepted retry lineage lacks one target command`);
+  assert.deepEqual(
+    original.parent.map(({
+      key, path, revision, originatorId, changeset,
+    }) => ({ key, path, revision, originatorId, changeset })),
+    accepted.parent.map(({
+      key, path, revision, originatorId, changeset,
+    }) => ({ key, path, revision, originatorId, changeset })),
+    `${label} original and accepted logical parent commits differ`,
+  );
+  assert.deepEqual(original.target, accepted.target,
+    `${label} original and accepted logical target commands differ`);
+  const originalCommit = original.parent[0];
+  assert(originalCommit.allocations.length > 0
+    && originalCommit.allocations.some(({ sessionId }) =>
+      sessionId === originalCommit.originatorId),
+  `${label} original and accepted allocation lineage differs`);
+  assert(originalCommit.allocations.every(({ sessionId, first, last }) =>
+    record.dependencies.allocations.some((allocation) =>
+      allocation.sessionId === sessionId
+        && allocation.first === first
+        && allocation.last === last)),
+  `${label} original allocation ranges lack accepted sequenced evidence`);
+}
+
+function expectedScheduleActors(disconnectMode) {
+  return disconnectMode ? ["writer"] : ["writer", "target"];
+}
+
+function actorDeliveryEntries(actors, key) {
+  return Object.entries(actors).flatMap(([actor, evidence]) =>
+    evidence[key].map((item) => ({ actor, ...item })));
+}
+
+function validateReadyNativeObservation(observation, clientIds, label) {
+  assert(observation
+    && observation.phase === "ready"
+    && observation.synced === true
+    && observation.error === null
+    && observation.inFlightCount === 0
+    && observation.pendingTreeCount === 0
+    && clientIds.includes(observation.clientId),
+  `${label} is not ready, synced, error-free, and bound to its client`);
+}
+
+function validateScheduleDelivery(name, record, plan, required) {
+  const delivery = record.delivery;
+  const disconnectMode = plan.mode === "disconnect-before-acceptance"
+    || plan.mode === "disconnect-after-acceptance";
+  const expectedActors = expectedScheduleActors(disconnectMode);
+  assert.deepEqual(Object.keys(delivery.actors), expectedActors,
+    `${name} ${record.id} delivery actor set changed`);
+  for (const key of [
+    "held", "controls", "delivered", "handshakes", "connections",
+  ]) {
+    assert.deepEqual(delivery[key], actorDeliveryEntries(delivery.actors, key),
+      `${name} ${record.id} aggregate ${key} differ from actor evidence`);
+  }
+  assert.deepEqual(
+    delivery.submitted,
+    Object.values(delivery.actors)
+      .flatMap(({ submitted: occurrences }) => occurrences),
+    `${name} ${record.id} aggregate submissions differ from actor evidence`,
+  );
+  assert.equal(
+    delivery.errorsBefore,
+    Object.values(delivery.actors)
+      .reduce((sum, evidence) => sum + evidence.errorsBefore, 0),
+    `${name} ${record.id} aggregate initial errors differ from actor evidence`,
+  );
+  assert.equal(
+    delivery.errorsAfter,
+    Object.values(delivery.actors)
+      .reduce((sum, evidence) => sum + evidence.errorsAfter, 0),
+    `${name} ${record.id} aggregate final errors differ from actor evidence`,
+  );
+  const operations = {
+    writer: disconnectMode ? required : required.filter((message) =>
+      operationIdentityKey(message)
+        !== operationIdentityKey(record.operations.targetState.message)),
+    ...(disconnectMode ? {} : {
+      target: [record.operations.targetState.message],
+    }),
+  };
+  assert(coversScheduleMessages(
+    scheduleOutboundMessages(delivery.submitted),
+    required,
+  ), `${name} ${record.id} submissions lack all three accepted operations`);
+  const issueOrder = plan.operationOrder === "target-first"
+    ? ["target-state", "parent-reference"]
+    : ["parent-reference", "target-state"];
+  assert.deepEqual(delivery.issueOrder, issueOrder,
+    `${name} ${record.id} actual operation issue order changed`);
+  const issuedActors = issueOrder.map((operation) =>
+    operation === "target-state" && !disconnectMode ? "target" : "writer");
+  assert.deepEqual(
+    delivery.releaseActors,
+    [...new Set(plan.releaseOrder === "reverse"
+      ? issuedActors.toReversed()
+      : issuedActors)],
+    `${name} ${record.id} actual actor release order changed`,
+  );
+  const scheduled = {
+    writer: disconnectMode
+      ? issueOrder.map((operation) =>
+        operation === "parent-reference"
+          ? record.operations.parentReference.message
+          : record.operations.targetState.message)
+      : [record.operations.parentReference.message],
+    ...(disconnectMode ? {} : {
+      target: [record.operations.targetState.message],
+    }),
+  };
+  for (const [actor, evidence] of Object.entries(delivery.actors)) {
+    assert.equal(evidence.errorsAfter, evidence.errorsBefore,
+      `${name} ${record.id} ${actor} transport reported errors`);
+    assert(typeof evidence.instanceId === "string"
+      && evidence.instanceId.length > 0
+      && evidence.clientIds.length > 0,
+    `${name} ${record.id} ${actor} process identity is missing`);
+    assert(expectedActors.includes(actor),
+      `${name} ${record.id} has an unexpected ${actor} delivery actor`);
+    const processed = actor === "writer"
+      ? evidence.observation?.sequenceNumber
+      : evidence.observation?.sequenceNumber;
+    assert(Number.isSafeInteger(processed)
+      && processed >= Math.max(...operations[actor]
+        .map(({ sequenceNumber }) => sequenceNumber)),
+    `${name} ${record.id} ${actor} processed watermark is incomplete`);
+    if (actor === "target" || plan.writer !== "upstream") {
+      validateReadyNativeObservation(
+        evidence.observation.observation,
+        evidence.clientIds,
+        `${name} ${record.id} ${actor} author`,
+      );
+    }
+    assert(coversScheduleMessages(
+      scheduleOutboundMessages(evidence.submitted),
+      operations[actor],
+    ), `${name} ${record.id} ${actor} lacks its authenticated submissions`);
+  }
+  if (plan.mode === "unheld") {
+    for (const [actor, evidence] of Object.entries(delivery.actors)) {
+      assert.equal(evidence.controls.length, 0,
+        `${name} ${record.id} ${actor} unheld transport has controls`);
+      assert(coversScheduleMessages(
+        scheduleOutboundMessages(evidence.delivered),
+        operations[actor],
+      ), `${name} ${record.id} ${actor} outbound delivery lacks its operation`);
+      assert(coversScheduleMessages(
+        scheduleInboundMessages(evidence.delivered),
+        operations[actor],
+      ), `${name} ${record.id} ${actor} inbound delivery lacks its operation`);
+    }
+    return;
+  }
+  const direction = plan.mode === "outbound-held"
+      || plan.mode === "disconnect-before-acceptance"
+    ? "outbound"
+    : "inbound";
+  const acceptedCore = [
+    record.operations.parentReference.message,
+    record.operations.targetState.message,
+  ].sort((left, right) => left.sequenceNumber - right.sequenceNumber);
+  for (const [actor, evidence] of Object.entries(delivery.actors)) {
+    const controls = evidence.controls;
+    assert(controls[0]?.action === "hold"
+      && controls[0].direction === direction
+      && controls[0].kind === "op",
+    `${name} ${record.id} ${actor} lacks its actual hold`);
+    const heldMessages = direction === "outbound"
+      ? scheduleOutboundMessages(evidence.held)
+      : scheduleInboundMessages(evidence.held);
+    const expectedHeld = direction === "outbound"
+      ? scheduled[actor]
+      : acceptedCore;
+    if (direction === "outbound") {
+      assert(coversScheduleMessages(
+        scheduleOutboundMessages(evidence.submitted),
+        heldMessages,
+        typedOperationIdentityKey,
+      ), `${name} ${record.id} ${actor} outbound hold lacks its submission `
+        + "identity");
+      if (plan.mode === "outbound-held") {
+        assert.deepEqual(
+          heldMessages.map(typedOperationIdentityKey),
+          expectedHeld.map(typedOperationIdentityKey),
+          `${name} ${record.id} ${actor} outbound hold identity changed`,
+        );
+      }
+    } else {
+      assert.deepEqual(
+        heldMessages.map(sequencedOperationIdentityKey).sort(),
+        expectedHeld.map(sequencedOperationIdentityKey).sort(),
+        `${name} ${record.id} ${actor} inbound hold identity changed`,
+      );
+    }
+    const hasWriterOperation = actor !== "writer"
+      || scheduleHandleReferences(heldMessages).some(({ key, path }) =>
+        key === record.id && path === record.target.path);
+    const hasTargetOperation = actor !== "target" && !disconnectMode
+      || scheduleMapSets(heldMessages, record.target.path)
+        .some(({ key, value }) =>
+          key === "value" && value === record.local.value);
+    assert(hasWriterOperation && hasTargetOperation,
+      `${name} ${record.id} ${actor} hold lacks decoded lifecycle operations`);
+    const heldIds = evidence.held.filter(({ direction: candidate, kind }) =>
+      candidate === direction && kind === "op").map(({ id }) => id);
+    assert(heldIds.length > 0,
+      `${name} ${record.id} ${actor} hold lacks message identities`);
+    if (plan.mode === "outbound-held" || plan.mode === "inbound-held") {
+      const release = controls.find(({ action }) => action === "release");
+      assert(release && release.direction === direction,
+        `${name} ${record.id} ${actor} release direction changed`);
+      assert.deepEqual(release.messageIds, heldIds,
+        `${name} ${record.id} ${actor} release differs from held identities`);
+      assert.deepEqual(
+        evidence.delivered.filter(({ id }) => heldIds.includes(id))
+          .map(({ id }) => id),
+        heldIds,
+        `${name} ${record.id} ${actor} held packet delivery order changed`,
+      );
+      const deliveredMessages = direction === "outbound"
+        ? scheduleOutboundMessages(evidence.delivered
+          .filter(({ id }) => heldIds.includes(id)))
+        : scheduleInboundMessages(evidence.delivered
+          .filter(({ id }) => heldIds.includes(id)));
+      assert.deepEqual(
+        direction === "outbound"
+          ? deliveredMessages.map(typedOperationIdentityKey)
+          : deliveredMessages.map(sequencedOperationIdentityKey),
+        direction === "outbound"
+          ? heldMessages.map(typedOperationIdentityKey)
+          : heldMessages.map(sequencedOperationIdentityKey),
+        `${name} ${record.id} ${actor} delivered packet identity changed`,
+      );
+      continue;
+    }
+    const disconnect = controls.find(({ action }) => action === "disconnect");
+    const reconnect = controls.find(({ action }) => action === "reconnect");
+    assert(disconnect && reconnect
+      && controls.indexOf(disconnect) < controls.indexOf(reconnect),
+    `${name} ${record.id} ${actor} disconnect window is out of order`);
+    assert.deepEqual(disconnect.dropped[direction], heldIds,
+      `${name} ${record.id} ${actor} disconnect lacks dropped identities`);
+    assert.deepEqual(disconnect.dropped[direction === "inbound"
+      ? "outbound"
+      : "inbound"], [],
+    `${name} ${record.id} ${actor} disconnect dropped another direction`);
+    assert(!evidence.delivered.some(({ id }) => heldIds.includes(id)),
+      `${name} ${record.id} ${actor} dropped operation claims delivery`);
+    const heldConnections = new Set(evidence.held
+      .filter(({ id }) => heldIds.includes(id))
+      .map(({ connectionId }) => connectionId));
+    const preWindow = evidence.preWindow;
+    assert(preWindow
+      && Array.isArray(preWindow.connections)
+      && Array.isArray(preWindow.handshakes),
+    `${name} ${record.id} ${actor} lacks pre-disconnect transport receipts`);
+    assert.deepEqual(
+      preWindow.connections.map(({ connectionId }) => connectionId).sort(),
+      [...heldConnections].sort(),
+      `${name} ${record.id} ${actor} pre-disconnect connections changed`,
+    );
+    const originalClients = new Map(preWindow.handshakes.map((handshake) => [
+      handshake.connectionId,
+      handshake.clientId,
+    ]));
+    assert.deepEqual(
+      [...originalClients.keys()].sort(),
+      [...heldConnections].sort(),
+      `${name} ${record.id} ${actor} pre-disconnect handshakes changed`,
+    );
+    const heldOccurrences = evidence.held.filter(({ id }) =>
+      heldIds.includes(id));
+    if (plan.mode === "disconnect-before-acceptance") {
+      for (const occurrence of heldOccurrences) {
+        const clientId = originalClients.get(occurrence.connectionId);
+        assert(typeof clientId === "string"
+          && evidence.clientIds.includes(clientId)
+          && submissionMessages([occurrence]).every((message) =>
+            message.clientId === clientId),
+        `${name} ${record.id} ${actor} original submission client changed`);
+      }
+      const heldMessagesByConnection = Map.groupBy(
+        heldOccurrences.flatMap((occurrence) =>
+          submissionMessages([occurrence]).map((message) => ({
+            connectionId: occurrence.connectionId,
+            message,
+          }))),
+        ({ connectionId }) => connectionId,
+      );
+      for (const [connectionId, entries] of heldMessagesByConnection) {
+        const clientId = originalClients.get(connectionId);
+        const heldMessagesForConnection = entries.map(({ message }) => message);
+        const prior = evidence.submitted
+          .filter(({ id, connectionId: candidate }) =>
+            candidate === connectionId && !heldIds.includes(id))
+          .flatMap((occurrence) => submissionMessages([occurrence]))
+          .filter((message) => message.clientId === clientId);
+        const priorClientSequence = Math.max(
+          0,
+          ...prior.map(({ clientSequenceNumber }) => clientSequenceNumber),
+        );
+        assert.deepEqual(
+          heldMessagesForConnection
+            .map(({ clientSequenceNumber }) =>
+              clientSequenceNumber).sort((a, b) => a - b),
+          Array.from(
+            { length: heldMessagesForConnection.length },
+            (_, index) => priorClientSequence + index + 1,
+          ),
+          `${name} ${record.id} ${actor} original client sequence changed`,
+        );
+        const priorReferenceSequence = Math.max(
+          0,
+          ...prior.map(({ referenceSequenceNumber }) => referenceSequenceNumber),
+        );
+        assert(heldMessagesForConnection.every(({ referenceSequenceNumber }) =>
+          Number.isSafeInteger(referenceSequenceNumber)
+            && referenceSequenceNumber >= priorReferenceSequence
+            && referenceSequenceNumber <= Math.min(...scheduled[actor]
+              .map((message) => message.referenceSequenceNumber))),
+        `${name} ${record.id} ${actor} original reference sequence changed`);
+      }
+    }
+    const reconnectConnections = new Set(evidence.handshakes
+      .map(({ connectionId }) => connectionId));
+    const reconnectMessages = [
+      ...evidence.delivered
+        .filter(({ direction: candidate, connectionId }) =>
+          candidate === "inbound"
+            && reconnectConnections.has(connectionId))
+        .flatMap(({ sequencedMessages = [] }) => sequencedMessages),
+      ...evidence.handshakes
+        .filter(({ connectionId }) => reconnectConnections.has(connectionId))
+        .flatMap(({ initialMessages = [] }) => initialMessages),
+    ];
+    assert(reconnectConnections.size > 0
+      && [...reconnectConnections].every((connectionId) =>
+        !heldConnections.has(connectionId))
+      && evidence.connections.some(({ connectionId }) =>
+        reconnectConnections.has(connectionId)),
+    `${name} ${record.id} ${actor} reconnect did not change connections`);
+    if (plan.mode === "disconnect-before-acceptance") {
+      const retryClients = new Map(evidence.handshakes.map((handshake) => [
+        handshake.connectionId,
+        handshake.clientId,
+      ]));
+      const retryOccurrences = evidence.delivered.filter(({
+        direction: candidate, kind, connectionId, submissions,
+      }) => candidate === "outbound"
+        && kind === "op"
+        && Array.isArray(submissions)
+        && reconnectConnections.has(connectionId));
+      assert(retryOccurrences.every((occurrence) => {
+        const clientId = retryClients.get(occurrence.connectionId);
+        return typeof clientId === "string"
+          && evidence.clientIds.includes(clientId)
+          && submissionMessages([occurrence]).every((message) =>
+            message.clientId === clientId);
+      }), `${name} ${record.id} ${actor} retry submission client changed`);
+      assert(coversScheduleMessages(
+        scheduleOutboundMessages(retryOccurrences),
+        scheduled[actor],
+      ), `${name} ${record.id} ${actor} retry lacks its accepted operation`);
+      assert(evidence.delivered.some(({ direction: candidate, connectionId }) =>
+        candidate === "outbound" && reconnectConnections.has(connectionId)),
+      `${name} ${record.id} ${actor} retry reused the disconnected transport`);
+      assert(coversScheduleMessages(
+        reconnectMessages,
+        scheduled[actor],
+        sequencedOperationIdentityKey,
+      ), `${name} ${record.id} ${actor} retry acceptance identity changed`);
+      validateScheduleRetryLineage(
+        heldMessages,
+        scheduled[actor],
+        record,
+        `${name} ${record.id} ${actor}`,
+      );
+    } else {
+      const through = Math.max(
+        ...scheduled[actor].map(({ sequenceNumber }) => sequenceNumber),
+      );
+      assert(evidence.handshakes.some(({ checkpointSequenceNumber,
+        summarySequenceNumber, initialMessageSequenceNumbers = [] }) =>
+        Math.max(
+          checkpointSequenceNumber ?? -1,
+          summarySequenceNumber ?? -1,
+          ...initialMessageSequenceNumbers,
+        ) >= through),
+      `${name} ${record.id} ${actor} reconnect does not cover acceptance`);
+      assert(coversScheduleMessages(
+        reconnectMessages,
+        scheduled[actor],
+        sequencedOperationIdentityKey,
+      ), `${name} ${record.id} ${actor} reconnect replay identity changed`);
+    }
+  }
+}
+
+async function validateLifecycleSchedules(section, artifacts) {
+  const name = "handleSchedules";
+  assert(section && typeof section === "object", `${name} section is missing`);
+  assert.equal(section.name, name, `${name} section name changed`);
+  assert.equal(section.formatVersion, 1, `${name} format changed`);
+  assert.equal(section.runId, artifacts.runId, `${name} run identity changed`);
+  validateContract(section.contract, `${name} section`);
+  assert.equal(section.skipped, false, `${name} section is skipped`);
+  assert.equal(section.seed, lifecycleScheduleSeed,
+    `${name} requires fixed seed 42`);
+  assert.equal(section.requested, lifecycleScheduleCount,
+    `${name} requires exactly 300 schedules`);
+  const plans = lifecycleSchedulePlans();
+  assert.deepEqual(section.expectedIds, plans.map(({ id }) => id),
+    `${name} fixed schedule IDs changed`);
+  assert.equal(section.records.length, lifecycleScheduleCount,
+    `${name} requires exactly 300 actual schedules`);
+  assert.deepEqual(section.records.map(({ id }) => id), section.expectedIds,
+    `${name} missing, duplicate, or reordered schedule IDs`);
+  assert.equal(new Set(section.records.map(({ id }) => id)).size,
+    lifecycleScheduleCount, `${name} duplicate schedule IDs`);
+  assert.equal(new Set(section.records.map(({ target }) =>
+    `${target.documentId}:${target.path}`)).size,
+    lifecycleScheduleCount, `${name} reused an actual target identity`);
+  assert.deepEqual(
+    [...new Set(section.observers.map(({ writer }) => writer))].sort(),
+    [...writers].sort(),
+    `${name} observer writer coverage changed`,
+  );
+  assert.equal(section.observers.length,
+    writers.length * lifecycleScheduleCount
+      / writers.length / lifecycleScheduleBatchSize,
+  `${name} observer batch coverage changed`);
+  const observerByInstance = new Map(
+    section.observers.map((observer) => [observer.instanceId, observer]),
+  );
+  assert.equal(observerByInstance.size, section.observers.length,
+    `${name} reused an observer process`);
+  for (const [index, record] of section.records.entries()) {
+    const plan = plans[index];
+    assert.deepEqual({
+      id: record.id,
+      index: record.index,
+      writer: record.writer,
+      mode: record.delivery.mode,
+      releaseOrder: record.delivery.releaseOrder,
+      operationOrder: record.delivery.operationOrder,
+    }, plan, `${name} ${record.id} delivery plan changed`);
+    assert.equal(record.seed, lifecycleScheduleSeed,
+      `${name} ${record.id} seed changed`);
+    assert.deepEqual(record.target.attributes, channelAttributes.map,
+      `${name} ${record.id} target attributes changed`);
+    assert(typeof record.target.documentId === "string"
+      && record.target.documentId.length > 0,
+    `${name} ${record.id} target document identity is missing`);
+    assert.equal(record.local.value, `schedule-value-${record.id}`,
+      `${name} ${record.id} local map read differs from its authored value`);
+    assert.equal(record.local.handlePath, record.target.path,
+      `${name} ${record.id} local handle names another target`);
+    assert.equal(record.peer.target, record.target.path,
+      `${name} ${record.id} native peer resolved another target`);
+    assert.equal(record.peer.upstream.target, record.target.path,
+      `${name} ${record.id} upstream peer resolved another target`);
+    assert.equal(record.peer.value, record.local.value,
+      `${name} ${record.id} peer value diverged`);
+    assert.equal(record.peer.upstream.value, record.local.value,
+      `${name} ${record.id} upstream peer value diverged`);
+    assert.equal(record.actualHandleWork, true,
+      `${name} ${record.id} lacks actual handle work`);
+    assert.equal(record.skipped, false,
+      `${name} ${record.id} is skipped`);
+    assert.equal(record.divergence, false,
+      `${name} ${record.id} reports divergence`);
+    assert.equal(record.delivery.errorsAfter, record.delivery.errorsBefore,
+      `${name} ${record.id} delivery transport reported errors`);
+    const operations = scheduleOperationEvidence(
+      record.operations.sequenced,
+      plan,
+      record.target,
+      record.local.value,
+    );
+    assert.deepEqual(record.operations, operations,
+      `${name} ${record.id} decoded lifecycle operations changed`);
+    assert.deepEqual(record.dependencies, dependencyEvidence(
+      operations.sequenced,
+      { target: record.target },
+    ), `${name} ${record.id} decoded allocation and commit evidence changed`);
+    const required = scheduleRequiredMessages(operations);
+    assert(record.accepted?.type === "op"
+      && Number.isSafeInteger(record.accepted.sequenceNumber)
+      && record.accepted.sequenceNumber > 0
+      && Number.isSafeInteger(record.accepted.clientSequenceNumber)
+      && Number.isSafeInteger(record.accepted.referenceSequenceNumber)
+      && typeof record.accepted.clientId === "string"
+      && record.accepted.clientId.length > 0,
+    `${name} ${record.id} lacks an actual typed accepted operation`);
+    assert.deepEqual(record.accepted, operations.parentReference.message,
+      `${name} ${record.id} accepted operation is not its decoded parent reference`);
+    assert(submissionMessages(record.delivery.submitted).some((message) =>
+      operationIdentityKey(message) === operationIdentityKey(record.accepted)),
+    `${name} ${record.id} accepted operation differs from actual delivery identity`);
+    validateScheduleDelivery(name, record, plan, required);
+    const throughSequenceNumber = Math.max(
+      ...operations.sequenced.map(({ sequenceNumber }) => sequenceNumber),
+    );
+    assert(record.local.writerObservation
+      && record.local.writerObservation.instanceId === record.local.writerInstanceId
+      && record.local.writerClientIds.includes(record.local.writerObservation.clientId)
+      && record.local.writerObservation.sequenceNumber >= throughSequenceNumber
+      && record.local.writerObservation.pendingTreeCount === 0
+      && record.local.writerObservation.inflightSubmissionCount === 0
+      && (plan.writer === "upstream"
+        || !record.local.writerObservation.readError),
+    `${name} ${record.id} writer observation does not cover all accepted edits`);
+    assert.equal(
+      record.delivery.actors.writer.instanceId,
+      record.local.writerInstanceId,
+      `${name} ${record.id} writer delivery belongs to another process`,
+    );
+    assert.deepEqual(
+      [...record.delivery.actors.writer.clientIds].sort(),
+      [...record.local.writerClientIds].sort(),
+      `${name} ${record.id} writer delivery client identities changed`,
+    );
+    if (plan.writer !== "upstream") {
+      validateReadyNativeObservation(
+        record.local.writerObservation.observation,
+        record.local.writerClientIds,
+        `${name} ${record.id} native writer observation`,
+      );
+    }
+    const observer = observerByInstance.get(record.observer.instanceId);
+    assert(observer
+      && observer.writer === record.writer
+      && observer.implementation === record.observer.implementation,
+    `${name} ${record.id} observer identity changed`);
+    assert.equal(record.observer.instanceId, observer.instanceId,
+      `${name} ${record.id} observer process identity changed`);
+    assert.equal(observer.transport.instanceId, observer.instanceId,
+      `${name} ${record.id} native transport belongs to another process`);
+    assert.equal(record.observer.acceptedSequenceNumber, throughSequenceNumber,
+      `${name} ${record.id} observer acceptance watermark changed`);
+    assert(record.observer.processedSequenceNumber >= throughSequenceNumber
+      && record.observer.observation.phase === "ready"
+      && record.observer.observation.synced === true
+      && record.observer.observation.error === null
+      && record.observer.observation.inFlightCount === 0
+      && record.observer.observation.pendingTreeCount === 0,
+    `${name} ${record.id} per-schedule observer did not process all edits`);
+    assert.equal(
+      record.observer.observation.clientId,
+      observer.observation.clientId,
+      `${name} ${record.id} per-schedule observer processed another client`,
+    );
+    assert(observer.clientIds.includes(record.observer.observation.clientId),
+      `${name} ${record.id} per-schedule observer client is not connected`);
+    assert.equal(record.peer.native.instanceId, observer.instanceId,
+      `${name} ${record.id} native map read belongs to another process`);
+    assert.deepEqual(
+      [...record.peer.native.clientIds].sort(),
+      [...observer.clientIds].sort(),
+    `${name} ${record.id} native map read client identities changed`);
+    assert.equal(record.peer.native.target, record.target.path,
+      `${name} ${record.id} native map read names another target`);
+    assert.equal(record.peer.native.value, record.local.value,
+      `${name} ${record.id} native map read has another value`);
+    const upstreamPeer = record.peer.upstream;
+    assert(upstreamPeer
+      && upstreamPeer.instanceId === upstreamPeer.observation?.clientId
+      && upstreamPeer.processedSequenceNumber
+        === upstreamPeer.observation?.lastSequenceNumber
+      && upstreamPeer.processedSequenceNumber >= throughSequenceNumber
+      && Array.isArray(upstreamPeer.clientIds)
+      && upstreamPeer.clientIds.includes(upstreamPeer.instanceId)
+      && upstreamPeer.transport?.connections.some(({ clientId }) =>
+        clientId === upstreamPeer.instanceId),
+    `${name} ${record.id} upstream map read lacks its processed connection identity`);
+    const actorClientIds = new Set(
+      Object.values(record.delivery.actors)
+        .flatMap(({ clientIds }) => clientIds),
+    );
+    assert(!upstreamPeer.clientIds.some((clientId) =>
+      actorClientIds.has(clientId)),
+    `${name} ${record.id} upstream map read reused a writer or target client`);
+    assert(observer.observation.phase === "ready"
+      && observer.observation.synced === true
+      && observer.observation.error === null
+      && observer.observation.inFlightCount === 0
+      && observer.observation.pendingTreeCount === 0,
+    `${name} ${record.id} native observer is not ready, synced, and error-free: `
+      + JSON.stringify(observer.observation));
+    assert.deepEqual(observer.transport.errors, [],
+      `${name} ${record.id} native observer transport reported errors`);
+    assert(observer.processedSequenceNumber >= throughSequenceNumber,
+      `${name} ${record.id} observer processed watermark precedes required edits`);
+    assert(observer.clientIds.includes(observer.observation.clientId),
+      `${name} ${record.id} observer processed another client identity`);
+    const connectionIds = new Set(
+      observer.transport.connections.map(({ connectionId }) => connectionId),
+    );
+    const receipts = matrixSequencedMessageReceipts(
+      observer.transport,
+      connectionIds,
+      true,
+    );
+    for (const message of operations.sequenced) {
+      const receiptKey = [
+        message.sequenceNumber,
+        message.type,
+        operationIdentityKey(message),
+      ].join(":");
+      assert(receipts.has(receiptKey),
+        `${name} ${record.id} required edit lacks native inbound identity`);
+      assert(observer.transport.handshakes.some(({ connectionId, clientId }) =>
+        clientId === record.observer.observation.clientId
+          && receipts.get(receiptKey).has(connectionId)),
+      `${name} ${record.id} observer handshake differs from delivered edit`);
+    }
+  }
+  assert(new Set(section.records.map(({ delivery }) => delivery.mode)).size >= 5,
+    `${name} lacks varied real delivery and reconnect windows`);
+  assert.deepEqual(
+    [...new Set(section.records.map(({ delivery }) => delivery.releaseOrder))].sort(),
+    ["fifo", "reverse"],
+    `${name} lacks varied delivery release order`,
+  );
+  assert.deepEqual(
+    [...new Set(section.records.map(({ delivery }) => delivery.operationOrder))].sort(),
+    ["parent-first", "target-first"],
+    `${name} lacks varied handle operation order`,
+  );
+  assert.equal(section.artifacts.length, 1,
+    `${name} lacks one persisted schedule artifact`);
+  const descriptor = section.artifacts[0];
+  const registered = artifacts.files[descriptor.path];
+  assert(registered, `${name} artifact is not registered`);
+  assert.equal(registered.sha256, descriptor.sha256,
+    `${name} artifact digest changed`);
+  const bytes = await readFile(join(artifacts.root, descriptor.path));
+  assert.equal(hash(bytes), descriptor.sha256,
+    `${name} persisted artifact bytes changed`);
+  const artifact = JSON.parse(bytes.toString("utf8"));
+  const persisted = structuredClone(section);
+  delete persisted.artifacts;
+  assert.deepEqual(artifact, JSON.parse(JSON.stringify(persisted)),
+    `${name} report differs from its persisted artifact`);
+  return section;
+}
+
 export async function validateLifecycleSection(
   name,
   section,
   artifacts,
   { diagnosticWriter } = {},
 ) {
+  if (name === "handleSchedules") {
+    return validateLifecycleSchedules(section, artifacts);
+  }
   if (name === "handleReloadMatrix") {
     return validateReloadMatrixSection(section, artifacts);
   }
@@ -7244,7 +8738,30 @@ export async function validateLifecycleReport(report, artifacts) {
   assert(report && typeof report === "object", "Lifecycle report is missing");
   assert.equal(report.formatVersion, 1, "Lifecycle report format changed");
   assert.equal(report.runId, artifacts.runId, "Lifecycle report run identity changed");
+  assert.equal(report.bounded, false,
+    "Lifecycle bounded diagnostic report is not full acceptance");
   validateContract(report.contract, "Lifecycle report");
+  assert.deepEqual(report.prerequisites?.source, {
+    commit: sourceReference.commit,
+    version: sourceReference.version,
+  }, "Lifecycle report reference checkout identity changed");
+  assert.deepEqual(report.prerequisites?.capture?.reference, {
+    commit: sourceReference.commit,
+    version: sourceReference.version,
+  }, "Lifecycle report source capture identity changed");
+  assert.equal(report.prerequisites?.capture?.minVersionForCollab,
+    oldestSupportedClient,
+  "Lifecycle report source capture compatibility changed");
+  assert(/^[a-f0-9]{64}$/.test(report.prerequisites?.capture?.sha256),
+    "Lifecycle report source capture digest is missing");
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(report.prerequisites?.packages ?? {})
+      .map(([name, version]) => [name, version])),
+    Object.fromEntries(sourceReference.packages.map((name) =>
+      [name, sourceReference.version])),
+    "Lifecycle report package pins changed",
+  );
+  await validateLifecycleSchedules(report.schedules, artifacts);
   assert.deepEqual(
     Object.keys(report.sections ?? {}).sort(),
     [...sections].sort(),
@@ -7264,23 +8781,32 @@ export async function runLifecycleInterop({
   constructors = { nativeAdapter, openSession },
   output = join(import.meta.dirname, ".output/lifecycle", randomUUID()),
   scenario,
+  iterations = lifecycleScheduleCount,
+  seed = lifecycleScheduleSeed,
 } = {}) {
+  assert.equal(iterations, lifecycleScheduleCount,
+    "Task 8 lifecycle acceptance requires exactly 300 schedules");
+  assert.equal(seed, lifecycleScheduleSeed,
+    "Task 8 lifecycle acceptance requires seed 42");
   const runId = randomUUID();
   const matrixSelected = scenario === "handleReloadMatrix";
-  const selected = scenario === undefined || matrixSelected
+  const schedulesSelected = scenario === "handleSchedules";
+  const selected = scenario === undefined || matrixSelected || schedulesSelected
     ? null
     : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment|handleTransactionBranch|handleRetention|handleReconnect):(upstream|javascript|erlang)$/);
   if (scenario !== undefined) {
-    assert(selected || matrixSelected,
-      "Lifecycle scenario must be <section>:<writer> or handleReloadMatrix");
+    assert(selected || matrixSelected || schedulesSelected,
+      "Lifecycle scenario must be <section>:<writer>, handleReloadMatrix, or handleSchedules");
   }
-  assert(
-    selected || matrixSelected || bounded === true,
-    "Full seven-section lifecycle execution is not implemented",
-  );
-  const selectedSections = matrixSelected
+  const selectedSections = schedulesSelected
+    ? []
+    : matrixSelected
     ? ["handleReloadMatrix"]
-    : selected ? [selected[1]] : liveSections;
+    : selected
+      ? [selected[1]]
+      : bounded
+        ? liveSections
+        : sections;
   const selectedWriters = selected ? [selected[2]] : writers;
   const selection = selected
     ? { kind: "writer", writer: selected[2] }
@@ -7296,12 +8822,14 @@ export async function runLifecycleInterop({
     output: resolve(output),
     runId,
   };
+  const prerequisites = await verifyLifecyclePrerequisites();
   await mkdir(context.output, { recursive: true });
   const report = {
     formatVersion: 1,
     runId,
     contract,
-    bounded: true,
+    prerequisites,
+    bounded: bounded || scenario !== undefined,
     sections: {},
   };
   for (const name of selectedSections) {
@@ -7336,6 +8864,13 @@ export async function runLifecycleInterop({
     );
     report.sections[name] = section;
   }
+  if (schedulesSelected || scenario === undefined && bounded === false) {
+    report.schedules = await runLifecycleSchedules(config, context);
+    await validateLifecycleSchedules(report.schedules, context.artifacts);
+  }
+  if (scenario === undefined && bounded === false) {
+    await validateLifecycleReport(report, context.artifacts);
+  }
   await writeFile(
     join(context.output, "report.json"),
     `${JSON.stringify(report, null, 2)}\n`,
@@ -7361,24 +8896,33 @@ async function main(args) {
     args,
     options: {
       "local-floodgate": { type: "boolean", default: false },
+      iterations: { type: "string", default: String(lifecycleScheduleCount) },
       output: { type: "string" },
       scenario: { type: "string" },
+      seed: { type: "string", default: String(lifecycleScheduleSeed) },
     },
   });
-  assert(values.scenario,
-    "Bounded Task 8 execution requires --scenario; full seven-section execution is not implemented");
+  const iterations = Number(values.iterations);
+  const seed = Number(values.seed);
+  assert(Number.isSafeInteger(iterations),
+    "--iterations must be a safe integer");
+  assert(Number.isSafeInteger(seed), "--seed must be a safe integer");
   const run = (config) => runLifecycleInterop({
     config,
     ...(values.output ? { output: values.output } : {}),
-    scenario: values.scenario,
+    ...(values.scenario ? { scenario: values.scenario } : {}),
+    iterations,
+    seed,
   });
   const captured = values["local-floodgate"]
     ? await withLocalFloodgate(run)
     : await run(serviceConfig());
   console.log(JSON.stringify({
     runId: captured.report.runId,
-    bounded: true,
+    bounded: captured.report.bounded,
     sections: Object.keys(captured.report.sections),
+    schedules: captured.report.schedules?.records.length ?? 0,
+    seed: captured.report.schedules?.seed,
     writers: Object.values(captured.report.sections)
       .flatMap(({ rows }) => rows.map(({ writer }) => writer)),
     output: captured.output,

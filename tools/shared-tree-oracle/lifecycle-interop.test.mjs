@@ -35,23 +35,27 @@ function replaceNested(value, before, after) {
 }
 
 function changeFirstRevision(value) {
+  return changeFirstRevisionBy(value, 1);
+}
+
+function changeFirstRevisionBy(value, delta) {
   if (!value || typeof value !== "object") return false;
   if (Number.isSafeInteger(value.revision)) {
-    value.revision += 1;
+    value.revision += delta;
     return true;
   }
   for (const [key, item] of Object.entries(value)) {
     if (typeof item === "string" && /^[\[{]/.test(item.trim())) {
       try {
         const decoded = JSON.parse(item);
-        if (changeFirstRevision(decoded)) {
+        if (changeFirstRevisionBy(decoded, delta)) {
           value[key] = JSON.stringify(decoded);
           return true;
         }
       } catch {
         // A source value can resemble JSON without containing encoded data.
       }
-    } else if (changeFirstRevision(item)) {
+    } else if (changeFirstRevisionBy(item, delta)) {
       return true;
     }
   }
@@ -531,15 +535,567 @@ test("full lifecycle validation refuses a bounded report", async () => {
       contract: {},
       sections: {},
     }, { runId: "bounded" }),
-    /pins|seven|required section|handleValues/i,
+    /bounded diagnostic|pins|seven|required section|handleValues/i,
   );
 });
 
-test("default lifecycle producer refuses a partial report", async () => {
+test("default lifecycle producer reaches the complete runner", async () => {
   await assert.rejects(
     () => runLifecycleInterop({ config: {} }),
-    /full seven-section.*not implemented/i,
+    (error) => {
+      assert.doesNotMatch(error.message, /full seven-section.*not implemented/i);
+      return true;
+    },
   );
+});
+
+test("lifecycle acceptance refuses caller-shrunk coverage", async () => {
+  await assert.rejects(
+    () => runLifecycleInterop({ config: {}, iterations: 299 }),
+    /exactly 300 schedules/i,
+  );
+  await assert.rejects(
+    () => runLifecycleInterop({ config: {}, seed: 43 }),
+    /seed 42/i,
+  );
+});
+
+test("real lifecycle schedules execute fixed seed 42 handle delivery", {
+  timeout: 2_400_000,
+}, async (t) => {
+  const output = join(
+    matrixPlanRoot,
+    `artifacts/task-8-live-schedules-tests/live-${randomUUID()}`,
+  );
+  try {
+    const result = await withLocalFloodgate((config) =>
+      runLifecycleInterop({
+        config,
+        scenario: "handleSchedules",
+        output,
+      }));
+    const schedules = result.report.schedules;
+    assert.equal(schedules.seed, 42);
+    assert.equal(schedules.records.length, 300);
+    assert.equal(new Set(schedules.records.map(({ id }) => id)).size, 300);
+    assert(schedules.records.every(({ actualHandleWork, divergence }) =>
+      actualHandleWork === true && divergence === false));
+    await validateLifecycleSection("handleSchedules", schedules, result.artifacts);
+
+    const descriptor = schedules.artifacts[0];
+    const artifactPath = join(result.artifacts.root, descriptor.path);
+    const originalBytes = await readFile(artifactPath);
+    const originalArtifact = JSON.parse(originalBytes);
+    const rejectMutation = async (label, mutate, pattern, { full = false } = {}) => {
+      const changed = structuredClone(schedules);
+      const artifact = structuredClone(originalArtifact);
+      mutate(changed, artifact);
+      const bytes = Buffer.from(`${JSON.stringify(artifact)}\n`);
+      const digest = hash(bytes);
+      changed.artifacts[0].sha256 = digest;
+      const artifacts = structuredClone(result.artifacts);
+      artifacts.files[descriptor.path].sha256 = digest;
+      await writeFile(artifactPath, bytes);
+      try {
+        await assert.rejects(
+          () => validateLifecycleSection(
+            "handleSchedules",
+            changed,
+            artifacts,
+          ),
+          pattern,
+          label,
+        );
+        if (full) {
+          const report = structuredClone(result.report);
+          report.bounded = false;
+          report.schedules = changed;
+          await assert.rejects(
+            () => validateLifecycleReport(report, artifacts),
+            pattern,
+            `${label} full wrapper`,
+          );
+        }
+      } finally {
+        await writeFile(artifactPath, originalBytes);
+      }
+    };
+    const rejectFullMutation = async (label, mutate, pattern) => {
+      const changed = structuredClone(schedules);
+      const artifact = structuredClone(originalArtifact);
+      mutate(changed, artifact);
+      const bytes = Buffer.from(`${JSON.stringify(artifact)}\n`);
+      const digest = hash(bytes);
+      changed.artifacts[0].sha256 = digest;
+      const artifacts = structuredClone(result.artifacts);
+      artifacts.files[descriptor.path].sha256 = digest;
+      await writeFile(artifactPath, bytes);
+      try {
+        const report = structuredClone(result.report);
+        report.bounded = false;
+        report.schedules = changed;
+        await assert.rejects(
+          () => validateLifecycleReport(report, artifacts),
+          pattern,
+          `${label} full wrapper`,
+        );
+      } finally {
+        await writeFile(artifactPath, originalBytes);
+      }
+    };
+    await t.test("omitted schedule", () => rejectMutation(
+      "omitted schedule",
+      (changed, artifact) => {
+        changed.records.pop();
+        artifact.records.pop();
+      },
+      /300|missing|schedule ids/i,
+    ));
+    await t.test("duplicate schedule", () => rejectMutation(
+      "duplicate schedule",
+      (changed, artifact) => {
+        changed.records[1] = structuredClone(changed.records[0]);
+        artifact.records[1] = structuredClone(artifact.records[0]);
+      },
+      /duplicate|schedule ids/i,
+    ));
+    await t.test("wrong seed", () => rejectMutation(
+      "wrong seed",
+      (changed, artifact) => {
+        changed.seed = 43;
+        artifact.seed = 43;
+      },
+      /seed 42/i,
+    ));
+    await t.test("changed delivery identity", () => rejectMutation(
+      "changed delivery identity",
+      (changed, artifact) => {
+        changed.records[0].delivery.mode = "unheld";
+        artifact.records[0].delivery.mode = "unheld";
+      },
+      /delivery.*plan|mode/i,
+    ));
+    await t.test("changed accepted operation identity", () => rejectMutation(
+      "changed accepted operation identity",
+      (changed, artifact) => {
+        changed.records[0].accepted.contents = { changed: true };
+        artifact.records[0].accepted.contents = { changed: true };
+      },
+      /accepted operation|delivery identity|sequenced|decoded lifecycle operations/i,
+    ));
+    await t.test("removed actual handle work", () => rejectMutation(
+      "removed actual handle work",
+      (changed, artifact) => {
+        changed.records[0].dependencies.targets[0].occurrences = [];
+        artifact.records[0].dependencies.targets[0].occurrences = [];
+      },
+      /actual handle|attachment|target occurrence|allocation and commit/i,
+    ));
+    await t.test("fabricated peer convergence", () => rejectMutation(
+      "fabricated peer convergence",
+      (changed, artifact) => {
+        changed.records[0].peer.value = "fabricated";
+        artifact.records[0].peer.value = "fabricated";
+      },
+      /peer.*value|convergence/i,
+    ));
+    await t.test("removed delivery execution evidence", () => rejectMutation(
+      "removed delivery execution evidence",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          for (const record of schedules.records) {
+            record.delivery.held = [];
+            record.delivery.delivered = [];
+            for (const evidence of Object.values(record.delivery.actors)) {
+              evidence.held = [];
+              evidence.delivered = [];
+              for (const control of evidence.controls) {
+                if (control.action === "release") control.messageIds = [];
+                if (control.action === "disconnect") {
+                  control.dropped = { inbound: [], outbound: [] };
+                }
+              }
+            }
+            for (const control of record.delivery.controls) {
+              if (control.action === "release") control.messageIds = [];
+              if (control.action === "disconnect") {
+                control.dropped = { inbound: [], outbound: [] };
+              }
+            }
+          }
+        }
+      },
+      /held|release|dropped|delivery execution|lifecycle operations|hold identity|retry effects/i,
+    ));
+    await t.test("changed disconnect execution order", () => rejectMutation(
+      "changed disconnect execution order",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          const record = schedules.records.find(({ delivery }) =>
+            delivery.mode === "disconnect-before-acceptance");
+          record.delivery.actors.writer.controls.reverse();
+          record.delivery.controls.reverse();
+        }
+      },
+      /disconnect|reconnect|control order|acceptance window|actual hold/i,
+    ));
+    await t.test("unrelated operation and fake target certify attachment", () =>
+      rejectMutation(
+        "unrelated operation and fake target certify attachment",
+        (changed, artifact) => {
+          for (const schedules of [changed, artifact]) {
+            const record = schedules.records[0];
+            const unrelated = record.delivery.delivered
+              .flatMap(({ sequencedMessages = [] }) => sequencedMessages)
+              .find(({ sequenceNumber }) =>
+                sequenceNumber !== record.accepted.sequenceNumber);
+            assert(unrelated, "Schedule lacks an unrelated real operation");
+            const fake = "/A/never-created-review-target";
+            record.target.path = fake;
+            record.local.handlePath = fake;
+            record.peer.target = fake;
+            record.peer.upstream.target = fake;
+            record.accepted = unrelated;
+            record.observer.acceptedSequenceNumber = unrelated.sequenceNumber;
+            record.dependencies.targets[0].path = fake;
+            record.dependencies.targets[0].occurrences = [{
+              sequenceNumber: unrelated.sequenceNumber,
+              clientSequenceNumber: unrelated.clientSequenceNumber,
+              innerIndex: 0,
+              kind: "attach",
+            }];
+          }
+        },
+        /decoded|attachment|target operation|typed handle/i,
+      ));
+    await t.test("removed decoded allocations and commits", () => rejectMutation(
+      "removed decoded allocations and commits",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          for (const record of schedules.records) {
+            record.dependencies.allocations = [];
+            record.dependencies.commits = [];
+          }
+        }
+      },
+      /allocation|commit|decoded/i,
+    ));
+    await t.test("equally falsified convergence values", () => rejectMutation(
+      "equally falsified convergence values",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          const record = schedules.records[1];
+          record.local.value = "same-false-value";
+          record.peer.value = "same-false-value";
+          record.peer.upstream.value = "same-false-value";
+        }
+      },
+      /observed|state|value|convergence/i,
+    ));
+    await t.test("wrong process and cleared writer observations", () =>
+      rejectMutation(
+        "wrong process and cleared writer observations",
+        (changed, artifact) => {
+          for (const schedules of [changed, artifact]) {
+            schedules.observers[0].instanceId = "unrelated-process";
+            for (const record of schedules.records) {
+              record.local.writerObservation = null;
+              record.observer.acceptedSequenceNumber = -1;
+            }
+          }
+        },
+        /instance|writer observation|accepted sequence|process/i,
+      ));
+    await t.test("removed required delivery actors", () => rejectMutation(
+      "removed required delivery actors",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          for (const record of schedules.records) {
+            record.delivery.actors = {};
+            record.delivery.held = [];
+            record.delivery.controls = [];
+            record.delivery.delivered = [];
+            record.delivery.handshakes = [];
+            record.delivery.connections = [];
+          }
+        }
+      },
+      /actor|delivery|transport/i,
+      { full: true },
+    ));
+    await t.test("changed accepted-before-disconnect held identity", () =>
+      rejectMutation(
+        "changed accepted-before-disconnect held identity",
+        (changed, artifact) => {
+          for (const schedules of [changed, artifact]) {
+            const record = schedules.records.find(({ delivery }) =>
+              delivery.mode === "disconnect-after-acceptance");
+            for (const held of record.delivery.actors.writer.held) {
+              for (const message of held.sequencedMessages ?? []) {
+                message.sequenceNumber += 100_000;
+                message.clientSequenceNumber += 100_000;
+                message.referenceSequenceNumber += 100_000;
+                message.clientId = "unrelated-held-client";
+              }
+            }
+            record.delivery.held = Object.entries(record.delivery.actors)
+              .flatMap(([actor, evidence]) =>
+                evidence.held.map((item) => ({ actor, ...item })));
+          }
+        },
+        /held|identity|disconnect|accepted/i,
+      ));
+    await t.test("changed inbound release direction and packet order", () =>
+      rejectMutation(
+        "changed inbound release direction and packet order",
+        (changed, artifact) => {
+          for (const schedules of [changed, artifact]) {
+            const record = schedules.records.find(({ delivery }) =>
+              delivery.mode === "inbound-held"
+                && Object.values(delivery.actors).some(({ controls }) =>
+                  controls.some(({ action, messageIds }) =>
+                    action === "release" && messageIds.length > 1)));
+            assert(record, "Schedule lacks a multi-packet inbound release");
+            for (const evidence of Object.values(record.delivery.actors)) {
+              const release = evidence.controls.find(({ action }) =>
+                action === "release");
+              if (!release) continue;
+              release.direction = "outbound";
+              release.messageIds.reverse();
+            }
+            record.delivery.controls = Object.entries(record.delivery.actors)
+              .flatMap(([actor, evidence]) =>
+                evidence.controls.map((item) => ({ actor, ...item })));
+          }
+        },
+        /release|direction|order|delivery/i,
+      ));
+    await t.test("changed per-schedule observer processed client", () =>
+      rejectMutation(
+        "changed per-schedule observer processed client",
+        (changed, artifact) => {
+          for (const schedules of [changed, artifact]) {
+            for (const record of schedules.records) {
+              record.observer.observation.clientId =
+                "unrelated-processed-client";
+            }
+          }
+        },
+        /observer|processed|client|handshake/i,
+      ));
+    await t.test("changed native writer readiness", () => rejectMutation(
+      "changed native writer readiness",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          for (const record of schedules.records.filter(({ writer }) =>
+            writer !== "upstream")) {
+            for (const observation of [
+              record.local.writerObservation.observation,
+              record.delivery.actors.writer.observation.observation,
+            ]) {
+              observation.phase = "error";
+              observation.synced = false;
+              observation.error = "fabricated writer failure";
+            }
+          }
+        }
+      },
+      /writer|ready|synced|error/i,
+    ));
+    await t.test("changed ordinary outbound operation identity", () =>
+      rejectMutation(
+        "changed ordinary outbound operation identity",
+        (changed, artifact) => {
+          const alter = (occurrence) => {
+            for (const submission of occurrence.submissions) {
+              submission.clientId = "never-connected-writer";
+              for (const message of submission.messageBatches.flat()) {
+                if (message.type !== "op") continue;
+                message.clientSequenceNumber += 100_000;
+                message.referenceSequenceNumber += 100_000;
+              }
+            }
+            const bytes = occurrence.topic === undefined
+              ? Buffer.from(
+                `42${JSON.stringify([
+                  "submitOp",
+                  occurrence.submissions[0].clientId,
+                  occurrence.submissions[0].messageBatches,
+                ])}`,
+              )
+              : Buffer.from(JSON.stringify(occurrence.submissions));
+            occurrence.hash = hash(bytes);
+            occurrence.byteLength = bytes.length;
+          };
+          for (const schedules of [changed, artifact]) {
+            for (const record of schedules.records.filter(({ delivery }) =>
+              delivery.mode === "outbound-held")) {
+              for (const evidence of Object.values(record.delivery.actors)) {
+                const heldIds = new Set(evidence.held.map(({ id }) => id));
+                for (const occurrence of evidence.held) alter(occurrence);
+                for (const occurrence of evidence.delivered.filter(({ id }) =>
+                  heldIds.has(id))) {
+                  alter(occurrence);
+                }
+              }
+              record.delivery.held = Object.entries(record.delivery.actors)
+                .flatMap(([actor, evidence]) =>
+                  evidence.held.map((item) => ({ actor, ...item })));
+              record.delivery.delivered = Object.entries(record.delivery.actors)
+                .flatMap(([actor, evidence]) =>
+                  evidence.delivered.map((item) => ({ actor, ...item })));
+            }
+          }
+        },
+        /outbound.*identity|submission|accepted operation/i,
+        { full: true },
+      ));
+    const changeReconnectOriginalIdentity = (changed, artifact) => {
+      const alter = (occurrence) => {
+        for (const submission of occurrence.submissions) {
+          submission.clientId = "never-connected-writer";
+          for (const message of submission.messageBatches.flat()) {
+            if (message.type !== "op") continue;
+            message.clientSequenceNumber += 100_000;
+            message.referenceSequenceNumber += 100_000;
+          }
+        }
+        const bytes = occurrence.topic === undefined
+          ? Buffer.from(
+            `42${JSON.stringify([
+              "submitOp",
+              occurrence.submissions[0].clientId,
+              occurrence.submissions[0].messageBatches,
+            ])}`,
+          )
+          : Buffer.from(JSON.stringify(occurrence.submissions));
+        occurrence.hash = hash(bytes);
+        occurrence.byteLength = bytes.length;
+      };
+      for (const schedules of [changed, artifact]) {
+        for (const record of schedules.records.filter(({ delivery }) =>
+          delivery.mode === "disconnect-before-acceptance")) {
+          const evidence = record.delivery.actors.writer;
+          const heldIds = new Set(evidence.held.map(({ id }) => id));
+          for (const occurrence of evidence.held) alter(occurrence);
+          for (const occurrence of evidence.submitted.filter(({ id }) =>
+            heldIds.has(id))) {
+            alter(occurrence);
+          }
+          record.delivery.held = evidence.held
+            .map((item) => ({ actor: "writer", ...item }));
+          record.delivery.submitted = structuredClone(evidence.submitted);
+        }
+      }
+    };
+    await t.test("changed reconnect original identity", () => rejectMutation(
+      "changed reconnect original identity",
+      changeReconnectOriginalIdentity,
+      /reconnect|pre-disconnect|original.*(?:identity|client)|handshake|connection/i,
+    ));
+    await t.test("changed reconnect original identity through full wrapper",
+      () => rejectFullMutation(
+        "changed reconnect original identity",
+        changeReconnectOriginalIdentity,
+        /reconnect|pre-disconnect|original.*(?:identity|client)|handshake|connection/i,
+      ));
+    const changeReconnectOriginalRevision = (changed, artifact) => {
+      const alter = (occurrence) => {
+        assert(changeFirstRevisionBy(occurrence.submissions, 100_000),
+          "Reconnect original submission lacks a revision");
+        const bytes = occurrence.topic === undefined
+          ? Buffer.from(
+            `42${JSON.stringify([
+              "submitOp",
+              occurrence.submissions[0].clientId,
+              occurrence.submissions[0].messageBatches,
+            ])}`,
+          )
+          : Buffer.from(JSON.stringify(occurrence.submissions));
+        occurrence.hash = hash(bytes);
+        occurrence.byteLength = bytes.length;
+      };
+      for (const schedules of [changed, artifact]) {
+        for (const record of schedules.records.filter(({ delivery }) =>
+          delivery.mode === "disconnect-before-acceptance")) {
+          const evidence = record.delivery.actors.writer;
+          const parent = evidence.held.find((occurrence) =>
+            JSON.stringify(occurrence.submissions).includes(record.id)
+              && JSON.stringify(occurrence.submissions)
+                .includes(record.target.path));
+          assert(parent, "Reconnect hold lacks its parent commit");
+          alter(parent);
+          const submitted = evidence.submitted.find(({ id }) =>
+            id === parent.id);
+          assert(submitted, "Reconnect submissions lack the held parent commit");
+          alter(submitted);
+          record.delivery.held = evidence.held
+            .map((item) => ({ actor: "writer", ...item }));
+          record.delivery.submitted = structuredClone(evidence.submitted);
+        }
+      }
+    };
+    await t.test("changed reconnect original commit revision", () =>
+      rejectMutation(
+        "changed reconnect original commit revision",
+        changeReconnectOriginalRevision,
+        /retry|logical|revision|originator|changeset|allocation|lineage/i,
+      ));
+    await t.test("changed reconnect original commit revision through full wrapper",
+      () => rejectFullMutation(
+        "changed reconnect original commit revision",
+        changeReconnectOriginalRevision,
+        /retry|logical|revision|originator|changeset|allocation|lineage/i,
+      ));
+    await t.test("upstream peer identity aliases writer", () => rejectMutation(
+      "upstream peer identity aliases writer",
+      (changed, artifact) => {
+        for (const schedules of [changed, artifact]) {
+          for (const record of schedules.records) {
+            record.peer.upstream.instanceId = record.local.writerClientIds[0];
+          }
+        }
+      },
+      /upstream|peer|independent|identity/i,
+    ));
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("lifecycle prerequisites reject missing and wrong source captures", async () => {
+  const { verifyLifecyclePrerequisites } = await import("./lifecycle-interop.mjs");
+  assert.equal(typeof verifyLifecyclePrerequisites, "function");
+  const directory = join(
+    matrixPlanRoot,
+    `artifacts/task-8-live-schedules-tests/preflight-${randomUUID()}`,
+  );
+  const capture = join(directory, "source-smoke.json");
+  await mkdir(directory, { recursive: true });
+  try {
+    await assert.rejects(
+      () => verifyLifecyclePrerequisites({ capturePath: capture }),
+      /ENOENT|source capture/i,
+    );
+    await writeFile(capture, JSON.stringify({
+      formatVersion: 1,
+      kind: "source-smoke",
+      reference: { version: "3.1.0", commit: "wrong-source" },
+      messages: [{}],
+      codecTree: {},
+      compressor: {},
+      compressorFormat: {},
+      summary: {},
+      observations: { pending: [0, 0], settled: [0, 0] },
+      minVersionForCollab: "2.0.0",
+    }));
+    await assert.rejects(
+      () => verifyLifecyclePrerequisites({ capturePath: capture }),
+      /reference identity|source capture/i,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 function findSnapshotTree(tree, id) {
@@ -3002,7 +3558,11 @@ test("all implemented bounded rows validate exact peers publications and pins", 
           : result.report.sections.handleValues,
       );
       mutate(copy);
-      await assert.rejects(() => validate(copy), /pins|formats/i, level);
+      await assert.rejects(
+        () => validate(copy),
+        /bounded diagnostic|pins|formats/i,
+        level,
+      );
     }
     await rejectArtifactMutation(
       "handleValues",
