@@ -330,7 +330,7 @@ test("duplicate release callback runs after originals and before the duplicate",
   );
 });
 
-test("connection handshake records only safe replay sequence metadata", async (t) => {
+test("connection handshake records safe client and replay metadata", async (t) => {
   const upstream = await service();
   const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
   const socket = await connected(gate.port);
@@ -344,6 +344,7 @@ test("connection handshake records only safe replay sequence metadata", async (t
     "1", "2", "document:test", "connect_document_success",
     {
       token: "must-not-be-recorded",
+      clientId: "observer-client",
       checkpointSequenceNumber: 124,
       summaryContext: {
         handle: "must-not-be-recorded",
@@ -359,9 +360,58 @@ test("connection handshake records only safe replay sequence metadata", async (t
   assert.deepEqual(await received, [payload]);
   assert.deepEqual(gate.evidence().handshakes, [{
     connectionId: "connection-1",
+    clientId: "observer-client",
     checkpointSequenceNumber: 124,
     summarySequenceNumber: 123,
     initialMessageSequenceNumbers: [124],
+  }]);
+  assert(!JSON.stringify(gate.evidence()).includes("must-not-be-recorded"));
+});
+
+test("inbound operations record safe sequenced message identities", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  const socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  await until(() => upstream.connections() === 1, "Gate did not connect upstream");
+  const payload = JSON.stringify([
+    "1", "2", "document:test", "op",
+    {
+      sequenceNumber: 16,
+      clientSequenceNumber: 1,
+      referenceSequenceNumber: 15,
+      clientId: "writer-client",
+      type: "op",
+      contents: {
+        type: "component",
+        contents: { address: "A", authorization: "must-not-be-recorded" },
+      },
+      metadata: { batchId: "writer-client_[1]" },
+    },
+  ]);
+  const received = collect(socket, 1);
+  upstream.broadcast(payload);
+  assert.deepEqual(await received, [payload]);
+  await until(() => gate.evidence().delivered.some(({ direction }) =>
+    direction === "inbound"),
+  "Gate did not record the inbound operation");
+  const delivery = gate.evidence().delivered.find(({ direction }) =>
+    direction === "inbound");
+  assert.deepEqual(delivery.sequencedMessages, [{
+    sequenceNumber: 16,
+    clientSequenceNumber: 1,
+    referenceSequenceNumber: 15,
+    clientId: "writer-client",
+    type: "op",
+    contents: {
+      type: "component",
+      contents: { address: "A", authorization: "[redacted]" },
+    },
+    metadata: { batchId: "writer-client_[1]" },
   }]);
   assert(!JSON.stringify(gate.evidence()).includes("must-not-be-recorded"));
 });

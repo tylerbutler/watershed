@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import {
   runLifecycleInterop,
@@ -11,6 +11,12 @@ import {
 } from "./lifecycle-interop.mjs";
 import { nativeAdapter } from "./interop-scenarios.mjs";
 import { openSession, withLocalFloodgate } from "./service.mjs";
+import { storageResponseIdentity } from "./delivery-gate.mjs";
+
+const matrixPlanRoot = resolve(
+  import.meta.dirname,
+  "../../.superpowers/sdd/2026-10-10-shared-tree-handles-attachment",
+);
 
 function hash(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -534,6 +540,821 @@ test("default lifecycle producer refuses a partial report", async () => {
     () => runLifecycleInterop({ config: {} }),
     /full seven-section.*not implemented/i,
   );
+});
+
+function findSnapshotTree(tree, id) {
+  if (tree.id === id) return tree;
+  for (const child of Object.values(tree.trees ?? {})) {
+    const found = findSnapshotTree(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function matrixCheckpoint(section, artifact, writer, checkpoint) {
+  const reportCheckpoint = section.rows.find((row) => row.writer === writer)
+    ?.checkpoints.find((candidate) => candidate.id === checkpoint);
+  const artifactCheckpoint = artifact.rows.find((row) => row.writer === writer)
+    ?.checkpoints.find((candidate) => candidate.id === checkpoint);
+  assert(reportCheckpoint && artifactCheckpoint);
+  return [reportCheckpoint, artifactCheckpoint];
+}
+
+function updateMatrixCellBlobReceipt(cell, id, bytes) {
+  const digest = hash(bytes);
+  const fetched = cell.loader.fetchedBlobs.filter((receipt) => receipt.id === id);
+  if (fetched.length > 0 && fetched.every((receipt) =>
+    receipt.sha256 === digest && receipt.byteLength === bytes.length)) return;
+  for (const receipt of fetched) {
+    receipt.sha256 = digest;
+    receipt.byteLength = bytes.length;
+  }
+  if (cell.storage) {
+    for (const receipt of cell.storage.filter((candidate) =>
+      candidate.operation === "readBlob" && candidate.id === id)) {
+      receipt.byteLength = bytes.length;
+      receipt.hash = digest;
+      receipt.responseBody = bytes.toString("base64");
+    }
+  }
+  if (cell.transport?.http) {
+    const receipts = cell.transport.http.filter((candidate) => {
+      if (candidate.storageResponse?.kind === "blob"
+        && candidate.storageResponse.requestedId === id) return true;
+      try {
+        return JSON.parse(
+          Buffer.from(candidate.responseBody, "base64").toString("utf8"),
+        ).sha === id;
+      } catch {
+        return false;
+      }
+    });
+    for (const receipt of receipts) {
+      const bodyValue = JSON.parse(
+        Buffer.from(receipt.responseBody, "base64").toString("utf8"),
+      );
+      bodyValue.content = bodyValue.encoding === "base64"
+        ? bytes.toString("base64")
+        : bytes.toString("utf8");
+      bodyValue.size = bytes.length;
+      const body = Buffer.from(JSON.stringify(bodyValue));
+      receipt.responseBody = body.toString("base64");
+      receipt.responseHash = hash(body);
+      const identity = storageResponseIdentity(receipt.path, body);
+      if (identity === undefined) delete receipt.storageResponse;
+      else receipt.storageResponse = identity;
+      for (const fetchedReceipt of fetched) {
+        fetchedReceipt.responseHash = receipt.responseHash;
+      }
+    }
+  }
+}
+
+function replaceExact(value, before, after) {
+  if (value === before) return after;
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceExact(item, before, after));
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+    [key, replaceExact(item, before, after)]));
+}
+
+function replaceMatrixCheckpointBlob(
+  section,
+  artifact,
+  writer,
+  checkpoint,
+  id,
+  bytes,
+) {
+  const digest = hash(bytes);
+  const [reportCheckpoint, artifactCheckpoint] = matrixCheckpoint(
+    section,
+    artifact,
+    writer,
+    checkpoint,
+  );
+  const original = artifactCheckpoint.rawSnapshot.blobs[id];
+  artifactCheckpoint.rawSnapshot.blobs[id] = bytes.toString("base64");
+  reportCheckpoint.snapshot.blobs[id] = digest;
+  artifactCheckpoint.snapshot.blobs[id] = digest;
+  reportCheckpoint.summary = replaceExact(
+    reportCheckpoint.summary,
+    original,
+    bytes.toString("base64"),
+  );
+  artifactCheckpoint.summary = replaceExact(
+    artifactCheckpoint.summary,
+    original,
+    bytes.toString("base64"),
+  );
+  for (const cells of [section.cells, artifact.cells]) {
+    for (const cell of cells.filter((candidate) =>
+      candidate.writer === writer && candidate.checkpoint === checkpoint)) {
+      updateMatrixCellBlobReceipt(cell, id, bytes);
+    }
+  }
+}
+
+test("real reload matrix covers every fresh continuing reader cell", {
+  timeout: 1_200_000,
+}, async (t) => {
+  const output = join(
+    matrixPlanRoot,
+    `artifacts/task-8-live-matrix-fix1-tests/live-${randomUUID()}`,
+  );
+  try {
+    const result = await withLocalFloodgate((config) =>
+      runLifecycleInterop({
+        config,
+        scenario: "handleReloadMatrix",
+        output,
+      }));
+    const section = result.report.sections.handleReloadMatrix;
+    assert.equal(section.cells.length, 27);
+    assert.equal(new Set(section.cells.map(({ id }) => id)).size, 27);
+    assert(section.cells.every(({ continuation }) =>
+      continuation.peer.observed === true));
+    await validateLifecycleSection(
+      "handleReloadMatrix",
+      section,
+      result.artifacts,
+    );
+    const descriptor = section.rows[0].artifacts[0];
+    const artifactPath = join(result.artifacts.root, descriptor.path);
+    const originalBytes = await readFile(artifactPath);
+    const originalArtifact = JSON.parse(originalBytes);
+    const rejectMutation = async (label, mutate, pattern) => {
+      const changed = structuredClone(section);
+      const artifact = structuredClone(originalArtifact);
+      mutate(changed, artifact);
+      const bytes = Buffer.from(`${JSON.stringify(artifact)}\n`);
+      const digest = hash(bytes);
+      for (const row of changed.rows) row.artifacts[0].sha256 = digest;
+      const artifacts = structuredClone(result.artifacts);
+      artifacts.files[descriptor.path].sha256 = digest;
+      await writeFile(artifactPath, bytes);
+      try {
+        await assert.rejects(
+          () => validateLifecycleSection(
+            "handleReloadMatrix",
+            changed,
+            artifacts,
+          ),
+          pattern,
+          label,
+        );
+      } finally {
+        await writeFile(artifactPath, originalBytes);
+      }
+    };
+    const cells = (changed, artifact, id) => [
+      changed.cells.find((cell) => cell.id === id),
+      artifact.cells.find((cell) => cell.id === id),
+    ];
+    const changeAcknowledgementReceiptTypes = (changed, artifact, change) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:javascript",
+      )) {
+        const sequences = new Set(
+          cell.continuation.sequenced
+            .filter(({ type }) => type === "op")
+            .map(({ sequenceNumber }) => sequenceNumber),
+        );
+        const receipts = cell.transport.delivered
+          .flatMap(({ sequencedMessages }) => sequencedMessages ?? [])
+          .filter(({ sequenceNumber }) => sequences.has(sequenceNumber));
+        assert.equal(receipts.length, 2);
+        assert(receipts.every(({ type }) => type === "op"));
+        for (const receipt of receipts) change(receipt);
+      }
+    };
+    await t.test("rejects strings in place of decoded runtime operations", () =>
+      rejectMutation("fake runtime operation", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          const operation = cell.continuation.sequenced.find(({ type }) =>
+            type === "op");
+          cell.continuation.sequenced = [{
+            ...operation,
+            contents: {
+              type: "not-a-runtime-operation",
+              note: [
+                cell.resolved.map,
+                cell.resolved.tree,
+                cell.continuation.key,
+                cell.continuation.value,
+                cell.continuation.treeLabel,
+              ],
+            },
+          }];
+        }
+      }, /decoded.*operation|runtime.*operation/i));
+    await t.test("rejects invented observer identities", () =>
+      rejectMutation("invented observer identity", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.instanceId = "invented-observer";
+          cell.continuation.peer.receipt.clientIds = ["invented-observer-client"];
+        }
+      }, /peer.*(identity|connection|delivery)|observer.*identity/i));
+    await t.test("rejects distinct operations assigned one invented server sequence", () =>
+      rejectMutation("duplicate invented server sequence", (
+        changed,
+        artifact,
+      ) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:javascript",
+        )) {
+          const operations = cell.continuation.sequenced.filter(({ type }) =>
+            type === "op");
+          assert.deepEqual(
+            operations.map(({ clientSequenceNumber }) => clientSequenceNumber),
+            [1, 2],
+          );
+          for (const operation of operations) operation.sequenceNumber = 8;
+        }
+      }, /acknowledgement.*sequence|delivery.*sequence|duplicate.*sequence/i));
+    await t.test("rejects unique invented server sequences", () =>
+      rejectMutation("unique invented server sequences", (
+        changed,
+        artifact,
+      ) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:javascript",
+        )) {
+          const operations = cell.continuation.sequenced.filter(({ type }) =>
+            type === "op");
+          assert.deepEqual(
+            operations.map(({ clientSequenceNumber }) => clientSequenceNumber),
+            [1, 2],
+          );
+          operations[0].sequenceNumber = 8;
+          operations[1].sequenceNumber = 9;
+        }
+      }, /acknowledgement.*sequence|delivery.*sequence/i));
+    await t.test("rejects server sequences swapped between distinct messages", () =>
+      rejectMutation("swapped server sequences", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:javascript",
+        )) {
+          const operations = cell.continuation.sequenced.filter(({ type }) =>
+            type === "op");
+          assert.deepEqual(
+            operations.map(({ clientSequenceNumber }) => clientSequenceNumber),
+            [1, 2],
+          );
+          const first = operations[0].sequenceNumber;
+          operations[0].sequenceNumber = operations[1].sequenceNumber;
+          operations[1].sequenceNumber = first;
+        }
+      }, /sequenced.*delivery.*identity|acknowledgement.*identity/i));
+    await t.test("rejects noop acknowledgement receipts", () =>
+      rejectMutation("noop acknowledgement receipts", (changed, artifact) => {
+        changeAcknowledgementReceiptTypes(changed, artifact, (receipt) => {
+          receipt.type = "noop";
+        });
+      }, /sequenced.*delivery.*identity|acknowledgement.*identity/i));
+    await t.test("rejects acknowledgement receipts without a message type", () =>
+      rejectMutation("missing acknowledgement receipt type", (
+        changed,
+        artifact,
+      ) => {
+        changeAcknowledgementReceiptTypes(changed, artifact, (receipt) => {
+          delete receipt.type;
+        });
+      }, /sequenced.*delivery.*identity|acknowledgement.*identity/i));
+    await t.test("rejects a native observer still in the loading phase", () =>
+      rejectMutation("native observer loading", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.observation.phase = "loading";
+        }
+      }, /observer.*phase|native peer.*ready/i));
+    await t.test("rejects an unsynchronized native observer", () =>
+      rejectMutation("native observer unsynchronized", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.observation.synced = false;
+        }
+      }, /observer.*synced|native peer.*synchronized/i));
+    await t.test("rejects a native observer with a processing error", () =>
+      rejectMutation("native observer processing error", (
+        changed,
+        artifact,
+      ) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.observation.error =
+            "continuation-not-processed";
+        }
+      }, /observer.*error|native peer.*error-free/i));
+    await t.test("rejects mutually forged native observer client fields", () =>
+      rejectMutation("forged native observer clients", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.clientIds =
+            ["never-connected-observer"];
+          cell.continuation.peer.receipt.observation.clientId =
+            "never-connected-observer";
+        }
+      }, /observer.*connection|handshake.*client|native peer.*identity/i));
+    await t.test("rejects a forged native observer client list", () =>
+      rejectMutation("forged native observer client list", (
+        changed,
+        artifact,
+      ) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.clientIds =
+            ["never-connected-observer"];
+        }
+      }, /processed receipt|observer.*identity|native peer.*identity/i));
+    await t.test("rejects a forged native processed observation client", () =>
+      rejectMutation("forged native observation client", (
+        changed,
+        artifact,
+      ) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "upstream:same-datastore:upstream",
+        )) {
+          cell.continuation.peer.receipt.observation.clientId =
+            "never-connected-observer";
+        }
+      }, /processed receipt|observer.*identity|native peer.*identity/i));
+    await t.test("rejects invented native fresh instance identity", () =>
+      rejectMutation("invented native instance", (changed, artifact) => {
+        for (const cell of cells(
+          changed,
+          artifact,
+          "javascript:same-datastore:javascript",
+        )) {
+          cell.freshIdentity.instanceId = "invented-native-instance";
+        }
+      }, /fresh.*instance|native.*identity/i));
+    await t.test("rejects republished snapshots that lose decoded tail state", () =>
+      rejectMutation("missing republished tail", (changed, artifact) => {
+        const [reportCheckpoint, artifactCheckpoint] = matrixCheckpoint(
+          changed,
+          artifact,
+          "upstream",
+          "handle-undo-redo",
+        );
+        const mapTarget = artifactCheckpoint.snapshot.evidence.targets.map;
+        const mapTree = findSnapshotTree(
+          artifactCheckpoint.rawSnapshot.tree,
+          mapTarget.treeId,
+        );
+        const mapId = mapTree.blobs.header;
+        const mapHeader = JSON.parse(Buffer.from(
+          artifactCheckpoint.rawSnapshot.blobs[mapId],
+          "base64",
+        ).toString("utf8"));
+        for (const key of Object.keys(mapHeader.content)) {
+          if (key.startsWith("continuation:cross-datastore:")) {
+            delete mapHeader.content[key];
+          }
+        }
+        replaceMatrixCheckpointBlob(
+          changed,
+          artifact,
+          "upstream",
+          "handle-undo-redo",
+          mapId,
+          Buffer.from(JSON.stringify(mapHeader)),
+        );
+        const cross = artifact.rows.find(({ writer }) => writer === "upstream")
+          .checkpoints.find(({ id }) => id === "cross-datastore");
+        const treeTarget = artifactCheckpoint.snapshot.evidence.targets.tree;
+        const tree = findSnapshotTree(
+          artifactCheckpoint.rawSnapshot.tree,
+          treeTarget.treeId,
+        );
+        const forestId = tree.trees.indexes.trees.Forest.blobs.contents;
+        const forest = JSON.parse(Buffer.from(
+          artifactCheckpoint.rawSnapshot.blobs[forestId],
+          "base64",
+        ).toString("utf8"));
+        forest.fields.data[0][1] =
+          cross.snapshot.evidence.targets.tree.graph.label;
+        replaceMatrixCheckpointBlob(
+          changed,
+          artifact,
+          "upstream",
+          "handle-undo-redo",
+          forestId,
+          Buffer.from(JSON.stringify(forest)),
+        );
+        for (const checkpoint of [reportCheckpoint, artifactCheckpoint]) {
+          for (const key of Object.keys(
+            checkpoint.snapshot.evidence.targets.map.graph,
+          )) {
+            if (key.startsWith("continuation:cross-datastore:")) {
+              delete checkpoint.snapshot.evidence.targets.map.graph[key];
+            }
+          }
+          checkpoint.snapshot.evidence.targets.tree.graph.label =
+            cross.snapshot.evidence.targets.tree.graph.label;
+        }
+        for (const collection of [changed.cells, artifact.cells]) {
+          const undoCells = collection.filter((cell) =>
+            cell.writer === "upstream"
+            && cell.checkpoint === "handle-undo-redo");
+          for (const [index, cell] of undoCells.entries()) {
+            for (const state of [
+              cell.before,
+              cell.expectedBefore,
+              cell.continuation.peer.state,
+            ]) {
+              state.continuations = state.continuations.filter(([key]) =>
+                !key.startsWith("continuation:cross-datastore:"));
+            }
+            if (index === 0) {
+              cell.before.treeLabel =
+                cross.snapshot.evidence.targets.tree.graph.label;
+              cell.expectedBefore.treeLabel =
+                cross.snapshot.evidence.targets.tree.graph.label;
+            }
+          }
+        }
+      }, /republished.*tail|checkpoint.*tail|retained.*continuation/i));
+    await t.test("rejects a string-typed optional selected-tree link", () =>
+      rejectMutation("optional link string type", (changed, artifact) => {
+        const [, checkpoint] = matrixCheckpoint(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+        );
+        const target = checkpoint.snapshot.evidence.targets.tree;
+        const tree = findSnapshotTree(checkpoint.rawSnapshot.tree, target.treeId);
+        const id = tree.trees.indexes.trees.Forest.blobs.contents;
+        const forest = JSON.parse(Buffer.from(
+          checkpoint.rawSnapshot.blobs[id],
+          "base64",
+        ).toString("utf8"));
+        const shape = forest.fields.shapes.find((candidate) =>
+          candidate.c?.type === "com.fluidframework.leaf.handle");
+        shape.c.type = "com.fluidframework.leaf.string";
+        replaceMatrixCheckpointBlob(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+          id,
+          Buffer.from(JSON.stringify(forest)),
+        );
+      }, /optional.*handle|stored.*handle.*type/i));
+    await t.test("rejects changed shared attributes with declarations pinned", () =>
+      rejectMutation("shared attributes changed", (changed, artifact) => {
+        const [reportCheckpoint, artifactCheckpoint] = matrixCheckpoint(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+        );
+        const target = artifactCheckpoint.snapshot.evidence.targets.tree;
+        const tree = findSnapshotTree(
+          artifactCheckpoint.rawSnapshot.tree,
+          target.treeId,
+        );
+        const id = tree.blobs[".attributes"];
+        const attributes = JSON.parse(Buffer.from(
+          artifactCheckpoint.rawSnapshot.blobs[id],
+          "base64",
+        ).toString("utf8"));
+        attributes.packageVersion = "9.9.9";
+        const bytes = Buffer.from(JSON.stringify(attributes));
+        replaceMatrixCheckpointBlob(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+          id,
+          bytes,
+        );
+        for (const checkpoint of [reportCheckpoint, artifactCheckpoint]) {
+          for (const selected of Object.values(
+            checkpoint.snapshot.evidence.targets,
+          )) {
+            if (selected.attributesSha256
+              === hash(JSON.stringify(target.attributes))) {
+              selected.attributes = structuredClone(attributes);
+              selected.attributesSha256 = hash(bytes);
+            }
+          }
+        }
+      }, /persisted.*attributes|package.*version/i));
+    await t.test("rejects a document GC root that loses its datastore", () =>
+      rejectMutation("empty document root routes", (changed, artifact) => {
+        const [reportCheckpoint, artifactCheckpoint] = matrixCheckpoint(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+        );
+        const id = artifactCheckpoint.rawSnapshot.tree.trees.gc.blobs.__gc_root;
+        const gc = JSON.parse(Buffer.from(
+          artifactCheckpoint.rawSnapshot.blobs[id],
+          "base64",
+        ).toString("utf8"));
+        gc.gcNodes["/"].outboundRoutes = [];
+        replaceMatrixCheckpointBlob(
+          changed,
+          artifact,
+          "upstream",
+          "same-datastore",
+          id,
+          Buffer.from(JSON.stringify(gc)),
+        );
+        for (const checkpoint of [reportCheckpoint, artifactCheckpoint]) {
+          checkpoint.snapshot.evidence.gc.gcNodes["/"].outboundRoutes = [];
+        }
+      }, /GC edge \/ -> \/\S+ is missing/i));
+    await t.test("rejects uploaded native bytes that differ from fetched storage", () =>
+      rejectMutation("native upload differs from fetched blob", (
+        changed,
+        artifact,
+      ) => {
+        for (const checkpoint of matrixCheckpoint(
+          changed,
+          artifact,
+          "javascript",
+          "same-datastore",
+        )) {
+          const map = findSnapshotTree(
+            artifact.rows.find(({ writer }) => writer === "javascript")
+              .checkpoints.find(({ id }) => id === "same-datastore")
+              .rawSnapshot.tree,
+            checkpoint.snapshot.evidence.targets.map.treeId,
+          );
+          const blobId = map.blobs.header;
+          const upload = checkpoint.publication.uploads.find((receipt) => {
+            try {
+              return JSON.parse(Buffer.from(
+                receipt.responseBody,
+                "base64",
+              ).toString("utf8")).sha === blobId;
+            } catch {
+              return false;
+            }
+          });
+          const request = JSON.parse(Buffer.from(
+            upload.requestBody,
+            "base64",
+          ).toString("utf8"));
+          const content = JSON.parse(Buffer.from(
+            request.content,
+            request.encoding,
+          ).toString("utf8"));
+          content.content.value.value = "upload-only-forged-value";
+          const changedBytes = Buffer.from(JSON.stringify(content));
+          request.content = changedBytes.toString(request.encoding);
+          const requestBytes = Buffer.from(JSON.stringify(request));
+          upload.requestBody = requestBytes.toString("base64");
+          upload.requestHash = hash(requestBytes);
+          checkpoint.summary = replaceExact(
+            checkpoint.summary,
+            artifact.rows.find(({ writer }) => writer === "javascript")
+              .checkpoints.find(({ id }) => id === "same-datastore")
+              .rawSnapshot.blobs[blobId],
+            changedBytes.toString("base64"),
+          );
+        }
+      }, /uploaded.*fetched|publication.*stored bytes/i));
+    await rejectMutation("missing cell", (changed, artifact) => {
+      changed.cells.pop();
+      artifact.cells.pop();
+    }, /missing.*cells|cell IDs/i);
+    await rejectMutation("duplicate cell", (changed, artifact) => {
+      changed.cells.at(-1).id = changed.cells[0].id;
+      artifact.cells.at(-1).id = artifact.cells[0].id;
+    }, /duplicate|cell IDs/i);
+    await rejectMutation("skipped matrix", (changed) => {
+      changed.skipped = true;
+    }, /skipped/i);
+    await rejectMutation("forged fresh reader", (changed, artifact) => {
+      for (const collection of [changed.cells, artifact.cells]) {
+        collection[1].freshIdentity =
+          structuredClone(collection[0].freshIdentity);
+      }
+    }, /reused|forged.*fresh reader/i);
+    await rejectMutation("selected storage bytes", (changed, artifact) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:upstream",
+      )) {
+        const receipt = cell.storage.find(({ operation }) =>
+          operation === "readBlob");
+        const bytes = Buffer.from("forged selected bytes");
+        receipt.responseBody = bytes.toString("base64");
+        receipt.hash = hash(bytes);
+        receipt.byteLength = bytes.length;
+        const projected = cell.loader.fetchedBlobs.find(({ id }) =>
+          id === receipt.id);
+        projected.sha256 = receipt.hash;
+        projected.byteLength = bytes.length;
+      }
+    }, /fetched bytes differ|required publication blob/i);
+    await rejectMutation("selected storage route", (changed, artifact) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:javascript",
+      )) {
+        cell.loadedVersion = "forged-version";
+        cell.loader.selectedVersion = "forged-version";
+        cell.loader.versionReceipt.storageResponse.requestedId =
+          "forged-version";
+        const receipt = cell.transport.http.find(({ storageResponse }) =>
+          storageResponse?.kind === "commit");
+        receipt.storageResponse.requestedId = "forged-version";
+      }
+    }, /loaded another published version|selected another version/i);
+    const mutateCheckpointBlob = (
+      changed,
+      artifact,
+      writer,
+      checkpointId,
+      id,
+      bytes,
+      mutateProjection,
+    ) => {
+      const changedCheckpoint = changed.rows.find((row) =>
+        row.writer === writer).checkpoints.find(({ id: value }) =>
+        value === checkpointId);
+      const artifactCheckpoint = artifact.rows.find((row) =>
+        row.writer === writer).checkpoints.find(({ id: value }) =>
+        value === checkpointId);
+      artifactCheckpoint.rawSnapshot.blobs[id] = bytes.toString("base64");
+      artifactCheckpoint.snapshot.blobs[id] = hash(bytes);
+      changedCheckpoint.snapshot.blobs[id] = hash(bytes);
+      mutateProjection(changedCheckpoint, artifactCheckpoint);
+    };
+    await rejectMutation("wrong GC routes", (changed, artifact) => {
+      const checkpoint = artifact.rows[0].checkpoints[0];
+      const raw = checkpoint.rawSnapshot;
+      const gc = raw.tree.trees.gc ?? raw.tree.trees[".app"].trees.gc;
+      const id = gc.blobs.__gc_root;
+      const decoded = JSON.parse(
+        Buffer.from(raw.blobs[id], "base64").toString("utf8"),
+      );
+      delete decoded.gcNodes[checkpoint.targets.map.path];
+      const bytes = Buffer.from(JSON.stringify(decoded));
+      mutateCheckpointBlob(
+        changed,
+        artifact,
+        "upstream",
+        "same-datastore",
+        id,
+        bytes,
+        (row, persisted) => {
+          row.snapshot.evidence.gc = structuredClone(decoded);
+          persisted.snapshot.evidence.gc = structuredClone(decoded);
+        },
+      );
+    }, /GC edge .* is missing/i);
+    await rejectMutation("wrong compressor bytes", (changed, artifact) => {
+      const checkpoint = artifact.rows[0].checkpoints[0];
+      const raw = checkpoint.rawSnapshot;
+      const id = raw.tree.blobs[".idCompressor"];
+      const state = Buffer.from(
+        JSON.parse(Buffer.from(raw.blobs[id], "base64").toString("utf8")),
+        "base64",
+      );
+      state.writeDoubleLE(3, 0);
+      const bytes = Buffer.from(JSON.stringify(state.toString("base64")));
+      mutateCheckpointBlob(
+        changed,
+        artifact,
+        "upstream",
+        "same-datastore",
+        id,
+        bytes,
+        () => {},
+      );
+    }, /compressor format changed/i);
+    await rejectMutation("wrong schema attributes", (changed, artifact) => {
+      const checkpoint = artifact.rows[0].checkpoints[0];
+      const raw = checkpoint.rawSnapshot;
+      const node = snapshotNode(raw, checkpoint.targets.map.path);
+      const id = node.blobs[".attributes"];
+      const decoded = JSON.parse(
+        Buffer.from(raw.blobs[id], "base64").toString("utf8"),
+      );
+      decoded.packageVersion = "9.9.9";
+      const bytes = Buffer.from(JSON.stringify(decoded));
+      mutateCheckpointBlob(
+        changed,
+        artifact,
+        "upstream",
+        "same-datastore",
+        id,
+        bytes,
+        (row, persisted) => {
+          row.targets.map.attributes = structuredClone(decoded);
+          persisted.targets.map.attributes = structuredClone(decoded);
+          for (const value of [row, persisted]) {
+            value.snapshot.evidence.targets.map.attributes =
+              structuredClone(decoded);
+            value.snapshot.evidence.targets.map.attributesSha256 =
+              hash(JSON.stringify(decoded));
+          }
+        },
+      );
+    }, /map persisted attributes differ|SharedMap schema attributes changed/i);
+    await rejectMutation("wrong stored value", (changed, artifact) => {
+      const checkpoint = artifact.rows[0].checkpoints[0];
+      const raw = checkpoint.rawSnapshot;
+      const node = snapshotNode(raw, checkpoint.targets.map.path);
+      const id = node.blobs.header;
+      const decoded = JSON.parse(
+        Buffer.from(raw.blobs[id], "base64").toString("utf8"),
+      );
+      decoded.content.value.value = "forged-value";
+      const bytes = Buffer.from(JSON.stringify(decoded));
+      mutateCheckpointBlob(
+        changed,
+        artifact,
+        "upstream",
+        "same-datastore",
+        id,
+        bytes,
+        (row, persisted) => {
+          row.snapshot.evidence.targets.map.graph.value = "forged-value";
+          persisted.snapshot.evidence.targets.map.graph.value = "forged-value";
+        },
+      );
+    }, /SharedMap value changed/i);
+    await rejectMutation("claimed continuation without operation", (
+      changed,
+      artifact,
+    ) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:upstream",
+      )) {
+        cell.continuation.sequenced = [];
+      }
+    }, /continuation lacks an actual (sequenced )?operation/i);
+    await rejectMutation("claimed continuation without peer receipt", (
+      changed,
+      artifact,
+    ) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:upstream",
+      )) {
+        cell.continuation.peer.observed = false;
+      }
+    }, /peer did not observe|lacks independent peer receipt/i);
+    await rejectMutation("hardcoded handle identity", (changed, artifact) => {
+      for (const cell of cells(
+        changed,
+        artifact,
+        "upstream:same-datastore:upstream",
+      )) {
+        cell.resolved.map = "/hardcoded/map";
+      }
+    }, /did not resolve actual loaded handles/i);
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
 });
 
 test("one real reconnect writer validates both acceptance windows", {

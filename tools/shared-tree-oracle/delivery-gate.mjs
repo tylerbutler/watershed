@@ -49,6 +49,37 @@ function decodePayload(bytes) {
   }
 }
 
+function sequencedPayloads(value) {
+  const messages = [];
+  const pending = [value];
+  const seen = new Set();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+    if (Number.isSafeInteger(current.sequenceNumber)
+      && Number.isSafeInteger(current.clientSequenceNumber)
+      && Number.isSafeInteger(current.referenceSequenceNumber)
+      && typeof current.clientId === "string"
+      && typeof current.type === "string") {
+      messages.push({
+        sequenceNumber: current.sequenceNumber,
+        clientSequenceNumber: current.clientSequenceNumber,
+        referenceSequenceNumber: current.referenceSequenceNumber,
+        clientId: current.clientId,
+        type: current.type,
+        contents: sanitizedPayload(current.contents),
+        ...(current.metadata === undefined ? {} : {
+          metadata: sanitizedPayload(current.metadata),
+        }),
+      });
+      continue;
+    }
+    pending.push(...Object.values(current).toReversed());
+  }
+  return messages;
+}
+
 function inspectPayload(bytes) {
   const value = decodePayload(bytes)?.value;
   if (!Array.isArray(value)) return undefined;
@@ -86,11 +117,13 @@ function inspectPayload(bytes) {
       }
     }
   }
+  const sequencedMessages = sequencedPayloads(short ? value.slice(1) : value[4]);
   return {
     kind: summarize ? "summarize" : "op",
     topic,
     event,
     sequenceNumbers,
+    ...(sequencedMessages.length === 0 ? {} : { sequencedMessages }),
   };
 }
 
@@ -136,6 +169,8 @@ function inspectHandshake(bytes) {
   if (!short && value[3] !== "connect_document_success") return undefined;
   const payload = short ? value[1] : value[4];
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const clientId = typeof payload.clientId === "string"
+    ? payload.clientId : undefined;
   const checkpointSequenceNumber = Number.isSafeInteger(payload.checkpointSequenceNumber)
     ? payload.checkpointSequenceNumber : undefined;
   const summarySequenceNumber = Number.isSafeInteger(payload.summaryContext?.sequenceNumber)
@@ -145,13 +180,16 @@ function inspectHandshake(bytes) {
       .map(({ sequenceNumber } = {}) => sequenceNumber)
       .filter(Number.isSafeInteger)
     : [];
+  const initialMessages = sequencedPayloads(payload.initialMessages);
   if (checkpointSequenceNumber === undefined
     && summarySequenceNumber === undefined
     && initialMessageSequenceNumbers.length === 0) return undefined;
   return {
+    ...(clientId === undefined ? {} : { clientId }),
     checkpointSequenceNumber,
     summarySequenceNumber,
     initialMessageSequenceNumbers,
+    ...(initialMessages.length === 0 ? {} : { initialMessages }),
   };
 }
 
@@ -581,6 +619,9 @@ export class DeliveryGate {
       topic: inspected.topic,
       event: inspected.event,
       sequenceNumbers: inspected.sequenceNumbers,
+      ...(inspected.sequencedMessages === undefined ? {} : {
+        sequencedMessages: inspected.sequencedMessages,
+      }),
     };
     if (direction === "outbound" && inspected.kind === "op") {
       identity.submissions = submittedPayloads(

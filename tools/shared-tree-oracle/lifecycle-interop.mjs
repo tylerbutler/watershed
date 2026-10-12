@@ -47,6 +47,14 @@ const sections = [
 ];
 const liveSections = sections.slice(0, 6);
 const writers = ["upstream", "javascript", "erlang"];
+const matrixCheckpoints = [
+  "same-datastore",
+  "cross-datastore",
+  "handle-undo-redo",
+];
+const matrixCellIds = writers.flatMap((writer) =>
+  matrixCheckpoints.flatMap((checkpoint) =>
+    writers.map((reader) => `${writer}:${checkpoint}:${reader}`)));
 const reference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -366,20 +374,50 @@ function storedTreeGraph(snapshotValue, path) {
     node.trees?.indexes?.trees?.Forest,
     "contents",
   );
-  assert.equal(forest.keys?.[0], "rootFieldKey",
-    `Stored tree ${path} lacks its root field`);
-  const root = forest.fields?.data?.[0];
-  assert(Array.isArray(root), `Stored tree ${path} lacks its root node`);
+  const fields = lifecycleDecodeFieldBatch(
+    forest.fields,
+    forest.keys,
+    `Stored tree ${path} Forest`,
+  );
+  const roots = fields.get("rootFieldKey");
+  assert.equal(roots?.length, 1, `Stored tree ${path} lacks its single root node`);
+  const root = roots[0];
+  assert.equal(root.type, "org.watershed.shared-tree.handles.Root",
+    `Stored tree ${path} has another root schema`);
+  const field = (name) => root.fields.get(name) ?? [];
+  const label = field("label");
+  assert.equal(label.length, 1, `Stored tree ${path} lacks its label`);
+  assert.equal(label[0].type, "com.fluidframework.leaf.string",
+    `Stored tree ${path} label has another schema`);
+  const optional = field("link");
+  assert(optional.length <= 1, `Stored tree ${path} has multiple optional handles`);
+  assert(optional.every(({ type }) =>
+    type === "com.fluidframework.leaf.handle"),
+  `Stored tree ${path} optional link is not a handle`);
+  const linksNode = field("links");
+  assert.equal(linksNode.length, 1, `Stored tree ${path} lacks its links node`);
+  assert.equal(linksNode[0].type, "org.watershed.shared-tree.handles.Links",
+    `Stored tree ${path} links have another schema`);
   const links = {};
-  const map = Array.isArray(root[3]) ? root[3] : [];
-  for (let index = 0; index < map.length; index += 2) {
-    links[map[index]] = handlePath(map[index + 1]?.[0]);
+  for (const [name, values] of linksNode[0].fields) {
+    assert.equal(values.length, 1,
+      `Stored tree ${path} link ${name} lacks its single handle`);
+    assert.equal(values[0].type, "com.fluidframework.leaf.handle",
+      `Stored tree ${path} link ${name} is not a handle`);
+    links[name] = handlePath(values[0].value);
   }
+  const sequenceNode = field("sequence");
+  assert.equal(sequenceNode.length, 1, `Stored tree ${path} lacks its sequence node`);
+  assert.equal(sequenceNode[0].type, "org.watershed.shared-tree.handles.Sequence",
+    `Stored tree ${path} sequence has another schema`);
+  const sequence = sequenceNode[0].fields.get("") ?? [];
+  assert(sequence.every(({ type }) => type === "com.fluidframework.leaf.handle"),
+    `Stored tree ${path} sequence contains a non-handle`);
   return {
-    label: root[1],
-    optional: root[2]?.[0] === undefined ? null : handlePath(root[2][0]),
+    label: label[0].value,
+    optional: optional[0] === undefined ? null : handlePath(optional[0].value),
     links,
-    sequence: (Array.isArray(root[4]) ? root[4] : []).map(handlePath),
+    sequence: sequence.map(({ value }) => handlePath(value)),
   };
 }
 
@@ -2705,8 +2743,17 @@ function nativeLoaderEvidence(transport) {
   };
 }
 
-function validateRetentionLoader(name, writer, continuation, rawSnapshot, targets, summary) {
+function validateRetentionLoader(
+  name,
+  writer,
+  continuation,
+  rawSnapshot,
+  targets,
+  summary,
+  { requireApplicationProtocol = true } = {},
+) {
   const fetched = new Map();
+  const allowedFetched = new Set();
   const expectedBlobs = { ...rawSnapshot.blobs };
   if (writer === "upstream") {
     assert(Array.isArray(continuation.storage),
@@ -2785,6 +2832,11 @@ function validateRetentionLoader(name, writer, continuation, rawSnapshot, target
       };
     };
     const physical = build(version.treeId);
+    const collectBlobIds = (node) => {
+      for (const id of Object.values(node.blobs)) allowedFetched.add(id);
+      for (const child of Object.values(node.trees)) collectBlobIds(child);
+    };
+    collectBlobIds(physical);
     const app = physical.trees[".app"];
     assert(app, `${name} fresh loader lacks its physical application tree`);
     const projected = {
@@ -2802,25 +2854,29 @@ function validateRetentionLoader(name, writer, continuation, rawSnapshot, target
     });
     assert.deepEqual(projected, withoutMetadata(rawSnapshot.tree),
       `${name} fresh loader tree hierarchy differs from publication bytes`);
-    const shadowProtocol = summary.entries.find(([path]) => path === ".protocol")?.[1];
-    assert(shadowProtocol?.type === "tree" && app.trees[".protocol"],
-      `${name} native publication lacks its application protocol tree`);
-    assert.deepEqual(
-      Object.keys(app.trees[".protocol"].blobs).sort(),
-      shadowProtocol.entries.map(([path]) => path).sort(),
-      `${name} fresh loader application protocol tree differs from publication`,
-    );
-    for (const [path, entry] of shadowProtocol.entries) {
-      assert.equal(entry.type, "blob",
-        `${name} fresh loader application protocol entry has another kind`);
-      expectedBlobs[app.trees[".protocol"].blobs[path]] = entry.base64;
+    if (requireApplicationProtocol) {
+      const shadowProtocol = summary.entries.find(([path]) => path === ".protocol")?.[1];
+      assert(shadowProtocol?.type === "tree" && app.trees[".protocol"],
+        `${name} native publication lacks its application protocol tree`);
+      assert.deepEqual(
+        Object.keys(app.trees[".protocol"].blobs).sort(),
+        shadowProtocol.entries.map(([path]) => path).sort(),
+        `${name} fresh loader application protocol tree differs from publication`,
+      );
+      for (const [path, entry] of shadowProtocol.entries) {
+        assert.equal(entry.type, "blob",
+          `${name} fresh loader application protocol entry has another kind`);
+        expectedBlobs[app.trees[".protocol"].blobs[path]] = entry.base64;
+      }
     }
   }
   for (const [id, bytes] of fetched) {
-    assert(expectedBlobs[id] !== undefined,
+    assert(expectedBlobs[id] !== undefined || allowedFetched.has(id),
       `${name} fresh loader fetched an unrelated blob ${id}`);
-    assert.equal(bytes.toString("base64"), expectedBlobs[id],
-      `${name} fresh loader fetched bytes differ for ${id}`);
+    if (expectedBlobs[id] !== undefined) {
+      assert.equal(bytes.toString("base64"), expectedBlobs[id],
+        `${name} fresh loader fetched bytes differ for ${id}`);
+    }
   }
   const document = snapshotNode(rawSnapshot, targets.document.path);
   const target = snapshotNode(rawSnapshot, targets.target.path);
@@ -3313,6 +3369,734 @@ async function runReconnectWindow(config, context, writer, id) {
   } finally {
     await closeEnvironment(environment, failure);
   }
+}
+
+async function authorMatrixUpstream(environment, label) {
+  const data = environment.upstreamSession.data;
+  const document = await createUpstreamTree(data, `${label}-document`);
+  const sameMap = await data.createMap();
+  const sameTree = await createUpstreamTree(data, `${label}-same-tree`);
+  sameMap.set("value", `${label}-same-map`);
+  sameMap.set("self", sameMap.handle);
+  sameMap.set("tree", sameTree.tree.handle);
+  sameTree.view.root.link = sameMap.handle;
+  data.bootstrap.set("matrix-document", document.tree.handle);
+  document.view.root.link = sameMap.handle;
+  document.view.root.links.set("map", sameMap.handle);
+  document.view.root.links.set("tree", sameTree.tree.handle);
+  document.view.root.sequence.insertAtEnd(sameMap.handle, sameTree.tree.handle);
+  await synchronize(environment);
+  return {
+    document: document.tree,
+    documentView: document.view,
+    map: sameMap,
+    tree: sameTree.tree,
+    treeView: sameTree.view,
+    secondary: undefined,
+    receipts: [],
+    async cross() {
+      const secondary = await createUpstreamDataStore(environment.upstreamSession);
+      const map = await secondary.createMap();
+      const tree = await createUpstreamTree(secondary, `${label}-cross-tree`);
+      map.set("value", `${label}-cross-map`);
+      map.set("self", map.handle);
+      map.set("tree", tree.tree.handle);
+      tree.view.root.link = map.handle;
+      secondary.root.set("map", map.handle);
+      secondary.root.set("tree", tree.tree.handle);
+      data.bootstrap.set("matrix-secondary", secondary.handle);
+      document.view.root.link = map.handle;
+      document.view.root.links.set("map", map.handle);
+      document.view.root.links.set("tree", tree.tree.handle);
+      document.view.root.sequence.removeRange();
+      document.view.root.sequence.insertAtEnd(map.handle, tree.tree.handle);
+      await synchronize(environment);
+      this.secondary = secondary;
+      this.map = map;
+      this.treeView.dispose();
+      this.tree = tree.tree;
+      this.treeView = tree.view;
+    },
+    async undoRedo() {
+      const watch = watchRetention(document.view);
+      watch.captureNext();
+      document.view.root.link = sameMap.handle;
+      await synchronize(environment);
+      const undo = watch.retained();
+      const insertion = RevertibleStatus[undo.status];
+      watch.captureNext();
+      undo.revert(true);
+      await synchronize(environment);
+      const redo = watch.retained();
+      const undone = RevertibleStatus[redo.status];
+      redo.revert(true);
+      await synchronize(environment);
+      this.receipts.push({
+        insertion,
+        undone,
+        events: structuredClone(watch.events),
+        finalLink: document.view.root.link.absolutePath,
+      });
+      watch.off();
+    },
+    targets() {
+      return {
+        document: {
+          path: document.tree.handle.absolutePath,
+          attributes: attributes(document.tree),
+        },
+        map: { path: this.map.handle.absolutePath, attributes: attributes(this.map) },
+        tree: { path: this.tree.handle.absolutePath, attributes: attributes(this.tree) },
+        ...(this.secondary === undefined ? {} : {
+          secondary: {
+            path: this.secondary.handle.absolutePath,
+            attributes: attributes(this.secondary.root),
+          },
+        }),
+      };
+    },
+  };
+}
+
+async function authorMatrixNative(environment, writer, label) {
+  const adapter = environment.adapters[writer];
+  const replies = [];
+  const command = async (request) => {
+    const result = await nativeCommand(adapter, request);
+    replies.push({ request, result });
+    return result;
+  };
+  await command({ command: "root-map", name: "matrix-root" });
+  const document = await command({
+    command: "create-tree",
+    name: "matrix-document",
+    schema: handleStoredSchema,
+    view: handleStoredSchema,
+    initialRoot: taggedHandleRoot(`${label}-document`),
+  });
+  const sameMap = await command({ command: "create-map", name: "matrix-same-map" });
+  const sameTree = await command({
+    command: "create-tree",
+    name: "matrix-same-tree",
+    schema: handleStoredSchema,
+    view: handleStoredSchema,
+    initialRoot: taggedHandleRoot(`${label}-same-tree`),
+  });
+  await command({
+    command: "shared-map-set", name: "matrix-same-map",
+    key: "value", value: `${label}-same-map`,
+  });
+  await command({
+    command: "shared-map-set", name: "matrix-same-map", key: "self", value: sameMap,
+  });
+  await command({
+    command: "shared-map-set", name: "matrix-same-map", key: "tree", value: sameTree,
+  });
+  await command({
+    command: "set", tree: "matrix-same-tree",
+    path: ["link"], value: taggedHandle(sameMap),
+  });
+  await command({
+    command: "shared-map-set", name: "matrix-root",
+    key: "matrix-document", value: document,
+  });
+  await command({
+    command: "set", tree: "matrix-document",
+    path: ["link"], value: taggedHandle(sameMap),
+  });
+  for (const [key, value] of [["map", sameMap], ["tree", sameTree]]) {
+    await command({
+      command: "map-set", tree: "matrix-document",
+      path: ["links"], key, value: taggedHandle(value),
+    });
+  }
+  await command({
+    command: "array-insert", tree: "matrix-document",
+    path: ["sequence"], index: 0,
+    values: [taggedHandle(sameMap), taggedHandle(sameTree)],
+  });
+  await synchronize(environment);
+  return {
+    adapter,
+    command,
+    document,
+    map: sameMap,
+    tree: sameTree,
+    secondary: undefined,
+    receipts: replies,
+    async cross() {
+      await command({ command: "create-data-store", name: "matrix-secondary-store" });
+      const secondary = await command({
+        command: "data-store-root",
+        store: "matrix-secondary-store",
+        name: "matrix-secondary-root",
+      });
+      const map = await command({
+        command: "create-map",
+        store: "matrix-secondary-store",
+        name: "matrix-cross-map",
+      });
+      const tree = await command({
+        command: "create-tree",
+        store: "matrix-secondary-store",
+        name: "matrix-cross-tree",
+        schema: handleStoredSchema,
+        view: handleStoredSchema,
+        initialRoot: taggedHandleRoot(`${label}-cross-tree`),
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-cross-map",
+        key: "value", value: `${label}-cross-map`,
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-cross-map", key: "self", value: map,
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-cross-map", key: "tree", value: tree,
+      });
+      await command({
+        command: "set", tree: "matrix-cross-tree",
+        path: ["link"], value: taggedHandle(map),
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-secondary-root", key: "map", value: map,
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-secondary-root", key: "tree", value: tree,
+      });
+      await command({
+        command: "shared-map-set", name: "matrix-root",
+        key: "matrix-secondary", value: secondary,
+      });
+      await command({
+        command: "set", tree: "matrix-document",
+        path: ["link"], value: taggedHandle(map),
+      });
+      for (const [key, value] of [["map", map], ["tree", tree]]) {
+        await command({
+          command: "map-set", tree: "matrix-document",
+          path: ["links"], key, value: taggedHandle(value),
+        });
+      }
+      await command({
+        command: "array-remove", tree: "matrix-document",
+        path: ["sequence"], start: 0, end: 2,
+      });
+      await command({
+        command: "array-insert", tree: "matrix-document",
+        path: ["sequence"], index: 0,
+        values: [taggedHandle(map), taggedHandle(tree)],
+      });
+      await synchronize(environment);
+      this.secondary = secondary;
+      this.map = map;
+      this.tree = tree;
+    },
+    async undoRedo() {
+      await command({ command: "subscribe", tree: "matrix-document" });
+      await command({
+        command: "set", tree: "matrix-document",
+        path: ["link"], value: taggedHandle(sameMap),
+      });
+      const insertion = await command({
+        op: "retainLastLocalCommit",
+        tree: "matrix-document",
+        name: "matrix-undo",
+      });
+      await command({
+        op: "revert", tree: "matrix-document",
+        name: "matrix-undo", dispose: true,
+      });
+      const redo = await command({
+        op: "retainLastLocalCommit",
+        tree: "matrix-document",
+        name: "matrix-redo",
+      });
+      await command({
+        op: "revert", tree: "matrix-document",
+        name: "matrix-redo", dispose: true,
+      });
+      await synchronize(environment);
+      this.receipts.push({
+        insertion,
+        redo,
+        checkpoint: await command({
+          command: "checkpoint", tree: "matrix-document",
+        }),
+      });
+    },
+    targets() {
+      return {
+        document: { path: document.url, attributes: channelAttributes.tree },
+        map: { path: this.map.url, attributes: channelAttributes.map },
+        tree: { path: this.tree.url, attributes: channelAttributes.tree },
+        ...(this.secondary === undefined ? {} : {
+          secondary: {
+            path: this.secondary.url,
+            attributes: channelAttributes.map,
+          },
+        }),
+      };
+    },
+  };
+}
+
+function matrixSnapshotEvidence(rawSnapshot, targets) {
+  return {
+    ...snapshotEvidence(rawSnapshot, targets),
+    gc: snapshotGc(rawSnapshot),
+    components: snapshotComponents(rawSnapshot),
+    metadata: snapshotMetadata(rawSnapshot),
+    factories: Object.fromEntries(Object.entries(targets).map(
+      ([name, target]) => [name, snapshotFactory(rawSnapshot, target.path)],
+    )),
+  };
+}
+
+async function publishMatrixCheckpoint(
+  config,
+  environment,
+  writer,
+  authored,
+  checkpoint,
+) {
+  await synchronize(environment);
+  const publication = writer === "upstream"
+    ? await publishUpstreamSummary(
+      config,
+      environment.containers,
+      environment.documentId,
+      `Task 8 handleReloadMatrix:${writer}:${checkpoint}`,
+      { store: handleServiceStore },
+    )
+    : await environment.adapters[writer].summarizePublication();
+  await synchronize(environment);
+  const stored = await fetchSnapshot(environment.creator);
+  const targets = authored.targets();
+  const uploads = writer === "upstream" ? undefined
+    : environment.adapters[writer].evidence().http.filter(({ method, path, status }) =>
+      method === "POST" && status === 201 && /\/git\/(?:blobs|trees)\/?$/.test(path));
+  const summary = writer === "upstream"
+    ? summaryEntryEvidence(publication.summaryTree)
+    : submittedSummaryEvidence(uploads, stored.raw.tree.trees[".app"].id);
+  return {
+    id: checkpoint,
+    writer,
+    publication: {
+      ...publicationEvidence(writer, publication),
+      ...(uploads === undefined ? {} : { uploads }),
+    },
+    snapshot: {
+      version: stored.version,
+      treeSha256: stored.treeSha256,
+      blobs: stored.blobs,
+      evidence: matrixSnapshotEvidence(stored.raw, targets),
+    },
+    targets,
+    summary,
+    sequenced: deltaEvidence(await serverHistory(environment.creator)),
+    rawSnapshot: stored.raw,
+    undoRedo: structuredClone(authored.receipts),
+  };
+}
+
+async function observeMatrixUpstream(session, cell, targets) {
+  const documentHandle = session.data.bootstrap.get("matrix-document");
+  const document = await documentHandle.get();
+  const view = document.viewWith(handleTreeConfig);
+  const mapHandle = view.root.links.get("map");
+  const treeHandle = view.root.links.get("tree");
+  const map = await mapHandle.get();
+  const tree = await treeHandle.get();
+  const treeView = tree.viewWith(handleTreeConfig);
+  const observed = {
+    document: documentHandle.absolutePath,
+    map: mapHandle.absolutePath,
+    tree: treeHandle.absolutePath,
+    mapValue: map.get("value"),
+    mapTree: map.get("tree").absolutePath,
+    treeMap: treeView.root.link.absolutePath,
+    treeLabel: treeView.root.label,
+    continuation: map.get(`continuation:${cell}`),
+    continuations: [...map.entries()]
+      .filter(([key]) => key.startsWith("continuation:"))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  };
+  treeView.dispose();
+  view.dispose();
+  assert.equal(observed.document, targets.document.path);
+  assert.equal(observed.map, targets.map.path);
+  assert.equal(observed.tree, targets.tree.path);
+  return observed;
+}
+
+async function observeMatrixNative(adapter, cell, targets) {
+  const suffix = hash(cell).slice(0, 8);
+  await nativeCommand(adapter, {
+    command: "root-map", name: `matrix-observer-root-${suffix}`,
+  });
+  const document = (await nativeCommand(adapter, {
+    command: "shared-map-get",
+    name: `matrix-observer-root-${suffix}`,
+    key: "matrix-document",
+  })).value;
+  await nativeCommand(adapter, {
+    command: "open-tree",
+    name: `matrix-observer-document-${suffix}`,
+    handle: document,
+    view: handleStoredSchema,
+  });
+  const map = handleValue(await adapter.client.read(
+    ["links", "map"],
+    `matrix-observer-document-${suffix}`,
+  ));
+  const tree = handleValue(await adapter.client.read(
+    ["links", "tree"],
+    `matrix-observer-document-${suffix}`,
+  ));
+  await adapter.client.openMap(`matrix-observer-map-${suffix}`, map);
+  await adapter.client.openTree(
+    `matrix-observer-tree-${suffix}`,
+    tree,
+    handleStoredSchema,
+  );
+  const entries = await adapter.client.sharedMapEntries(
+    `matrix-observer-map-${suffix}`,
+  );
+  return {
+    document: document.url,
+    map: map.url,
+    tree: tree.url,
+    mapValue: (await adapter.client.sharedMapGet(
+      `matrix-observer-map-${suffix}`,
+      "value",
+    )).value,
+    mapTree: (await adapter.client.sharedMapGet(
+      `matrix-observer-map-${suffix}`,
+      "tree",
+    )).value.url,
+    treeMap: handleValue(await adapter.client.read(
+      ["link"],
+      `matrix-observer-tree-${suffix}`,
+    )).url,
+    treeLabel: (await adapter.client.read(
+      ["label"],
+      `matrix-observer-tree-${suffix}`,
+    )).value.value,
+    continuation: (await adapter.client.sharedMapGet(
+      `matrix-observer-map-${suffix}`,
+      `continuation:${cell}`,
+    )).value,
+    continuations: entries
+      .filter(([key]) => key.startsWith("continuation:"))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  };
+}
+
+async function matrixFreshReader(
+  config,
+  context,
+  environment,
+  writer,
+  checkpoint,
+  reader,
+  publication,
+  expectedBefore,
+) {
+  const cell = `${writer}:${checkpoint}:${reader}`;
+  const continuationValue = `${cell}:${context.runId.slice(0, 8)}`;
+  const treeLabel = `${checkpoint}:${reader}:${context.runId.slice(0, 8)}`;
+  if (reader === "upstream") {
+    const fresh = await context.constructors.openSession(
+      config,
+      environment.containers,
+      environment.documentId,
+      false,
+      { store: handleServiceStore, cache: false, observeStorage: true },
+    );
+    let peer;
+    try {
+      const before = await observeMatrixUpstream(fresh, cell, publication.targets);
+      assert.deepEqual(before, expectedBefore);
+      const document = await fresh.data.bootstrap.get("matrix-document").get();
+      const view = document.viewWith(handleTreeConfig);
+      const map = await view.root.links.get("map").get();
+      const tree = await view.root.links.get("tree").get();
+      const treeView = tree.viewWith(handleTreeConfig);
+      const historyBefore = (await serverHistory(environment.creator)).length;
+      map.set(`continuation:${cell}`, continuationValue);
+      treeView.root.label = treeLabel;
+      await synchronize(environment);
+      peer = await openNativePeer(
+        environment,
+        config,
+        "javascript",
+        context.constructors,
+      );
+      const loader = upstreamLoaderEvidence(fresh.storageObservations);
+      const sequenced = deltaEvidence(
+        (await serverHistory(environment.creator)).slice(historyBefore),
+      );
+      const throughSequenceNumber = Math.max(
+        ...sequenced.filter(({ type }) => type === "op")
+          .map(({ sequenceNumber }) => sequenceNumber),
+      );
+      const peerSync = await peer.awaitSynced(throughSequenceNumber);
+      const observed = await observeMatrixNative(peer, cell, publication.targets);
+      const result = {
+        id: cell,
+        writer,
+        checkpoint,
+        reader,
+        freshIdentity: {
+          instanceId: fresh.container.clientId,
+          clientIds: [fresh.container.clientId],
+        },
+        loadedVersion: loader.selectedVersion,
+        loader,
+        storage: structuredClone(fresh.storageObservations),
+        transport: fresh.transportEvidence(),
+        before,
+        expectedBefore,
+        resolved: {
+          document: document.handle.absolutePath,
+          map: map.handle.absolutePath,
+          tree: tree.handle.absolutePath,
+          mapTree: map.get("tree").absolutePath,
+          treeMap: treeView.root.link.absolutePath,
+        },
+        continuation: {
+          key: `continuation:${cell}`,
+          value: continuationValue,
+          treeLabel,
+          sequenced,
+          peer: {
+            implementation: "javascript",
+            observed: true,
+            receipt: {
+              instanceId: peer.instanceId,
+              clientIds: [...peer.clientIds],
+              readBeforeClose: true,
+              processedSequenceNumber: peerSync.sequenceNumber,
+              observation: peerSync.observation,
+              transport: peer.evidence(),
+              continuation: observed.continuation,
+              treeLabel: observed.treeLabel,
+            },
+            state: observed,
+          },
+        },
+      };
+      treeView.dispose();
+      view.dispose();
+      return result;
+    } finally {
+      await peer?.close();
+      fresh.container.dispose();
+    }
+  }
+  const fresh = await context.constructors.nativeAdapter(reader, config, {
+    runId: context.runId,
+    documentId: environment.documentId,
+    tenant: config.tenantId,
+    viewSchema: JSON.stringify(handleStoredSchema),
+  }, environment.jwt);
+  environment.natives.push(fresh);
+  try {
+    await fresh.awaitSynced();
+    const before = await observeMatrixNative(fresh, cell, publication.targets);
+    assert.deepEqual(before, expectedBefore);
+    const suffix = hash(cell).slice(0, 8);
+    const historyBefore = (await serverHistory(environment.creator)).length;
+    await fresh.client.sharedMapSet(
+      `matrix-observer-map-${suffix}`,
+      `continuation:${cell}`,
+      continuationValue,
+    );
+    await nativeCommand(fresh, {
+      command: "set",
+      tree: `matrix-observer-tree-${suffix}`,
+      path: ["label"],
+      value: { kind: "string", value: treeLabel },
+    });
+    await synchronize(environment);
+    const transport = fresh.evidence();
+    const loader = nativeLoaderEvidence(transport);
+    const sequenced = deltaEvidence(
+      (await serverHistory(environment.creator)).slice(historyBefore),
+    );
+    const throughSequenceNumber = Math.max(
+      ...sequenced.filter(({ type }) => type === "op")
+        .map(({ sequenceNumber }) => sequenceNumber),
+    );
+    await until(() =>
+      environment.peerSession.container.deltaManager.lastSequenceNumber
+        >= throughSequenceNumber,
+    `${cell} upstream observer processed continuation`);
+    const peerProcessedSequenceNumber =
+      environment.peerSession.container.deltaManager.lastSequenceNumber;
+    const peerTransport = environment.peerSession.transportEvidence();
+    const observed = await observeMatrixUpstream(
+      environment.peerSession,
+      cell,
+      publication.targets,
+    );
+    return {
+      id: cell,
+      writer,
+      checkpoint,
+      reader,
+      freshIdentity: {
+        instanceId: fresh.instanceId,
+        clientIds: [...fresh.clientIds],
+      },
+      loadedVersion: loader.selectedVersion,
+      loader,
+      transport,
+      before,
+      expectedBefore,
+      resolved: {
+        document: before.document,
+        map: before.map,
+        tree: before.tree,
+        mapTree: before.mapTree,
+        treeMap: before.treeMap,
+      },
+      continuation: {
+        key: `continuation:${cell}`,
+        value: continuationValue,
+        treeLabel,
+        sequenced,
+        peer: {
+          implementation: "upstream",
+          observed: true,
+          receipt: {
+            instanceId: environment.peerSession.container.clientId,
+            clientIds: [environment.peerSession.container.clientId],
+            readBeforeClose: true,
+            processedSequenceNumber: peerProcessedSequenceNumber,
+            observation: {
+              clientId: environment.peerSession.container.clientId,
+              lastSequenceNumber: peerProcessedSequenceNumber,
+            },
+            transport: peerTransport,
+            continuation: observed.continuation,
+            treeLabel: observed.treeLabel,
+          },
+          state: observed,
+        },
+      },
+    };
+  } finally {
+    await fresh.close();
+    environment.natives = environment.natives.filter(
+      (candidate) => candidate !== fresh,
+    );
+  }
+}
+
+async function runReloadMatrixWriter(config, context, writer) {
+  const environment = await createEnvironment(
+    config,
+    context.runId,
+    "handleReloadMatrix",
+    writer,
+    context.constructors,
+  );
+  let failure;
+  try {
+    const label = `handleReloadMatrix-${writer}-${context.runId.slice(0, 8)}`;
+    const authored = writer === "upstream"
+      ? await authorMatrixUpstream(environment, label)
+      : await authorMatrixNative(environment, writer, label);
+    const checkpoints = [];
+    const cells = [];
+    for (const checkpoint of matrixCheckpoints) {
+      if (checkpoint === "cross-datastore") await authored.cross();
+      if (checkpoint === "handle-undo-redo") await authored.undoRedo();
+      const publication = await publishMatrixCheckpoint(
+        config,
+        environment,
+        writer,
+        authored,
+        checkpoint,
+      );
+      const firstExpected = writer === "upstream"
+        ? await observeMatrixUpstream(
+          environment.peerSession,
+          `${writer}:${checkpoint}:upstream`,
+          publication.targets,
+        )
+        : await observeMatrixUpstream(
+          environment.peerSession,
+          `${writer}:${checkpoint}:upstream`,
+          publication.targets,
+        );
+      let expectedBefore = firstExpected;
+      for (const reader of writers) {
+        const cell = await matrixFreshReader(
+          config,
+          context,
+          environment,
+          writer,
+          checkpoint,
+          reader,
+          publication,
+          expectedBefore,
+        );
+        cells.push(cell);
+        expectedBefore = {
+          ...cell.continuation.peer.state,
+          continuation: undefined,
+        };
+      }
+      checkpoints.push(publication);
+    }
+    return { writer, checkpoints, cells };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await closeEnvironment(environment, failure);
+  }
+}
+
+async function runReloadMatrix(config, context) {
+  const rows = [];
+  const cells = [];
+  for (const writer of writers) {
+    const produced = await runReloadMatrixWriter(config, context, writer);
+    rows.push({ writer, checkpoints: produced.checkpoints, artifacts: [] });
+    cells.push(...produced.cells);
+  }
+  const artifact = {
+    formatVersion: 1,
+    runId: context.runId,
+    section: "handleReloadMatrix",
+    contract,
+    rows,
+    cells,
+  };
+  const relative = "handleReloadMatrix/matrix.json";
+  const bytes = `${JSON.stringify(artifact)}\n`;
+  await mkdir(join(context.output, "handleReloadMatrix"), { recursive: true });
+  await writeFile(join(context.output, relative), bytes, { mode: 0o600 });
+  context.artifacts.files[relative] = { sha256: hash(bytes) };
+  return {
+    name: "handleReloadMatrix",
+    runId: context.runId,
+    contract,
+    skipped: false,
+    selection: { kind: "all" },
+    expectedCells: matrixCellIds,
+    rows: rows.map((row) => ({
+      ...row,
+      checkpoints: row.checkpoints.map(({ rawSnapshot, ...checkpoint }) =>
+        jsonClone(checkpoint)),
+      artifacts: [{ path: relative, sha256: hash(bytes) }],
+    })),
+    cells: jsonClone(cells),
+  };
 }
 
 async function runReconnectRow(config, context, writer) {
@@ -5575,6 +6359,782 @@ async function validateReconnectRow(name, row, artifacts) {
     `${name} report reconnect evidence differs from its persisted artifact`);
 }
 
+function matrixRequiredBlobIds(raw, targets) {
+  const document = snapshotNode(raw, targets.document.path);
+  const map = snapshotNode(raw, targets.map.path);
+  const tree = snapshotNode(raw, targets.tree.path);
+  return [
+    document.blobs[".attributes"],
+    document.trees.indexes.trees.Forest.blobs.contents,
+    document.trees.indexes.trees.Schema.blobs.SchemaString,
+    document.trees.indexes.trees.EditManager.blobs.String,
+    map.blobs[".attributes"],
+    map.blobs.header,
+    tree.blobs[".attributes"],
+    tree.trees.indexes.trees.Forest.blobs.contents,
+    tree.trees.indexes.trees.Schema.blobs.SchemaString,
+    tree.trees.indexes.trees.EditManager.blobs.String,
+  ];
+}
+
+function validateMatrixLoader(name, reader, cell, checkpoint) {
+  validateRetentionLoader(name, reader, cell, checkpoint.rawSnapshot, {
+    document: checkpoint.targets.document,
+    target: checkpoint.targets.map,
+  }, checkpoint.summary, {
+    requireApplicationProtocol: checkpoint.writer !== "upstream",
+  });
+  const fetched = new Set(cell.loader.fetchedBlobs.map(({ id }) => id));
+  for (const id of matrixRequiredBlobIds(
+    checkpoint.rawSnapshot,
+    checkpoint.targets,
+  )) {
+    assert(fetched.has(id),
+      `${name} fresh loader did not read required map/tree schema, Forest, history, or attributes blob ${id}`);
+  }
+}
+
+function requireGcRoutes(name, gc, from, routes) {
+  const actual = new Set(gc.gcNodes[from]?.outboundRoutes ?? []);
+  for (const route of routes) {
+    assert(actual.has(route), `${name} GC edge ${from} -> ${route} is missing`);
+  }
+}
+
+function validateMatrixGc(name, checkpoint) {
+  const { document, map, tree } = checkpoint.targets;
+  const gc = checkpoint.snapshot.evidence.gc;
+  requireGcRoutes(name, gc, document.path, [map.path, tree.path]);
+  requireGcRoutes(name, gc, map.path, [map.path, tree.path]);
+  requireGcRoutes(name, gc, tree.path, [map.path]);
+  const primary = `/${document.path.split("/")[1]}`;
+  requireGcRoutes(name, gc, "/", [primary]);
+  requireGcRoutes(name, gc, primary, [document.path]);
+  requireGcRoutes(name, gc, `${primary}/root`, [document.path]);
+  if (map.path.split("/")[1] !== document.path.split("/")[1]) {
+    const secondary = `/${map.path.split("/")[1]}`;
+    requireGcRoutes(name, gc, `${primary}/root`, [`${secondary}/root`]);
+    requireGcRoutes(name, gc, secondary, [`${secondary}/root`, map.path, tree.path]);
+    requireGcRoutes(name, gc, `${secondary}/root`, [map.path, tree.path]);
+  }
+}
+
+function validateMatrixStoredTrees(name, checkpoint) {
+  for (const target of ["document", "tree"]) {
+    const node = snapshotNode(
+      checkpoint.rawSnapshot,
+      checkpoint.targets[target].path,
+    );
+    assert.deepEqual(
+      decodedBlob(
+        checkpoint.rawSnapshot,
+        node.trees.indexes.trees.Schema,
+        "SchemaString",
+      ),
+      handleStoredSchema,
+      `${name} ${target} stored schema differs`,
+    );
+    assert.deepEqual(
+      decodedBlob(checkpoint.rawSnapshot, node, ".attributes"),
+      channelAttributes.tree,
+      `${name} ${target} persisted attributes differ`,
+    );
+    storedTreeGraph(checkpoint.rawSnapshot, checkpoint.targets[target].path);
+  }
+  const map = snapshotNode(checkpoint.rawSnapshot, checkpoint.targets.map.path);
+  assert.deepEqual(
+    decodedBlob(checkpoint.rawSnapshot, map, ".attributes"),
+    channelAttributes.map,
+    `${name} map persisted attributes differ`,
+  );
+}
+
+function validateMatrixCompressor(name, checkpoint) {
+  validateCompressorAllocations(name, {
+    writer: checkpoint.writer,
+    raw: {
+      sequenced: checkpoint.sequenced,
+      dependencies: dependencyEvidence(
+        checkpoint.sequenced,
+        checkpoint.targets,
+      ),
+    },
+  }, checkpoint.rawSnapshot, checkpoint.snapshot.evidence.referenceSequenceNumber);
+}
+
+function canonicalSummary(value) {
+  if (value?.type !== "tree") return value;
+  return {
+    type: "tree",
+    entries: value.entries
+      .map(([entryName, entry]) => [entryName, canonicalSummary(entry)])
+      .sort(([left], [right]) => left.localeCompare(right)),
+  };
+}
+
+function fetchedSummaryEvidence(raw, tree) {
+  return {
+    type: "tree",
+    entries: [
+      ...Object.entries(tree.trees ?? {}).map(([entryName, child]) =>
+        [entryName, fetchedSummaryEvidence(raw, child)]),
+      ...Object.entries(tree.blobs ?? {}).map(([entryName, id]) =>
+        [entryName, { type: "blob", base64: raw.blobs[id] }]),
+    ],
+  };
+}
+
+function fetchedApplicationSummaryEvidence(raw) {
+  return {
+    type: "tree",
+    entries: [
+      ...Object.entries(raw.tree.trees ?? {})
+        .filter(([entryName]) =>
+          entryName !== ".app" && entryName !== ".protocol")
+        .map(([entryName, child]) =>
+          [entryName, fetchedSummaryEvidence(raw, child)]),
+      ...Object.entries(raw.tree.blobs ?? {}).map(([entryName, id]) =>
+        [entryName, { type: "blob", base64: raw.blobs[id] }]),
+    ],
+  };
+}
+
+function applicationDataSummaryEvidence(summary) {
+  return {
+    ...summary,
+    entries: summary.entries.filter(([entryName]) => entryName !== ".protocol"),
+  };
+}
+
+function matrixTreeLabels(edit, detail) {
+  assert(edit?.version === 7 && edit.changeset?.length === 1,
+    `${detail} SharedTree operation has another format`);
+  const data = edit.changeset[0].data;
+  assert(data?.changes?.length === 1,
+    `${detail} SharedTree change lacks its root field`);
+  const root = data.changes[0];
+  assert(root.fieldKey === "rootFieldKey"
+    && root.fieldKind === "ModularEditBuilder.Generic"
+    && root.change?.length === 1
+    && root.change[0][0] === 0
+    && root.change[0][1]?.fieldChanges?.length === 1,
+  `${detail} SharedTree label change has another target`);
+  const field = root.change[0][1].fieldChanges[0];
+  const replacement = field.change?.r;
+  if (field.fieldKey !== "label" || field.fieldKind !== "Value"
+    || !Number.isSafeInteger(replacement?.s)) return [];
+  assert(data.builds?.builds?.length === 1
+    && Array.isArray(data.builds.trees?.data),
+  `${detail} SharedTree label change lacks its build data`);
+  const [mapping] = data.builds.builds[0];
+  assert(Array.isArray(mapping),
+    `${detail} SharedTree label build mapping changed`);
+  const built = mapping.find(([id]) => id === replacement.s);
+  assert(built, `${detail} SharedTree label replacement lacks its build`);
+  const fields = lifecycleDecodeFieldBatch(
+    data.builds.trees,
+    data.builds.trees.data.map((_, index) => String(index)),
+    `${detail} SharedTree label build`,
+  );
+  const nodes = fields.get(String(built[1]));
+  assert(nodes?.length === 1
+    && nodes[0].type === "com.fluidframework.leaf.string"
+    && nodes[0].fields.size === 0,
+  `${detail} SharedTree label build is not one string`);
+  return [nodes[0].value];
+}
+
+function matrixContinuationEffects(name, cell, checkpoint) {
+  const operations = cell.continuation.sequenced.filter(({ type }) => type === "op");
+  assert(operations.length > 0, `${name} continuation lacks an actual operation`);
+  const effects = [];
+  for (const operation of operations) {
+    assert(Number.isSafeInteger(operation.sequenceNumber)
+      && operation.sequenceNumber
+        > checkpoint.snapshot.evidence.referenceSequenceNumber,
+    `${name} continuation operation does not follow the selected snapshot`);
+    assert(Number.isSafeInteger(operation.clientSequenceNumber)
+      && operation.clientSequenceNumber > 0
+      && Number.isSafeInteger(operation.referenceSequenceNumber)
+      && operation.referenceSequenceNumber
+        >= checkpoint.snapshot.evidence.referenceSequenceNumber
+      && cell.freshIdentity.clientIds.includes(operation.clientId),
+    `${name} fresh reader operation identity differs`);
+    for (const { contents } of operationItems(operation)) {
+      if (contents?.type !== "component") continue;
+      const datastore = contents.contents;
+      const channel = datastore?.contents;
+      if (channel?.type !== "op") continue;
+      const addressed = channel.content;
+      const path = `/${datastore.address}/${addressed?.address}`;
+      if (path === checkpoint.targets.map.path) {
+        const edit = addressed.contents;
+        if (edit?.type === "set" && edit.value?.type === "Plain") {
+          effects.push({
+            kind: "map-set",
+            sequenceNumber: operation.sequenceNumber,
+            message: operation,
+            target: path,
+            key: edit.key,
+            value: edit.value.value,
+          });
+        }
+      }
+      if (path === checkpoint.targets.tree.path) {
+        for (const label of matrixTreeLabels(
+          addressed.contents,
+          `${name} sequence ${operation.sequenceNumber}`,
+        )) {
+          effects.push({
+            kind: "tree-label",
+            sequenceNumber: operation.sequenceNumber,
+            message: operation,
+            target: path,
+            label,
+          });
+        }
+      }
+    }
+  }
+  const map = effects.filter(({ kind, key, value }) =>
+    kind === "map-set"
+      && key === cell.continuation.key
+      && value === cell.continuation.value);
+  const tree = effects.filter(({ kind, label }) =>
+    kind === "tree-label" && label === cell.continuation.treeLabel);
+  assert.equal(map.length, 1,
+    `${name} continuation lacks its decoded SharedMap operation`);
+  assert.equal(tree.length, 1,
+    `${name} continuation lacks its decoded SharedTree operation`);
+  return { map: map[0], tree: tree[0], operations };
+}
+
+function operationIdentityKey(message) {
+  const canonical = (value) => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonical(item)]));
+  };
+  return hash(canonical(transportOperationIdentity(message)));
+}
+
+function validateMatrixFreshTransport(name, cell, effects) {
+  const transport = cell.transport;
+  assert(transport && Array.isArray(transport.connections)
+    && Array.isArray(transport.outboundOccurrences),
+  `${name} fresh reader lacks actual connection and submission receipts`);
+  const connectionIds = new Set(transport.connections.map(({ connectionId }) =>
+    connectionId));
+  const effectMessages = new Set(
+    [effects.map.message, effects.tree.message].map(operationIdentityKey),
+  );
+  const matching = transport.outboundOccurrences.filter((occurrence) =>
+    submissionMessages([occurrence]).some((message) =>
+      effectMessages.has(operationIdentityKey(message))));
+  assert.equal(new Set(matching.flatMap((occurrence) =>
+    submissionMessages([occurrence])
+      .filter((message) => effectMessages.has(operationIdentityKey(message)))
+      .map(operationIdentityKey))).size, effectMessages.size,
+  `${name} accepted continuation differs from actual fresh-reader submissions`);
+  assert(matching.every(({ connectionId }) => connectionIds.has(connectionId)),
+    `${name} fresh-reader submission lacks its actual connection`);
+  assert(matching.every((occurrence) =>
+    submissionMessages([occurrence]).every(({ clientId }) =>
+      cell.freshIdentity.clientIds.includes(clientId))),
+  `${name} fresh-reader submission used another client identity`);
+  if (cell.reader === "upstream") {
+    assert.equal(cell.freshIdentity.instanceId,
+      cell.freshIdentity.clientIds[0],
+    `${name} upstream fresh instance differs from its client`);
+    assert(transport.connections.some(({ clientId }) =>
+      cell.freshIdentity.clientIds.includes(clientId)),
+    `${name} upstream fresh reader lacks its actual connection identity`);
+  } else {
+    assert.equal(transport.instanceId, cell.freshIdentity.instanceId,
+      `${name} native fresh instance differs from its transport identity`);
+  }
+  return {
+    connectionIds: new Set(matching.map(({ connectionId }) => connectionId)),
+  };
+}
+
+function matrixSequenceReceipts(
+  transport,
+  connectionIds,
+  includeHandshakeMessages = true,
+) {
+  const receipts = new Map();
+  const add = (connectionId, sequenceNumbers) => {
+    if (!connectionIds.has(connectionId)) return;
+    for (const sequenceNumber of sequenceNumbers ?? []) {
+      if (!Number.isSafeInteger(sequenceNumber)) continue;
+      const connections = receipts.get(sequenceNumber) ?? new Set();
+      connections.add(connectionId);
+      receipts.set(sequenceNumber, connections);
+    }
+  };
+  for (const delivery of transport.delivered ?? []) {
+    if (delivery.direction === "inbound" && delivery.duplicate !== true) {
+      add(delivery.connectionId, delivery.sequenceNumbers);
+    }
+  }
+  if (includeHandshakeMessages) {
+    for (const handshake of transport.handshakes ?? []) {
+      add(handshake.connectionId, handshake.initialMessageSequenceNumbers);
+    }
+  }
+  return receipts;
+}
+
+function matrixSequencedMessageReceipts(
+  transport,
+  connectionIds,
+  includeHandshakeMessages,
+) {
+  const receipts = new Map();
+  const add = (connectionId, messages) => {
+    if (!connectionIds.has(connectionId)) return;
+    for (const message of messages ?? []) {
+      const key = [
+        message.sequenceNumber,
+        message.type,
+        operationIdentityKey(message),
+      ].join(":");
+      const connections = receipts.get(key) ?? new Set();
+      connections.add(connectionId);
+      receipts.set(key, connections);
+    }
+  };
+  for (const delivery of transport.delivered ?? []) {
+    if (delivery.direction === "inbound" && delivery.duplicate !== true) {
+      add(delivery.connectionId, delivery.sequencedMessages);
+    }
+  }
+  if (includeHandshakeMessages) {
+    for (const handshake of transport.handshakes ?? []) {
+      add(handshake.connectionId, handshake.initialMessages);
+    }
+  }
+  return receipts;
+}
+
+function validateMatrixAcknowledgements(name, cell, effects, freshTransport) {
+  const messages = new Map();
+  for (const message of [effects.map.message, effects.tree.message]) {
+    messages.set(operationIdentityKey(message), message);
+  }
+  assert.equal(
+    new Set([...messages.values()].map(({ sequenceNumber }) =>
+      sequenceNumber)).size,
+    messages.size,
+    `${name} distinct continuation messages share an acknowledgement sequence`,
+  );
+  const nativeTransport = cell.reader === "upstream"
+    ? cell.continuation.peer.receipt.transport
+    : cell.transport;
+  const connectionIds = cell.reader === "upstream"
+    ? new Set(nativeTransport.connections.map(({ connectionId }) => connectionId))
+    : freshTransport.connectionIds;
+  const receipts = matrixSequenceReceipts(
+    nativeTransport,
+    connectionIds,
+    cell.reader === "upstream",
+  );
+  const messageReceipts = matrixSequencedMessageReceipts(
+    nativeTransport,
+    connectionIds,
+    cell.reader === "upstream",
+  );
+  for (const message of messages.values()) {
+    const { sequenceNumber } = message;
+    assert(receipts.has(sequenceNumber),
+      `${name} acknowledgement sequence lacks an actual native delivery receipt`);
+    assert(messageReceipts.has(
+      [sequenceNumber, message.type, operationIdentityKey(message)].join(":"),
+    ), `${name} sequenced service message differs from its native delivery identity`);
+  }
+  if (cell.reader !== "upstream") {
+    assert(nativeTransport.handshakes.some(({ connectionId, clientId }) =>
+      connectionIds.has(connectionId)
+        && cell.freshIdentity.clientIds.includes(clientId)),
+    `${name} native fresh client differs from its connection handshake`);
+  }
+}
+
+function validateMatrixPeerReceipt(name, cell, effects) {
+  assert(writers.includes(cell.continuation.peer.implementation)
+    && cell.continuation.peer.implementation !== cell.reader,
+  `${name} continuation peer implementation is not independent`);
+  assert.equal(cell.continuation.peer.observed, true,
+    `${name} continuation peer did not observe the write`);
+  const receipt = cell.continuation.peer.receipt;
+  assert(receipt && receipt.readBeforeClose === true
+    && typeof receipt.instanceId === "string"
+    && Array.isArray(receipt.clientIds) && receipt.clientIds.length > 0
+    && receipt.transport && receipt.observation,
+  `${name} continuation peer lacks its actual read identity before close`);
+  assert(!receipt.clientIds.some((id) =>
+    cell.freshIdentity.clientIds.includes(id)),
+  `${name} continuation peer reused the fresh reader identity`);
+  const throughSequenceNumber = Math.max(
+    effects.map.sequenceNumber,
+    effects.tree.sequenceNumber,
+  );
+  assert(Number.isSafeInteger(receipt.processedSequenceNumber)
+    && receipt.processedSequenceNumber >= throughSequenceNumber,
+  `${name} continuation peer processed watermark precedes the writes`);
+  if (cell.continuation.peer.implementation === "upstream") {
+    assert.equal(receipt.instanceId, receipt.observation.clientId,
+      `${name} upstream peer identity differs from its processed receipt`);
+    assert.equal(
+      receipt.processedSequenceNumber,
+      receipt.observation.lastSequenceNumber,
+      `${name} upstream peer watermark differs from its delta manager`,
+    );
+    assert(receipt.clientIds.includes(receipt.observation.clientId)
+      && receipt.transport.connections.some(({ clientId }) =>
+        receipt.clientIds.includes(clientId)),
+    `${name} upstream peer identity differs from its actual connection`);
+  } else {
+    assert.equal(receipt.instanceId, receipt.transport.instanceId,
+      `${name} native peer identity differs from its transport receipt`);
+    assert.equal(receipt.observation.phase, "ready",
+      `${name} native peer observer phase is not ready`);
+    assert.equal(receipt.observation.synced, true,
+      `${name} native peer observer is not synchronized`);
+    assert.equal(receipt.observation.error, null,
+      `${name} native peer observer is not error-free`);
+    assert.equal(receipt.observation.inFlightCount, 0,
+      `${name} native peer observer has in-flight work`);
+    assert.equal(receipt.observation.pendingTreeCount, 0,
+      `${name} native peer observer has pending tree work`);
+    assert(receipt.clientIds.includes(receipt.observation.clientId),
+      `${name} native peer identity differs from its processed receipt`);
+    const connectionIds = new Set(
+      receipt.transport.connections.map(({ connectionId }) => connectionId),
+    );
+    const receipts = matrixSequenceReceipts(receipt.transport, connectionIds);
+    const observedSequences = [
+      effects.map.sequenceNumber,
+      effects.tree.sequenceNumber,
+    ];
+    assert(observedSequences.every((sequenceNumber) =>
+      receipts.has(sequenceNumber)),
+    `${name} native peer lacks actual delivery of both continuation writes`);
+    assert(receipt.transport.handshakes.some((handshake) =>
+      handshake.clientId === receipt.observation.clientId
+        && observedSequences.every((sequenceNumber) =>
+          receipts.get(sequenceNumber)?.has(handshake.connectionId))),
+    `${name} native peer observer differs from its delivery connection handshake`);
+  }
+  assert.equal(receipt.continuation, cell.continuation.value,
+    `${name} continuation peer read another map value`);
+  assert.equal(receipt.treeLabel, cell.continuation.treeLabel,
+    `${name} continuation peer read another tree value`);
+}
+
+function validateMatrixContinuation(name, cell, checkpoint) {
+  const effects = matrixContinuationEffects(name, cell, checkpoint);
+  const freshTransport = validateMatrixFreshTransport(name, cell, effects);
+  validateMatrixAcknowledgements(name, cell, effects, freshTransport);
+  validateMatrixPeerReceipt(name, cell, effects);
+  return effects;
+}
+
+function matrixStoredBefore(checkpoint) {
+  const map = checkpoint.snapshot.evidence.targets.map.graph;
+  const tree = checkpoint.snapshot.evidence.targets.tree.graph;
+  return {
+    document: checkpoint.targets.document.path,
+    map: checkpoint.targets.map.path,
+    tree: checkpoint.targets.tree.path,
+    mapValue: map.value,
+    mapTree: map.tree,
+    treeMap: tree.optional,
+    treeLabel: tree.label,
+    continuations: Object.entries(map)
+      .filter(([key]) => key.startsWith("continuation:"))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  };
+}
+
+async function validateReloadMatrixSection(section, artifacts) {
+  const name = "handleReloadMatrix";
+  assert(section && typeof section === "object", `${name} section is missing`);
+  assert.equal(section.name, name, `${name} section name changed`);
+  assert.equal(section.runId, artifacts.runId, `${name} section run identity changed`);
+  validateContract(section.contract, `${name} section`);
+  assert.equal(section.skipped, false, `${name} section is skipped`);
+  assert.deepEqual(section.selection, { kind: "all" },
+    `${name} complete section selection changed`);
+  assert.deepEqual(section.expectedCells, matrixCellIds,
+    `${name} fixed expected cell IDs changed`);
+  assert.deepEqual(section.cells.map(({ id }) => id), matrixCellIds,
+    `${name} missing, duplicate, skipped, or reordered cells`);
+  assert.equal(new Set(section.cells.map(({ id }) => id)).size, 27,
+    `${name} duplicate cell IDs`);
+  assert.deepEqual(section.rows.map(({ writer }) => writer), writers,
+    `${name} writer coverage changed`);
+  const descriptor = section.rows[0]?.artifacts?.[0];
+  assert(descriptor, `${name} persisted matrix artifact is missing`);
+  assert(section.rows.every((row) =>
+    row.artifacts.length === 1
+      && row.artifacts[0].path === descriptor.path
+      && row.artifacts[0].sha256 === descriptor.sha256),
+  `${name} rows do not bind the same matrix artifact`);
+  const registered = artifacts.files[descriptor.path];
+  assert(registered, `${name} matrix artifact is not registered`);
+  assert.equal(registered.sha256, descriptor.sha256,
+    `${name} matrix artifact digest changed`);
+  const bytes = await readFile(join(artifacts.root, descriptor.path));
+  assert.equal(hash(bytes), descriptor.sha256,
+    `${name} persisted matrix artifact bytes changed`);
+  const artifact = JSON.parse(bytes.toString("utf8"));
+  assert.equal(artifact.runId, section.runId,
+    `${name} artifact run identity changed`);
+  validateContract(artifact.contract, `${name} artifact`);
+  assert.deepEqual(artifact.cells, section.cells,
+    `${name} report cells differ from persisted artifact`);
+  assert.deepEqual(
+    artifact.rows.map(({ writer, checkpoints }) => ({
+      writer,
+      checkpoints: checkpoints.map(({ rawSnapshot, ...checkpoint }) =>
+        jsonClone(checkpoint)),
+    })),
+    section.rows.map(({ writer, checkpoints }) => ({ writer, checkpoints })),
+    `${name} report checkpoints differ from persisted artifact`,
+  );
+  const checkpointById = new Map();
+  for (const [rowIndex, row] of section.rows.entries()) {
+    assert.deepEqual(row.checkpoints.map(({ id }) => id), matrixCheckpoints,
+      `${name} ${row.writer} checkpoint coverage changed`);
+    const artifactRow = artifact.rows[rowIndex];
+    assert.equal(artifactRow.writer, row.writer,
+      `${name} artifact writer order changed`);
+    for (const [checkpointIndex, checkpoint] of row.checkpoints.entries()) {
+      const raw = artifactRow.checkpoints[checkpointIndex].rawSnapshot;
+      assert(raw, `${name} ${row.writer}:${checkpoint.id} lacks fetched storage bytes`);
+      assert.equal(checkpoint.writer, row.writer,
+        `${name} checkpoint writer changed`);
+      assert.equal(checkpoint.publication.version, checkpoint.snapshot.version,
+        `${name} publication names another fetched version`);
+      assert.equal(checkpoint.snapshot.treeSha256, hash(raw.tree),
+        `${name} fetched tree hash differs from actual bytes`);
+      assert.deepEqual(
+        checkpoint.snapshot.blobs,
+        Object.fromEntries(Object.entries(raw.blobs).map(
+          ([id, encoded]) => [id, hash(Buffer.from(encoded, "base64"))],
+        )),
+        `${name} fetched blob hashes differ from actual bytes`,
+      );
+      const measured = matrixSnapshotEvidence(raw, checkpoint.targets);
+      assert.deepEqual(checkpoint.snapshot.evidence, measured,
+        `${name} schema, values, handles, order, GC, compressor, or metadata differ`);
+      const fullCheckpoint = { ...checkpoint, rawSnapshot: raw };
+      validateMatrixStoredTrees(name, fullCheckpoint);
+      validateMatrixGc(name, fullCheckpoint);
+      validateMatrixCompressor(name, fullCheckpoint);
+      if (row.writer !== "upstream") {
+        const uploaded = submittedSummaryEvidence(
+          checkpoint.publication.uploads,
+          raw.tree.trees[".app"].id,
+        );
+        assert.deepEqual(checkpoint.summary, uploaded,
+          `${name} submitted summary differs from actual native uploads`,
+        );
+        assert.deepEqual(
+          canonicalSummary(applicationDataSummaryEvidence(uploaded)),
+          canonicalSummary(fetchedApplicationSummaryEvidence(raw)),
+          `${name} uploaded publication differs from fetched stored bytes`,
+        );
+      }
+      assert.equal(measured.compressor.formatVersion, 2,
+        `${name} compressor format changed`);
+      assert.equal(
+        measured.metadata.documentSchema?.info?.minVersionForCollab,
+        oldestSupportedClient,
+        `${name} minimum collaboration version changed`,
+      );
+      assert.equal(measured.metadata.createContainerRuntimeVersion, reference.version,
+        `${name} runtime package metadata changed`);
+      assert.deepEqual(checkpoint.targets.document.attributes, channelAttributes.tree,
+        `${name} document schema attributes changed`);
+      assert.deepEqual(checkpoint.targets.map.attributes, channelAttributes.map,
+        `${name} SharedMap schema attributes changed`);
+      assert.deepEqual(checkpoint.targets.tree.attributes, channelAttributes.tree,
+        `${name} SharedTree schema attributes changed`);
+      assert.deepEqual(measured.factories.document, {
+        packagePath: [handleServiceStore.type],
+        summaryFormatVersion: 2,
+        isRootDataStore: true,
+      }, `${name} primary root factory metadata changed`);
+      const expectedTargetFactory = checkpoint.id === "same-datastore"
+        ? {
+          packagePath: [handleServiceStore.type],
+          summaryFormatVersion: 2,
+          isRootDataStore: true,
+        }
+        : {
+          packagePath: [handleGraphStore.type],
+          summaryFormatVersion: 2,
+          isRootDataStore: false,
+        };
+      assert.deepEqual(measured.factories.map, expectedTargetFactory,
+        `${name} selected SharedMap factory or root metadata changed`);
+      assert.deepEqual(measured.factories.tree, expectedTargetFactory,
+        `${name} selected SharedTree factory or root metadata changed`);
+      if (checkpoint.id !== "same-datastore") {
+        assert.deepEqual(measured.factories.secondary, expectedTargetFactory,
+          `${name} declared secondary factory or layout changed`);
+      }
+      const documentGraph = measured.targets.document.graph;
+      assert.equal(documentGraph.links.map, checkpoint.targets.map.path,
+        `${name} document map handle path changed`);
+      assert.equal(documentGraph.links.tree, checkpoint.targets.tree.path,
+        `${name} document tree handle path changed`);
+      assert.deepEqual(documentGraph.sequence, [
+        checkpoint.targets.map.path,
+        checkpoint.targets.tree.path,
+      ], `${name} document handle order changed`);
+      assert.equal(measured.targets.map.graph.self, checkpoint.targets.map.path,
+        `${name} SharedMap self handle changed`);
+      assert.equal(measured.targets.map.graph.tree, checkpoint.targets.tree.path,
+        `${name} SharedMap tree handle changed`);
+      assert.equal(measured.targets.tree.graph.optional, checkpoint.targets.map.path,
+        `${name} SharedTree map handle changed`);
+      const label = `handleReloadMatrix-${row.writer}-${section.runId.slice(0, 8)}`;
+      const targetKind = checkpoint.id === "same-datastore" ? "same" : "cross";
+      assert.equal(measured.targets.map.graph.value, `${label}-${targetKind}-map`,
+        `${name} selected SharedMap value changed`);
+      if (checkpoint.id !== "handle-undo-redo") {
+        assert.equal(
+          measured.targets.tree.graph.label,
+          `${label}-${targetKind}-tree`,
+          `${name} selected SharedTree value changed`,
+        );
+      }
+      for (const target of Object.values(checkpoint.targets)) {
+        gcNode(measured.gc, target.path,
+          `${name} ${row.writer}:${checkpoint.id}`);
+      }
+      validatePublication(name, {
+        writer: row.writer,
+        raw: {
+          publication: checkpoint.publication,
+          sequenced: checkpoint.sequenced,
+        },
+        snapshot: checkpoint.snapshot,
+      }, raw);
+      checkpointById.set(`${row.writer}:${checkpoint.id}`, {
+        checkpoint: fullCheckpoint,
+      });
+    }
+  }
+  const seenFresh = new Set();
+  const expectedStates = new Map([...checkpointById].map(([id, { checkpoint }]) =>
+    [id, matrixStoredBefore(checkpoint)]));
+  const stateWatermarks = new Map([...checkpointById].map(
+    ([id, { checkpoint }]) => [
+      id,
+      checkpoint.snapshot.evidence.referenceSequenceNumber,
+    ],
+  ));
+  for (const cell of section.cells) {
+    const [writer, checkpoint, reader] = cell.id.split(":");
+    assert.equal(cell.writer, writer, `${name} cell writer differs from its ID`);
+    assert.equal(cell.checkpoint, checkpoint,
+      `${name} cell checkpoint differs from its ID`);
+    assert.equal(cell.reader, reader, `${name} cell reader differs from its ID`);
+    assert(writers.includes(reader), `${name} cell reader is unknown`);
+    assert(typeof cell.freshIdentity?.instanceId === "string"
+      && cell.freshIdentity.instanceId.length > 0,
+    `${name} cell lacks a genuine fresh reader identity`);
+    assert(Array.isArray(cell.freshIdentity.clientIds)
+      && cell.freshIdentity.clientIds.length > 0,
+    `${name} cell lacks fresh reader client identities`);
+    for (const identity of cell.freshIdentity.clientIds) {
+      assert(!seenFresh.has(identity), `${name} reused or forged a fresh reader identity`);
+      seenFresh.add(identity);
+    }
+    const stored = checkpointById.get(`${writer}:${checkpoint}`);
+    assert(stored, `${name} cell names an unproduced checkpoint`);
+    assert.equal(cell.loadedVersion, stored.checkpoint.snapshot.version,
+      `${name} cell loaded another published version`);
+    const stateId = `${writer}:${checkpoint}`;
+    if (checkpoint === "handle-undo-redo" && reader === writers[0]) {
+      const priorId = `${writer}:cross-datastore`;
+      assert(
+        stored.checkpoint.snapshot.evidence.referenceSequenceNumber
+          >= stateWatermarks.get(priorId),
+        `${name} republished checkpoint precedes the decoded continuation tail`,
+      );
+      assert.deepEqual(
+        expectedStates.get(stateId),
+        expectedStates.get(priorId),
+        `${name} republished checkpoint lost its decoded continuation tail`,
+      );
+    }
+    const expectedBefore = expectedStates.get(stateId);
+    assert.deepEqual(cell.before, expectedBefore,
+      `${name} cell loaded state differs from stored bytes and sequenced tail`);
+    assert.deepEqual(cell.expectedBefore, expectedBefore,
+      `${name} copied expected state differs from stored bytes and sequenced tail`);
+    assert.deepEqual(cell.resolved, {
+      document: stored.checkpoint.targets.document.path,
+      map: stored.checkpoint.targets.map.path,
+      tree: stored.checkpoint.targets.tree.path,
+      mapTree: stored.checkpoint.targets.tree.path,
+      treeMap: stored.checkpoint.targets.map.path,
+    }, `${name} cell did not resolve actual loaded handles`);
+    validateMatrixLoader(
+      name,
+      reader,
+      reader === "upstream"
+        ? {
+          loadedVersion: cell.loadedVersion,
+          loader: cell.loader,
+          storage: cell.storage,
+        }
+        : {
+          loadedVersion: cell.loadedVersion,
+          loader: cell.loader,
+          transport: cell.transport,
+        },
+      stored.checkpoint,
+    );
+    const effects = validateMatrixContinuation(name, cell, stored.checkpoint);
+    assert.equal(
+      cell.continuation.peer.state.continuation,
+      cell.continuation.value,
+      `${name} cell peer did not observe the continuing target write`,
+    );
+    assert.equal(
+      cell.continuation.peer.state.treeLabel,
+      cell.continuation.treeLabel,
+      `${name} cell peer did not observe the continuing tree write`,
+    );
+    assert.equal(cell.continuation.peer.state.map, stored.checkpoint.targets.map.path,
+      `${name} continuation peer resolved another SharedMap`);
+    assert.equal(cell.continuation.peer.state.tree, stored.checkpoint.targets.tree.path,
+      `${name} continuation peer resolved another SharedTree`);
+    expectedStates.set(stateId, {
+      ...expectedBefore,
+      treeLabel: effects.tree.label,
+      continuations: [
+        ...expectedBefore.continuations,
+        [effects.map.key, effects.map.value],
+      ].sort(([left], [right]) => left.localeCompare(right)),
+    });
+    stateWatermarks.set(stateId, Math.max(
+      effects.map.sequenceNumber,
+      effects.tree.sequenceNumber,
+    ));
+  }
+  return section;
+}
+
 async function validateRow(name, row, artifacts) {
   if (name === "handleTransactionBranch") {
     return validateTransactionBranchRow(name, row, artifacts);
@@ -5647,6 +7207,9 @@ export async function validateLifecycleSection(
   artifacts,
   { diagnosticWriter } = {},
 ) {
+  if (name === "handleReloadMatrix") {
+    return validateReloadMatrixSection(section, artifacts);
+  }
   assert(liveSections.includes(name), `Lifecycle section is not implemented: ${name}`);
   assert(section && typeof section === "object", `${name} section is missing`);
   assert.equal(section.name, name, `${name} section name changed`);
@@ -5703,17 +7266,21 @@ export async function runLifecycleInterop({
   scenario,
 } = {}) {
   const runId = randomUUID();
-  const selected = scenario === undefined
+  const matrixSelected = scenario === "handleReloadMatrix";
+  const selected = scenario === undefined || matrixSelected
     ? null
     : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment|handleTransactionBranch|handleRetention|handleReconnect):(upstream|javascript|erlang)$/);
   if (scenario !== undefined) {
-    assert(selected, "Lifecycle scenario must be <section>:<writer>");
+    assert(selected || matrixSelected,
+      "Lifecycle scenario must be <section>:<writer> or handleReloadMatrix");
   }
   assert(
-    selected || bounded === true,
+    selected || matrixSelected || bounded === true,
     "Full seven-section lifecycle execution is not implemented",
   );
-  const selectedSections = selected ? [selected[1]] : liveSections;
+  const selectedSections = matrixSelected
+    ? ["handleReloadMatrix"]
+    : selected ? [selected[1]] : liveSections;
   const selectedWriters = selected ? [selected[2]] : writers;
   const selection = selected
     ? { kind: "writer", writer: selected[2] }
@@ -5738,6 +7305,12 @@ export async function runLifecycleInterop({
     sections: {},
   };
   for (const name of selectedSections) {
+    if (name === "handleReloadMatrix") {
+      const section = await runReloadMatrix(config, context);
+      await validateLifecycleSection(name, section, context.artifacts);
+      report.sections[name] = section;
+      continue;
+    }
     const section = {
       name,
       runId,

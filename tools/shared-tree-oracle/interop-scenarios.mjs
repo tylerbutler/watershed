@@ -4940,6 +4940,7 @@ export async function nativeAdapter(
     },
     evidence() {
       return {
+        instanceId: client.instanceId,
         ...client.gate.evidence(),
         nativeLoadIdentities: structuredClone(nativeLoadIdentities),
         reconnectRetries: structuredClone(reconnectRetries),
