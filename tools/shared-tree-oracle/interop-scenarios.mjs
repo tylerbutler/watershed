@@ -1492,6 +1492,11 @@ function builtValues(value) {
     && (typeof value[1] === "string" || Number.isFinite(value[1]))) {
     return [value[1]];
   }
+  if (value.length === 2
+    && value[1]?.type === "__fluid_handle__"
+    && typeof value[1].url === "string") {
+    return [value[1].url];
+  }
   return value.flatMap(builtValues);
 }
 
@@ -1582,7 +1587,11 @@ export function decodeReconnectPayload(payload) {
   const values = change?.data
     ? builtValues(data.builds?.trees?.data)
     : data.builds?._root?.values?.flatMap(({ value: built }) =>
-      typeof built === "string" || Number.isFinite(built) ? [built] : []) ?? [];
+      typeof built === "string" || Number.isFinite(built)
+        ? [built]
+        : built?.type === "__fluid_handle__" && typeof built.url === "string"
+          ? [built.url]
+          : []) ?? [];
   assert.equal(fields.length, 1, "Reconnect data payload lacks one edited field");
   assert.equal(values.length, 1, "Reconnect data payload lacks one built value");
   return { kind: "data", field: fields[0], value: values[0] };
@@ -3445,7 +3454,9 @@ function upstreamHistoryEvidence(session) {
   assert.equal(manager?.constructor.name, "EditManager", "Unexpected pinned edit manager");
   const persist = (value) => {
     const encoded = JSON.stringify(value, (_key, item) =>
-      item instanceof Map
+      typeof item?.absolutePath === "string" && typeof item?.get === "function"
+        ? { type: "__fluid_handle__", url: item.absolutePath }
+        : item instanceof Map
         ? { type: "Map", entries: [...item.entries()] }
         : item instanceof Set
           ? { type: "Set", values: [...item.values()] }
@@ -4863,6 +4874,10 @@ export async function nativeAdapter(
         throw error;
       }
       if (reply.observation.clientId) clientIds.add(reply.observation.clientId);
+      return {
+        sequenceNumber: reply.sequenceNumber,
+        observation: structuredClone(reply.observation),
+      };
     },
     async reconnect() {
       for (let attempt = 0; attempt < 2; attempt += 1) {

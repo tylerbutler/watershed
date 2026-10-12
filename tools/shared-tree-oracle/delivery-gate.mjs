@@ -34,20 +34,35 @@ function summaryLoad(raw) {
   return path.includes("/repos/") || /\/git\/(?:commits|trees|blobs)(?:\/|$)/.test(path);
 }
 
-function inspectPayload(bytes) {
-  let value;
+function decodePayload(bytes) {
+  const text = bytes.toString("utf8");
   try {
-    value = JSON.parse(bytes.toString("utf8"));
+    return { prefix: "", value: JSON.parse(text) };
   } catch {
-    return undefined;
+    const framed = text.match(/^42(\[.*\])$/s);
+    if (!framed) return undefined;
+    try {
+      return { prefix: "42", value: JSON.parse(framed[1]) };
+    } catch {
+      return undefined;
+    }
   }
-  if (!Array.isArray(value) || value.length < 5) return undefined;
-  const topic = typeof value[2] === "string" ? value[2] : undefined;
-  const event = typeof value[3] === "string" ? value[3] : undefined;
+}
+
+function inspectPayload(bytes) {
+  const value = decodePayload(bytes)?.value;
+  if (!Array.isArray(value)) return undefined;
+  const short = value[0] === "op" || value[0] === "submitOp";
+  const topic = short
+    ? (value[0] === "op" && typeof value[1] === "string" ? value[1] : undefined)
+    : (typeof value[2] === "string" ? value[2] : undefined);
+  const event = short
+    ? value[0]
+    : (typeof value[3] === "string" ? value[3] : undefined);
   if (event !== "op" && event !== "submitOp") return undefined;
   const sequenceNumbers = [];
   let summarize = false;
-  const pending = [value[4]];
+  const pending = [short ? value.slice(1) : value[4]];
   const seenStrings = new Set();
   while (pending.length > 0) {
     const current = pending.pop();
@@ -80,6 +95,15 @@ function inspectPayload(bytes) {
 }
 
 function submittedPayloads(value) {
+  if (Array.isArray(value)
+    && value[0] === "submitOp"
+    && typeof value[1] === "string"
+    && Array.isArray(value[2])) {
+    return [{
+      clientId: value[1],
+      messageBatches: sanitizedPayload(value[2]),
+    }];
+  }
   const submissions = [];
   const pending = [value];
   const seen = new Set();
@@ -106,14 +130,11 @@ function submittedPayloads(value) {
 }
 
 function inspectHandshake(bytes) {
-  let value;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    return undefined;
-  }
-  if (!Array.isArray(value) || value[3] !== "connect_document_success") return undefined;
-  const payload = value[4];
+  const value = decodePayload(bytes)?.value;
+  if (!Array.isArray(value)) return undefined;
+  const short = value[0] === "connect_document_success";
+  if (!short && value[3] !== "connect_document_success") return undefined;
+  const payload = short ? value[1] : value[4];
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
   const checkpointSequenceNumber = Number.isSafeInteger(payload.checkpointSequenceNumber)
     ? payload.checkpointSequenceNumber : undefined;
@@ -135,14 +156,11 @@ function inspectHandshake(bytes) {
 }
 
 function inspectRepairRequest(bytes) {
-  let value;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    return undefined;
-  }
-  if (!Array.isArray(value) || value[3] !== "requestOps") return undefined;
-  const payload = value[4];
+  const value = decodePayload(bytes)?.value;
+  if (!Array.isArray(value)) return undefined;
+  const short = value[0] === "requestOps";
+  if (!short && value[3] !== "requestOps") return undefined;
+  const payload = short ? value[1] : value[4];
   if (!payload || typeof payload !== "object" || Array.isArray(payload)
     || !Number.isSafeInteger(payload.from) || payload.from < 0) return undefined;
   return {
@@ -180,11 +198,10 @@ function sanitizedPayload(value) {
 }
 
 function payloadEvidence(bytes) {
-  try {
-    return sanitizedPayload(JSON.parse(bytes.toString("utf8")));
-  } catch {
-    return { byteLength: bytes.length, hash: digest(bytes) };
-  }
+  const decoded = decodePayload(bytes);
+  return decoded
+    ? sanitizedPayload(decoded.value)
+    : { byteLength: bytes.length, hash: digest(bytes) };
 }
 
 export function snapshotSequenceNumber(bytes) {
@@ -292,6 +309,7 @@ export class DeliveryGate {
     outboundTreeMessages: [],
     injections: [],
     errors: [],
+    controls: [],
   };
 
   constructor(server, webSockets, host, port, documentId) {
@@ -336,6 +354,7 @@ export class DeliveryGate {
     assert(kinds.has(kind), `Unknown delivery kind: ${kind}`);
     if (this.#closed) throw new Error("Delivery gate is closed");
     this.#holds[direction].add(kind);
+    this.#evidence.controls.push({ action: "hold", direction, kind });
   }
 
   inject({
@@ -389,6 +408,13 @@ export class DeliveryGate {
     const queued = this.#queues[direction];
     this.#queues[direction] = [];
     this.#heldBytes[direction] = 0;
+    this.#evidence.controls.push({
+      action: "release",
+      direction,
+      order,
+      duplicate,
+      messageIds: queued.map(({ identity }) => identity.id),
+    });
     for (const item of queued) clearTimeout(item.timer);
     if (order === "reverse") queued.reverse();
     for (const item of queued) await this.#deliver(item, false);
@@ -406,6 +432,13 @@ export class DeliveryGate {
 
   async disconnect() {
     if (this.#closed) return;
+    this.#evidence.controls.push({
+      action: "disconnect",
+      dropped: Object.fromEntries([...directions].map((direction) => [
+        direction,
+        this.#queues[direction].map(({ identity }) => identity.id),
+      ])),
+    });
     this.#disconnected = true;
     for (const direction of directions) {
       if (this.#queues[direction].length > 0) this.#dropped[direction] = true;
@@ -425,6 +458,7 @@ export class DeliveryGate {
   async reconnect() {
     if (this.#closed) throw new Error("Delivery gate is closed");
     this.#disconnected = false;
+    this.#evidence.controls.push({ action: "reconnect" });
   }
 
   async close() {
@@ -491,7 +525,9 @@ export class DeliveryGate {
     let deliveryBytes = bytes;
     if (direction === "inbound") {
       const handshake = inspectHandshake(deliveryBytes);
-      if (handshake) this.#evidence.handshakes.push(handshake);
+      if (handshake) {
+        this.#evidence.handshakes.push({ connectionId, ...handshake });
+      }
     } else {
       const repair = inspectRepairRequest(deliveryBytes);
       if (repair) this.#evidence.repairRequests.push(repair);
@@ -510,10 +546,14 @@ export class DeliveryGate {
       && injection.direction === direction
       && injection.kind === inspected.kind
       && documentTopic(inspected.topic, injection.documentId)) {
-      const originalPayload = JSON.parse(deliveryBytes.toString("utf8"));
+      const decoded = decodePayload(deliveryBytes);
+      assert(decoded, "Injection payload is not decodable");
+      const originalPayload = decoded.value;
       const mutatedPayload = injection.transform(structuredClone(originalPayload));
       assert(mutatedPayload !== undefined, "Injection transform returned no payload");
-      deliveryBytes = Buffer.from(JSON.stringify(mutatedPayload));
+      deliveryBytes = Buffer.from(
+        `${decoded.prefix}${JSON.stringify(mutatedPayload)}`,
+      );
       inspected = inspectPayload(deliveryBytes);
       assert(inspected?.kind === injection.kind,
         "Injection changed the delivery classification");
@@ -544,7 +584,7 @@ export class DeliveryGate {
     };
     if (direction === "outbound" && inspected.kind === "op") {
       identity.submissions = submittedPayloads(
-        JSON.parse(deliveryBytes.toString("utf8")),
+        decodePayload(deliveryBytes).value,
       );
       this.#evidence.outboundOccurrences.push(structuredClone(identity));
     }

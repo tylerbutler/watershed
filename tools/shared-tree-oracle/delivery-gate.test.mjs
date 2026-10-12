@@ -109,6 +109,7 @@ test("complete compressed and fragmented messages release in reverse order with 
     await gate.close();
     await upstream.close();
   });
+
   gate.hold("outbound", "op");
   const payloads = [
     '["1",null,"document:test","op",{"sequenceNumber":10}]',
@@ -140,6 +141,61 @@ test("complete compressed and fragmented messages release in reverse order with 
   assert.equal(evidence.outboundTreeMessages.length, 3);
   assert.deepEqual(evidence.outboundTreeMessages[0].sequenceNumbers, [11]);
   assert(!JSON.stringify(evidence).includes("secret"));
+});
+
+test("socket.io event frames are classified and held without changing bytes", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  const socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  gate.hold("outbound", "op");
+  const payload =
+    '42["1",null,"document:test","submitOp",{"sequenceNumber":12}]';
+  socket.send(payload);
+  await until(() => gate.evidence().held.length === 1,
+    "Gate did not classify the Socket.IO event frame");
+  await gate.release("outbound");
+  await until(() => upstream.received.length === 1,
+    "Gate did not release the Socket.IO event frame");
+  assert.equal(upstream.received[0].toString(), payload);
+});
+
+test("upstream short submitOp frames are classified and held", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  const socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  gate.hold("outbound", "op");
+  const payload = JSON.stringify([
+    "submitOp",
+    "client-one",
+    [[{
+      type: "op",
+      clientSequenceNumber: 1,
+      referenceSequenceNumber: 0,
+      contents: "{}",
+    }]],
+  ]);
+  socket.send(payload);
+  await until(() => gate.evidence().held.length === 1,
+    "Gate did not classify the short upstream submitOp frame");
+  assert.deepEqual(gate.evidence().outboundOccurrences[0].submissions, [{
+    clientId: "client-one",
+    messageBatches: [[{
+      type: "op",
+      clientSequenceNumber: 1,
+      referenceSequenceNumber: 0,
+      contents: "{}",
+    }]],
+  }]);
 });
 
 test("one Phoenix op payload records every contained sequence number", async (t) => {
@@ -302,6 +358,7 @@ test("connection handshake records only safe replay sequence metadata", async (t
   upstream.broadcast(payload);
   assert.deepEqual(await received, [payload]);
   assert.deepEqual(gate.evidence().handshakes, [{
+    connectionId: "connection-1",
     checkpointSequenceNumber: 124,
     summarySequenceNumber: 123,
     initialMessageSequenceNumbers: [124],

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   runLifecycleInterop,
+  synchronize,
   validateLifecycleReport,
   validateLifecycleSection,
 } from "./lifecycle-interop.mjs";
@@ -33,7 +34,22 @@ function changeFirstRevision(value) {
     value.revision += 1;
     return true;
   }
-  return Object.values(value).some(changeFirstRevision);
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string" && /^[\[{]/.test(item.trim())) {
+      try {
+        const decoded = JSON.parse(item);
+        if (changeFirstRevision(decoded)) {
+          value[key] = JSON.stringify(decoded);
+          return true;
+        }
+      } catch {
+        // A source value can resemble JSON without containing encoded data.
+      }
+    } else if (changeFirstRevision(item)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function snapshotNode(snapshot, absolutePath) {
@@ -59,6 +75,151 @@ function rehashTransport(raw) {
         : JSON.stringify(message.contents),
     );
   }
+}
+
+function submittedMessages(occurrence) {
+  return occurrence.submissions.flatMap(({ clientId, messageBatches }) =>
+    messageBatches.flat().map((message) => ({ clientId, message })));
+}
+
+function rehashUpstreamReconnectOccurrence(window, occurrence) {
+  const submission = occurrence.submissions[0];
+  const bytes = Buffer.from(
+    `42${JSON.stringify([
+      "submitOp",
+      submission.clientId,
+      submission.messageBatches,
+    ])}`,
+  );
+  occurrence.hash = hash(bytes);
+  occurrence.byteLength = bytes.length;
+  for (const collection of [
+    window.raw.gate.held,
+    window.raw.gate.delivered,
+    window.raw.gate.outboundOccurrences,
+    window.raw.gateBeforeDisconnect.held,
+    window.raw.gateBeforeDisconnect.delivered,
+    window.raw.gateBeforeDisconnect.outboundOccurrences,
+  ]) {
+    const copy = collection.find(({ id }) => id === occurrence.id);
+    if (!copy) continue;
+    copy.hash = occurrence.hash;
+    copy.byteLength = occurrence.byteLength;
+    copy.submissions = structuredClone(occurrence.submissions);
+  }
+}
+
+function rehashUpstreamGateSubmission(receipt) {
+  const submission = receipt.submissions[0];
+  const bytes = Buffer.from(
+    `42${JSON.stringify([
+      "submitOp",
+      submission.clientId,
+      submission.messageBatches,
+    ])}`,
+  );
+  receipt.hash = hash(bytes);
+  receipt.byteLength = bytes.length;
+}
+
+function syncReconnectGateOccurrence(window, occurrence) {
+  for (const collection of [
+    window.raw.gate.held,
+    window.raw.gate.delivered,
+    window.raw.gate.outboundOccurrences,
+    window.raw.gateBeforeDisconnect.held,
+    window.raw.gateBeforeDisconnect.delivered,
+    window.raw.gateBeforeDisconnect.outboundOccurrences,
+  ]) {
+    const copy = collection.find(({ id }) => id === occurrence.id);
+    if (!copy) continue;
+    copy.hash = occurrence.hash;
+    copy.byteLength = occurrence.byteLength;
+    copy.submissions = structuredClone(occurrence.submissions);
+  }
+}
+
+function reconnectAttach(window, occurrence) {
+  const [{ message }] = submittedMessages(occurrence);
+  const contents = typeof message.contents === "string"
+    ? JSON.parse(message.contents)
+    : message.contents;
+  let found;
+  const visit = (value) => {
+    if (!value || typeof value !== "object" || found) return;
+    if (value.type === "attach") {
+      found = value.content ?? value.contents;
+      return;
+    }
+    for (const child of Object.values(value)) visit(child);
+  };
+  visit(contents);
+  assert(found, "Reconnect occurrence lacks an attachment");
+  return { attachment: found, contents, message };
+}
+
+function rewriteMessageContents(message, contents) {
+  message.contents = typeof message.contents === "string"
+    ? JSON.stringify(contents)
+    : contents;
+}
+
+function duplicateTargetAttachment(raw) {
+  let inserted;
+  const duplicate = (message) => mutateContents(message, (contents) => {
+    if (inserted !== undefined
+      || contents?.type !== "groupedBatch"
+      || !Array.isArray(contents.contents)) return;
+    const index = contents.contents.findIndex((item) => hasAttach(item));
+    if (index < 0) return;
+    contents.contents.splice(
+      index + 1,
+      0,
+      structuredClone(contents.contents[index]),
+    );
+    inserted = {
+      sequenceNumber: message.sequenceNumber,
+      clientSequenceNumber: message.clientSequenceNumber,
+      innerIndex: index,
+    };
+  });
+  for (const occurrence of raw.submitted.slice(-1)) {
+    for (const submission of occurrence.submissions) {
+      for (const message of submission.messageBatches.flat()) duplicate(message);
+    }
+  }
+  inserted = undefined;
+  for (const message of raw.sequenced) duplicate(message);
+  assert(inserted, "Reconnect row lacks a target attachment");
+  const sameOperation = (item) =>
+    item.sequenceNumber === inserted.sequenceNumber
+      && item.clientSequenceNumber === inserted.clientSequenceNumber;
+  for (const target of raw.dependencies.targets) {
+    for (const occurrence of target.occurrences) {
+      if (sameOperation(occurrence) && occurrence.innerIndex > inserted.innerIndex) {
+        occurrence.innerIndex += 1;
+      }
+    }
+    const attachment = target.occurrences.find((occurrence) =>
+      sameOperation(occurrence)
+        && occurrence.innerIndex === inserted.innerIndex
+        && occurrence.kind === "attach");
+    if (attachment) {
+      target.occurrences.push({
+        ...structuredClone(attachment),
+        innerIndex: inserted.innerIndex + 1,
+      });
+      target.occurrences.sort((left, right) =>
+        left.sequenceNumber - right.sequenceNumber
+          || left.innerIndex - right.innerIndex);
+    }
+  }
+  for (const commit of raw.dependencies.commits) {
+    if (sameOperation(commit) && commit.innerIndex > inserted.innerIndex) {
+      commit.innerIndex += 1;
+    }
+  }
+  rehashTransport(raw);
 }
 
 function hasAttach(value, id) {
@@ -373,6 +534,476 @@ test("default lifecycle producer refuses a partial report", async () => {
     () => runLifecycleInterop({ config: {} }),
     /full seven-section.*not implemented/i,
   );
+});
+
+test("one real reconnect writer validates both acceptance windows", {
+  timeout: 300_000,
+}, async () => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-reconnect-${randomUUID()}`,
+  );
+  try {
+    const result = await withLocalFloodgate((config) =>
+      runLifecycleInterop({
+        config,
+        scenario: "handleReconnect:upstream",
+        output,
+      }));
+    const section = result.report.sections.handleReconnect;
+    assert.deepEqual(section.expectedWriters, ["upstream"]);
+    assert.equal(section.rows.length, 1);
+    assert.deepEqual(
+      section.rows[0].reconnect.windows.map(({ id }) => id),
+      ["before-service-acceptance", "accepted-before-local-ack"],
+    );
+    await validateLifecycleSection(
+      "handleReconnect",
+      section,
+      result.artifacts,
+      result.validationContext,
+    );
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("all reconnect writers reject semantic counterexamples", {
+  timeout: 900_000,
+}, async (t) => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-reconnect-all-${randomUUID()}`,
+  );
+  try {
+    const results = {};
+    await withLocalFloodgate(async (config) => {
+      for (const writer of ["upstream", "javascript", "erlang"]) {
+        results[writer] = await runLifecycleInterop({
+          config,
+          scenario: `handleReconnect:${writer}`,
+          output: join(output, writer),
+        });
+      }
+    });
+    const mutateWindow = (artifact, row, id, mutate) => {
+      const rowWindow = row.reconnect.windows.find((window) => window.id === id);
+      const artifactWindow = artifact.reconnect.windows.find(
+        (window) => window.id === id,
+      );
+      mutate(rowWindow);
+      mutate(artifactWindow);
+    };
+    for (const [writer, result] of Object.entries(results)) {
+      await t.test(`${writer} false service acceptance`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "before-service-acceptance",
+            (window) => {
+              window.raw.acceptedBeforeDisconnect =
+                structuredClone(window.raw.sequenced);
+            },
+          ),
+          /falsely claims no service acceptance/i,
+          writer,
+        ));
+      await t.test(`${writer} missing accepted delta`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "accepted-before-local-ack",
+            (window) => {
+              window.raw.acceptedBeforeDisconnect = [];
+            },
+          ),
+          /accepted-before-disconnect delta is missing|predisconnect acceptance differs/i,
+          writer,
+        ));
+      await t.test(`${writer} unrelated noop replaces predisconnect acceptance`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             const accepted = window.raw.acceptedBeforeDisconnect[0];
+             window.raw.acceptedBeforeDisconnect = [{
+               ...structuredClone(accepted),
+               clientId: "unrelated-client",
+               type: "noop",
+               contents: null,
+               contentsSha256: hash(JSON.stringify(null)),
+             }];
+           },
+         ),
+         /predisconnect acceptance.*accepted service|accepted.*identity/i,
+         writer,
+        ));
+      await t.test(`${writer} dropped inbound echo also claims delivery`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             const accepted = window.logical.accepted[0].outerSequenceNumber;
+             const held = window.raw.gateBeforeDisconnect.held.find(
+               ({ direction, sequenceNumbers }) =>
+                 direction === "inbound"
+                   && sequenceNumbers.includes(accepted),
+             );
+             assert(held, "Reconnect row lacks the held accepted echo");
+             const delivered = { ...structuredClone(held), duplicate: false };
+             window.raw.gateBeforeDisconnect.delivered.push(
+               structuredClone(delivered),
+             );
+             window.raw.gate.delivered.push(delivered);
+           },
+         ),
+         /held.*echo.*delivered|dropped.*acknowledgement.*delivered/i,
+         writer,
+        ));
+      await t.test(`${writer} changed resubmitted identity`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "before-service-acceptance",
+            (window) => {
+              const submitted = window.raw.submitted.findLast((occurrence) => {
+                const copy = structuredClone(occurrence.submissions);
+                return changeFirstRevision(copy);
+              });
+              assert(submitted, "Reconnect row lacks a submitted revision");
+              assert(changeFirstRevision(submitted.submissions),
+                "Reconnect row lacks a submitted revision");
+              submitted.hash = hash(JSON.stringify(
+                submitted.submissions,
+              ));
+              if (writer === "upstream") {
+                rehashUpstreamReconnectOccurrence(
+                  window,
+                  submitted,
+                );
+              } else {
+                syncReconnectGateOccurrence(
+                  window,
+                  submitted,
+                );
+              }
+            },
+          ),
+          /resubmitted logical identity differs|accepted logical projection|exact upstream wire/i,
+          writer,
+        ));
+      await t.test(`${writer} duplicate target attachment`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "accepted-before-local-ack",
+            (window) => duplicateTargetAttachment(window.raw),
+          ),
+          /target attachment is missing or duplicated|accepted logical projection/i,
+          writer,
+        ));
+      await t.test(`${writer} falsified pending drain`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "accepted-before-local-ack",
+            (window) => {
+              window.final.pendingTreeCount = 1;
+            },
+          ),
+          /pending tree work did not drain/i,
+          writer,
+        ));
+      await t.test(`${writer} retained final pending history`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             window.final.history.pending =
+               structuredClone(window.pending.history.pending);
+           },
+         ),
+         /final.*pending history|pending history.*drain/i,
+         writer,
+        ));
+      if (writer !== "upstream") {
+        await t.test(`${writer} disconnected final native observation`, () =>
+         rejectArtifactMutation(
+           "handleReconnect",
+           result,
+           (artifact, row) => mutateWindow(
+             artifact,
+             row,
+             "accepted-before-local-ack",
+             (window) => {
+               window.final.connection.phase = "disconnected";
+               window.final.connection.synced = false;
+             },
+           ),
+           /final.*native connection|native.*finalization/i,
+           writer,
+         ));
+      }
+      await t.test(`${writer} changed peer data`, () =>
+        rejectArtifactMutation(
+          "handleReconnect",
+          result,
+          (artifact, row) => mutateWindow(
+            artifact,
+            row,
+            "accepted-before-local-ack",
+            (window) => {
+              const implementation = Object.keys(
+                window.peer.observations,
+              )[0];
+              window.peer.observations[implementation].value = "wrong";
+            },
+          ),
+          /accepted attachment content|observed another target value/i,
+          writer,
+        ));
+      await t.test(`${writer} arbitrary noop contents`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "before-service-acceptance",
+           (window) => {
+             const source = window.raw.submitted.at(-1);
+             const occurrence = structuredClone(source);
+             occurrence.id = Math.max(
+               ...window.raw.gate.outboundOccurrences.map(({ id }) => id),
+             ) + 1;
+             const [{ message }] = submittedMessages(occurrence);
+             message.type = "noop";
+             message.contents = { type: "component" };
+             delete message.metadata;
+             occurrence.hash = hash(JSON.stringify(occurrence.submissions));
+             window.raw.submitted.push(occurrence);
+             const receipt = {
+               ...structuredClone(occurrence),
+               direction: "outbound",
+               kind: "op",
+               duplicate: false,
+             };
+             window.raw.gate.outboundOccurrences.push(
+               structuredClone(receipt),
+             );
+             window.raw.gate.delivered.push(receipt);
+           },
+         ),
+         /SDK noop.*operation contents|transport occurrence classification/i,
+         writer,
+        ));
+      await t.test(`${writer} coordinated fabricated attachment value`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             window.label = "fabricated-value";
+             window.local.value = "fabricated-value";
+             for (const peer of Object.values(window.peer.observations)) {
+               peer.value = "fabricated-value";
+             }
+           },
+         ),
+         /accepted.*attachment.*value|attachment.*content/i,
+         writer,
+        ));
+      await t.test(`${writer} removed accepted delivery receipt`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             const accepted = window.logical.accepted[0].outerSequenceNumber;
+             window.raw.gate.held = window.raw.gate.held.filter(
+               ({ sequenceNumbers }) => !sequenceNumbers.includes(accepted),
+             );
+             window.raw.gateBeforeDisconnect.held =
+               window.raw.gateBeforeDisconnect.held.filter(
+                 ({ sequenceNumbers }) => !sequenceNumbers.includes(accepted),
+               );
+           },
+         ),
+         /accepted acknowledgement.*held|delivery.*receipt/i,
+         writer,
+        ));
+      await t.test(`${writer} removed reconnect connection and handshake`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "before-service-acceptance",
+           (window) => {
+             const acceptedOccurrence = window.raw.submitted.find(
+               (occurrence) => submittedMessages(occurrence)
+                 .some(({ message }) => message.type === "op"
+                   && message.clientSequenceNumber
+                     === window.logical.accepted[0].clientSequenceNumber
+                   && occurrence.connectionId
+                     !== window.raw.submitted[0].connectionId),
+             );
+             assert(acceptedOccurrence,
+               "Reconnect row lacks its accepted retry occurrence");
+             window.raw.gate.connections = window.raw.gate.connections.filter(
+               ({ connectionId }) =>
+                 connectionId !== acceptedOccurrence.connectionId,
+             );
+             window.raw.gate.handshakes = [];
+           },
+         ),
+         /accepted.*connection|reconnect.*handshake/i,
+         writer,
+        ));
+      await t.test(`${writer} acknowledged before dropped inbound echo`, () =>
+        rejectArtifactMutation(
+         "handleReconnect",
+         result,
+         (artifact, row) => mutateWindow(
+           artifact,
+           row,
+           "accepted-before-local-ack",
+           (window) => {
+             window.pending.sequenceNumber =
+               window.logical.accepted[0].outerSequenceNumber;
+             window.pending.history.pending = [];
+           },
+         ),
+         /local acknowledgement.*before.*drop|pending.*before.*disconnect/i,
+         writer,
+        ));
+    }
+    await t.test("upstream altered original attachment snapshot", () =>
+      rejectArtifactMutation(
+        "handleReconnect",
+        results.upstream,
+        (artifact, row) => mutateWindow(
+         artifact,
+         row,
+         "before-service-acceptance",
+         (window) => {
+           const original = window.raw.submitted[0];
+           const { attachment, contents, message } =
+             reconnectAttach(window, original);
+           const header = attachment.snapshot.entries.find(
+             ({ path }) => path === "header",
+           );
+           const decoded = JSON.parse(header.value.contents);
+           decoded.content.value.value = "fabricated-original";
+           header.value.contents = JSON.stringify(decoded);
+           rewriteMessageContents(message, contents);
+           rehashUpstreamReconnectOccurrence(window, original);
+         },
+        ),
+        /original.*attachment|resubmitted.*batch/i,
+        "upstream",
+      ));
+    await t.test("upstream altered original compressor allocation", () =>
+      rejectArtifactMutation(
+        "handleReconnect",
+        results.upstream,
+        (artifact, row) => mutateWindow(
+         artifact,
+         row,
+         "before-service-acceptance",
+         (window) => {
+           const original = window.raw.submitted[0];
+           const [{ message }] = submittedMessages(original);
+           const contents = typeof message.contents === "string"
+             ? JSON.parse(message.contents)
+             : message.contents;
+           const allocation = contents.contents.find(
+             (item) => item.contents?.type === "idAllocation",
+           ).contents.contents.ids;
+           allocation.count += 1;
+           allocation.localIdRanges[0][1] += 1;
+           rewriteMessageContents(message, contents);
+           rehashUpstreamReconnectOccurrence(window, original);
+         },
+        ),
+        /original.*allocation|resubmitted.*batch/i,
+        "upstream",
+      ));
+    await t.test("upstream gate submission differs from projected payload", () =>
+      rejectArtifactMutation(
+        "handleReconnect",
+        results.upstream,
+        (artifact, row) => mutateWindow(
+          artifact,
+          row,
+          "accepted-before-local-ack",
+          (window) => {
+            const occurrence = window.raw.submitted[0];
+            let mutated = 0;
+            for (const collection of [
+              window.raw.gate.outboundOccurrences,
+              window.raw.gate.delivered,
+              window.raw.gateBeforeDisconnect.delivered,
+            ]) {
+              const receipt = collection.find(({ direction, submissions }) =>
+                direction !== "inbound"
+                  && submissions?.[0]?.clientId
+                    === occurrence.submissions[0].clientId
+                  && submissions[0].messageBatches.flat()[0]
+                    .clientSequenceNumber
+                    === occurrence.submissions[0].messageBatches.flat()[0]
+                      .clientSequenceNumber);
+              if (!receipt) continue;
+              const message = receipt.submissions[0].messageBatches.flat()[0];
+              message.contents = "{}";
+              rehashUpstreamGateSubmission(receipt);
+              occurrence.hash = receipt.hash;
+              occurrence.byteLength = receipt.byteLength;
+              mutated += 1;
+            }
+            assert(mutated > 0, "Reconnect row lacks gate submission copies");
+          },
+        ),
+        /gate submission.*projected payload|exact upstream wire/i,
+        "upstream",
+      ));
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
 });
 
 test("one real retention writer validates fresh runtime evidence", {
@@ -1312,6 +1943,39 @@ test("one real writer slice rejects raw and persisted evidence mutations", {
   }
 });
 
+test("lifecycle synchronization waits for the native processed watermark", async () => {
+  const container = () => ({
+    isDirty: false,
+    deltaManager: {
+      inbound: { length: 0 },
+      outbound: { length: 0 },
+      lastSequenceNumber: 5,
+    },
+  });
+  const creator = container();
+  const writer = container();
+  const peer = container();
+  const receipts = [];
+  await synchronize({
+    creator: { container: creator },
+    upstreamSession: { container: writer },
+    peerSession: { container: peer },
+    natives: [{
+      async awaitSynced(minimumSequenceNumber) {
+        receipts.push({ minimumSequenceNumber, sequenceNumber: 6 });
+        creator.deltaManager.lastSequenceNumber = 6;
+        writer.deltaManager.lastSequenceNumber = 6;
+        setImmediate(() => {
+          peer.deltaManager.lastSequenceNumber = 6;
+        });
+        return { sequenceNumber: 6 };
+      },
+    }],
+  });
+  assert.deepEqual(receipts, [{ minimumSequenceNumber: 5, sequenceNumber: 6 }]);
+  assert.equal(peer.deltaManager.lastSequenceNumber, 6);
+});
+
 test("all implemented bounded rows validate exact peers publications and pins", {
   timeout: 600_000,
 }, async (t) => {
@@ -1328,9 +1992,10 @@ test("all implemented bounded rows validate exact peers publications and pins", 
       "datastoreAttachment",
       "handleTransactionBranch",
       "handleRetention",
+      "handleReconnect",
     ]);
     assert.equal(Object.values(result.report.sections)
-      .flatMap(({ rows }) => rows).length, 15);
+      .flatMap(({ rows }) => rows).length, 18);
     for (const [name, section] of Object.entries(result.report.sections)) {
       await validateLifecycleSection(name, section, result.artifacts);
     }
