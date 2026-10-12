@@ -3132,7 +3132,8 @@ function expectedArrayTree(writer, continuationLabel = undefined) {
   };
 }
 
-export async function continueArrayReader(adapter, label) {
+export async function continueArrayReader(adapter, label, sequenceNumber = 0) {
+  await adapter.awaitSynced(sequenceNumber);
   await adapter.arrayMove(["right"], 1, 2, ["left"], 0);
   await adapter.set(["left", "0", "label"], label);
   await adapter.set(["left", "0", "x"], 42);
@@ -3144,7 +3145,7 @@ export async function restoreArrayReader(adapter) {
   await adapter.arrayMove(["left"], 0, 1, ["right"], 1);
 }
 
-async function readArrayCell(config, context, row, reader) {
+async function* readArrayCell(config, context, row, reader) {
   const containers = [];
   let adapter;
   let readError;
@@ -3197,6 +3198,9 @@ async function readArrayCell(config, context, row, reader) {
       ? row.selectedMoveHistory
       : retained.history;
     const persistedMoveIdentity = retainedMoveIdentity(retainedHistory);
+    // Capture every reader's loaded repair data before continuations advance
+    // the shared minimum sequence number and legitimately retire those roots.
+    yield loaded;
     const peer = await openSession(
       config,
       containers,
@@ -3207,7 +3211,11 @@ async function readArrayCell(config, context, row, reader) {
 
     const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
     const baseline = loaded.sequenceNumber;
-    await continueArrayReader(adapter, continuationLabel);
+    await continueArrayReader(
+      adapter,
+      continuationLabel,
+      row.restorationSequenceNumber ?? row.tailSequenceNumber,
+    );
     await adapter.awaitSynced();
     const continuation = await acknowledgedSubmission(
       row.observer,
@@ -3286,6 +3294,7 @@ async function readArrayCell(config, context, row, reader) {
     })];
     await restoreArrayReader(adapter);
     await adapter.awaitSynced();
+    row.restorationSequenceNumber = (await adapter.checkpoint()).sequenceNumber;
     return item;
   } catch (error) {
     readError = error;
@@ -3309,6 +3318,7 @@ async function readArrayCell(config, context, row, reader) {
 async function runArrayWriterRow(config, context, writer) {
   const containers = [];
   const natives = [];
+  const readers = [];
   let rowError;
   try {
     const creator = await openSession(
@@ -3426,7 +3436,15 @@ async function runArrayWriterRow(config, context, writer) {
     };
     const results = {};
     for (const reader of implementations) {
-      results[reader] = await readArrayCell(config, context, row, reader);
+      const cell = readArrayCell(config, context, row, reader);
+      readers.push(cell);
+      const loaded = await cell.next();
+      assert.equal(loaded.done, false, "Array reader omitted its load checkpoint");
+    }
+    for (const [index, reader] of implementations.entries()) {
+      const cell = await readers[index].next();
+      assert.equal(cell.done, true, "Array reader did not complete its continuation");
+      results[reader] = cell.value;
     }
     return results;
   } catch (error) {
@@ -3434,6 +3452,13 @@ async function runArrayWriterRow(config, context, writer) {
     throw error;
   } finally {
     const cleanupErrors = [];
+    for (const reader of readers.toReversed()) {
+      try {
+        await reader.return();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
     for (const native of natives.toReversed()) {
       try {
         await native.close();

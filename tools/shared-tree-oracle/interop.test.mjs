@@ -5992,6 +5992,112 @@ test("decoded submissions require native batch IDs without inventing upstream ID
   assert.throws(() => validateInteropReport(report, expected));
 });
 
+test("native batch ID omission requires wire-proven allocations without local IDs", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.deterministic.find(
+    ({ id }) => id === "independent-scalar:upstream->javascript",
+  );
+  const native = item.evidence.submissions.find(({ author }) => author === "javascript");
+  delete native.batchId;
+  native.innerIndex = 1;
+  native.revision = 515;
+  native.originatorId = "8fa072d2-0719-4913-bd01-55a91d00becc";
+  native.allocations = [{ sessionId: native.originatorId, first: 2, last: 3 }];
+  native.changeset = [{ data: { changes: [] } }];
+  const claim = expected.artifacts.get(item.artifacts[0]).claim;
+  claim.measured.evidence = structuredClone(item.evidence);
+  const message = {
+    type: "op",
+    sequenceNumber: native.outerSequenceNumber,
+    referenceSequenceNumber: native.referenceSequenceNumber,
+    clientId: "native-allocation-client",
+    clientSequenceNumber: 2,
+    metadata: { groupedOpCount: 2 },
+    contents: {
+      type: "groupedBatch",
+      contents: [
+        {
+          contents: {
+            type: "idAllocation",
+            contents: {
+              sessionId: native.originatorId,
+              ids: { firstGenCount: 2, count: 2, localIdRanges: [] },
+            },
+          },
+          metadata: { batch: true },
+        },
+        {
+          contents: {
+            type: "component",
+            contents: {
+              address: "A",
+              contents: {
+                type: "op",
+                content: {
+                  address: "_C",
+                  contents: {
+                    version: 7,
+                    revision: native.revision,
+                    originatorId: native.originatorId,
+                    changeset: native.changeset,
+                  },
+                },
+              },
+            },
+          },
+          metadata: { batch: false },
+        },
+      ],
+    },
+  };
+  claim.raw.history = [message];
+  claim.raw.gates.javascript.handshakes = [{ clientId: message.clientId }];
+  assert.equal(validateInteropReport(report, expected), report);
+  for (const mutate of [
+    (copy) => { copy.contents.contents[0].contents.contents.ids.localIdRanges = [[2, 3]]; },
+    (copy) => { delete copy.contents.contents[0].contents.contents.ids.localIdRanges; },
+    (copy) => { copy.clientId = "unrelated-client"; },
+    (copy) => { copy.referenceSequenceNumber += 1; },
+    (copy) => { copy.contents.contents[1].contents.contents.contents.content.contents.revision += 1; },
+    (copy) => { copy.contents.contents[0].contents.contents.ids.count += 1; },
+    (copy) => { copy.metadata.batchId = "claimed-elsewhere"; },
+  ]) {
+    const changed = structuredClone(message);
+    mutate(changed);
+    claim.raw.history = [changed];
+    assert.throws(() => validateInteropReport(report, expected));
+  }
+  claim.raw.history = [message, structuredClone(message)];
+  assert.throws(() => validateInteropReport(report, expected));
+  const allocations = native.allocations;
+  native.allocations = [];
+  claim.measured.evidence = structuredClone(item.evidence);
+  for (const field of ["sessionId", "firstGenCount", "count"]) {
+    const changed = structuredClone(message);
+    if (field === "sessionId") delete changed.contents.contents[0].contents.contents.sessionId;
+    else delete changed.contents.contents[0].contents.contents.ids[field];
+    claim.raw.history = [changed];
+    assert.throws(() => validateInteropReport(report, expected),
+      `Malformed ${field} must not disappear into an empty allocation projection`);
+  }
+  native.allocations = allocations;
+  claim.measured.evidence = structuredClone(item.evidence);
+  for (const clientId of [undefined, null, "", 7]) {
+    const changed = structuredClone(message);
+    if (clientId === undefined) delete changed.clientId;
+    else changed.clientId = clientId;
+    claim.raw.history = [changed];
+    claim.raw.gates.javascript.handshakes = clientId === undefined
+      ? [{}] : [{ clientId }];
+    assert.throws(() => validateInteropReport(report, expected),
+      /invalid decoded submission/,
+      `Malformed client ID ${String(clientId)} must not authenticate a native omission`);
+  }
+  claim.raw.history = [message];
+  claim.raw.gates.javascript.handshakes = [{ clientId: message.clientId }];
+  assert.equal(validateInteropReport(report, expected), report);
+});
+
 test("grouped commit indexes stay consecutive after allocation entries", async () => {
   const { expected, report } = await validFixture();
   const item = report.deterministic.find(
@@ -6612,6 +6718,29 @@ test("the coordinator routes parsed defaults to the acceptance gate", async () =
     runId: "fresh-run",
     report: { ok: true },
   });
+});
+
+test("the coordinator keeps complete nested results within the compact JSON output budget", async () => {
+  const result = {
+    reportPath: "/tmp/report.json",
+    runId: "fresh-run",
+    report: {
+      rows: Array.from({ length: 64 }, () => ({
+        sequenceNumber: 42,
+        contents: { value: "point" },
+      })),
+    },
+  };
+  const output = [];
+  assert.equal(await runInteropCommand([], {
+    cwd: oracleDirectory,
+    runAcceptance: async () => result,
+    stdout: { write: (value) => output.push(value) },
+  }), result);
+  const emitted = output.join("");
+  assert(Buffer.byteLength(emitted) <= 4096,
+    "Reindenting nested proof expands the CLI output beyond its compact budget");
+  assert.deepEqual(JSON.parse(emitted), result);
 });
 
 test("the coordinator prints specific and secondary diagnostic paths", async () => {

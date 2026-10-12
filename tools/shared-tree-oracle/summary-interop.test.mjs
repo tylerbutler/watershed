@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
+import { decodeTreeSubmissions } from "./interop-scenarios.mjs";
+import { loadInteropProfile } from "./interop.mjs";
+import { withLocalFloodgate } from "./service.mjs";
 import {
   continueArrayReader,
   localBranchReloadEvidence,
@@ -38,6 +43,75 @@ const retentionScenarios = [
   "unreferenced-datastore",
   "fresh-load",
 ];
+
+test("array reload readers capture retained roots before another reader continues", async () => {
+  const output = join(import.meta.dirname, ".output");
+  await mkdir(output, { recursive: true });
+  const artifactDirectory = await mkdtemp(join(output, "array-reload-test-"));
+  try {
+    const fixture = JSON.parse(await readFile(new URL(
+      "../../test/fixtures/shared_tree/cases/array-schema-content.json",
+      import.meta.url,
+    ), "utf8"));
+    const { profileDigest } = await loadInteropProfile(join(
+      import.meta.dirname, "../../test/fixtures/shared_tree/profile.json",
+    ));
+    const matrix = await withLocalFloodgate((config) => runArrayReloadMatrix(config, {
+      runId: randomUUID(),
+      profileDigest,
+      arrayViewSchema: fixture.input.schemas.objectArrays,
+      artifactDirectory,
+    }));
+    assert.deepEqual(Object.keys(matrix).sort(), ["erlang", "javascript", "upstream"]);
+    for (const row of Object.values(matrix)) {
+      const cells = Object.values(row);
+      assert.equal(cells.length, 3);
+      const first = cells[0];
+      const artifact = JSON.parse(await readFile(
+        join(artifactDirectory, first.artifacts[0]), "utf8",
+      ));
+      const firstContinuation = Math.min(...decodeTreeSubmissions(artifact.raw.history)
+        .filter(({ outerSequenceNumber }) =>
+          outerSequenceNumber > first.tailSequenceNumber)
+        .map(({ outerSequenceNumber }) => outerSequenceNumber));
+      assert(Number.isSafeInteger(firstContinuation),
+        "The array reader did not perform a real post-tail continuation");
+      for (const cell of cells) {
+        assert(cell.retained.sequenceNumber < firstContinuation,
+          `${cell.reader} measured retention after another reader continued`);
+        assert(cell.retained.removed.some(([, , value]) => cell.reader === "upstream"
+          ? value?.type === "org.watershed.shared-tree.m3.Point"
+            && value.fields?.label?.[0]?.value === "deleted"
+            && value.fields?.x?.[0]?.value === 9
+          : value?.kind === "object"
+            && value.schemaId === "org.watershed.shared-tree.m3.Point"
+            && value.fields?.some(([name, field]) =>
+              name === "label" && field.value === "deleted")
+            && value.fields?.some(([name, field]) =>
+              name === "x" && field.value === 9)),
+        `${cell.reader} did not measure the selected summary's deleted Point`);
+      }
+      for (let index = 1; index < cells.length; index += 1) {
+        const previous = cells[index - 1];
+        const current = cells[index];
+        const raw = JSON.parse(await readFile(
+          join(artifactDirectory, current.artifacts[0]), "utf8",
+        ));
+        const submissions = decodeTreeSubmissions(raw.raw.history);
+        const restoration = submissions.findLast(({ clientId }) =>
+          clientId === previous.continuationIdentity.clientId);
+        const continuation = submissions.find(({ clientId }) =>
+          clientId === current.continuationIdentity.clientId);
+        assert(restoration && continuation,
+          "The reader handoff lacks actual restoration and continuation operations");
+        assert(continuation.referenceSequenceNumber >= restoration.outerSequenceNumber,
+          `${current.reader} continued before processing the preceding restoration`);
+      }
+    }
+  } finally {
+    await rm(artifactDirectory, { recursive: true, force: true });
+  }
+});
 
 function retainedGraphArtifact() {
   const blob = (value) => ({
@@ -252,6 +326,7 @@ test("array reader continuation preserves pre-existing right-side tail values", 
   };
   const state = structuredClone(initial);
   const adapter = {
+    async awaitSynced() {},
     async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
       const source = state[sourcePath[0]];
       const destination = state[destinationPath[0]];
@@ -265,6 +340,35 @@ test("array reader continuation preserves pre-existing right-side tail values", 
   assert.deepEqual(state.right.at(-1), initial.right.at(-1));
   await restoreArrayReader(adapter);
   assert.deepEqual(state, initial);
+});
+
+test("array reader continuation waits for the previous reader's restoration", async () => {
+  const state = {
+    left: [{ label: "previous-reader", x: 42 }],
+    right: [{ label: "map-child", x: 3 }, { label: "after-summary", x: 7 }],
+  };
+  const adapter = {
+    async awaitSynced(sequenceNumber) {
+      if (sequenceNumber >= 73) {
+        state.left = [];
+        state.right.splice(1, 0, { label: "moved", x: 4 });
+      }
+    },
+    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+      const source = state[sourcePath[0]];
+      const destination = state[destinationPath[0]];
+      destination.splice(destinationGap, 0, ...source.splice(sourceStart, sourceEnd - sourceStart));
+    },
+    async set(path, value) {
+      state[path[0]][Number(path[1])][path[2]] = value;
+    },
+  };
+  await continueArrayReader(adapter, "next-reader", 73);
+  assert.deepEqual(state.left, [{ label: "next-reader", x: 42 }]);
+  assert.deepEqual(state.right, [
+    { label: "map-child", x: 3 },
+    { label: "after-summary", x: 7 },
+  ]);
 });
 
 const implementations = ["upstream", "javascript", "erlang"];

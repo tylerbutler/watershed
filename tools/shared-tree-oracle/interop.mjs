@@ -1088,7 +1088,7 @@ export async function runInteropCommand(args, {
     const result = options.mode === "replay"
       ? await runReplay(options, { env, stderr })
       : await runAcceptance(options, { env, stderr });
-    stdout.write(json(result));
+    stdout.write(`${JSON.stringify(result)}\n`);
     return result;
   } catch (error) {
     if (error.failurePath) {
@@ -1368,7 +1368,48 @@ function restoredDetachedPoints(removed) {
   });
 }
 
-function deterministicEvidence(item, authors, label) {
+function nativeBatchIdOmission(item, submission, artifactsByPath) {
+  if (!Array.isArray(item.artifacts) || item.artifacts.length === 0
+    || submission.revision < 0) return false;
+  return item.artifacts.every((reference) => {
+    const raw = artifactsByPath.get(reference)?.claim?.raw;
+    if (!Array.isArray(raw?.history)) return false;
+    const messages = raw.history.filter((message) =>
+      message.type === "op"
+        && message.sequenceNumber === submission.outerSequenceNumber);
+    if (messages.length !== 1) return false;
+    const message = messages[0];
+    const body = typeof message.contents === "string"
+      ? JSON.parse(message.contents) : message.contents;
+    if (body?.type !== "groupedBatch" || !Array.isArray(body.contents)
+      || message.metadata?.batchId !== undefined
+      || body.contents.some((item) => item?.metadata?.batchId !== undefined)) return false;
+    const first = body.contents[0]?.contents;
+    const ids = first?.contents?.ids;
+    const ranges = ids?.localIdRanges;
+    if (first?.type !== "idAllocation"
+      || typeof first.contents.sessionId !== "string"
+      || first.contents.sessionId.length === 0
+      || !Number.isSafeInteger(ids?.firstGenCount) || ids.firstGenCount < 1
+      || !Number.isSafeInteger(ids?.count) || ids.count < 1
+      || !Array.isArray(ranges) || ranges.length !== 0) return false;
+    if (typeof message.clientId !== "string" || message.clientId.length === 0
+      || !Number.isSafeInteger(message.clientSequenceNumber)
+      || message.clientSequenceNumber < 1
+      || !raw.gates?.[submission.author]?.handshakes?.some(({ clientId }) =>
+        clientId === message.clientId)) return false;
+    const decoded = decodeTreeSubmissions([message])[0];
+    const commit = decoded?.commits.find(({ innerIndex }) =>
+      innerIndex === submission.innerIndex);
+    return decoded?.referenceSequenceNumber === submission.referenceSequenceNumber
+      && commit?.revision === submission.revision
+      && commit?.originatorId === submission.originatorId
+      && isDeepStrictEqual(commit?.changeset, submission.changeset)
+      && isDeepStrictEqual(decoded?.allocations, submission.allocations);
+  });
+}
+
+function deterministicEvidence(item, authors, label, artifactsByPath) {
   const evidence = object(item.evidence, `${label} lacks measured evidence`);
   assert(Array.isArray(evidence.authoredPrefixes)
     && evidence.authoredPrefixes.length === authors.length,
@@ -1396,7 +1437,9 @@ function deterministicEvidence(item, authors, label) {
       && (submission.author === "upstream"
         ? submission.batchId === undefined
           || (typeof submission.batchId === "string" && submission.batchId.length > 0)
-        : typeof submission.batchId === "string" && submission.batchId.length > 0)
+        : (typeof submission.batchId === "string" && submission.batchId.length > 0)
+          || (submission.batchId === undefined
+            && nativeBatchIdOmission(item, submission, artifactsByPath)))
       && Number.isSafeInteger(submission.revision)
       && typeof submission.originatorId === "string"
       && submission.originatorId.length > 0,
@@ -2136,7 +2179,7 @@ function measured(item, expected, authors, evidence, label) {
   assert.equal(item.passed, true, `${label} did not pass`);
   assert.equal(item.skipped, false, `${label} was skipped`);
   if (label.startsWith("Deterministic ")) {
-    deterministicEvidence(item, authors, label);
+    deterministicEvidence(item, authors, label, evidence);
   } else if (label.startsWith("Seeded ")) {
     seededEvidence(item, label);
   }

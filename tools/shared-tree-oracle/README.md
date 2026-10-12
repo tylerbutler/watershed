@@ -190,7 +190,8 @@ node smoke/shared_tree.mjs --external-floodgate
 
 That mode reads the same `FLOODGATE_*` variables as preflight. The coordinator
 does not print or write credentials. It writes phase progress to stderr and one
-machine-readable result to stdout.
+complete, compact JSON result to stdout. Saved report files remain indented;
+the CLI does not add another indentation level to their nested evidence.
 
 Each run uses `.output/interop/<run-id>/`. `status.json` records the current
 phase. Corpus, preflight, deterministic, reconnect, refusal, object reload, map
@@ -236,6 +237,13 @@ recursive-map, deleted, empty, Unicode, numeric-looking, and prototype-like
 entries. Every fresh reader consumes the selected summary, observes the
 post-summary tail, keeps the deleted entry absent, and authors a continuation
 that a connected peer observes.
+
+The array reload matrix captures all three fresh readers' loaded repair data
+before any reader continues editing. Each reader then authors a continuation
+and checks it against an independent peer. Before the next continuation, that
+reader waits for its predecessor's acknowledged restoration. Later Tree
+operations can advance the minimum sequence number and retire deleted roots, so a later
+checkpoint cannot substitute for the selected-summary load measurement.
 
 The generated manifest requires `map-schema-content`, `map-field-algebra`,
 `map-history-codecs`, and all four `schema-evolution-*` corpus IDs in the
