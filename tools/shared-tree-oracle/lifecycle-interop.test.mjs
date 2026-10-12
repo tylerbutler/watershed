@@ -375,6 +375,47 @@ test("default lifecycle producer refuses a partial report", async () => {
   );
 });
 
+test("one real retention writer validates fresh runtime evidence", {
+  timeout: 300_000,
+}, async () => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-retention-${randomUUID()}`,
+  );
+  try {
+    const result = await withLocalFloodgate((config) =>
+      runLifecycleInterop({
+        config,
+        scenario: "handleRetention:upstream",
+        output,
+      }));
+    const section = result.report.sections.handleRetention;
+    assert.deepEqual(section.expectedWriters, ["upstream"]);
+    assert.equal(section.rows.length, 1);
+    assert.deepEqual(
+      section.rows[0].retention.checkpoints.map(({ id }) => id),
+      [
+        "before-removal",
+        "after-removal",
+        "after-undo",
+        "retained-repair",
+        "branch-disposal",
+        "revertible-disposal",
+        "unreferenced-datastore",
+        "fresh-load",
+      ],
+    );
+    await validateLifecycleSection(
+      "handleRetention",
+      section,
+      result.artifacts,
+      result.validationContext,
+    );
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
 test("one real transaction branch writer validates fresh runtime evidence", {
   timeout: 300_000,
 }, async () => {
@@ -412,6 +453,438 @@ test("one real transaction branch writer validates fresh runtime evidence", {
       result.artifacts,
       result.validationContext,
     );
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("all retention writers reject semantic counterexamples", {
+  timeout: 900_000,
+}, async (t) => {
+  const output = join(
+    import.meta.dirname,
+    `.output/lifecycle-retention-all-${randomUUID()}`,
+  );
+  try {
+    const results = await withLocalFloodgate(async (config) => {
+      const captured = {};
+      for (const writer of ["upstream", "javascript", "erlang"]) {
+        captured[writer] = await runLifecycleInterop({
+          config,
+          scenario: `handleRetention:${writer}`,
+          output: join(output, writer),
+        });
+      }
+      return captured;
+    });
+    for (const [writer, result] of Object.entries(results)) {
+      const section = result.report.sections.handleRetention;
+      assert.equal(section.skipped, false);
+      assert.deepEqual(section.expectedWriters, [writer]);
+      assert.equal(section.rows.length, 1);
+      await validateLifecycleSection(
+        "handleRetention",
+        section,
+        result.artifacts,
+        result.validationContext,
+      );
+    }
+    const javascript = results.javascript;
+    const mutateCheckpoint = (artifact, row, id, mutate) => {
+      const reportCheckpoint = row.retention.checkpoints.find(
+        (checkpoint) => checkpoint.id === id,
+      );
+      const artifactCheckpoint = artifact.retention.checkpoints.find(
+        (checkpoint) => checkpoint.id === id,
+      );
+      assert(reportCheckpoint && artifactCheckpoint, `Missing checkpoint ${id}`);
+      mutate(artifactCheckpoint, reportCheckpoint);
+    };
+    for (const [label, mutate, pattern] of [
+      ["wrong GC timestamp", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "unreferenced-datastore",
+          (captured, report) => {
+            const id = captured.rawSnapshot.tree.trees.gc.blobs.__gc_root;
+            const gc = JSON.parse(Buffer.from(
+              captured.rawSnapshot.blobs[id],
+              "base64",
+            ).toString("utf8"));
+            const secondaryId = row.targets.secondary.path.split("/")[1];
+            gc.gcNodes[`/${secondaryId}`].unreferencedTimestampMs = 0;
+            gc.gcNodes[row.targets.secondary.path].unreferencedTimestampMs = 0;
+            const bytes = Buffer.from(JSON.stringify(gc));
+            captured.rawSnapshot.blobs[id] = bytes.toString("base64");
+            captured.snapshot.blobs[id] = hash(bytes);
+            report.snapshot.blobs[id] = hash(bytes);
+            captured.snapshot.evidence.gc = structuredClone(gc);
+            report.snapshot.evidence.gc = structuredClone(gc);
+          },
+        ), /(?:unreferenced datastore|unreachable GC node).*timestamp/i],
+      ["retained history target removed", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "retained-repair",
+          (captured, report) => {
+            const retained = captured.snapshot.evidence.retainedHandles.find(
+              ({ path, markers }) =>
+                /(Repair|EditManager|Detached)/i.test(path)
+                  && markers.some(({ url }) => url === row.targets.target.path),
+            );
+            assert(retained, "Captured row lacks retained history target bytes");
+            const bytes = Buffer.from(
+              captured.rawSnapshot.blobs[retained.blobId],
+              "base64",
+            );
+            const changed = Buffer.from(
+              bytes.toString("utf8").replaceAll(
+                row.targets.target.path,
+                "/wrong-retained-target",
+              ),
+            );
+            const changedHistory = JSON.parse(changed.toString("utf8")).trunk;
+            captured.rawSnapshot.blobs[retained.blobId] =
+              changed.toString("base64");
+            captured.snapshot.blobs[retained.blobId] = hash(changed);
+            report.snapshot.blobs[retained.blobId] = hash(changed);
+            for (const evidence of [
+              captured.snapshot.evidence.retainedHandles,
+              report.snapshot.evidence.retainedHandles,
+            ]) {
+              const item = evidence.find(({ blobId }) =>
+                blobId === retained.blobId);
+              item.sha256 = hash(changed);
+              item.history = item.history.map((commit, index) => ({
+                ...commit,
+                changeSha256: hash(JSON.stringify(changedHistory[index].change)),
+              }));
+              item.targetPresent = false;
+              item.markers = item.markers.map((marker) => ({
+                ...marker,
+                url: marker.url === row.targets.target.path
+                  ? "/wrong-retained-target"
+                  : marker.url,
+              }));
+            }
+          },
+        ), /retained history lost the target handle/i],
+      ["inverse lifetime shortened", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "branch-disposal",
+          (captured, report) => {
+            captured.lifetime.revertible = "Disposed";
+            report.lifetime.revertible = "Disposed";
+          },
+        ), /branch disposal also disposed the inverse/i],
+      ["metadata pin changed", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "fresh-load",
+          (captured, report) => {
+            const id = captured.rawSnapshot.tree.blobs[".metadata"];
+            const metadata = JSON.parse(Buffer.from(
+              captured.rawSnapshot.blobs[id],
+              "base64",
+            ).toString("utf8"));
+            metadata.createContainerRuntimeVersion = "9.9.9";
+            metadata.documentSchema.info.minVersionForCollab = "9.9.9";
+            const bytes = Buffer.from(JSON.stringify(metadata));
+            captured.rawSnapshot.blobs[id] = bytes.toString("base64");
+            captured.snapshot.blobs[id] = hash(bytes);
+            report.snapshot.blobs[id] = hash(bytes);
+          },
+        ), /persisted (runtime metadata version|minimum client)/i],
+      ["compressor replaced with earlier state", (artifact, row) => {
+        const source = artifact.retention.checkpoints[0];
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          const id = captured.rawSnapshot.tree.blobs[".idCompressor"];
+          const sourceId = source.rawSnapshot.tree.blobs[".idCompressor"];
+          const encoded = source.rawSnapshot.blobs[sourceId];
+          const bytes = Buffer.from(encoded, "base64");
+          captured.rawSnapshot.blobs[id] = encoded;
+          captured.snapshot.blobs[id] = hash(bytes);
+          report.snapshot.blobs[id] = hash(bytes);
+          const compressor = {
+            ...source.snapshot.evidence.compressor,
+            blobId: id,
+          };
+          captured.snapshot.evidence.compressor = structuredClone(compressor);
+          report.snapshot.evidence.compressor = structuredClone(compressor);
+        });
+      }, /compressor|allocation|identity context/i],
+      ["fresh load target changed", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          captured.continuation.before.target = row.targets.secondary.path;
+          report.continuation.before.target = row.targets.secondary.path;
+        }), /fresh load resolved another target/i],
+      ["unreferenced datastore made root-reachable", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "unreferenced-datastore",
+          (captured, report) => {
+            const id = captured.rawSnapshot.tree.trees.gc.blobs.__gc_root;
+            const gc = JSON.parse(Buffer.from(
+              captured.rawSnapshot.blobs[id],
+              "base64",
+            ).toString("utf8"));
+            const secondaryId = row.targets.secondary.path.split("/")[1];
+            gc.gcNodes["/"].outboundRoutes.push(`/${secondaryId}`);
+            const bytes = Buffer.from(JSON.stringify(gc));
+            captured.rawSnapshot.blobs[id] = bytes.toString("base64");
+            captured.snapshot.blobs[id] = hash(bytes);
+            report.snapshot.blobs[id] = hash(bytes);
+            captured.snapshot.evidence.gc = structuredClone(gc);
+            report.snapshot.evidence.gc = structuredClone(gc);
+          },
+        ), /GC|reachable|route/i],
+      ["native lifetime receipts removed", (artifact, row) => {
+        artifact.raw.nativeReplies = [];
+        row.raw.nativeReplies = [];
+        for (const captured of artifact.retention.checkpoints) {
+          delete captured.lifetime.checkpoint;
+        }
+        for (const report of row.retention.checkpoints) {
+          delete report.lifetime.checkpoint;
+        }
+      }, /lifetime|receipt|checkpoint/i],
+      ["retained URL is not a handle marker", (artifact, row) =>
+        mutateCheckpoint(
+          artifact,
+          row,
+          "retained-repair",
+          (captured, report) => {
+            const retained = captured.snapshot.evidence.retainedHandles.find(
+              ({ path }) => /EditManager\/String$/i.test(path),
+            );
+            assert(retained, "Captured row lacks retained history bytes");
+            const bytes = Buffer.from(JSON.stringify({
+              type: "not_a_handle",
+              url: row.targets.target.path,
+            }));
+            captured.rawSnapshot.blobs[retained.blobId] =
+              bytes.toString("base64");
+            captured.snapshot.blobs[retained.blobId] = hash(bytes);
+            report.snapshot.blobs[retained.blobId] = hash(bytes);
+            for (const evidence of [
+              captured.snapshot.evidence.retainedHandles,
+              report.snapshot.evidence.retainedHandles,
+            ]) {
+              const item = evidence.find(({ blobId }) =>
+                blobId === retained.blobId);
+              item.sha256 = hash(bytes);
+              item.targetPresent = true;
+            }
+          },
+        ), /retained|handle marker|history/i],
+      ["fresh loader receipts and continuation transport removed", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          delete captured.continuation.loader;
+          delete report.continuation.loader;
+          delete captured.continuation.transport;
+          delete report.continuation.transport;
+        }), /loader|storage|continuation transport|fresh load/i],
+      ["fresh target attributes changed", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          const target = snapshotNode(captured.rawSnapshot, row.targets.target.path);
+          const id = target.blobs[".attributes"];
+          const stored = JSON.parse(Buffer.from(
+            captured.rawSnapshot.blobs[id],
+            "base64",
+          ).toString("utf8"));
+          stored.type = "not-a-shared-map";
+          stored.packageVersion = "9.9.9";
+          const bytes = Buffer.from(JSON.stringify(stored));
+          captured.rawSnapshot.blobs[id] = bytes.toString("base64");
+          captured.snapshot.blobs[id] = hash(bytes);
+          report.snapshot.blobs[id] = hash(bytes);
+          captured.snapshot.evidence.attributes.target =
+            structuredClone(stored);
+          report.snapshot.evidence.attributes.target = structuredClone(stored);
+          captured.target.attachment.attributes = structuredClone(stored);
+          report.target.attachment.attributes = structuredClone(stored);
+        }), /attributes|shared map|package version/i],
+      ["retained repair compressor replaced with sequence eight", (artifact, row) => {
+        const source = artifact.retention.checkpoints[0];
+        mutateCheckpoint(artifact, row, "retained-repair", (captured, report) => {
+          const id = captured.rawSnapshot.tree.blobs[".idCompressor"];
+          const sourceId = source.rawSnapshot.tree.blobs[".idCompressor"];
+          const encoded = source.rawSnapshot.blobs[sourceId];
+          const bytes = Buffer.from(encoded, "base64");
+          captured.rawSnapshot.blobs[id] = encoded;
+          captured.snapshot.blobs[id] = hash(bytes);
+          report.snapshot.blobs[id] = hash(bytes);
+          const compressor = {
+            ...source.snapshot.evidence.compressor,
+            blobId: id,
+          };
+          captured.snapshot.evidence.compressor = structuredClone(compressor);
+          report.snapshot.evidence.compressor = structuredClone(compressor);
+        });
+      }, /compressor|allocation|identity context/i],
+      ["positive GC timestamp reset at one checkpoint", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "unreferenced-datastore", (captured, report) => {
+          const id = captured.rawSnapshot.tree.trees.gc.blobs.__gc_root;
+          const gc = JSON.parse(Buffer.from(captured.rawSnapshot.blobs[id], "base64"));
+          const store = `/${row.targets.secondary.path.split("/")[1]}`;
+          for (const path of [store, row.targets.secondary.path]) {
+            gc.gcNodes[path].unreferencedTimestampMs += 60_000;
+          }
+          const bytes = Buffer.from(JSON.stringify(gc));
+          captured.rawSnapshot.blobs[id] = bytes.toString("base64");
+          captured.snapshot.blobs[id] = report.snapshot.blobs[id] = hash(bytes);
+          captured.snapshot.evidence.gc = structuredClone(gc);
+          report.snapshot.evidence.gc = structuredClone(gc);
+        }), /timestamp|unreference/i],
+      ...["retention-redo", "retention-final"].map((name) => [
+        `${name} acquisition receipt removed`,
+        (artifact, row) => {
+          const replies = artifact.raw.nativeReplies.filter(({ request }) =>
+            !(request.op === "retainLastLocalCommit" && request.name === name));
+          artifact.raw.nativeReplies = replies;
+          row.raw.nativeReplies = structuredClone(replies);
+        },
+        /acquisition|lifetime|receipt/i,
+      ]),
+      ["branch lifetime receipt names another tree", (artifact, row) => {
+        for (const raw of [artifact.raw, row.raw]) {
+          for (const { request } of raw.nativeReplies) {
+            if (["fork", "disposeBranch"].includes(request.op)) {
+              request.tree = "another-tree";
+            }
+          }
+        }
+      }, /branch|owner|receipt/i],
+      ["retained commit session changed", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "retained-repair", (captured, report) => {
+          const retained = captured.snapshot.evidence.retainedHandles.find(
+            ({ kind }) => kind === "history",
+          );
+          const decoded = JSON.parse(Buffer.from(
+            captured.rawSnapshot.blobs[retained.blobId], "base64",
+          ));
+          decoded.trunk[0].sessionId = "00000000-0000-4000-8000-000000000000";
+          const bytes = Buffer.from(JSON.stringify(decoded));
+          captured.rawSnapshot.blobs[retained.blobId] = bytes.toString("base64");
+          captured.snapshot.blobs[retained.blobId] =
+            report.snapshot.blobs[retained.blobId] = hash(bytes);
+          for (const checkpoint of [captured, report]) {
+            const item = checkpoint.snapshot.evidence.retainedHandles.find(
+              ({ blobId }) => blobId === retained.blobId,
+            );
+            item.sha256 = hash(bytes);
+            if (Object.hasOwn(item.history[0], "sessionId")) {
+              item.history[0].sessionId = decoded.trunk[0].sessionId;
+            }
+          }
+        }), /retained.*(identity|session|commit)|history.*(identity|session)/i],
+      ["valid-looking retained marker in an unrelated property", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "retained-repair", (captured, report) => {
+          const retained = captured.snapshot.evidence.retainedHandles.find(
+            ({ kind }) => kind === "history",
+          );
+          const decoded = JSON.parse(Buffer.from(
+            captured.rawSnapshot.blobs[retained.blobId], "base64",
+          ));
+          const changed = replaceNested(decoded, "__fluid_handle__", "not_a_handle");
+          changed.unrelated = structuredClone(retained.markers);
+          const bytes = Buffer.from(JSON.stringify(changed));
+          captured.rawSnapshot.blobs[retained.blobId] = bytes.toString("base64");
+          captured.snapshot.blobs[retained.blobId] =
+            report.snapshot.blobs[retained.blobId] = hash(bytes);
+          for (const checkpoint of [captured, report]) {
+            checkpoint.snapshot.evidence.retainedHandles.find(
+              ({ blobId }) => blobId === retained.blobId,
+            ).sha256 = hash(bytes);
+          }
+        }), /retained|handle|history/i],
+      ["fresh loader receipt internals removed", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          for (const checkpoint of [captured, report]) {
+            checkpoint.continuation.loader.versionReceipt = {};
+            checkpoint.continuation.loader.treeReceipt = {};
+          }
+        }), /loader|receipt|storage/i],
+      ["fresh continuation outbound targets another map", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          for (const checkpoint of [captured, report]) {
+            const outbound = checkpoint.continuation.transport.outboundOccurrences[0];
+            outbound.submissions = replaceNested(
+              outbound.submissions,
+              row.targets.target.path.split("/").at(-1),
+              "another-target",
+            );
+            if (outbound.hash !== undefined) {
+              outbound.hash = hash(JSON.stringify(outbound.submissions));
+            }
+          }
+        }), /continuation.*(target|correspondence|submission)|outbound.*correspondence/i],
+      ["fresh branch and inverse observations omitted", (artifact, row) =>
+        mutateCheckpoint(artifact, row, "fresh-load", (captured, report) => {
+          delete captured.continuation.localStacks.probes;
+          delete report.continuation.localStacks.probes;
+        }), /fresh.*(lifetime|branch|inverse)|probe/i],
+      ["channel type expectations and stored attributes changed together", (artifact, row) => {
+        const wrong = { ...row.targets.target.attributes, type: "wrong-map", packageVersion: "9.9.9" };
+        artifact.targets.target.attributes = structuredClone(wrong);
+        row.targets.target.attributes = structuredClone(wrong);
+        for (const id of row.retention.checkpoints.map(({ id }) => id)) {
+          mutateCheckpoint(artifact, row, id, (captured, report) => {
+            const node = snapshotNode(captured.rawSnapshot, row.targets.target.path);
+            const blob = node.blobs[".attributes"];
+            const bytes = Buffer.from(JSON.stringify(wrong));
+            captured.rawSnapshot.blobs[blob] = bytes.toString("base64");
+            captured.snapshot.blobs[blob] = report.snapshot.blobs[blob] = hash(bytes);
+            for (const checkpoint of [captured, report]) {
+              checkpoint.snapshot.evidence.attributes.target = structuredClone(wrong);
+              checkpoint.target.attachment.attributes = structuredClone(wrong);
+            }
+          });
+        }
+      }, /fixed.*attributes|target.*contract|attributes.*contract/i],
+    ]) {
+      await t.test(label, () => rejectArtifactMutation(
+        "handleRetention",
+        javascript,
+        mutate,
+        pattern,
+        "javascript",
+      ));
+    }
+    for (const writer of ["javascript", "erlang"]) {
+      for (const [field, value] of [
+        ["revision", "00000000-0000-4000-8000-000000000000"],
+        ["kind", "WrongKind"],
+        ["factoryAvailable", false],
+      ]) {
+        await t.test(`${writer} actual commit event contradicts ${field}`, () =>
+          rejectArtifactMutation("handleRetention", results[writer], (artifact, row) => {
+            const mutate = (record) => {
+              if (!record || typeof record !== "object") return;
+              if (record.type === "commit" && Number.isSafeInteger(record.eventId)) {
+                record[field] = value;
+              }
+              for (const child of Object.values(record)) mutate(child);
+            };
+            mutate(artifact);
+            mutate(row);
+          }, /commit event|event.*(?:revision|kind|factory)/i, writer));
+      }
+      await t.test(`${writer} fork request contradicts its source receipt`, () =>
+        rejectArtifactMutation("handleRetention", results[writer], (artifact, row) => {
+          for (const raw of [artifact.raw, row.raw]) {
+            for (const { request } of raw.nativeReplies) {
+              if (request.op === "fork") request.source = "nonexistent-branch";
+            }
+          }
+        }, /fork.*source|branch.*source/i, writer));
+    }
   } finally {
     await rm(output, { recursive: true, force: true });
   }
@@ -854,9 +1327,10 @@ test("all implemented bounded rows validate exact peers publications and pins", 
       "channelAttachment",
       "datastoreAttachment",
       "handleTransactionBranch",
+      "handleRetention",
     ]);
     assert.equal(Object.values(result.report.sections)
-      .flatMap(({ rows }) => rows).length, 12);
+      .flatMap(({ rows }) => rows).length, 15);
     for (const [name, section] of Object.entries(result.report.sections)) {
       await validateLifecycleSection(name, section, result.artifacts);
     }
@@ -876,9 +1350,38 @@ test("all implemented bounded rows validate exact peers publications and pins", 
         /complete section writer selection|declared writers|required writer coverage/i,
       );
     });
+    await t.test("retention selection and rows cannot shrink coverage", async () => {
+      const section = structuredClone(result.report.sections.handleRetention);
+      section.selection = { kind: "writer", writer: "upstream" };
+      section.expectedWriters = ["upstream"];
+      section.rows = section.rows.filter(({ writer }) => writer === "upstream");
+      await assert.rejects(
+        () => validateLifecycleSection(
+          "handleRetention",
+          section,
+          result.artifacts,
+        ),
+        /complete section writer selection|declared writers|required writer coverage/i,
+      );
+    });
     await t.test("transaction peer declaration cannot shrink coverage", () =>
       rejectArtifactMutation(
         "handleTransactionBranch",
+        result,
+        (artifact, row) => {
+          delete row.peer.observations.erlang;
+          delete artifact.peers.erlang;
+          row.peer.expectedImplementations =
+            row.peer.expectedImplementations.filter(
+              (implementation) => implementation !== "erlang",
+            );
+        },
+        /peer implementation (?:policy|coverage)/i,
+        "upstream",
+      ));
+    await t.test("retention peer declaration cannot shrink coverage", () =>
+      rejectArtifactMutation(
+        "handleRetention",
         result,
         (artifact, row) => {
           delete row.peer.observations.erlang;

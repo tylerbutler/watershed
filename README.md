@@ -315,6 +315,10 @@ disposing or merging away the handle's local branch, and closing the document.
 The original zero-argument factory remains available for callers that do not
 need a disposal notification.
 
+Use `tree_revertible_revision(handle)` on either facade to read the commit's
+stable identity. You can still read it after disposal or document close;
+the accessor does not send an actor request.
+
 The following pattern uses one subscription. The application routes
 `UndoMessage` values through its existing state owner, such as an actor or an
 application update loop. The state owner holds the mutable undo and redo

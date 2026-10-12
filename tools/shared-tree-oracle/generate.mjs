@@ -5248,7 +5248,7 @@ function lifecycleFieldBatchIdentifier(value, identifiers, detail) {
   return identifiers[value];
 }
 
-function lifecycleDecodeFieldBatch(value, keys, detail) {
+export function lifecycleDecodeFieldBatch(value, keys, detail) {
   assert(object(value)
     && isDeepStrictEqual(Object.keys(value).sort(),
       ["data", "identifiers", "shapes", "version"])

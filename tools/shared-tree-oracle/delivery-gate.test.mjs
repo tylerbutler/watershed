@@ -465,6 +465,70 @@ test("summary loads hold complete HTTP responses and preserve bytes and status",
   assert(!JSON.stringify(evidence).includes("token=secret"));
 });
 
+test("summary publications capture the actual HTTP request and response bytes", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  t.after(async () => {
+    await gate.close();
+    await upstream.close();
+  });
+  const body = Buffer.from(JSON.stringify({
+    content: "metadata",
+    encoding: "utf-8",
+  }));
+  const response = await fetch(
+    `http://127.0.0.1:${gate.port}/repos/fluid/git/blobs?token=secret`,
+    { method: "POST", headers: { authorization: "Bearer secret" }, body },
+  );
+  const received = Buffer.from(await response.arrayBuffer());
+  assert.deepEqual(received, Buffer.concat([Buffer.from("echo:"), body]));
+  const receipt = gate.evidence().http[0];
+  assert.equal(typeof receipt.requestBody, "string", "Submitted summary bytes are missing");
+  assert.equal(typeof receipt.responseBody, "string", "Publication response bytes are missing");
+  assert.deepEqual(Buffer.from(receipt.requestBody, "base64"), body);
+  assert.deepEqual(Buffer.from(receipt.responseBody, "base64"), received);
+  assert.equal(receipt.requestHash, createHash("sha256").update(body).digest("hex"));
+  assert.equal(receipt.responseHash, createHash("sha256").update(received).digest("hex"));
+  assert(!JSON.stringify(receipt).includes("secret"));
+});
+
+test("oversized publication requests abort their upstream connection", async (t) => {
+  let aborted = 0;
+  let observed;
+  const upstreamStarted = new Promise((resolve) => { observed = resolve; });
+  const server = createServer((request) => {
+    request.on("error", () => {});
+    request.on("data", () => {});
+    request.on("aborted", () => { aborted += 1; });
+    observed();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const gate = await DeliveryGate.open("127.0.0.1", server.address().port);
+  t.after(async () => {
+    await gate.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  await assert.rejects(fetch(
+    `http://127.0.0.1:${gate.port}/repos/fluid/git/blobs`,
+    {
+      method: "POST", duplex: "half", signal: AbortSignal.timeout(2000),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(Buffer.alloc(1024));
+          upstreamStarted.then(() => {
+            controller.enqueue(Buffer.alloc(8 * 1024 * 1024 + 1 - 1024));
+            controller.close();
+          });
+        },
+      }),
+    },
+  ), /fetch failed/);
+  await until(() => aborted === 1, "Oversized publication left its upstream request open");
+  assert.equal(gate.evidence().http.length, 0);
+});
+
 test("review follow-up captures storage bytes without snapshot metadata", async (t) => {
   for (const mode of ["streamed", "held", "injected", "large"]) {
     await t.test(mode, async (t) => {

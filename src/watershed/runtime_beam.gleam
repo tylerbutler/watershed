@@ -314,6 +314,7 @@ pub opaque type TreeRevertible {
     address: String,
     selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
+    revision: fluid_ids.StableId,
   )
 }
 
@@ -1992,6 +1993,14 @@ pub fn unsubscribe(token: SubscriptionToken) -> Nil {
       }
     Error(_) -> Nil
   }
+}
+
+@target(erlang)
+/// Return the stable revision without an actor request.
+pub fn tree_revertible_revision(
+  revertible: TreeRevertible,
+) -> fluid_ids.StableId {
+  revertible.revision
 }
 
 @target(erlang)
@@ -7443,7 +7452,7 @@ fn start_tree_commit_delivery(
               },
             )
             |> result.map(fn(id) {
-              TreeRevertible(state.self, address, selector, id)
+              TreeRevertible(state.self, address, selector, id, revision)
             })
           })
         False -> None

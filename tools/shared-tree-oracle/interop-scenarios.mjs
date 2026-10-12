@@ -5481,6 +5481,7 @@ export async function publishUpstreamSummary(
     ...acknowledged.data,
     summarizeOp: broadcast.data.summarizeOp,
     summaryReferenceSequenceNumber: submitted.data.referenceSequenceNumber,
+    summaryTree: submitted.data.summaryTree,
   };
 }
 

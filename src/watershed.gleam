@@ -79,6 +79,8 @@ import watershed/counter_kernel
 @target(javascript)
 import watershed/directory_kernel
 @target(javascript)
+import watershed/fluid_ids
+@target(javascript)
 import watershed/g_counter_kernel
 @target(javascript)
 import watershed/g_set_kernel
@@ -774,6 +776,14 @@ pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
     tree.selector,
     tree.view,
   )
+}
+
+@target(javascript)
+/// Return the commit identity. It remains available after disposal or close.
+pub fn tree_revertible_revision(
+  revertible: TreeRevertible,
+) -> fluid_ids.StableId {
+  runtime.tree_revertible_revision(revertible)
 }
 
 @target(javascript)

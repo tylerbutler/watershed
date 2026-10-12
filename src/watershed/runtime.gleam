@@ -379,6 +379,7 @@ pub opaque type TreeRevertible {
     address: String,
     selector: tree_types.CheckoutSelector,
     id: tree_types.RevertibleId,
+    revision: fluid_ids.StableId,
   )
 }
 
@@ -3410,6 +3411,14 @@ pub fn subscribe_tree_commits_on(
 }
 
 @target(javascript)
+/// Return the stable revision after acquisition, disposal, or runtime close.
+pub fn tree_revertible_revision(
+  revertible: TreeRevertible,
+) -> fluid_ids.StableId {
+  revertible.revision
+}
+
+@target(javascript)
 pub fn tree_revertible_status(
   revertible: TreeRevertible,
 ) -> TreeRevertibleStatus {
@@ -5649,7 +5658,7 @@ fn fan_out_tree_commit(
           cell,
           State(..state, phase: phase_with_core(state.phase, core)),
         )
-        Ok(TreeRevertible(Runtime(cell), address, selector, id))
+        Ok(TreeRevertible(Runtime(cell), address, selector, id, revision))
       })
     False -> None
   }

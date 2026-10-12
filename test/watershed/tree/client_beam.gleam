@@ -15,6 +15,8 @@ import gleam/result
 @target(erlang)
 import watershed/canonical_json
 @target(erlang)
+import watershed/fluid_ids
+@target(erlang)
 import watershed/handle
 @target(erlang)
 import watershed/id
@@ -2172,7 +2174,10 @@ fn observe_commit(
       local,
       option.is_some(factory),
       acquired,
-      None,
+      option.map(acquired, fn(handle) {
+        watershed.tree_revertible_revision(handle)
+        |> fluid_ids.stable_id_to_string
+      }),
       action_id,
       owner,
     ),

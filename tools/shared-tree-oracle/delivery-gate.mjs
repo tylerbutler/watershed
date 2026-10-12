@@ -671,6 +671,7 @@ export class DeliveryGate {
     const path = sanitizedPath(clientRequest.url ?? "/");
     const captureStorage = method === "GET"
       && /\/git\/(?:commits|trees|blobs)\/[^/?]+/.test(path);
+    const capturePublication = method === "POST" && /\/git\/(?:blobs|trees)\/?$/.test(path);
     const requestHash = createHash("sha256");
     const requestChunks = [];
     let requestBytes = 0;
@@ -678,6 +679,7 @@ export class DeliveryGate {
     const requestDone = new Promise((resolve) => { finishRequest = resolve; });
     const holdRequest = summaryLoad(clientRequest.url ?? "/")
       && this.#holds.outbound.has("summary-load");
+    let forwardedRequest;
     const start = () => {
       const upstreamRequest = httpRequest({
         host: this.#host,
@@ -707,12 +709,12 @@ export class DeliveryGate {
         upstreamResponse.on("data", (chunk) => {
           responseHash.update(chunk);
           responseBytes += chunk.length;
-          if (captureStorage && responseBytes > maxHeldBytes) {
+          if ((captureStorage || capturePublication) && responseBytes > maxHeldBytes) {
             upstreamResponse.destroy(new Error("Storage response exceeded the bounded evidence limit"));
             return;
           }
           if (!identityOverflow) {
-            if (responseBytes <= (captureStorage ? maxHeldBytes : maxMessageBytes)) {
+            if (responseBytes <= (captureStorage || capturePublication ? maxHeldBytes : maxMessageBytes)) {
               identityChunks.push(chunk);
             } else {
               identityChunks.length = 0;
@@ -738,6 +740,8 @@ export class DeliveryGate {
             status: upstreamResponse.statusCode,
             requestHash: requestHash.digest("hex"),
             responseHash: responseHash.digest("hex"),
+            ...(capturePublication
+              ? { requestBody: Buffer.concat(requestChunks).toString("base64") } : {}),
           };
           if (!bufferResponse) {
             const responseBytes = identityOverflow
@@ -755,7 +759,7 @@ export class DeliveryGate {
             if (storageResponse !== undefined) {
               observation.storageResponse = storageResponse;
             }
-            if (captureStorage || storageResponse !== undefined) {
+            if (captureStorage || capturePublication || storageResponse !== undefined) {
               observation.responseBody = responseBytes.toString("base64");
             }
             this.#evidence.http.push(observation);
@@ -808,7 +812,7 @@ export class DeliveryGate {
           if (storageResponse !== undefined) {
             observation.storageResponse = storageResponse;
           }
-          if (captureStorage || storageResponse !== undefined) {
+          if (captureStorage || capturePublication || storageResponse !== undefined) {
             observation.responseBody = bytes.toString("base64");
           }
           this.#evidence.http.push(observation);
@@ -850,6 +854,7 @@ export class DeliveryGate {
         });
         upstreamResponse.on("error", (error) => clientResponse.destroy(error));
       });
+      forwardedRequest = upstreamRequest;
       upstreamRequest.on("error", (error) => clientResponse.destroy(error));
       if (holdRequest) {
         for (const chunk of requestChunks) upstreamRequest.write(chunk);
@@ -861,9 +866,9 @@ export class DeliveryGate {
     clientRequest.on("data", (chunk) => {
       requestHash.update(chunk);
       requestBytes += chunk.length;
-      if (holdRequest) {
+      if (holdRequest || capturePublication) {
         if (requestBytes > maxHeldBytes) {
-          clientRequest.destroy(new Error("Held HTTP request exceeded the bounded limit"));
+          clientRequest.destroy(new Error("Captured HTTP request exceeded the bounded limit"));
           return;
         }
         requestChunks.push(chunk);
@@ -897,6 +902,7 @@ export class DeliveryGate {
     });
     clientRequest.on("error", (error) => {
       finishRequest();
+      forwardedRequest?.destroy(error);
       clientResponse.destroy(error);
     });
     clientRequest.on("close", finishRequest);

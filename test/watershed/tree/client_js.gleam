@@ -19,6 +19,8 @@ import watershed
 @target(javascript)
 import watershed/canonical_json
 @target(javascript)
+import watershed/fluid_ids
+@target(javascript)
 import watershed/handle
 @target(javascript)
 import watershed/runtime
@@ -1644,27 +1646,32 @@ fn observe_commit(
   let event_id = transport_js.get_cell(commit_event_count) + 1
   let action_id = "event-" <> int.to_string(event_id)
   transport_js.set_cell(commit_event_count, event_id)
-  let revision =
+  let history_revision =
     watershed.tree_history_evidence(tree)
     |> result.map(protocol.history_revisions)
     |> result.unwrap([])
     |> list.last
     |> option.from_result
   let factory_available = option.is_some(factory)
-  let acquired = case local, factory {
+  let #(acquired, revision) = case local, factory {
     True, Some(get_revertible) ->
       case get_revertible() {
         Ok(handle) -> {
+          let revision =
+            Some(
+              watershed.tree_revertible_revision(handle)
+              |> fluid_ids.stable_id_to_string,
+            )
           transport_js.set_cell(
             last_local,
             transport_js.get_cell(last_local)
               |> dict.insert(owner, #(handle, kind, event_id, revision)),
           )
-          True
+          #(True, revision)
         }
-        Error(_) -> False
+        Error(_) -> #(False, history_revision)
       }
-    _, _ -> False
+    _, _ -> #(False, history_revision)
   }
   push_owned_json(
     commits,

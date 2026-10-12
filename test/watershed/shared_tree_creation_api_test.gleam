@@ -111,16 +111,22 @@ pub fn native_created_tree_supports_revertible_facade_test() {
     watershed.subscribe_tree_commits(tree, fn(event) {
       let assert watershed.TreeCommitEvent(_, True, Some(get_revertible), _) =
         event
-      transport_js.set_cell(handle, Some(get_revertible() |> expect.to_be_ok()))
+      let acquired = get_revertible() |> expect.to_be_ok()
+      transport_js.set_cell(
+        handle,
+        Some(#(acquired, watershed.tree_revertible_revision(acquired))),
+      )
     })
   watershed.tree_set(tree, [], types.StringValue("changed"))
   |> expect.to_equal(Ok(Nil))
-  let assert Some(handle) = transport_js.get_cell(handle)
+  let assert Some(#(handle, revision)) = transport_js.get_cell(handle)
   watershed.tree_revert(handle, True) |> expect.to_equal(Ok(Nil))
   watershed.tree_get(tree, [])
   |> expect.to_equal(Ok(Some(types.StringValue("initial"))))
+  watershed.tree_revertible_revision(handle) |> expect.to_equal(revision)
   watershed.unsubscribe(token)
   watershed.close(document)
+  watershed.tree_revertible_revision(handle) |> expect.to_equal(revision)
 }
 
 @target(erlang)
@@ -187,17 +193,22 @@ pub fn native_created_tree_supports_beam_revertible_facade_test() {
     watershed_beam.subscribe_tree_commits(tree, fn(event) {
       let assert watershed_beam.TreeCommitEvent(_, True, Some(factory), _) =
         event
-      process.send(handles, factory())
+      let acquired = factory() |> expect.to_be_ok()
+      process.send(handles, #(
+        acquired,
+        watershed_beam.tree_revertible_revision(acquired),
+      ))
     })
   watershed_beam.tree_set(tree, [], types.StringValue("changed"))
   |> expect.to_equal(Ok(Nil))
-  let handle =
-    process.receive(handles, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  let #(handle, revision) = process.receive(handles, 1000) |> expect.to_be_ok()
   watershed_beam.tree_revert(handle, True) |> expect.to_equal(Ok(Nil))
   watershed_beam.tree_get(tree, [])
   |> expect.to_equal(Ok(Some(types.StringValue("initial"))))
+  watershed_beam.tree_revertible_revision(handle) |> expect.to_equal(revision)
   watershed_beam.unsubscribe(token)
   watershed_beam.close(document)
+  watershed_beam.tree_revertible_revision(handle) |> expect.to_equal(revision)
 }
 
 @target(erlang)

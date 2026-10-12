@@ -64,6 +64,8 @@ import watershed/counter_kernel
 @target(erlang)
 import watershed/directory_kernel
 @target(erlang)
+import watershed/fluid_ids
+@target(erlang)
 import watershed/g_counter_kernel
 @target(erlang)
 import watershed/g_set_kernel
@@ -961,6 +963,14 @@ pub fn tree_transaction(
         Error(runtime_error) -> Error(TransactionFailed(runtime_error))
       }
   }
+}
+
+@target(erlang)
+/// Return the commit identity. It remains available after disposal or close.
+pub fn tree_revertible_revision(
+  revertible: TreeRevertible,
+) -> fluid_ids.StableId {
+  runtime_beam.tree_revertible_revision(revertible)
 }
 
 @target(erlang)

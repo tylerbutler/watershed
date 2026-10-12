@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
+import { SummaryType } from "@fluidframework/driver-definitions/internal";
 import { encodeCompactIdToString } from "@fluidframework/runtime-utils/internal";
 import { CommitKind, RevertibleStatus, Tree } from "@fluidframework/tree/internal";
 import {
@@ -30,6 +31,8 @@ import {
   handleTreeConfig,
   initialHandleRoot,
 } from "./schema.mjs";
+import { lifecycleDecodeFieldBatch } from "./generate.mjs";
+import { storageResponseIdentity } from "./delivery-gate.mjs";
 
 const sections = [
   "handleValues",
@@ -40,7 +43,7 @@ const sections = [
   "handleReconnect",
   "handleReloadMatrix",
 ];
-const liveSections = sections.slice(0, 4);
+const liveSections = sections.slice(0, 5);
 const writers = ["upstream", "javascript", "erlang"];
 const reference = {
   package: "@fluidframework/tree",
@@ -128,6 +131,8 @@ function jsonClone(value) {
 function deltaEvidence(messages) {
   return messages.map((message) => ({
     sequenceNumber: message.sequenceNumber,
+    minimumSequenceNumber: message.minimumSequenceNumber,
+    timestamp: message.timestamp,
     clientSequenceNumber: message.clientSequenceNumber,
     referenceSequenceNumber: message.referenceSequenceNumber,
     clientId: message.clientId,
@@ -171,6 +176,15 @@ function submissionMessages(submitted) {
         ...structuredClone(message),
         clientId,
       }))));
+}
+
+function transportOperationIdentity({
+  clientId, clientSequenceNumber, referenceSequenceNumber, contents, metadata,
+}) {
+  return {
+    clientId, clientSequenceNumber, referenceSequenceNumber,
+    contents: parse(contents), metadata: jsonClone(metadata),
+  };
 }
 
 function operationItems(message) {
@@ -468,6 +482,265 @@ function snapshotEvidence(snapshotValue, targets) {
       graph: storedTreeGraph(snapshotValue, mainPath),
     },
     targets: targetEvidence,
+  };
+}
+
+function snapshotGc(snapshotValue) {
+  const gc = snapshotValue.tree.trees?.gc
+    ?? snapshotValue.tree.trees?.[".app"]?.trees?.gc;
+  return decodedBlob(snapshotValue, gc, "__gc_root");
+}
+
+function snapshotComponents(snapshotValue) {
+  const components = [];
+  const visit = (node, path = "") => {
+    if (node?.blobs?.[".component"] !== undefined) {
+      components.push({
+        path,
+        value: decodedBlob(snapshotValue, node, ".component"),
+      });
+    }
+    for (const [name, child] of Object.entries(node?.trees ?? {})) {
+      visit(child, `${path}/${name}`);
+    }
+  };
+  visit(snapshotValue.tree);
+  return components;
+}
+
+function fieldBatchHandleMarkers(batch, keys, label) {
+  const markers = [];
+  const visit = (node) => {
+    if (node.type === "com.fluidframework.leaf.handle") {
+      assert.equal(node.fields.size, 0, `${label} retained handle has fields`);
+      markers.push({ type: "__fluid_handle__", url: handlePath(node.value) });
+    }
+    for (const field of node.fields.values()) for (const child of field) visit(child);
+  };
+  for (const field of lifecycleDecodeFieldBatch(batch, keys, label).values()) {
+    for (const node of field) visit(node);
+  }
+  return markers;
+}
+
+function retainedHistoryCommit(commit) {
+  assert(Number.isSafeInteger(commit.revision)
+    && Number.isSafeInteger(commit.sequenceNumber)
+    && typeof commit.sessionId === "string"
+    && Array.isArray(commit.change),
+  "Retained history commit lacks its session, sequence or change identity");
+  return {
+    revision: commit.revision,
+    sessionId: commit.sessionId,
+    sequenceNumber: commit.sequenceNumber,
+    ...(commit.indexInBatch === undefined ? {} : { indexInBatch: commit.indexInBatch }),
+    changeSha256: hash(commit.change),
+  };
+}
+
+function retainedBlobMarkers(decoded, path) {
+  if (/Forest\/contents$/i.test(path)) {
+    return fieldBatchHandleMarkers(decoded.fields, decoded.keys, `Retained ${path}`);
+  }
+  if (!/EditManager\/String$/i.test(path)) return [];
+  assert.deepEqual(Object.keys(decoded).sort(), ["branches", "trunk", "version"],
+    "Retained history has unrelated properties");
+  const markers = [];
+  for (const commit of decoded.trunk) {
+    retainedHistoryCommit(commit);
+    assert(Object.keys(commit).every((key) =>
+      ["revision", "sessionId", "sequenceNumber", "indexInBatch", "change", "customMetadata"].includes(key)),
+    "Retained history commit has unrelated properties");
+    for (const component of commit.change) {
+      assert(component.data && Array.isArray(component.data.changes),
+        "Retained history lacks a modular data change");
+      for (const kind of ["builds", "refreshers"]) {
+        const batch = component.data[kind];
+        if (batch === undefined) continue;
+        assert(Array.isArray(batch.builds) && Array.isArray(batch.trees?.data),
+          `Retained history ${kind} lacks its FieldBatch mappings`);
+        markers.push(...fieldBatchHandleMarkers(
+          batch.trees,
+          batch.trees.data.map((_, index) => String(index)),
+          `Retained history ${kind}`,
+        ));
+      }
+    }
+  }
+  return markers;
+}
+
+function snapshotRetentionHandles(snapshotValue, treePath, targetPath) {
+  const tree = snapshotNode(snapshotValue, treePath);
+  const evidence = [];
+  const visit = (node, path = "") => {
+    for (const [name, id] of Object.entries(node?.blobs ?? {})) {
+      const bytes = Buffer.from(snapshotValue.blobs[id], "base64");
+      const blobPath = `${path}/${name}`;
+      if (/(Forest|Repair|EditManager|Detached)/i.test(blobPath)) {
+        const decoded = JSON.parse(bytes.toString("utf8"));
+        let kind = "metadata";
+        let history = [];
+        let branches = [];
+        if (/EditManager\/String$/i.test(blobPath)) {
+          assert.equal(decoded.version, 7,
+            "Stored retained history has another version");
+          assert(Array.isArray(decoded.trunk) && Array.isArray(decoded.branches),
+            "Stored retained history lacks trunk or branch ancestry");
+          kind = "history";
+          branches = decoded.branches;
+          history = decoded.trunk.map(retainedHistoryCommit);
+        } else if (/Forest\/contents$/i.test(blobPath)) {
+          assert.equal(decoded.version, 2,
+            "Stored retained forest has another version");
+          assert(Array.isArray(decoded.fields?.data),
+            "Stored retained forest lacks field data");
+          kind = "forest";
+        } else if (/DetachedFieldIndexBlob$/i.test(blobPath)) {
+          assert.equal(decoded.version, 2,
+            "Stored detached-field index has another version");
+          assert(Array.isArray(decoded.data),
+            "Stored detached-field index lacks entries");
+          kind = "detached";
+        }
+        const markers = retainedBlobMarkers(decoded, blobPath);
+        evidence.push({
+          path: blobPath,
+          blobId: id,
+          sha256: hash(bytes),
+          kind,
+          markers,
+          history,
+          branches,
+          targetPresent: markers.some(({ url }) => url === targetPath),
+        });
+      }
+    }
+    for (const [name, child] of Object.entries(node?.trees ?? {})) {
+      visit(child, `${path}/${name}`);
+    }
+  };
+  visit(tree);
+  return evidence;
+}
+
+function summaryEntryEvidence(entry) {
+  if (entry?.type === SummaryType.Tree) {
+    return {
+      type: "tree",
+      entries: Object.entries(entry.tree).map(([name, child]) =>
+        [name, summaryEntryEvidence(child)]),
+    };
+  }
+  if (entry?.type === SummaryType.Blob) {
+    const bytes = Buffer.from(entry.content);
+    return { type: "blob", base64: bytes.toString("base64") };
+  }
+  if (entry?.type === SummaryType.Handle) {
+    return {
+      type: "handle",
+      handleType: entry.handleType,
+      path: entry.handle,
+    };
+  }
+  assert.fail("Unsupported retention summary entry");
+}
+
+function submittedSummaryEvidence(receipts, treeId) {
+  assert(Array.isArray(receipts) && receipts.length > 0,
+    "Native publication lacks actual upload receipts");
+  const blobs = new Map();
+  const trees = new Map();
+  for (const receipt of receipts) {
+    assert.equal(receipt.method, "POST", "Native publication upload has another method");
+    assert.equal(receipt.status, 201, "Native publication upload did not succeed");
+    for (const direction of ["request", "response"]) {
+      assert.equal(typeof receipt[`${direction}Body`], "string",
+        `Native publication lacks ${direction} bytes`);
+      assert.equal(hash(Buffer.from(receipt[`${direction}Body`], "base64")),
+        receipt[`${direction}Hash`], `Native publication ${direction} hash differs`);
+    }
+    const request = JSON.parse(Buffer.from(receipt.requestBody, "base64").toString("utf8"));
+    const response = JSON.parse(Buffer.from(receipt.responseBody, "base64").toString("utf8"));
+    assert.equal(typeof response.sha, "string", "Native upload lacks its returned ID");
+    if (/\/git\/blobs\/?$/.test(receipt.path)) {
+      assert.equal(request.encoding, "base64", "Native upload uses another blob encoding");
+      blobs.set(response.sha, request.content);
+    } else {
+      assert(/\/git\/trees\/?$/.test(receipt.path) && Array.isArray(request.tree),
+        "Native publication receipt is not a tree upload");
+      trees.set(response.sha, request.tree);
+    }
+  }
+  const active = new Set();
+  const build = (id) => {
+    const entries = trees.get(id);
+    assert(entries && !active.has(id), "Native uploaded summary tree is missing or cyclic");
+    active.add(id);
+    const names = entries.map(({ path }) => decodeURIComponent(path));
+    assert.equal(new Set(names).size, names.length,
+      "Native uploaded summary has duplicate child paths");
+    const result = {
+      type: "tree",
+      entries: entries.map(({ path, type, sha }) => {
+        const name = decodeURIComponent(path);
+        assert.equal(typeof sha, "string", "Native uploaded summary entry lacks its ID");
+        if (type === "tree") return [name, build(sha)];
+        assert(type === "blob" && blobs.has(sha),
+          "Native uploaded summary blob is missing or has another kind");
+        return [name, { type: "blob", base64: blobs.get(sha) }];
+      }),
+    };
+    active.delete(id);
+    return result;
+  };
+  return build(treeId);
+}
+
+function summaryRetentionEvidence(summary, targetPath) {
+  const handles = [];
+  const markers = [];
+  const history = [];
+  const branchAncestry = [];
+  const visit = (entry, path = "") => {
+    if (entry?.type === "handle") {
+      handles.push({
+        path,
+        handleType: entry.handleType,
+        target: entry.path,
+      });
+      return;
+    }
+    if (entry?.type === "blob") {
+      if (!/(Forest\/contents|EditManager\/String)$/i.test(path)) return;
+      const bytes = Buffer.from(entry.base64, "base64");
+      const decoded = JSON.parse(bytes.toString("utf8"));
+      for (const marker of retainedBlobMarkers(decoded, path)) {
+        markers.push({ path, ...marker });
+      }
+      if (/EditManager\/String$/i.test(path)) {
+        assert.equal(decoded.version, 7,
+          "Published retained history has another version");
+        assert(Array.isArray(decoded.trunk) && Array.isArray(decoded.branches),
+          "Published retained history lacks trunk or branch ancestry");
+        branchAncestry.push(...decoded.branches);
+        history.push(...decoded.trunk.map((commit) => ({
+          path, ...retainedHistoryCommit(commit),
+        })));
+      }
+      return;
+    }
+    assert.equal(entry?.type, "tree", "Retention summary entry has another kind");
+    for (const [name, child] of entry.entries) visit(child, `${path}/${name}`);
+  };
+  visit(summary);
+  return {
+    sha256: hash(summary),
+    handles,
+    markers,
+    history,
+    branchAncestry,
+    targetMarkers: markers.filter(({ url }) => url === targetPath),
   };
 }
 
@@ -1453,6 +1726,320 @@ async function authorTransactionBranchNative(environment, writer, label) {
   };
 }
 
+function watchRetention(view) {
+  const events = [];
+  let capture = false;
+  let retained;
+  const off = view.events.on("changed", (metadata, getRevertible) => {
+    const event = {
+      kind: CommitKind[metadata.kind],
+      local: metadata.isLocal,
+      factoryAvailable: getRevertible !== undefined,
+      acquired: false,
+    };
+    if (capture && metadata.isLocal && getRevertible !== undefined) {
+      retained = getRevertible((disposed) => {
+        event.disposed = disposed === retained;
+        event.status = RevertibleStatus[disposed.status];
+      });
+      capture = false;
+      event.acquired = true;
+      event.status = RevertibleStatus[retained.status];
+    }
+    events.push(event);
+  });
+  return {
+    captureNext() {
+      capture = true;
+    },
+    events,
+    retained() {
+      assert(retained, "Retention edit did not expose an inverse");
+      return retained;
+    },
+    off,
+  };
+}
+
+async function retentionCheckpointStateUpstream(authored, id) {
+  const continued = authored.target.get("continued");
+  return {
+    id,
+    graph: visibleHandleRoot(authored.view),
+    target: {
+      path: authored.target.handle.absolutePath,
+      attached: authored.target.isAttached?.() ?? false,
+      value: authored.target.get("value"),
+      ...(continued === undefined ? {} : { continued }),
+    },
+    lifetime: {
+      branches: authored.branch === undefined ? 0 : 1,
+      revertible: authored.revertible === undefined
+        ? "Missing"
+        : RevertibleStatus[authored.revertible.status],
+      events: structuredClone(authored.watch.events),
+    },
+  };
+}
+
+async function retentionCheckpointStateNative(authored, id) {
+  const checkpoint = await authored.command({
+    command: "checkpoint",
+    tree: "retention-tree",
+  });
+  const revertible = authored.revertibleReceipt.status === "Valid"
+    ? await authored.command({
+      op: "revertibleStatus",
+      tree: "retention-tree",
+      name: authored.revertibleName,
+    })
+    : authored.revertibleReceipt;
+  const link = await authored.adapter.client.read(["link"], "retention-tree");
+  const continued = (await authored.adapter.client.sharedMapGet(
+    "retention-target",
+    "continued",
+  )).value;
+  return {
+    id,
+    graph: {
+      label: (await authored.adapter.client.read(
+        ["label"],
+        "retention-tree",
+      )).value.value,
+      ...(link.present ? { link: handleValue(link).url } : {}),
+      links: [],
+      sequence: [],
+    },
+    target: {
+      path: authored.target.url,
+      value: (await authored.adapter.client.sharedMapGet(
+        "retention-target",
+        "value",
+      )).value,
+      ...(continued === undefined ? {} : { continued }),
+    },
+    lifetime: {
+      branches: authored.branchReceipt.status === "BranchValid" ? 1 : 0,
+      branch: structuredClone(authored.branchReceipt),
+      revertible: revertible.status,
+      inverse: structuredClone(revertible),
+      checkpoint,
+    },
+  };
+}
+
+async function authorRetentionUpstream(environment, label) {
+  const data = environment.upstreamSession.data;
+  const created = await createUpstreamTree(data, `${label}-document`);
+  data.bootstrap.set("retention", created.tree.handle);
+  await synchronize(environment);
+  const target = await data.createMap();
+  target.set("value", "before");
+  created.view.root.link = target.handle;
+  await synchronize(environment);
+  const watch = watchRetention(created.view);
+  return {
+    document: created.tree,
+    view: created.view,
+    target,
+    watch,
+    branch: undefined,
+    revertible: undefined,
+    secondary: undefined,
+    replies: [],
+    async remove() {
+      watch.captureNext();
+      created.view.root.link = undefined;
+      await synchronize(environment);
+      this.revertible = watch.retained();
+    },
+    async undo() {
+      watch.captureNext();
+      this.revertible.revert(true);
+      await synchronize(environment);
+      this.revertible = watch.retained();
+    },
+    async retainAndRedo() {
+      this.branch = created.view.fork();
+      watch.captureNext();
+      this.revertible.revert(true);
+      await synchronize(environment);
+      this.revertible = watch.retained();
+    },
+    async disposeBranch() {
+      this.branch.dispose();
+      this.branch = undefined;
+    },
+    async disposeRevertible() {
+      this.revertible.dispose();
+    },
+    async unreferenceDataStore() {
+      const secondary = await createUpstreamDataStore(environment.upstreamSession);
+      data.bootstrap.set("retention-secondary", secondary.handle);
+      await synchronize(environment);
+      data.bootstrap.delete("retention-secondary");
+      await synchronize(environment);
+      this.secondary = secondary;
+    },
+    async restore() {
+      created.view.root.link = target.handle;
+      await synchronize(environment);
+    },
+    state(id) {
+      return retentionCheckpointStateUpstream(this, id);
+    },
+  };
+}
+
+async function authorRetentionNative(environment, writer, label) {
+  const adapter = environment.adapters[writer];
+  const replies = [];
+  const command = async (request) => {
+    const result = await nativeCommand(adapter, request);
+    replies.push({ request, result });
+    return result;
+  };
+  await command({ command: "root-map", name: "retention-root" });
+  const document = await command({
+    command: "create-tree",
+    name: "retention-tree",
+    schema: handleStoredSchema,
+    view: handleStoredSchema,
+    initialRoot: taggedHandleRoot(`${label}-document`),
+  });
+  await command({
+    command: "shared-map-set",
+    name: "retention-root",
+    key: "retention",
+    value: document,
+  });
+  await synchronize(environment);
+  const target = await command({
+    command: "create-map",
+    name: "retention-target",
+  });
+  await command({
+    command: "shared-map-set",
+    name: "retention-target",
+    key: "value",
+    value: "before",
+  });
+  await command({
+    command: "set",
+    tree: "retention-tree",
+    path: ["link"],
+    value: taggedHandle(target),
+  });
+  await synchronize(environment);
+  await command({ command: "subscribe", tree: "retention-tree" });
+  return {
+    adapter,
+    command,
+    document,
+    target,
+    replies,
+    branchReceipt: { name: "retaining", status: "Missing" },
+    revertibleReceipt: { name: "retention-removal", status: "Missing" },
+    revertibleName: "retention-removal",
+    secondary: undefined,
+    async remove() {
+      await command({
+        command: "clear",
+        tree: "retention-tree",
+        path: ["link"],
+      });
+      this.revertibleReceipt = await command({
+        op: "retainLastLocalCommit",
+        tree: "retention-tree",
+        name: "retention-removal",
+      });
+      await synchronize(environment);
+    },
+    async undo() {
+      await command({
+        op: "revert",
+        tree: "retention-tree",
+        name: this.revertibleName,
+        dispose: true,
+      });
+      this.revertibleReceipt = await command({
+        op: "retainLastLocalCommit",
+        tree: "retention-tree",
+        name: "retention-redo",
+      });
+      this.revertibleName = "retention-redo";
+      await synchronize(environment);
+    },
+    async retainAndRedo() {
+      this.branchReceipt = await command({
+        op: "fork",
+        tree: "retention-tree",
+        source: "main",
+        name: "retaining",
+      });
+      await command({
+        op: "revert",
+        tree: "retention-tree",
+        name: this.revertibleName,
+        dispose: true,
+      });
+      this.revertibleReceipt = await command({
+        op: "retainLastLocalCommit",
+        tree: "retention-tree",
+        name: "retention-final",
+      });
+      this.revertibleName = "retention-final";
+      await synchronize(environment);
+    },
+    async disposeBranch() {
+      this.branchReceipt = await command({
+        op: "disposeBranch",
+        tree: "retention-tree",
+        name: "retaining",
+      });
+    },
+    async disposeRevertible() {
+      this.revertibleReceipt = await command({
+        op: "disposeRevertible",
+        tree: "retention-tree",
+        name: this.revertibleName,
+      });
+    },
+    async unreferenceDataStore() {
+      const secondary = await command({
+        command: "create-data-store",
+        name: "retention-secondary",
+      });
+      await command({
+        command: "shared-map-set",
+        name: "retention-root",
+        key: "retention-secondary",
+        value: secondary,
+      });
+      await synchronize(environment);
+      await command({
+        command: "shared-map-delete",
+        name: "retention-root",
+        key: "retention-secondary",
+      });
+      await synchronize(environment);
+      this.secondary = secondary;
+    },
+    async restore() {
+      await command({
+        command: "set",
+        tree: "retention-tree",
+        path: ["link"],
+        value: taggedHandle(target),
+      });
+      await synchronize(environment);
+    },
+    state(id) {
+      return retentionCheckpointStateNative(this, id);
+    },
+  };
+}
+
 function handleValue(value) {
   assert.equal(value.present, true, "Peer handle field is absent");
   assert.equal(value.value.kind, "handle", "Peer field is not a handle");
@@ -1919,7 +2506,661 @@ function expectedSnapshotGraph(name, graph) {
   return snapshot;
 }
 
+function publicationEvidence(writer, publication) {
+  return writer === "upstream"
+    ? {
+      kind: "summary-ack",
+      version: publication.summaryAckOp.contents.handle,
+      acknowledgementSequenceNumber: publication.summaryAckOp.sequenceNumber,
+      referenceSequenceNumber: publication.summaryReferenceSequenceNumber,
+      response: structuredClone(publication.summaryAckOp),
+    }
+    : {
+      kind: "native-publication-response",
+      version: publication.version,
+      referenceSequenceNumber: publication.snapshotSequenceNumber,
+      response: structuredClone(publication),
+    };
+}
+
+async function publishRetentionCheckpoint(
+  config,
+  environment,
+  writer,
+  authored,
+  id,
+) {
+  await synchronize(environment);
+  const local = await authored.state(id);
+  const publication = writer === "upstream"
+    ? await publishUpstreamSummary(
+      config,
+      environment.containers,
+      environment.documentId,
+      `Task 8 handleRetention:${writer}:${id}`,
+      { store: handleServiceStore },
+    )
+    : await environment.adapters[writer].summarizePublication();
+  await synchronize(environment);
+  const stored = await fetchSnapshot(environment.creator);
+  const targets = {
+    document: {
+      path: authored.document.handle?.absolutePath ?? authored.document.url,
+      attributes: channelAttributes.tree,
+    },
+    target: {
+      path: authored.target.handle?.absolutePath ?? authored.target.url,
+      attributes: channelAttributes.map,
+    },
+    ...(authored.secondary === undefined ? {} : {
+      secondary: {
+        path: authored.secondary.handle?.absolutePath ?? authored.secondary.url,
+        attributes: channelAttributes.map,
+      },
+    }),
+  };
+  const uploads = writer === "upstream" ? undefined
+    : environment.adapters[writer].evidence().http.filter(({ method, path, status }) =>
+      method === "POST" && status === 201 && /\/git\/(?:blobs|trees)\/?$/.test(path));
+  const summary = writer === "upstream"
+    ? summaryEntryEvidence(publication.summaryTree)
+    : submittedSummaryEvidence(uploads, stored.raw.tree.trees[".app"].id);
+  const targetNode = snapshotNode(stored.raw, targets.target.path);
+  local.target.attached = true;
+  local.target.attachment = {
+    path: targets.target.path,
+    treeId: targetNode.id,
+    attributes: decodedBlob(stored.raw, targetNode, ".attributes"),
+  };
+  return {
+    ...local,
+    publication: {
+      ...publicationEvidence(writer, publication),
+      ...(uploads === undefined ? {} : { uploads }),
+    },
+    snapshot: {
+      version: stored.version,
+      treeSha256: stored.treeSha256,
+      blobs: stored.blobs,
+      evidence: {
+        referenceSequenceNumber: snapshotSequence(stored.raw),
+        compressor: snapshotCompressor(stored.raw),
+        gc: snapshotGc(stored.raw),
+        components: snapshotComponents(stored.raw),
+        attributes: Object.fromEntries(Object.entries(targets).map(
+          ([name, target]) => [
+            name,
+            decodedBlob(
+              stored.raw,
+              snapshotNode(stored.raw, target.path),
+              ".attributes",
+            ),
+          ],
+        )),
+        graph: storedTreeGraph(stored.raw, targets.document.path),
+        retainedHandles: snapshotRetentionHandles(
+          stored.raw,
+          targets.document.path,
+          targets.target.path,
+        ),
+        retainedSummary: summaryRetentionEvidence(
+          summary,
+          targets.target.path,
+        ),
+      },
+    },
+    summary,
+    rawSnapshot: stored.raw,
+  };
+}
+
+function upstreamLoaderEvidence(observations) {
+  const versions = observations.find(({ operation }) =>
+    operation === "getVersions");
+  assert.equal(versions?.count, 1,
+    "Fresh upstream loader did not select one storage version");
+  const tree = observations.find(({ operation }) =>
+    operation === "getSnapshotTree");
+  assert(tree?.id, "Fresh upstream loader lacks a fetched snapshot tree");
+  return {
+    selectedVersion: versions.versions[0].id,
+    versionReceipt: structuredClone(versions),
+    treeReceipt: structuredClone(tree),
+    fetchedBlobs: observations.filter(({ operation }) =>
+      operation === "readBlob").map(({ id, hash: sha256, byteLength }) => ({
+      id,
+      sha256,
+      byteLength,
+    })),
+  };
+}
+
+function nativeLoaderEvidence(transport) {
+  const receipts = transport.http.filter(({ status }) => status === 200);
+  const versionReceipt = receipts.find(({ storageResponse }) =>
+    storageResponse?.kind === "commit");
+  assert(versionReceipt, "Fresh native loader lacks a selected commit receipt");
+  const treeReceipt = receipts.find(({ storageResponse }) =>
+    storageResponse?.kind === "tree"
+      && storageResponse.requestedId === versionReceipt.storageResponse.treeId);
+  assert(treeReceipt, "Fresh native loader lacks its selected tree receipt");
+  const fetchedBlobs = receipts.filter(({ path }) =>
+    /\/git\/blobs\/[^/?]+/.test(path)).map((receipt) => {
+    const response = JSON.parse(
+      Buffer.from(receipt.responseBody, "base64").toString("utf8"),
+    );
+    const bytes = Buffer.from(response.content, response.encoding);
+    return {
+      id: decodeURIComponent(receipt.path.match(/\/git\/blobs\/([^/?]+)/)[1]),
+      sha256: hash(bytes),
+      byteLength: bytes.length,
+      responseHash: receipt.responseHash,
+    };
+  });
+  return {
+    selectedVersion: versionReceipt.storageResponse.requestedId,
+    versionReceipt: structuredClone(versionReceipt),
+    treeReceipt: structuredClone(treeReceipt),
+    fetchedBlobs,
+  };
+}
+
+function validateRetentionLoader(name, writer, continuation, rawSnapshot, targets, summary) {
+  const fetched = new Map();
+  const expectedBlobs = { ...rawSnapshot.blobs };
+  if (writer === "upstream") {
+    assert(Array.isArray(continuation.storage),
+      `${name} fresh loader lacks actual storage observations`);
+    assert.deepEqual(continuation.loader, upstreamLoaderEvidence(continuation.storage),
+      `${name} fresh loader receipts differ from actual storage observations`);
+    const { versionReceipt, treeReceipt } = continuation.loader;
+    const decode = (receipt) => {
+      assert.equal(typeof receipt.responseBody, "string",
+        `${name} fresh loader receipt lacks response bytes`);
+      const bytes = Buffer.from(receipt.responseBody, "base64");
+      assert.equal(hash(bytes), receipt.hash,
+        `${name} fresh loader receipt response hash differs`);
+      return JSON.parse(bytes.toString("utf8"));
+    };
+    const versions = decode(versionReceipt);
+    assert.equal(versions.length, 1, `${name} fresh loader selected multiple versions`);
+    assert.equal(versions[0].id, continuation.loadedVersion,
+      `${name} fresh loader version body names another publication`);
+    assert.equal(versions[0].treeId, rawSnapshot.tree.id,
+      `${name} fresh loader version body names another tree`);
+    assert.equal(treeReceipt.request[0].id, versions[0].id,
+      `${name} fresh loader tree request used another version`);
+    assert.deepEqual(decode(treeReceipt), rawSnapshot.tree,
+      `${name} fresh loader fetched another snapshot tree`);
+    for (const receipt of continuation.storage.filter(({ operation }) =>
+      operation === "readBlob")) {
+      assert.equal(typeof receipt.responseBody, "string",
+        `${name} fresh loader blob lacks actual bytes`);
+      const bytes = Buffer.from(receipt.responseBody, "base64");
+      assert.equal(hash(bytes), receipt.hash,
+        `${name} fresh loader blob response hash differs`);
+      fetched.set(receipt.id, bytes);
+    }
+  } else {
+    assert.deepEqual(continuation.loader, nativeLoaderEvidence(continuation.transport),
+      `${name} fresh loader receipts differ from actual HTTP transport`);
+    const receipts = continuation.transport.http.filter(({ path, status }) =>
+      status === 200 && /\/git\/(?:commits|trees|blobs)\//.test(path));
+    const trees = new Map();
+    for (const receipt of receipts) {
+      assert.equal(receipt.method, "GET", `${name} fresh loader used another HTTP method`);
+      assert.equal(typeof receipt.responseBody, "string",
+        `${name} fresh loader HTTP receipt lacks response bytes`);
+      const bytes = Buffer.from(receipt.responseBody, "base64");
+      assert.equal(hash(bytes), receipt.responseHash,
+        `${name} fresh loader HTTP response hash differs`);
+      const identity = storageResponseIdentity(receipt.path, bytes);
+      assert.deepEqual(receipt.storageResponse, identity,
+        `${name} fresh loader HTTP receipt identity differs from its body`);
+      const body = JSON.parse(bytes.toString("utf8"));
+      const match = receipt.path.match(/\/git\/(commits|trees|blobs)\/([^/?]+)/);
+      const id = decodeURIComponent(match[2]);
+      assert.equal(body.sha, id, `${name} fresh loader body names another requested ID`);
+      if (match[1] === "trees") trees.set(id, body.tree);
+      if (match[1] === "blobs") {
+        fetched.set(id, Buffer.from(body.content, body.encoding));
+      }
+    }
+    const version = continuation.loader.versionReceipt.storageResponse;
+    assert.equal(version.requestedId, continuation.loadedVersion,
+      `${name} fresh loader HTTP request selected another version`);
+    assert.equal(version.treeId, rawSnapshot.tree.id,
+      `${name} fresh loader HTTP commit names another tree`);
+    const build = (id) => {
+      const entries = trees.get(id);
+      assert(entries, `${name} fresh loader did not fetch tree ${id}`);
+      assert(entries.every(({ type }) => type === "blob" || type === "tree"),
+        `${name} fresh loader tree has an unsupported entry`);
+      return {
+        id,
+        blobs: Object.fromEntries(entries.filter(({ type }) => type === "blob")
+          .map(({ path, sha }) => [path, sha])),
+        trees: Object.fromEntries(entries.filter(({ type }) => type === "tree")
+          .map(({ path, sha }) => [path, build(sha)])),
+      };
+    };
+    const physical = build(version.treeId);
+    const app = physical.trees[".app"];
+    assert(app, `${name} fresh loader lacks its physical application tree`);
+    const projected = {
+      id: physical.id,
+      blobs: { ...physical.blobs, ...app.blobs },
+      trees: {
+        ...app.trees, ...physical.trees,
+        ".app": { id: app.id, blobs: {}, trees: {} },
+      },
+    };
+    const withoutMetadata = ({ id, blobs, trees }) => ({
+      id, blobs,
+      trees: Object.fromEntries(Object.entries(trees).map(([path, child]) =>
+        [path, withoutMetadata(child)])),
+    });
+    assert.deepEqual(projected, withoutMetadata(rawSnapshot.tree),
+      `${name} fresh loader tree hierarchy differs from publication bytes`);
+    const shadowProtocol = summary.entries.find(([path]) => path === ".protocol")?.[1];
+    assert(shadowProtocol?.type === "tree" && app.trees[".protocol"],
+      `${name} native publication lacks its application protocol tree`);
+    assert.deepEqual(
+      Object.keys(app.trees[".protocol"].blobs).sort(),
+      shadowProtocol.entries.map(([path]) => path).sort(),
+      `${name} fresh loader application protocol tree differs from publication`,
+    );
+    for (const [path, entry] of shadowProtocol.entries) {
+      assert.equal(entry.type, "blob",
+        `${name} fresh loader application protocol entry has another kind`);
+      expectedBlobs[app.trees[".protocol"].blobs[path]] = entry.base64;
+    }
+  }
+  for (const [id, bytes] of fetched) {
+    assert(expectedBlobs[id] !== undefined,
+      `${name} fresh loader fetched an unrelated blob ${id}`);
+    assert.equal(bytes.toString("base64"), expectedBlobs[id],
+      `${name} fresh loader fetched bytes differ for ${id}`);
+  }
+  const document = snapshotNode(rawSnapshot, targets.document.path);
+  const target = snapshotNode(rawSnapshot, targets.target.path);
+  const store = `/${targets.document.path.split("/")[1]}`;
+  const bootstrap = snapshotNode(rawSnapshot, `${store}/root`);
+  const required = [
+    rawSnapshot.tree.blobs[".idCompressor"],
+    rawSnapshot.tree.trees.gc.blobs.__gc_root,
+    bootstrap.blobs.header,
+    document.blobs[".attributes"],
+    document.trees.indexes.trees.Forest.blobs.contents,
+    document.trees.indexes.trees.EditManager.blobs.String,
+    document.trees.indexes.trees.Schema.blobs.SchemaString,
+    target.blobs[".attributes"],
+    target.blobs.header,
+  ];
+  for (const id of required) {
+    assert(fetched.has(id), `${name} fresh loader did not read required publication blob ${id}`);
+  }
+}
+
+async function retentionFreshContinuation(
+  config,
+  context,
+  environment,
+  writer,
+  authored,
+  publication,
+) {
+  const expectedDocument = authored.document.handle?.absolutePath
+    ?? authored.document.url;
+  const expectedTarget = authored.target.handle?.absolutePath
+    ?? authored.target.url;
+  if (writer === "upstream") {
+    const fresh = await context.constructors.openSession(
+      config,
+      environment.containers,
+      environment.documentId,
+      false,
+      { store: handleServiceStore, observeStorage: true },
+    );
+    try {
+      const documentHandle = fresh.data.bootstrap.get("retention");
+      const tree = await documentHandle.get();
+      const view = tree.viewWith(handleTreeConfig);
+      const watch = watchRetention(view);
+      const targetHandle = view.root.link;
+      const target = await targetHandle.get();
+      const historyBefore = await serverHistory(environment.creator);
+      const before = {
+        document: documentHandle.absolutePath,
+        target: targetHandle.absolutePath,
+        value: target.get("value"),
+      };
+      const localStacks = {
+        events: structuredClone(watch.events),
+        pendingOutbound: fresh.container.deltaManager.outbound.length,
+        dirty: fresh.container.isDirty,
+      };
+      target.set("continued", true);
+      await until(() =>
+        !fresh.container.isDirty
+          && fresh.container.deltaManager.inbound.length === 0
+          && fresh.container.deltaManager.outbound.length === 0,
+      "fresh upstream continuation submission");
+      await synchronize(environment);
+      const loader = upstreamLoaderEvidence(fresh.storageObservations);
+      const result = {
+        implementation: writer,
+        loadedVersion: loader.selectedVersion,
+        loader,
+        storage: structuredClone(fresh.storageObservations),
+        before,
+        after: {
+          continued: target.get("continued"),
+        },
+        localStacks,
+        transport: fresh.transportEvidence(),
+        sequenced: deltaEvidence(
+          (await serverHistory(environment.creator)).slice(historyBefore.length),
+        ),
+      };
+      watch.off();
+      view.dispose();
+      assert.equal(before.document, expectedDocument);
+      assert.equal(before.target, expectedTarget);
+      return result;
+    } finally {
+      fresh.container.dispose();
+    }
+  }
+  const fresh = await context.constructors.nativeAdapter(writer, config, {
+    runId: context.runId,
+    documentId: environment.documentId,
+    tenant: config.tenantId,
+    viewSchema: JSON.stringify(handleStoredSchema),
+  }, environment.jwt);
+  environment.natives.push(fresh);
+  try {
+    await fresh.awaitSynced();
+    await nativeCommand(fresh, { command: "root-map", name: "fresh-root" });
+    const document = (await nativeCommand(fresh, {
+      command: "shared-map-get",
+      name: "fresh-root",
+      key: "retention",
+    })).value;
+    await nativeCommand(fresh, {
+      command: "open-tree",
+      name: "fresh-tree",
+      handle: document,
+      view: handleStoredSchema,
+    });
+    const target = handleValue(await fresh.client.read(["link"], "fresh-tree"));
+    await nativeCommand(fresh, {
+      command: "open-map",
+      name: "fresh-target",
+      handle: target,
+    });
+    const localStacks = await nativeCommand(fresh, {
+      command: "checkpoint",
+      tree: "fresh-tree",
+    });
+    const probes = [];
+    for (const request of [
+      { op: "disposeBranch", tree: "fresh-tree", name: "retaining" },
+      ...["retention-removal", "retention-redo", "retention-final"].map((name) =>
+        ({ op: "revertibleStatus", tree: "fresh-tree", name })),
+    ]) {
+      const response = await fresh.client.request(request);
+      assert.equal(response.ok, false, "Fresh load revived an old branch or inverse");
+      probes.push({ request, response });
+    }
+    const historyBefore = await serverHistory(environment.creator);
+    const before = {
+      document: document.url,
+      target: target.url,
+      value: (await fresh.client.sharedMapGet("fresh-target", "value")).value,
+    };
+    await fresh.client.sharedMapSet("fresh-target", "continued", true);
+    await synchronize(environment);
+    assert.equal(before.document, expectedDocument);
+    assert.equal(before.target, expectedTarget);
+    const transport = fresh.evidence();
+    const loader = nativeLoaderEvidence(transport);
+    return {
+      implementation: writer,
+      loadedVersion: loader.selectedVersion,
+      loader,
+      before,
+      after: {
+        continued: (await fresh.client.sharedMapGet(
+          "fresh-target",
+          "continued",
+        )).value,
+      },
+      localStacks: {
+        events: localStacks.events,
+        commits: localStacks.commits,
+        probes,
+      },
+      transport,
+      sequenced: deltaEvidence(
+        (await serverHistory(environment.creator)).slice(historyBefore.length),
+      ),
+    };
+  } finally {
+    await fresh.close();
+    environment.natives = environment.natives.filter(
+      (candidate) => candidate !== fresh,
+    );
+  }
+}
+
+async function observeRetentionUpstreamPeer(session, targets) {
+  const documentHandle = session.data.bootstrap.get("retention");
+  const tree = await documentHandle.get();
+  const view = tree.viewWith(handleTreeConfig);
+  const targetHandle = view.root.link;
+  const target = await targetHandle.get();
+  const observed = {
+    document: documentHandle.absolutePath,
+    target: targetHandle.absolutePath,
+    value: target.get("value"),
+    continued: target.get("continued"),
+  };
+  view.dispose();
+  assert.equal(observed.document, targets.document.path);
+  assert.equal(observed.target, targets.target.path);
+  return observed;
+}
+
+async function observeRetentionNativePeer(adapter, targets) {
+  await nativeCommand(adapter, { command: "root-map", name: "retention-root" });
+  const document = (await nativeCommand(adapter, {
+    command: "shared-map-get",
+    name: "retention-root",
+    key: "retention",
+  })).value;
+  await nativeCommand(adapter, {
+    command: "open-tree",
+    name: "retention-observed",
+    handle: document,
+    view: handleStoredSchema,
+  });
+  const target = handleValue(
+    await adapter.client.read(["link"], "retention-observed"),
+  );
+  await nativeCommand(adapter, {
+    command: "open-map",
+    name: "retention-target",
+    handle: target,
+  });
+  const observed = {
+    document: document.url,
+    target: target.url,
+    value: (await adapter.client.sharedMapGet("retention-target", "value")).value,
+    continued:
+      (await adapter.client.sharedMapGet("retention-target", "continued")).value,
+  };
+  assert.equal(observed.document, targets.document.path);
+  assert.equal(observed.target, targets.target.path);
+  return observed;
+}
+
+async function runRetentionRow(config, context, writer) {
+  const environment = await createEnvironment(
+    config,
+    context.runId,
+    "handleRetention",
+    writer,
+    context.constructors,
+  );
+  let failure;
+  try {
+    const label = `handleRetention-${writer}-${context.runId.slice(0, 8)}`;
+    const historyBefore = await serverHistory(environment.creator);
+    const authored = writer === "upstream"
+      ? await authorRetentionUpstream(environment, label)
+      : await authorRetentionNative(environment, writer, label);
+    const checkpoints = [];
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "before-removal",
+    ));
+    await authored.remove();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "after-removal",
+    ));
+    await authored.undo();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "after-undo",
+    ));
+    await authored.retainAndRedo();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "retained-repair",
+    ));
+    await authored.disposeBranch();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "branch-disposal",
+    ));
+    await authored.disposeRevertible();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "revertible-disposal",
+    ));
+    await authored.unreferenceDataStore();
+    checkpoints.push(await publishRetentionCheckpoint(
+      config, environment, writer, authored, "unreferenced-datastore",
+    ));
+    await authored.restore();
+    const fresh = await publishRetentionCheckpoint(
+      config, environment, writer, authored, "fresh-load",
+    );
+    fresh.continuation = await retentionFreshContinuation(
+      config,
+      context,
+      environment,
+      writer,
+      authored,
+      fresh,
+    );
+    checkpoints.push(fresh);
+    await synchronize(environment);
+    const targets = {
+      document: {
+        path: authored.document.handle?.absolutePath ?? authored.document.url,
+        attributes: channelAttributes.tree,
+      },
+      target: {
+        path: authored.target.handle?.absolutePath ?? authored.target.url,
+        attributes: channelAttributes.map,
+      },
+      secondary: {
+        path: authored.secondary.handle?.absolutePath ?? authored.secondary.url,
+        attributes: channelAttributes.map,
+      },
+    };
+    const peers = {
+      upstream: await observeRetentionUpstreamPeer(
+        environment.peerSession,
+        targets,
+      ),
+    };
+    for (const target of ["javascript", "erlang"]) {
+      if (target === writer) continue;
+      let peer;
+      try {
+        peer = await openNativePeer(
+          environment,
+          config,
+          target,
+          context.constructors,
+        );
+        peers[target] = await observeRetentionNativePeer(peer, targets);
+      } finally {
+        await peer?.close();
+      }
+    }
+    const history = await serverHistory(environment.creator);
+    const submitted = submissionEvidence(writer, environment);
+    const sequenced = deltaEvidence(history.slice(historyBefore.length));
+    const row = {
+      formatVersion: 1,
+      runId: context.runId,
+      writer,
+      documentId: environment.documentId,
+      contract,
+      factory: handleServiceStore.type,
+      targets,
+      peer: {
+        expectedImplementations: requiredPeerImplementations(writer),
+        observations: peers,
+      },
+      raw: {
+        intent: { section: "handleRetention", writer, label },
+        nativeReplies: authored.replies,
+        submitted,
+        sequenced,
+        dependencies: dependencyEvidence(sequenced, targets),
+      },
+      retention: {
+        checkpoints: checkpoints.map(({ rawSnapshot, ...checkpoint }) =>
+          jsonClone(checkpoint)),
+      },
+      writerClientIds: writer === "upstream"
+        ? [environment.upstreamSession.container.clientId]
+        : [...environment.adapters[writer].clientIds],
+      artifacts: [],
+    };
+    const artifact = {
+      formatVersion: 1,
+      runId: context.runId,
+      section: "handleRetention",
+      writer,
+      documentId: row.documentId,
+      contract,
+      raw: row.raw,
+      targets,
+      peers,
+      retention: {
+        checkpoints,
+      },
+    };
+    const relative = `handleRetention/${writer}.json`;
+    const bytes = `${JSON.stringify(artifact)}\n`;
+    await mkdir(join(context.output, "handleRetention"), { recursive: true });
+    await writeFile(join(context.output, relative), bytes, { mode: 0o600 });
+    context.artifacts.files[relative] = { sha256: hash(bytes) };
+    row.artifacts.push({ path: relative, sha256: hash(bytes) });
+    return row;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await closeEnvironment(environment, failure);
+  }
+}
+
 async function runRow(config, context, section, writer) {
+  if (section === "handleRetention") {
+    return runRetentionRow(config, context, writer);
+  }
   const environment = await createEnvironment(
     config,
     context.runId,
@@ -1991,20 +3232,7 @@ async function runRow(config, context, section, writer) {
       }
       : expectedGraph(section, authored.targets);
     const storedEvidence = snapshotEvidence(stored.raw, authored.targets);
-    const publicationEvidence = writer === "upstream"
-      ? {
-        kind: "summary-ack",
-        version: publication.summaryAckOp.contents.handle,
-        acknowledgementSequenceNumber: publication.summaryAckOp.sequenceNumber,
-        referenceSequenceNumber: publication.summaryReferenceSequenceNumber,
-        response: structuredClone(publication.summaryAckOp),
-      }
-      : {
-        kind: "native-publication-response",
-        version: publication.version,
-        referenceSequenceNumber: publication.snapshotSequenceNumber,
-        response: structuredClone(publication),
-      };
+    const published = publicationEvidence(writer, publication);
     const row = {
       formatVersion: 1,
       runId: context.runId,
@@ -2026,7 +3254,7 @@ async function runRow(config, context, section, writer) {
         submitted,
         sequenced,
         dependencies: dependencyEvidence(sequenced, authored.targets),
-        publication: publicationEvidence,
+        publication: published,
         historyBeforeCount: historyBefore.length,
         historyAfterLocalCount: authored.localHistoryCount,
       },
@@ -2122,24 +3350,11 @@ function validateTransportBinding(name, row) {
   assert(outbound.length > 0, `${name} raw submitted operations are missing`);
   assert(outbound.every(({ clientId }) => row.writerClientIds.includes(clientId)),
     `${name} outbound operation has another writer identity`);
-  const comparable = ({
-    clientId,
-    clientSequenceNumber,
-    referenceSequenceNumber,
-    contents,
-    metadata,
-  }) => ({
-    clientId,
-    clientSequenceNumber,
-    referenceSequenceNumber,
-    contents: parse(contents),
-    metadata: jsonClone(metadata),
-  });
-  const submittedOperations = outbound.map(comparable);
+  const submittedOperations = outbound.map(transportOperationIdentity);
   const sequencedOperations = row.raw.sequenced
     .filter(({ type, clientId }) =>
       type === "op" && row.writerClientIds.includes(clientId))
-    .map(comparable);
+    .map(transportOperationIdentity);
   assert.deepEqual(
     submittedOperations,
     sequencedOperations,
@@ -2319,9 +3534,16 @@ function compactAttachmentNumber(id, prefix) {
   return number;
 }
 
-function validateCompressorAllocations(name, row, artifactSnapshot) {
+function validateCompressorAllocations(
+  name,
+  row,
+  artifactSnapshot,
+  referenceSequenceNumber = Number.POSITIVE_INFINITY,
+) {
   const { compressor } = decodedSnapshotCompressor(artifactSnapshot);
-  const allocations = row.raw.dependencies.allocations;
+  const throughCheckpoint = ({ sequenceNumber }) =>
+    sequenceNumber <= referenceSequenceNumber;
+  const allocations = row.raw.dependencies.allocations.filter(throughCheckpoint);
   const generationOf = (stable, originatorId) => {
     const offset = numericStableId(stable) - numericStableId(originatorId);
     assert(offset >= 0n && offset < BigInt(Number.MAX_SAFE_INTEGER),
@@ -2361,11 +3583,11 @@ function validateCompressorAllocations(name, row, artifactSnapshot) {
     finalizedGeneration(-allocation.first, allocation.sessionId);
     finalizedGeneration(-allocation.last, allocation.sessionId);
   }
-  for (const commit of row.raw.dependencies.commits) {
+  for (const commit of row.raw.dependencies.commits.filter(throughCheckpoint)) {
     const generation = finalizedGeneration(commit.revision, commit.originatorId);
     requireEarlierAllocation(commit.originatorId, generation, commit);
   }
-  for (const message of row.raw.sequenced) {
+  for (const message of row.raw.sequenced.filter(throughCheckpoint)) {
     for (const [innerIndex, { contents }] of operationItems(message).entries()) {
       const use = position(message.sequenceNumber, innerIndex);
       for (const attachment of matchingObjects(contents, ({ type }) =>
@@ -2826,9 +4048,695 @@ async function validateTransactionBranchRow(name, row, artifacts) {
   }
 }
 
+function gcNode(gc, path, label) {
+  const node = gc?.gcNodes?.[path];
+  assert(node, `${label} GC lacks route ${path}`);
+  assert(Array.isArray(node.outboundRoutes),
+    `${label} GC route ${path} lacks outbound routes`);
+  return node;
+}
+
+function validateRetentionGc(name, checkpoint, targets) {
+  const gc = checkpoint.snapshot.evidence.gc;
+  const documentStore = `/${targets.document.path.split("/").filter(Boolean)[0]}`;
+  const expected = {
+    "/": [documentStore],
+    [documentStore]: [
+      targets.target.path,
+      `${documentStore}/_C`,
+      targets.document.path,
+      `${documentStore}/root`,
+    ],
+    [targets.target.path]: [documentStore],
+    [`${documentStore}/_C`]: [documentStore],
+    [targets.document.path]: [documentStore, targets.target.path],
+    [`${documentStore}/root`]: [
+      documentStore,
+      `${documentStore}/_C`,
+      targets.document.path,
+    ],
+  };
+  if (["unreferenced-datastore", "fresh-load"].includes(checkpoint.id)) {
+    const secondaryStore =
+      `/${targets.secondary.path.split("/").filter(Boolean)[0]}`;
+    expected[secondaryStore] = [targets.secondary.path];
+    expected[targets.secondary.path] = [secondaryStore];
+  }
+  assert.deepEqual(
+    Object.keys(gc.gcNodes).sort(),
+    Object.keys(expected).sort(),
+    `${name} ${checkpoint.id} GC node set differs`,
+  );
+  for (const [path, routes] of Object.entries(expected)) {
+    const node = gcNode(gc, path, `${name} ${checkpoint.id}`);
+    assert.deepEqual(
+      [...node.outboundRoutes].sort(),
+      [...routes].sort(),
+      `${name} ${checkpoint.id} GC routes differ for ${path}`,
+    );
+  }
+  const reachable = new Set(["/"]);
+  const pending = ["/"];
+  while (pending.length > 0) {
+    const path = pending.shift();
+    for (const route of gc.gcNodes[path].outboundRoutes) {
+      if (!reachable.has(route)) {
+        reachable.add(route);
+        pending.push(route);
+      }
+    }
+  }
+  for (const [path, node] of Object.entries(gc.gcNodes)) {
+    if (reachable.has(path)) {
+      assert.equal(node.unreferencedTimestampMs, undefined,
+        `${name} ${checkpoint.id} reachable GC node has an unreferenced timestamp`);
+    } else {
+      assert(Number.isFinite(node.unreferencedTimestampMs)
+        && node.unreferencedTimestampMs > 0,
+      `${name} ${checkpoint.id} unreachable GC node lacks a timestamp`);
+    }
+  }
+  if (checkpoint.id === "unreferenced-datastore"
+    || checkpoint.id === "fresh-load") {
+    const secondaryStore =
+      `/${targets.secondary.path.split("/").filter(Boolean)[0]}`;
+    assert.equal(
+      gc.gcNodes[secondaryStore].unreferencedTimestampMs,
+      gc.gcNodes[targets.secondary.path].unreferencedTimestampMs,
+      `${name} ${checkpoint.id} unreferenced component timestamps differ`,
+    );
+  }
+}
+
+async function validateRetentionRow(name, row, artifacts) {
+  assert.equal(row.formatVersion, 1, `${name} row format changed`);
+  assert.equal(row.runId, artifacts.runId, `${name} row run identity changed`);
+  validateContract(row.contract, `${name} row`);
+  assert.equal(row.factory, handleServiceStore.type,
+    `${name} primary factory differs from the pinned contract`);
+  assert.deepEqual(
+    Object.keys(row.targets).sort(),
+    ["document", "secondary", "target"],
+    `${name} retention target identity set changed`,
+  );
+  for (const [target, descriptor] of Object.entries(row.targets)) {
+    assert.deepEqual(descriptor.attributes,
+      target === "document" ? channelAttributes.tree : channelAttributes.map,
+    `${name} fixed target attributes contract differs for ${target}`);
+  }
+  if (row.writer !== "upstream") {
+    assert(Array.isArray(row.raw.nativeReplies) && row.raw.nativeReplies.length > 0,
+      `${name} native lifetime receipts are missing`);
+  }
+  validateTransportBinding(name, row);
+  assert.equal(row.artifacts.length, 1, `${name} row lacks one raw artifact`);
+  const descriptor = row.artifacts[0];
+  const registered = artifacts.files[descriptor.path];
+  assert(registered, `${name} raw artifact is missing: ${descriptor.path}`);
+  assert.equal(registered.sha256, descriptor.sha256,
+    `${name} raw artifact digest changed`);
+  const bytes = await readFile(join(artifacts.root, descriptor.path));
+  assert.equal(hash(bytes), descriptor.sha256,
+    `${name} persisted artifact bytes changed`);
+  const artifact = JSON.parse(bytes.toString("utf8"));
+  assert.equal(artifact.runId, row.runId, `${name} artifact run identity changed`);
+  assert.equal(artifact.documentId, row.documentId,
+    `${name} artifact document identity changed`);
+  validateContract(artifact.contract, `${name} artifact`);
+  assert.deepEqual(artifact.raw, jsonClone(row.raw),
+    `${name} report raw evidence differs from its persisted artifact`);
+  assert.deepEqual(artifact.targets, row.targets,
+    `${name} artifact target identities differ`);
+  assert.deepEqual(artifact.peers, row.peer.observations,
+    `${name} artifact peer observations differ`);
+  const expectedIds = [
+    "before-removal",
+    "after-removal",
+    "after-undo",
+    "retained-repair",
+    "branch-disposal",
+    "revertible-disposal",
+    "unreferenced-datastore",
+    "fresh-load",
+  ];
+  assert.deepEqual(
+    row.retention.checkpoints.map(({ id }) => id),
+    expectedIds,
+    `${name} checkpoint coverage changed`,
+  );
+  assert.equal(artifact.retention.checkpoints.length, expectedIds.length,
+    `${name} artifact checkpoint coverage changed`);
+  for (const [index, checkpoint] of row.retention.checkpoints.entries()) {
+    const captured = artifact.retention.checkpoints[index];
+    const { rawSnapshot, ...artifactCheckpoint } = captured;
+    assert.deepEqual(checkpoint, artifactCheckpoint,
+      `${name} ${checkpoint.id} report differs from its raw artifact`);
+    assert.equal(checkpoint.snapshot.version, checkpoint.publication.version,
+      `${name} ${checkpoint.id} publication names another fetched version`);
+    assert.equal(checkpoint.snapshot.treeSha256, hash(rawSnapshot.tree),
+      `${name} ${checkpoint.id} stored tree hash differs`);
+    assert.deepEqual(
+      checkpoint.snapshot.blobs,
+      Object.fromEntries(Object.entries(rawSnapshot.blobs).map(
+        ([id, encoded]) => [id, hash(Buffer.from(encoded, "base64"))],
+      )),
+      `${name} ${checkpoint.id} stored blob hashes differ`,
+    );
+    assert.equal(
+      checkpoint.snapshot.evidence.referenceSequenceNumber,
+      snapshotSequence(rawSnapshot),
+      `${name} ${checkpoint.id} storage reference sequence differs`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.compressor,
+      snapshotCompressor(rawSnapshot),
+      `${name} ${checkpoint.id} finalized compressor evidence differs`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.gc,
+      snapshotGc(rawSnapshot),
+      `${name} ${checkpoint.id} fetched GC routes differ`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.components,
+      snapshotComponents(rawSnapshot),
+      `${name} ${checkpoint.id} component metadata differs`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.attributes,
+      Object.fromEntries(Object.entries(row.targets)
+        .filter(([target]) =>
+          target !== "secondary"
+            || ["unreferenced-datastore", "fresh-load"].includes(checkpoint.id))
+        .map(([target, descriptor]) => [
+          target,
+          decodedBlob(
+            rawSnapshot,
+            snapshotNode(rawSnapshot, descriptor.path),
+            ".attributes",
+          ),
+        ])),
+      `${name} ${checkpoint.id} channel attributes differ`,
+    );
+    for (const [target, storedAttributes] of Object.entries(
+      checkpoint.snapshot.evidence.attributes,
+    )) {
+      assert.deepEqual(
+        storedAttributes,
+        row.targets[target].attributes,
+        `${name} ${checkpoint.id} persisted attributes differ for ${target}`,
+      );
+    }
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.graph,
+      storedTreeGraph(rawSnapshot, row.targets.document.path),
+      `${name} ${checkpoint.id} stored graph differs`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.retainedHandles,
+      snapshotRetentionHandles(
+        rawSnapshot,
+        row.targets.document.path,
+        row.targets.target.path,
+      ),
+      `${name} ${checkpoint.id} forest/repair/history handle evidence differs`,
+    );
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.retainedSummary,
+      summaryRetentionEvidence(checkpoint.summary, row.targets.target.path),
+      `${name} ${checkpoint.id} retained summary evidence differs`,
+    );
+    if (row.writer !== "upstream") {
+      assert.deepEqual(checkpoint.summary, submittedSummaryEvidence(
+        checkpoint.publication.uploads, rawSnapshot.tree.trees[".app"].id,
+      ), `${name} ${checkpoint.id} summary differs from actual publication uploads`);
+    }
+    validatePublication(name, {
+      writer: row.writer,
+      raw: {
+        sequenced: row.raw.sequenced,
+        publication: checkpoint.publication,
+      },
+      snapshot: checkpoint.snapshot,
+    }, rawSnapshot);
+    const metadata = snapshotMetadata(rawSnapshot);
+    assert.equal(metadata.createContainerRuntimeVersion, reference.version,
+      `${name} ${checkpoint.id} persisted runtime metadata version differs`);
+    assert.equal(
+      metadata.documentSchema.info.minVersionForCollab,
+      oldestSupportedClient,
+      `${name} ${checkpoint.id} persisted minimum client differs`,
+    );
+    const lastMessage = row.raw.sequenced.find(({ sequenceNumber }) =>
+      sequenceNumber === metadata.lastMessage.sequenceNumber);
+    assert.equal(metadata.lastMessage.timestamp, lastMessage?.timestamp,
+      `${name} ${checkpoint.id} reference timestamp differs from service receipt`);
+    assert.deepEqual(snapshotFactory(rawSnapshot, row.targets.document.path), {
+      packagePath: [handleServiceStore.type],
+      summaryFormatVersion: 2,
+      isRootDataStore: true,
+    }, `${name} ${checkpoint.id} component-root metadata differs`);
+    const localLink = checkpoint.graph.link ?? null;
+    assert.equal(checkpoint.snapshot.evidence.graph.optional, localLink,
+      `${name} ${checkpoint.id} independently measured graph differs from storage`);
+    validateRetentionGc(name, checkpoint, row.targets);
+    assert.equal(checkpoint.target.attached, true,
+      `${name} ${checkpoint.id} target is not attached`);
+    assert.deepEqual(checkpoint.target.attachment, {
+      path: row.targets.target.path,
+      treeId: snapshotNode(rawSnapshot, row.targets.target.path).id,
+      attributes: row.targets.target.attributes,
+    }, `${name} ${checkpoint.id} target attachment receipt differs`);
+    assert(
+      checkpoint.snapshot.evidence.retainedHandles.some(
+        ({ path }) => /Forest/i.test(path),
+      ),
+      `${name} ${checkpoint.id} lacks forest handle evidence`,
+    );
+    if (["after-removal", "retained-repair", "branch-disposal"].includes(
+      checkpoint.id,
+    )) {
+      assert(
+        checkpoint.snapshot.evidence.retainedHandles.some(
+          ({ kind, markers }) =>
+            kind === "history"
+              && markers.some(({ url }) => url === row.targets.target.path),
+        ),
+        `${name} ${checkpoint.id} retained history lost the target handle marker`,
+      );
+      assert(
+        checkpoint.snapshot.evidence.retainedSummary.targetMarkers.length > 0,
+        `${name} ${checkpoint.id} retained summary lost the target handle marker`,
+      );
+    }
+    validateCompressorAllocations(
+      `${name} ${checkpoint.id}`,
+      row,
+      rawSnapshot,
+      checkpoint.snapshot.evidence.referenceSequenceNumber,
+    );
+  }
+  const checkpoints = Object.fromEntries(
+    row.retention.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]),
+  );
+  const revisions = (checkpoint) => {
+    const retained = checkpoint.snapshot.evidence.retainedHandles.find(
+      ({ kind }) => kind === "history",
+    );
+    assert(retained, `${name} ${checkpoint.id} lacks decoded retained history`);
+    const stored = retained.history.map(({ revision }) => revision);
+    const rawSnapshot = artifact.retention.checkpoints.find(({ id }) =>
+      id === checkpoint.id).rawSnapshot;
+    const commits = JSON.parse(Buffer.from(
+      rawSnapshot.blobs[retained.blobId], "base64",
+    )).trunk;
+    const wire = decodeTreeSubmissions(row.raw.sequenced);
+    const undo = row.writer === "upstream" ? undefined
+      : row.raw.nativeReplies.find(({ request }) =>
+        request.op === "revert" && request.name === "retention-removal");
+    if (row.writer !== "upstream") {
+      assert(undo?.result.authoredKind === "Undo",
+        `${name} native undo lifetime receipt is missing`);
+    }
+    const { compressor } = decodedSnapshotCompressor(rawSnapshot);
+    for (const commit of commits) {
+      const submission = wire.find(({ outerSequenceNumber }) =>
+        outerSequenceNumber === commit.sequenceNumber);
+      const original = submission?.commits.find(({ revision, originatorId }) =>
+        revision === commit.revision && originatorId === commit.sessionId);
+      assert(original, `${name} retained commit identity differs from service history`);
+      assert(commit.sequenceNumber <= checkpoint.publication.referenceSequenceNumber,
+        `${name} retained commit exceeds its publication sequence`);
+      const expectedChange = structuredClone(original.changeset);
+      if (undo?.result.submittedRevisions.includes(compressor.decompress(commit.revision))) {
+        for (const component of expectedChange) delete component.data?.refreshers;
+      }
+      assert.deepEqual(commit.change, expectedChange,
+        `${name} retained history changeset differs from its sequenced commit`);
+    }
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.retainedSummary.branchAncestry,
+      retained.branches,
+      `${name} ${checkpoint.id} summary branch ancestry differs from storage`,
+    );
+    if (row.writer === "upstream") {
+      assert(retained.branches.length > 0
+        && retained.branches.every((entry) =>
+          Array.isArray(entry)
+            && entry.length === 2
+            && entry[0] === commits.at(-1).sessionId
+            && entry[1]?.base === stored.at(-1)
+            && Array.isArray(entry[1].commits)
+            && entry[1].commits.length === 0),
+      `${name} ${checkpoint.id} upstream ancestry is not a peer-base suffix`);
+    } else {
+      assert.deepEqual(retained.branches, [],
+        `${name} ${checkpoint.id} persisted a local branch root`);
+    }
+    assert.deepEqual(
+      checkpoint.snapshot.evidence.retainedSummary.history.map(
+        ({ path, ...commit }) => commit,
+      ), retained.history,
+      `${name} ${checkpoint.id} summary history ancestry differs from storage`,
+    );
+    return stored;
+  };
+  const beforeRevisions = revisions(checkpoints["before-removal"]);
+  const removedRevisions = revisions(checkpoints["after-removal"]);
+  const undoRevisions = revisions(checkpoints["after-undo"]);
+  const repairRevisions = revisions(checkpoints["retained-repair"]);
+  assert.deepEqual(removedRevisions.slice(0, -1), beforeRevisions,
+    `${name} removal history lost its ancestry`);
+  assert.deepEqual(undoRevisions.slice(0, -1), removedRevisions,
+    `${name} undo history lost its ancestry`);
+  assert.deepEqual(repairRevisions.slice(0, -1), undoRevisions,
+    `${name} retained repair history lost its ancestry`);
+  for (const id of [
+    "branch-disposal",
+    "revertible-disposal",
+    "unreferenced-datastore",
+  ]) {
+    assert.deepEqual(revisions(checkpoints[id]), repairRevisions,
+      `${name} ${id} changed retained document ancestry`);
+  }
+  const freshRevisions = revisions(checkpoints["fresh-load"]);
+  const freshBase = freshRevisions.slice(0, -1);
+  const dropped = repairRevisions.length - freshBase.length;
+  assert(dropped >= 0, `${name} fresh history added an unobserved ancestor`);
+  assert.deepEqual(freshBase, repairRevisions.slice(dropped),
+    `${name} fresh history is not a contiguous retained ancestry suffix`);
+  const freshRawSnapshot = artifact.retention.checkpoints.at(-1).rawSnapshot;
+  const protocol = decodedBlob(
+    freshRawSnapshot,
+    freshRawSnapshot.tree.trees[".protocol"],
+    "attributes",
+  );
+  const referenceMessage = row.raw.sequenced.find(({ sequenceNumber }) =>
+    sequenceNumber === protocol.sequenceNumber);
+  assert.equal(protocol.minimumSequenceNumber,
+    referenceMessage?.minimumSequenceNumber,
+  `${name} fresh history minimum differs from its sequenced receipt`);
+  const repairSnapshot = artifact.retention.checkpoints[3].rawSnapshot;
+  const retainedHistory = checkpoints["retained-repair"]
+    .snapshot.evidence.retainedHandles.find(({ kind }) => kind === "history");
+  const repairTrunk = JSON.parse(Buffer.from(
+    repairSnapshot.blobs[retainedHistory.blobId], "base64",
+  ).toString("utf8")).trunk;
+  assert(repairTrunk.slice(0, dropped).every(({ sequenceNumber }) =>
+    Number.isSafeInteger(sequenceNumber)
+      && sequenceNumber <= protocol.minimumSequenceNumber),
+  `${name} fresh history trimmed an ancestor above the observed minimum`);
+  assert(!repairRevisions.includes(freshRevisions.at(-1)),
+    `${name} fresh continuation lacks a new history revision`);
+  if (row.writer !== "upstream") {
+    for (const checkpoint of row.retention.checkpoints) {
+      assert(checkpoint.lifetime.checkpoint,
+        `${name} ${checkpoint.id} native lifetime checkpoint is missing`);
+      assert(Array.isArray(checkpoint.lifetime.checkpoint.events)
+        && Array.isArray(checkpoint.lifetime.checkpoint.commits),
+      `${name} ${checkpoint.id} native lifetime queues are missing`);
+    }
+    const resultFor = (operation, name) => {
+      const reply = row.raw.nativeReplies.findLast(({ request }) =>
+        (request.op ?? request.command) === operation
+          && (name === undefined || request.name === name));
+      assert(reply, `${name} native lifetime receipt is missing for ${operation}`);
+      assert.equal(reply.request.tree, "retention-tree",
+        `${name} native lifetime receipt has another checkout owner`);
+      if (name !== undefined) {
+        assert.equal(reply.result.name, name,
+          `${name} native lifetime result names another object`);
+      }
+      if (operation === "fork") {
+        assert.equal(reply.request.source, "main",
+          `${name} native fork request has another source`);
+        assert.equal(reply.result.source, reply.request.source,
+          `${name} native fork source differs from its result`);
+      }
+      return reply.result;
+    };
+    const { compressor } = decodedSnapshotCompressor(freshRawSnapshot);
+    for (const [inverse, id, kind] of [
+      ["retention-removal", "after-removal", "Default"],
+      ["retention-redo", "after-undo", "Undo"],
+      ["retention-final", "retained-repair", "Redo"],
+    ]) {
+      const acquired = resultFor("retainLastLocalCommit", inverse);
+      assert.equal(acquired.factoryAvailable, true,
+        `${name} ${inverse} acquisition lacks its event factory`);
+      assert.equal(acquired.status, "Valid",
+        `${name} ${inverse} acquisition has another status`);
+      assert.equal(acquired.kind, kind, `${name} ${inverse} acquired another commit kind`);
+      assert(Number.isSafeInteger(acquired.eventId)
+        && typeof acquired.actionId === "string" && acquired.actionId.length > 0,
+      `${name} ${inverse} acquisition lacks its event identity`);
+      const event = checkpoints[id].lifetime.checkpoint.commits.find((commit) =>
+        commit.type === "commit" && commit.eventId === acquired.eventId);
+      assert(event && event.actionId === acquired.actionId
+        && (event.branch ?? event.tree) === "retention-tree",
+      `${name} ${inverse} acquisition lacks its checkout owner event`);
+      assert.equal(event.revision, acquired.revision,
+        `${name} ${inverse} commit event revision differs from acquisition`);
+      assert.equal(event.kind, acquired.kind,
+        `${name} ${inverse} commit event kind differs from acquisition`);
+      assert.equal(event.factoryAvailable, true,
+        `${name} ${inverse} commit event did not expose its factory`);
+      assert.equal(event.handleAcquired, true,
+        `${name} ${inverse} commit event did not acquire its inverse`);
+      assert.equal(event.local, true,
+        `${name} ${inverse} commit event is not local`);
+      const retained = checkpoints[id].snapshot.evidence.retainedHandles.find(
+        ({ kind }) => kind === "history",
+      ).history.at(-1);
+      assert.equal(acquired.revision, compressor.decompress(retained.revision),
+        `${name} ${inverse} acquisition names another stable revision`);
+      const reverted = resultFor(
+        inverse === "retention-final" ? "disposeRevertible" : "revert", inverse,
+      );
+      assert.equal(reverted.status, "Disposed",
+        `${name} ${inverse} lifetime did not end in disposal`);
+      if (inverse !== "retention-final") {
+        assert.equal(reverted.authoredKind, kind === "Default" ? "Undo" : "Redo",
+          `${name} ${inverse} reverted with another commit kind`);
+        const next = resultFor("retainLastLocalCommit",
+          inverse === "retention-removal" ? "retention-redo" : "retention-final");
+        assert.deepEqual(reverted.authoredEventIds, [next.eventId],
+          `${name} ${inverse} revert authored another acquisition event`);
+        assert.equal(reverted.actionId, next.actionId,
+          `${name} ${inverse} revert authored another action`);
+        assert.deepEqual(reverted.submittedRevisions, [next.revision],
+          `${name} ${inverse} revert submitted another stable revision`);
+      }
+    }
+    assert.equal(resultFor("fork", "retaining").status, "BranchValid",
+      `${name} retaining branch creation lacks its actual status`);
+    assert.equal(resultFor("fork", "retaining").source, "main",
+      `${name} retaining branch creation has another source`);
+    assert.equal(resultFor("disposeBranch", "retaining").status, "BranchDisposed",
+      `${name} retaining branch disposal lacks its actual status`);
+    assert.equal(
+      resultFor("disposeRevertible", "retention-final").status,
+      "Disposed",
+      `${name} final inverse disposal lacks its actual status`,
+    );
+    assert.deepEqual(checkpoints["retained-repair"].lifetime.branch,
+      resultFor("fork", "retaining"),
+    `${name} retained repair branch receipt differs`);
+    assert.deepEqual(checkpoints["branch-disposal"].lifetime.branch,
+      resultFor("disposeBranch", "retaining"),
+    `${name} branch disposal receipt differs`);
+    assert.deepEqual(checkpoints["revertible-disposal"].lifetime.inverse,
+      resultFor("disposeRevertible", "retention-final"),
+    `${name} inverse disposal receipt differs`);
+  }
+  assert.equal(checkpoints["before-removal"].graph.link, row.targets.target.path,
+    `${name} before-removal graph names another target`);
+  assert.equal("link" in checkpoints["after-removal"].graph, false,
+    `${name} reference removal remained visible`);
+  assert.equal(checkpoints["after-removal"].lifetime.revertible, "Valid",
+    `${name} removal inverse was not retained`);
+  assert.equal(checkpoints["after-undo"].graph.link, row.targets.target.path,
+    `${name} undo did not restore the target`);
+  assert.equal(checkpoints["retained-repair"].lifetime.branches, 1,
+    `${name} retained repair branch is missing`);
+  assert.equal("link" in checkpoints["retained-repair"].graph, false,
+    `${name} redo did not remove the main reference`);
+  assert.equal(checkpoints["branch-disposal"].lifetime.branches, 0,
+    `${name} branch disposal did not end its lifetime`);
+  assert.equal(checkpoints["branch-disposal"].lifetime.revertible, "Valid",
+    `${name} branch disposal also disposed the inverse`);
+  assert.equal(checkpoints["revertible-disposal"].lifetime.revertible, "Disposed",
+    `${name} inverse disposal did not end its lifetime`);
+  const secondaryId = row.targets.secondary.path.split("/").filter(Boolean)[0];
+  const secondaryGc = gcNode(
+    checkpoints["unreferenced-datastore"].snapshot.evidence.gc,
+    `/${secondaryId}`,
+    `${name} unreferenced-datastore`,
+  );
+  const secondaryRootGc = gcNode(
+    checkpoints["unreferenced-datastore"].snapshot.evidence.gc,
+    row.targets.secondary.path,
+    `${name} unreferenced-datastore`,
+  );
+  assert(Number.isFinite(secondaryGc.unreferencedTimestampMs)
+    && secondaryGc.unreferencedTimestampMs > 0,
+  `${name} unreferenced datastore timestamp is missing`);
+  assert.equal(
+    secondaryRootGc.unreferencedTimestampMs,
+    secondaryGc.unreferencedTimestampMs,
+    `${name} unreferenced datastore component timestamp differs`,
+  );
+  const initialUnreference = snapshotMetadata(
+    artifact.retention.checkpoints[6].rawSnapshot,
+  ).lastMessage.timestamp;
+  assert.equal(secondaryGc.unreferencedTimestampMs, initialUnreference,
+    `${name} initial unreference timestamp differs from measured server time`);
+  const freshSecondaryGc = gcNode(
+    checkpoints["fresh-load"].snapshot.evidence.gc, `/${secondaryId}`,
+    `${name} fresh-load`,
+  );
+  assert.equal(freshSecondaryGc.unreferencedTimestampMs,
+    secondaryGc.unreferencedTimestampMs,
+  `${name} unreferenced datastore timestamp changed while unreachable`);
+  assert.deepEqual(
+    snapshotFactory(
+      artifact.retention.checkpoints[6].rawSnapshot,
+      row.targets.secondary.path,
+    ),
+    {
+      packagePath: [handleGraphStore.type],
+      summaryFormatVersion: 2,
+      isRootDataStore: false,
+    },
+    `${name} unreferenced datastore component metadata differs`,
+  );
+  const fresh = checkpoints["fresh-load"];
+  assert.equal(fresh.graph.link, row.targets.target.path,
+    `${name} fresh publication did not restore the target route`);
+  assert(fresh.continuation.loader,
+    `${name} fresh load lacks loader storage receipts`);
+  assert.equal(fresh.continuation.loadedVersion, fresh.publication.version,
+    `${name} fresh load selected another publication`);
+  assert.equal(
+    fresh.continuation.loader.selectedVersion,
+    fresh.publication.version,
+    `${name} fresh loader receipt selected another publication`,
+  );
+  const freshRaw = artifact.retention.checkpoints.at(-1).rawSnapshot;
+  validateRetentionLoader(
+    name, row.writer, fresh.continuation, freshRaw, row.targets, fresh.summary,
+  );
+  assert.deepEqual(fresh.continuation.before, {
+    document: row.targets.document.path,
+    target: row.targets.target.path,
+    value: "before",
+  }, `${name} fresh load resolved another target`);
+  assert.equal(fresh.continuation.after.continued, true,
+    `${name} fresh load did not author its continuation`);
+  assert(fresh.continuation.transport,
+    `${name} fresh continuation transport is missing`);
+  assert(fresh.continuation.transport.outboundOccurrences.length > 0,
+    `${name} fresh continuation transport has no outbound submission`);
+  const submittedContinuation = submissionMessages(
+    fresh.continuation.transport.outboundOccurrences,
+  );
+  assert.equal(submittedContinuation.length, 1,
+    `${name} fresh continuation has another submission count`);
+  const freshClientId = submittedContinuation[0].clientId;
+  assert(!row.writerClientIds.includes(freshClientId),
+    `${name} fresh continuation used the old writer client`);
+  const continuationReceipts = fresh.continuation.sequenced;
+  assert(continuationReceipts.length > 0,
+    `${name} fresh continuation lacks server receipts`);
+  const firstSequence = continuationReceipts[0].sequenceNumber;
+  const lastSequence = continuationReceipts.at(-1).sequenceNumber;
+  assert(firstSequence > fresh.publication.referenceSequenceNumber,
+    `${name} fresh continuation receipt precedes publication`);
+  assert.deepEqual(continuationReceipts,
+    row.raw.sequenced.filter(({ sequenceNumber }) =>
+      sequenceNumber >= firstSequence && sequenceNumber <= lastSequence),
+    `${name} fresh continuation receipts differ from full server history`);
+  const acceptedContinuation = row.raw.sequenced.filter(({ type, clientId }) =>
+    type === "op" && clientId === freshClientId);
+  assert.deepEqual(continuationReceipts.filter(({ type, clientId }) =>
+    type === "op" && clientId === freshClientId), acceptedContinuation,
+    `${name} fresh continuation operation differs from full server history`);
+  assert.deepEqual(
+    submittedContinuation.map(transportOperationIdentity),
+    acceptedContinuation.map(transportOperationIdentity),
+    `${name} fresh continuation outbound correspondence differs`,
+  );
+  const [storeId, targetId] = row.targets.target.path.split("/").filter(Boolean);
+  assert.deepEqual(parse(submittedContinuation[0].contents), {
+    type: "component",
+    contents: {
+      address: storeId,
+      contents: {
+        type: "op",
+        content: {
+          address: targetId,
+          contents: { type: "set", key: "continued", value: { type: "Plain", value: true } },
+        },
+      },
+    },
+  }, `${name} fresh continuation submission names another target or value`);
+  assert.deepEqual(fresh.continuation.localStacks.events, [],
+    `${name} fresh load revived local event state`);
+  if (row.writer === "upstream") {
+    assert.equal(fresh.continuation.localStacks.pendingOutbound, 0,
+      `${name} fresh upstream load revived pending outbound state`);
+    assert.equal(fresh.continuation.localStacks.dirty, false,
+      `${name} fresh upstream load revived dirty state`);
+  } else {
+    assert.deepEqual(fresh.continuation.localStacks.commits, [],
+      `${name} fresh native load revived local commit state`);
+    const probes = fresh.continuation.localStacks.probes;
+    assert(Array.isArray(probes) && probes.length === 4,
+      `${name} fresh native load lacks branch and inverse lifetime probes`);
+    assert.deepEqual(probes.map(({ request }) => request), [
+      { op: "disposeBranch", tree: "fresh-tree", name: "retaining" },
+      ...["retention-removal", "retention-redo", "retention-final"].map((name) =>
+        ({ op: "revertibleStatus", tree: "fresh-tree", name })),
+    ], `${name} fresh lifetime probes name other objects`);
+    for (const { request, response } of probes) {
+      assert.equal(response.ok, false, `${name} fresh load revived a local lifetime`);
+      assert.equal(response.error.code, "facade-error",
+        `${name} fresh lifetime probe failed outside the public facade`);
+      assert.equal(response.error.operation, request.op,
+        `${name} fresh lifetime refusal names another operation`);
+      assert.equal(response.error.message,
+        request.op === "disposeBranch"
+          ? `Unknown branch: ${request.name}` : `Unknown revertible handle: ${request.name}`,
+        `${name} fresh lifetime probe did not establish an absent object`);
+    }
+  }
+  const expectedPeers = requiredPeerImplementations(row.writer);
+  assert.deepEqual(
+    [...row.peer.expectedImplementations].sort(),
+    [...expectedPeers].sort(),
+    `${name} peer implementation policy differs`,
+  );
+  assert.deepEqual(
+    Object.keys(row.peer.observations).sort(),
+    [...expectedPeers].sort(),
+    `${name} peer implementation coverage differs`,
+  );
+  for (const [implementation, peer] of Object.entries(row.peer.observations)) {
+    assert.deepEqual(peer, {
+      document: row.targets.document.path,
+      target: row.targets.target.path,
+      value: "before",
+      continued: true,
+    }, `${name} ${implementation} fresh continuation differs`);
+  }
+}
+
 async function validateRow(name, row, artifacts) {
   if (name === "handleTransactionBranch") {
     return validateTransactionBranchRow(name, row, artifacts);
+  }
+  if (name === "handleRetention") {
+    return validateRetentionRow(name, row, artifacts);
   }
   assert.equal(row.formatVersion, 1, `${name} row format changed`);
   assert.equal(row.runId, artifacts.runId, `${name} row run identity changed`);
@@ -2950,7 +4858,7 @@ export async function runLifecycleInterop({
   const runId = randomUUID();
   const selected = scenario === undefined
     ? null
-    : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment|handleTransactionBranch):(upstream|javascript|erlang)$/);
+    : scenario.match(/^(handleValues|channelAttachment|datastoreAttachment|handleTransactionBranch|handleRetention):(upstream|javascript|erlang)$/);
   if (scenario !== undefined) {
     assert(selected, "Lifecycle scenario must be <section>:<writer>");
   }
