@@ -1,8 +1,10 @@
 # SharedTree Handles and Live Attachment Design
 
-**Status:** Task 1 pinned-source discovery is complete on 2026-10-10. The
-checked contract is recorded below. Native implementation and acceptance
-(Tasks 2-9) have not started; M7 remains partial.
+**Status:** Tasks 1-9 are accepted locally as of 2026-10-13. The final code
+range ends at `c0fff951e128776c3f670d22f017482dc24d00c4`; the implementation
+plan records the source/native/codec/service/browser commands, run IDs,
+counts, review closures and execution rulings. M7 remains partial. No hosted
+workflow or release publication is part of this local acceptance.
 
 **Parent:** [Native SharedTree design](2026-09-21-shared-tree-design.md),
 M7 application and container lifecycle.
@@ -430,9 +432,13 @@ handle undo/redo. Require all 27 writer/checkpoint/reader cells and continuing
 writes. Include accepted-before-disconnect resubmission and bounded schedules
 with seed `42` and `300` iterations.
 
-Publish the new generated/service profile only after those gates pass.
+The generated/service profile records the accepted JavaScript and Erlang
+boundary: five native lifecycle cases, SharedMap and SharedTree targets, the
+declared graph datastore, seven report sections, 27 reload cells, and 300
+schedules at seed 42.
 Record dated commands, case/cell counts, run identifiers, and zero-skip results.
 The website/checklist remains a regression gate; it does not prove handle or
 cross-datastore interoperability. M7 remains partial after this slice because
-richer typed consumers, production authentication, and disk recovery remain
-separate work.
+richer typed consumers, arbitrary factories and layouts, blobs, cross-container
+graphs, GC sweep, production authentication, and disk recovery remain separate
+work.

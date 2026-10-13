@@ -67,6 +67,7 @@ npm --prefix tools/shared-tree-oracle run summary:interop
 npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
 npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
 just shared-tree-interop
+just shared-tree-lifecycle-interop
 ```
 
 The M7 lifecycle discovery probe runs separately from the existing source
@@ -77,12 +78,13 @@ node tools/shared-tree-oracle/source.mjs lifecycle-capture \
   tools/shared-tree-oracle/.output/lifecycle
 ```
 
-It captures five source-only cases: handle leaves, live channel attachment,
+It captures five cases: handle leaves, live channel attachment,
 cross-datastore attachment, transaction/branch binding, and retained handles.
 Each observation names raw serialization, message, or summary evidence and the
 capture records the injected source digest. Corpus regeneration includes these
-cases, but neither native semantic runner nor the supported profile claims
-handle-leaf or live-attachment support yet.
+cases. The generated manifest registers all five native semantic runners on
+JavaScript and Erlang, and the supported profile records the exact lifecycle
+service boundary.
 
 The `handle-leaves` input contains per-edit stored schemas, initial typed roots
 and root/object/map/array edits whose observed outputs use the same `/B/child`
@@ -158,14 +160,19 @@ the complete prefix. Validation replays allocations through the pinned
 compressor and compares stable revisions across session-space event metadata
 and op-space Message V7 commits; it never sorts UUIDs to infer order.
 
-Task 1 of the
+Tasks 1-9 of the
 [handles/live-attachment plan](../../docs/superpowers/plans/2026-10-10-shared-tree-handles-attachment.md)
-is complete: all five source cases, replay inputs, storage, identity/event
-proof and the original checklist audit are checked. Seven source probes and
-239 source/generator/codec tests pass without skips; all 68 cases reproduce
-byte-for-byte. The original 63 cases, manifest and native profile remain
-unchanged. Native lifecycle implementation and acceptance are still Tasks
-2-9, not claims made by these source fixtures.
+are implemented and accepted locally through the full seven-section service
+proof. The five generated cases preserve the checked replay, storage,
+identity/event, publication, retention, reconnect, and reload contracts. The
+original 63 case files and the pinned source/profile identities remain
+unchanged. Task 9 publishes this bounded profile and wires its permanent gates.
+The plan records final local acceptance on 2026-10-13: 68 source cases,
+1175 BEAM / 1147 JavaScript native tests, 822 unrestricted Node tests,
+7 lifecycle sections / 27 reload cells / 300 handle schedules, 18 creation
+cells, 300 separate legacy schedules, and the actual two-context checklist
+browser gate. The full build, test and lint commands passed. These local
+results do not claim a hosted workflow run or completion of the broader M7.
 
 The `just shared-tree-interop` command is the combined SharedTree acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
@@ -398,20 +405,23 @@ and interior moves still emit commits and change events even when their visible
 values do not change.
 
 Pinned upstream removal clamps an end beyond the array length. The planned
-native API deliberately rejects that invalid range. The nine M3 fixtures are
-source evidence only; they are absent from `nativeSemanticRunners` until
-input-only runners pass on JavaScript and BEAM. Task 1 remains pending
-independent review.
+native API deliberately rejects that invalid range. The nine M3 fixtures are source evidence only; they are absent from
+`nativeSemanticRunners` until input-only runners pass on JavaScript and BEAM.
 
 ### Permanent gates
 
 `.github/workflows/shared-tree.yml` runs `SharedTree native` on pull requests,
-pushes to `main`, and manual dispatch. It runs the Oracle Node tests and
-`just shared-tree-test` without source compilation or a service.
+pushes to `main`, and manual dispatch. It prepares and verifies the pinned
+source, runs `just shared-tree-test`, then selects `source.test.mjs`,
+`generate.test.mjs`, and `gates.test.mjs`. This named validator boundary does
+not claim that the complete Node service inventory runs in native CI.
 
 `.github/workflows/shared-tree-interop.yml` runs only by manual dispatch. Its
-`SharedTree interoperability` job verifies source preparation, then runs
-`just shared-tree-interop` and `just shared-tree-create-interop`.
+`SharedTree interoperability` job prepares and verifies source, builds both
+native targets, creates the genuine `.output/source/source-smoke.json` capture,
+runs the unrestricted Node inventory with file concurrency one, then runs
+`just shared-tree-interop`, `just shared-tree-create-interop`, and
+`just shared-tree-lifecycle-interop`.
 
 Administrators can require the native check in branch protection or a ruleset.
 The workflow files do not configure that policy. Both workflows fail on missing
@@ -427,16 +437,42 @@ check.
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
 | `just shared-tree-interop` | Real-service object, map, array, schema-evolution, and Identifier matrices plus 300 seeded schedules. |
 | `just shared-tree-create-interop` | Eighteen object, array, and Identifier native-creator/fresh-reader cells with continued editing. |
+| `just shared-tree-lifecycle-interop` | Seven non-skipping handle lifecycle sections, 27 reload cells, and 300 schedules at seed 42. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
-The service job uploads `.output/interop/` and `.output/creation/` on success or
-failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
-`.output` directory but excludes source checkouts, service databases, and other
-output directories. Each runner verifies its own current-run artifacts; an
-older `report.json` cannot turn a failed command into success. Cleanup failure
-also fails the command. The reports establish separate claims: M1's nine
+The service job uploads `.output/interop/`, `.output/creation/`, and
+`.output/lifecycle/` on success or failure as
+`shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden `.output`
+directory but excludes source checkouts, service databases, and other output
+directories. Each runner verifies its own current-run artifacts; an older
+`report.json` cannot turn a failed command into success. Cleanup failure also
+fails the command. The reports establish separate claims: M1's nine
 object-summary cells, M2's nine map-summary cells, Identifier's nine
-writer/reader cells, and native creation's eighteen creator/reader cells.
+writer/reader cells, native creation's eighteen creator/reader cells, and the
+handle lifecycle profile's seven sections and 27 reload cells.
+
+### Handle lifecycle acceptance
+
+```sh
+just shared-tree-lifecycle-interop
+```
+
+This non-skipping gate starts its own pinned Floodgate and writes
+`.output/lifecycle/<run-id>/report.json`, `artifacts.json`, and the referenced
+raw evidence. It executes upstream, JavaScript, and BEAM writers for handle
+values, channel attachment, declared cross-datastore attachment,
+transaction/branch behavior, retention, and reconnect. The reload matrix has
+27 writer/checkpoint/reader cells, and the separate schedule section executes
+300 generated handle schedules at seed 42.
+
+The profile supports handle-valued tree leaves and detached SharedMap/SharedTree
+creation inside an open document. The runtime binds a complete dependency graph
+before its referring edit, keeps branch-only bindings local until merge,
+rejects target attachment during an active transaction, retains summary and GC
+routes needed by undo, and reuses accepted identities through reconnect and
+fresh load. It excludes blob handles, arbitrary datastore factories and
+layouts, new alias authoring, cross-container handles, GC sweep, production
+authentication, pending-state disk recovery, and richer typed consumers.
 
 The workflow starts no shared development server. The existing service wrapper
 verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
@@ -480,9 +516,10 @@ datastore factory as the object-profile oracle and must accept the logical
 `watershed-shared-tree` code package.
 
 This gate covers the pulled-forward native-creation slice of M7 and runs in
-the permanent interoperability job. The rest of M7 remains open. It does not
-cover arbitrary Fluid applications, live channel attachment, service discovery,
-or a hosted relay.
+the permanent interoperability job. Live attachment is proved by the separate
+lifecycle gate. M7 still excludes arbitrary Fluid applications and layouts,
+service discovery, production authentication, disk recovery, and a hosted
+relay.
 
 `client:interop` builds long-lived JavaScript and BEAM test clients once, then
 creates a fresh upstream document for each schedule. The upstream summarizer
@@ -1173,8 +1210,9 @@ revision and the complete checked identity order in force at that point.
 Snapshots reject pending local commits and restore only validated settled
 history. Resubmission is pure: it preserves pending revisions, adds repair
 content per commit, and rejects duplicate, missing, or extraneous repair data.
-This scope does not add production history codecs, a document kernel, runtime
-facades, transport behavior, or summary publication.
+This scope does not by itself add production history codecs, a document kernel,
+runtime facades, transport behavior, or summary publication. Those boundaries
+are covered by their later profile slices and gates.
 
 `tree/change` supplies checked modular state, local edits, balanced composition,
 rollback/undo inversion, tagged rebasing, revision replacement, pruning, repair

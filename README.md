@@ -600,7 +600,10 @@ A ready, writable service document can grow beyond its bootstrap layout.
 `create_map_in(document, store)` and `create_tree_in(document, store, stored,
 initial_root, view)` to add detached channels there. `create_tree` adds a
 detached tree to the bootstrap datastore. The JavaScript and BEAM facades expose
-the same calls.
+the same calls with matching `Result` return types. Both also expose
+`resolve_tree(document, value, view)` and `open_tree(document, value, view)`,
+`tree_handle_of(tree)`, and the immutable
+`tree_revertible_revision(revertible)` accessor.
 
 Detached creation is local. It sends no transport message, but tree
 initialization still emits the ordinary local commit, schema, tree, and
@@ -613,6 +616,21 @@ channel reachable from it before the referencing map operation. A handle keeps
 its source route, so relative handles resolve in the source channel's datastore
 rather than the map that happens to carry them.
 
+The runtime validates the complete attachment graph before it commits local
+state or submits any message. Completed single-tree transactions can publish a
+new graph; an active transaction on the target tree is refused. Local branches
+do not publish bindings until merge, and dropping a branch leaves its detached
+targets local. Undo can restore an earlier handle while preserving independent
+edits to the target. `tree_revertible_revision(handle)` continues to report the
+immutable revision captured by a revertible, including after disposal or
+document close.
+
+Published summaries retain routes to referenced channels and datastores.
+Removing a reference updates GC routes without discarding the retained repair
+data needed by undo; a fresh reader can load the published graph and continue
+editing it. Reconnect resubmits the existing allocation, attach, and reference
+history rather than assigning replacement identities.
+
 Datastores belong to the runtime that created them. The APIs reject a datastore
 from another document, a closed document, an incompatible tree view, or an
 invalid schema or root without installing a partial graph or advancing
@@ -622,7 +640,9 @@ disconnected, reconnecting, read-only, or still replaying history.
 This is the supported native SharedTree profile, not arbitrary Fluid dynamic
 object authoring. It does not add custom datastore factories, caller-selected
 channel IDs, detached graph persistence across runtime close, offline
-publication, cross-runtime handles, or broader DDS and schema support.
+publication, blob or cross-container handles, new alias authoring, GC sweep,
+production token handling, cross-runtime handles, or broader DDS and schema
+support.
 
 ### Limits
 
@@ -691,17 +711,22 @@ page-local history stacks.
 
 The `SharedTree native` CI job runs on pull requests and pushes to `main`. The
 long-running `SharedTree interoperability` workflow runs only by manual
-dispatch. The native job needs no live service or upstream source build; the
-manual interoperability workflow owns an isolated pinned Floodgate and requires
-the M1 and M2 matrices plus the native-creation matrix.
+dispatch. The native job prepares and verifies the pinned source, builds and
+tests both native targets, then runs the source/generator/gate validator
+selection. It does not run the live service suite. The manual workflow performs
+the same source and native preparation, captures the genuine pinned source
+artifact, then runs the complete serialized Node inventory. It owns isolated
+pinned Floodgate runs for the legacy matrices, native creation, and handle
+lifecycle profile.
 
 | Command | Checks |
 | --- | --- |
 | `just shared-tree-test` | Both native suites, storage/facade coverage, and HTTP/bootstrap/creation smokes. |
-| `npm --prefix tools/shared-tree-oracle test` | Oracle, report-validator, and recipe contracts. |
+| `npm --prefix tools/shared-tree-oracle test` | The unrestricted Oracle, report-validator, recipe, and real-service inventory, serialized because service files share one owned Erlang shipment. |
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
-| `just shared-tree-interop` | 147 deterministic cases, 12 reconnect cases, 24 refusal cases, two nine-cell reload matrices, and 200 object/map seeded schedules. |
-| `just shared-tree-create-interop` | Two native creators, each with fresh JavaScript, BEAM, and upstream readers: six cells. |
+| `just shared-tree-interop` | The existing object/map/array/schema/Identifier service profile and its 300 seeded schedules. |
+| `just shared-tree-create-interop` | Object, array, and Identifier creation by JavaScript and BEAM, each loaded by fresh JavaScript, BEAM, and upstream readers: eighteen cells. |
+| `just shared-tree-lifecycle-interop` | Seven handle-lifecycle sections, 27 writer/checkpoint/reader reload cells, and 300 handle schedules at seed 42. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule run through the same coordinator. |
 
 See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,

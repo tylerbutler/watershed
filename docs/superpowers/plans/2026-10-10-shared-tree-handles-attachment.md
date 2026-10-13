@@ -4,8 +4,9 @@
 > `subagent-driven-development` or `executing-plans` to implement this plan
 > task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > Execution started on 2026-10-10 with user authorization to work on `main`
-> and make task commits. Task 1 discovery and Task 2 native handle leaves
-> and Task 3 map-only datastore graphs are complete; Tasks 4-9 remain pending.
+> and make task commits. Tasks 1-9 are complete with local acceptance on
+> 2026-10-13. The final record below names the checked code range and gates.
+> This completes the selected handle/attachment slice, not the whole M7.
 > The dated execution record below separates source proof
 > from native acceptance.
 > Do not restart completed M0-M6 or Lustre tasks.
@@ -847,7 +848,7 @@ native client protocol/implementations/tests and summary consumers.
   commands gain an optional selected-tree name while retaining their current
   default tree for old scenarios.
 
-- [ ] Add genuine producer/validator tests before the expensive service run.
+- [x] Add genuine producer/validator tests before the expensive service run.
   Generate a bounded same-datastore section with real clients and require the
   shared section validator to accept it. Mutate that same artifact:
 
@@ -868,26 +869,26 @@ native client protocol/implementations/tests and summary consumers.
   accepted-before-disconnect claims, missing reload cells, modified raw storage
   bytes and incorrect GC routes. Keep a valid captured positive for each
   section. A validator that only rejects absent booleans is insufficient.
-- [ ] Implement the selected-object protocol using public native facades on
+- [x] Implement the selected-object protocol using public native facades on
   both targets. Unknown names, malformed handle records, wrong runtime
   objects, closed channels and incompatible views return structured errors.
   The coordinator issues commands and measures results; it does not create
   native IDs, build changesets, emulate attachment, or rewrite client state.
-- [ ] Run upstream/JS/BEAM handle edits for object/map/array values and
+- [x] Run upstream/JS/BEAM handle edits for object/map/array values and
   same-datastore detached map/tree creation. Check local visibility, no early
   transport, exact attach snapshots, stable identities and peer resolution.
-- [ ] Run each writer's declared secondary datastore graph. Cover root/map/tree
+- [x] Run each writer's declared secondary datastore graph. Cover root/map/tree
   references, additional channels after datastore visibility, removed binding
   edges and cycles. Validate actual factory/attributes and raw ordering.
-- [ ] Run transaction/branch/undo/retention cases with new references and peer
+- [x] Run transaction/branch/undo/retention cases with new references and peer
   target edits. Capture real commits, factories, target identities and
   settlements; preserve old M5/M6 event and isolation semantics.
-- [ ] Hold real attach/reference acknowledgement delivery, prove the service
+- [x] Hold real attach/reference acknowledgement delivery, prove the service
   accepted the messages using raw deltas, then disconnect and reconnect.
   Require one logical target after resubmission, preserved IDs/paths, correctly
   drained pending work and unchanged peer data. Also cover disconnect before
   acceptance. Do not simulate acceptance with a local pending counter.
-- [ ] Publish and fetch the actual storage for all writer/reader cells:
+- [x] Publish and fetch the actual storage for all writer/reader cells:
 
   ```js
   const writers = ["upstream", "javascript", "erlang"];
@@ -907,7 +908,7 @@ native client protocol/implementations/tests and summary consumers.
   bytes, resolves targets, checks schema/value/order/identifiers/GC and authors
   a continuing write observed by another implementation. Do not compare two
   copied coordinator projections as proof of a load.
-- [ ] Run each bounded real section through `validateLifecycleSection` before
+- [x] Run each bounded real section through `validateLifecycleSection` before
   the full wrapper. Require `validateLifecycleReport` on the complete generated
   report with all seven sections. Then run:
 
@@ -929,8 +930,34 @@ native client protocol/implementations/tests and summary consumers.
   no divergences. Use a compatible running loopback service or the existing
   pinned owned service mechanism; do not kill/reconfigure another user's
   service. Clean up only the processes/data this run owns.
-- [ ] Commit verified client/scenario chunks as
+- [x] Commit verified client/scenario chunks as
   `test(interop): prove handle and attachment lifecycle`.
+
+**Task 8 accepted locally, 2026-10-12.** Final schedule/full-wrapper commit:
+`8144ac7d506db1c3fc94c0b4d2035f97edbfd5ac`.
+Genuine run `fc27c749-f2cb-4ea4-a3ba-4a5f7d8369be`, produced at source
+`09cdf9d474d6683389fadc643dd97448b5677435` with the reviewed lifecycle diff,
+passed all seven sections, 21 writer rows, 27 unique reload cells, and
+300 unique handle schedules at seed 42, with zero skips or divergences.
+The scoped reviewer closed all four findings and rejected 26 consistently
+rehashed semantic mutations, including section/full-wrapper retry identity
+and allocation counterexamples.
+
+Final-source serialized Node covering passed 410 tests in
+lifecycle/interop/summary/service/creation. The remaining original inventory
+(client-driver/client-interop/interop-scenarios) passed 113 tests; all had zero
+failures, cancellations, or skips. Hashes, lint, and whitespace passed before
+and after the two-file commit. Existing unchanged native-client coverage is
+24 tests per target. Creation run `f1f22af0-d6fa-4d11-aa46-64bb694ee144`
+proved 18 cells; legacy run `5b1ef4d4-d498-44f8-9c47-3c84539b8b87`
+passed its separate old 300-schedule corpus.
+
+Multiple real-service Node files must run with `--test-concurrency=1`:
+their owned Floodgate helpers export the same Erlang shipment. A default
+parallel covering attempt failed during shipment copy/startup; serialized
+covering executed every required test successfully without source or validator
+workarounds. This is local acceptance, not hosted workflow evidence or complete
+M7 release acceptance. Task 9 remains pending.
 
 ### Task 9: Publish proven profile and record release acceptance
 
@@ -945,7 +972,7 @@ Wire lifecycle service acceptance into the existing manually dispatched
 SharedTree service workflow; do not dispatch that workflow while executing
 this plan. Existing native CI must include the new generated cases and runners.
 
-- [ ] Add profile/gate regressions:
+- [x] Add profile/gate regressions:
 
   ```js
   assert.deepEqual(profile.lifecycle.nativeTargets, ["javascript", "erlang"]);
@@ -959,17 +986,18 @@ this plan. Existing native CI must include the new generated cases and runners.
   Define this `lifecycle` profile record in the generator and service producer
   together. Require all five generated cases and seven report sections;
   unavailable source/runner/service must fail the gate.
-- [ ] Update feature inclusions/exclusions without declaring the whole M7
+- [x] Update feature inclusions/exclusions without declaring the whole M7
   complete or promising arbitrary layouts, blobs, aliases, production tokens
   or disk recovery. Document JS/BEAM lifecycle signatures, runtime ownership,
   binding timing, retained routes and transaction limitations from the checked
   contract. Preserve the fixed creator's existing examples.
-- [ ] Run the combined acceptance commands on the final source:
+- [x] Run the combined acceptance commands on the final source:
 
   ```sh
   just shared-tree-oracle-check
   just shared-tree-test
-  node --test tools/shared-tree-oracle/*.test.mjs
+  npm --prefix tools/shared-tree-oracle run source:capture
+  node --test --test-concurrency=1 tools/shared-tree-oracle/*.test.mjs
   just shared-tree-lifecycle-interop
   just shared-tree-create-interop
   just shared-tree-interop
@@ -983,11 +1011,11 @@ this plan. Existing native CI must include the new generated cases and runners.
   runtime/persistence release boundary. Required browser/service commands
   must execute rather than exit successfully after a skip. Record the final
   code range; a later material runtime fix requires its covering gates again.
-- [ ] Review the complete implementation and resolve material findings.
+- [x] Review the complete implementation and resolve material findings.
   Record dated source/native/codec/service/browser commands, run IDs, exact
   case/schedule/reload-cell counts and errors in this plan. Identify local
   evidence as local; workflow definitions do not establish hosted acceptance.
-- [ ] Update the parent roadmap with the completed scope and remaining M7
+- [x] Update the parent roadmap with the completed scope and remaining M7
   items only after the gates pass. Commit as
   `docs(tree): publish accepted handle attachment profile`.
 
@@ -1008,7 +1036,8 @@ this plan. Existing native CI must include the new generated cases and runners.
 The source capture is the prerequisite for unsettled empirical behavior.
 Exact interfaces above define the proposed native boundary; reconcile them
 against Task 1 rather than claiming those unexecuted probes already passed.
-Implementation, generated profiles and acceptance remain pending.
+At planning time, implementation, generated profiles and acceptance were
+pending. The dated execution records below supersede that status.
 
 ## Execution record, 2026-10-10
 
@@ -1184,3 +1213,268 @@ have real-fixture mutation checks.
 **Task 1 is complete.** Its nine checklist items and the final identity/event
 brief are checked against source evidence. Native Tasks 2-9 have not started,
 the lifecycle support profile is not promoted, and M7 remains partial.
+
+## Task 9 completion and local release acceptance, 2026-10-13
+
+Tasks 1-8 retained their accepted implementations and evidence. Task 9
+publishes the five lifecycle cases and checked profile, wires the native and
+manually dispatched service workflows, and records final combined acceptance.
+The controller did not dispatch a hosted workflow, push, merge, or publish.
+M7 remains partial: arbitrary factories/layouts, datastore-entry-point leaves,
+blob and cross-container handles, new alias authoring, richer consumers,
+production authentication, GC sweep and crash-recoverable pending state are
+outside this slice.
+
+Final implementation range:
+`90d993f21db7e2a9529e1415bd63e09f0e351280..c0fff951e128776c3f670d22f017482dc24d00c4`.
+That end commit contains the accepted code, fixture/profile and gate wiring;
+acceptance-only documentation follows it. The final run used parent
+`8144ac7d506db1c3fc94c0b4d2035f97edbfd5ac` plus the exact 23-path
+`task-9-final-clock-source.sha256` snapshot. Committing those bytes did not
+change the tested implementation.
+
+| Checked artifact | SHA-256 |
+| --- | --- |
+| Genuine pinned source capture | `35605398d16dc93e79299f2eca70b614042332a0566a301fc53c647d00c70173` |
+| Generated profile | `997cd8cb8d91f9ef7c82a18eee661791ea6985e6c78a04e2976357fcc98458a7` |
+| Generated manifest | `72fee7523d713c80498665b0ee0561210d0195adc7d22d138cbd4f66ce22964a` |
+| Native runtime core | `7449ac3c19e88f6c6dab0273a69f571444ef89afe0245aa7d50a1d75ffd832cc` |
+| JavaScript runtime barrier | `11a82f8959f68cce72159ae88f8706cc71907354b5368db6415bb321a45b835d` |
+| BEAM runtime barrier | `dae312e3c9cc8b4fa4c8b484efc3f63760a3bb58e78bd948a11d295ba85b8c36` |
+| JavaScript Sluice clock boundary | `fd301f291e1581ed11f5e5a2f2646e9b1fc53a7eff82318956f9a8bc5d90b8cb` |
+| Six permanent final-runtime regressions | `eb4d3e0f727f9a2c79f3c8ee06a2a6b8baf110a9e6c72b280f781d58373bb0d9` |
+
+The controller serialized compiler, test and service commands with this
+plan's validation lock and checked the 23 source hashes after each command.
+The unrestricted Node inventory used `--test-concurrency=1`; it includes
+the real service cases. Genuine source capture preceded that inventory.
+
+| Final command | Local result |
+| --- | --- |
+| `just shared-tree-oracle-check` | Exit 0; 68 pinned upstream cases reproduced. |
+| `just shared-tree-test` | Exit 0; BEAM 1175 / JavaScript 1147 tests and native HTTP smokes executed. |
+| `npm --prefix tools/shared-tree-oracle run source:capture` | Exit 0; genuine Fluid 3.1.0 source capture at `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`. |
+| `node --test --test-concurrency=1 tools/shared-tree-oracle/*.test.mjs` | Exit 0; 822 passed, zero failures/cancellations/skips; 1501509.076834 ms. |
+| `just shared-tree-lifecycle-interop` | Exit 0; run `9cc8d5f1-3128-4752-907a-7c52ff3feb78`; 7 sections / 21 rows / 27 unique reload cells / 300 unique actual seed-42 handle schedules and document/path targets; upstream, JavaScript and BEAM writers. |
+| `just shared-tree-create-interop` | Exit 0; run `6bf65288-e346-413f-b1cf-1c2d07bc0cad`; 18 unique object/array/identifier x JS/BEAM creator x JS/BEAM/upstream reader cells; creation, initial load, continued editing, peer observation and summary/tail reload flags true. |
+| `just shared-tree-interop` | Exit 0; run `c2368df7-2a7b-43d8-985f-eea12c5941dd`; 300 distinct legacy seed-42 schedules, 60 per object/map/schema/array/identifier; native corpora JS 1130 / BEAM 1158; 42 intentional refusal cases. |
+| `just build` | Exit 0. |
+| `just test` | Exit 0; root BEAM 2735 / JavaScript 2985; remaining workspace, compile-fail, runtime/bootstrap and browser-backed website smokes completed. |
+| `just lint` | Exit 0. |
+| `just shared-tree-checklist` | Exit 0; actual Chrome, two browser contexts, native document `94C8ABA2C2FEA2CA27336B6E1A24D842`; creation, CRUD, move-up, reorder race, grouped completion, undo/redo, peer-edit preservation, redo invalidation, clear, close and reload passed. |
+
+The lifecycle, creation and legacy reports have zero required skips or
+divergences. The generic root suite retains its unrelated opt-in live-test
+notices; those notices supply no SharedTree acceptance evidence.
+The final non-browser sequence ran from 12:54:56Z to 14:30:53Z on
+2026-10-13. The accepted browser rerun ended at 14:40:21Z.
+
+Local proof paths remain in this checkout:
+
+- Lifecycle: `tools/shared-tree-oracle/.output/lifecycle/a21419ee-5a96-4d3e-90da-6b946e114fee/report.json`.
+- Creation: `tools/shared-tree-oracle/.output/creation/6bf65288-e346-413f-b1cf-1c2d07bc0cad/report.json`.
+- Legacy: `tools/shared-tree-oracle/.output/interop/c2368df7-2a7b-43d8-985f-eea12c5941dd/report.json`.
+- Command journal, source hashes, failed epochs, review reports, CDP diagnostic and final count checks: `.superpowers/sdd/2026-10-10-shared-tree-handles-attachment/`.
+
+### Review closure and failed epochs
+
+The whole-range reviewer found three material defects: a consumed tree
+publication left attachments queued, datastore attachment exposed unbound
+siblings, and incoming relative tree handles lacked their source context.
+The same correction owner fixed all three. Scoped review then exposed a
+missing later-reached channel; the fixed-point candidate traversal includes
+direct, retained and cross-store-return references while excluding private
+siblings. The same reviewer reproduced independent receiver state and
+returned spec PASS / quality PASS with zero material open findings. The six
+permanent regressions passed on both targets.
+
+Final integration exposed a stale approved-profile digest: the unrestricted
+Node epoch passed 737 tests and failed 65. The controller first changed the
+positive regression, observed genuine rejection of the new profile, then
+updated only the approved digest; all ten tamper mutations still reject.
+A later real preflight omitted `lifecycle` from its returned profile. The
+upgraded boundary test used an owned pinned server and full strict normalized
+comparison for RED/GREEN; adding the shared record to the producer fixed it.
+Both small complete diffs received bounded spec/quality PASS.
+
+The first full root BEAM run passed 2714 and failed 21 public DDS tests
+before any runtime-bootstrap smoke. An immediate synchronization query could
+reply before the deferred attachment flush. The existing public counter
+regression exposed the missing peer handle. Both runtime targets now flush
+queued outbound work before reporting synchronization state.
+
+The next root JavaScript run passed 2983 and failed two summary tests.
+Both unchanged tests passed at original base `90d993f2`: the selected Sluice
+settlement change had fired zero-jitter summary callbacks before explicit
+`advance`. Settlement now flushes the existing runtime bindings before each
+frame and leaves logical-clock callbacks to `advance`. The controller reviewed
+the complete small barrier/clock diffs, their helpers and saved dual-target
+results: spec PASS / quality PASS. Final full root suites passed 2735 BEAM
+and 2985 JavaScript; no known-baseline waiver was needed.
+
+The first actual browser attempt created its native document but received
+WebSocket upgrade 403. A separate CDP diagnostic identified the pinned
+server's same-origin policy. The accepted rerun used the repository's
+development `FLOODGATE_ALLOWED_ORIGINS=*` setting on an owned loopback-only
+server with isolated synthetic data and the existing browser development
+defaults. Its source hashes stayed unchanged. The controller stopped both
+owned servers and removed only their inspected data directories, retaining
+proof reports, failed logs and baseline archives.
+
+### Execution rulings
+
+The following 22 rulings retain their recorded order, reasons and costs.
+Their pending-status sentences describe the time of each decision; the final
+acceptance above supersedes them.
+
+Ruling: implement remaining Task8 live proof in three sequential bounded
+slices (values/channel/datastore;transaction/retention/reconnect;actual
+27-cell matrix and300 schedules) — the full seven-section service brief is
+too large for one reliable implementation dispatch,as native failure recovery
+demonstrated — cost if wrong: extra intermediate reviews/rework,but no
+acceptance requirement or runtime semantics reduced. Full default execution
+must refuse partial implementation; Task9 still waits for all Task8 proof.
+First live slice requirements: task-8-live-foundations-brief.md.
+
+Ruling: Task 5 acceptance composes the existing source-backed publication and
+identity runners, separate native active-target preflight and actual JS/BEAM
+facade lifetime tests instead of a literal copied full-case JSON result —
+the spec explicitly exempts upstream poisoning and requires real callback
+identity, which a pure-core JSON runner cannot supply — if wrong, the cost is
+adding an output adapter over these same independently measured results.
+The user was unavailable when asked about this format choice; no behavior,
+wire comparison, identity checkpoint, lifetime requirement or refusal invariant
+is relaxed. The plan records the concrete composition and its obligations.
+This ruling does not close pending facade lifetime tests or the JavaScript gate.
+
+Ruling: overlap Task 6 API implementation with the remaining Task 5 proof work,
+with disjoint file ownership and a shared compiler lock. The full Task 5
+factory-lifetime evidence needs real runtime surfaces; pretending core status
+checks prove callback identity would violate the spec. If wrong, the cost is
+rework in the unaccepted facade diff, not a broadened support claim.
+
+Ruling: native active-target attachment will preflight-refuse before candidate state or transport changes, as the binding global constraint requires — pinned upstream throws after allocation/attach and poisons both views, so exact failure-side-effect parity would contradict that constraint — the cost if wrong is a documented stronger refusal boundary rather than reproducing upstream's invalid-state side effects; accepted graph operations must still match upstream wire ordering.
+
+Ruling: recover the failed worker's two tightly bounded regressions directly,
+with scoped review before acceptance — avoids redispatching the failed task;
+if wrong, the reviewer can require a surgical correction before any commit.
+
+Ruling: finish the failed allocation-only correction directly from its genuine
+RED tests and installed compressor APIs — no task redispatch; cost if wrong is
+a rejected semantic acceptance gate before foundations commit.
+
+Ruling: combine the external no-material-findings review with explicit
+controller spec verification instead of duplicating the review to obtain
+formatting labels — full final review still covers it; cost if wrong is
+additional final-review correction, not waived evidence requirements.
+
+Ruling: execute the remaining history proof one section per implementation
+context — repeated larger workers failed internally; requirements unchanged;
+cost if wrong is extra section integration/review overhead.
+
+Ruling: recover only failed worker's diagnostic test-context wiring directly,
+retain its exact runtime regression/fix for independent review — avoids
+repeating completed implementation; cost if wrong is test/refusal correction
+before any transaction acceptance.
+
+Ruling: directly recover the failed corrector's narrow history-window defect
+and report, then obtain scoped external review of all six corrections — prior
+worker failures leave useful code and evidence, but unreviewed recovery is not
+acceptance — cost if wrong is a blocked retention chunk and rework, not a waived
+retention or full Task8 requirement.
+
+Ruling: controller owns bounded correction round2 directly after two retention
+workers failed internally without reports — preserve partial work, reuse
+existing semantic decoders/public commands and get scoped external review —
+cost if wrong is visible rework and repeated covering gates; no scope reduction.
+
+Ruling: the approval form could not obtain a response; its runtime response
+directed autonomous work. Proceed with the recommended bounded immutable
+revision accessor rather than weakening BEAM evidence, querying callback-time
+actor history, or changing public event constructors. The revision already
+exists in each genuine factory closure. Preserve it in each opaque handle,
+expose matching typed facade accessors, and let the existing native observers
+read their already-acquired handle. No extra factory acquisition or actor
+message. Cost if wrong: additive API review correction and full native
+regression gates before any retention acceptance.
+Accessor lifetime tests first demonstrate missing exports on both targets
+(compile RED2216; not a runtime-test RED). Eight actual event/source semantic
+REDs remain the behavioral proof. Current bounded source correction is
+implemented but unvalidated; both native targets must rebuild before live tests.
+
+Ruling: original implementer ran synchronously and this harness refuses
+write_agent follow-up for sync agents; controller investigates the exact
+count failure directly rather than relaunching the same implementation or
+guessing a count relaxation — source remains frozen until review verdict —
+cost if wrong is visible correction/re-review and repeated covering, not
+acceptance of a flaky or incomplete reconnect producer.
+
+Ruling: dispatch one fresh bounded correction owner because the synchronous
+implementer cannot receive same-task follow-up in this harness — preserve its
+five-file work and fix only the six executed findings, with one shared
+reviewer and correction-only archived diff — cost if wrong is documented
+rework plus covering/re-review, not another full producer redispatch.
+Reconnect fix round1/5 owner `6be9fa34-ed02-4356-8420-d0b783fa349d`
+is now background/resumable. It appends evidence to the same report. Controller
+does not inspect/edit its source or run validation concurrently. Original
+five files archived in reconnect-fix1-before/. Six findings remain open until
+fresh GREEN/current18row artifacts and same-reviewer scoped verdict.
+
+Ruling: recover the persisted report/evidence as unaccepted implementation
+claims rather than redispatch the completed correction after a harness failure
+— code and final evidence are present and lock is free — cost if wrong is
+explicit covering/review failure and bounded repair, not false acceptance.
+Same reviewer and independent controller covering follow before acceptance.
+
+Ruling: cancel pre-review partial fullinterop, preserving
+log and counting it as incomplete, to release lock for this necessary fence
+and schedule corrections. Final-source full gate remains mandatory. Cost is
+discarded partial command work; avoids completing a known-stale acceptance run.
+No commit/Task9/native or GC change.
+
+Ruling: final/manual allNodegates add--test-concurrency=1 withUNRESTRICTED
+inventory — actualsharedshipmentcopy/startup race proveddefaultparallelunsafe;
+costifwrong is longerNodewalltime, not reducedcoverage. Nativeworkflow explicit
+source/profile/gatevalidator selectionafternativebuilds, manual/full retains
+allrealservice/summary/lifecycle tests; no environmentdependent skip.
+Task9 isapprovedexistingreleaseintegration, notnewarchitecture/designcycle.
+
+Ruling: correctonlydiagnostic extraction
+andrunlint/hash/whitespace onunchangedsource, notwasteanotherwholegate.
+Costdelayedmetadata/lintverification, nofailedproductiongateorwaivedproof.
+Followuplegacy-cli-final-metadata-lintpending; noacceptance/commityet.
+Oldseeded300doesnotfulfillTask8handle300; scheduleownerreviewstillpending.
+
+Ruling: retain the final fix owner for one bounded completion of the original
+datastore-closure finding despite the one-wave process cap — scoped review
+proved the existing correction introduces dangling published handles, and
+the binding spec requires complete reached graphs; parking that defect or
+claiming release would violate the user objective — cost if wrong is another
+small correction/closure and final-source validation, not an expanded feature
+or weakened gate. Queue and relative-context findings stay closed; no new
+whole-range reviewer or independent implementation wave is started.
+Requirements final-datastore-closure-followup.md, sameowner094c, exacttwo
+topologysemanticREDs plusprivate-sibling exclusion/activepreflight, bothnative
+GREEN/covering before scopedclosure and finalsourceacceptance restart.
+
+Ruling: Continue the same-owner correction for the full-root DDS compatibility
+failure — preserving existing DDS APIs is a binding global constraint, and
+the required release gate failed before the known smoke baseline — cost if
+wrong is unnecessary local debugging and another final-source acceptance
+epoch; this does not authorize broader factories, weaker refusals, a new
+whole-range reviewer, or release with a failed gate.
+
+Ruling: Complete this same-owner dual-target compatibility follow-up rather
+than waive the two JS failures — original-base passes and the exact Sluice
+clock delta prove a selected-plan regression against existing DDS behavior —
+cost if wrong is local barrier/clock rework and another final-source covering
+epoch; no summary-policy weakening, expanded factory scope, or new broad
+review seat is authorized.
+
+Ruling: use `FLOODGATE_ALLOWED_ORIGINS=*` for this owned loopback-only test
+service, matching `docker-compose.yml:63` and the prior local-branch browser
+acceptance recipe, with isolated synthetic data and existing development
+authentication. This supplies the required cross-origin browser harness
+without changing a deployed service or source pin. Cost if wrong: exposure
+of this temporary synthetic local test data to another browser origin; the
+server binds only loopback and is stopped after the gate.

@@ -156,8 +156,8 @@ on JavaScript and BEAM through `create_tree_container`. It publishes a complete
 initial summary to pinned Floodgate and returns a server-assigned ID for the
 existing token/connect flow. The layout stays fixed at alias `root` -> `A`,
 map `/A/root`, and tree `/A/_C`; callers supply a checked schema and initial root
-within the existing subset. This does not include live channel attachment,
-broader layouts, or crash recovery. See `examples/shared_tree_cli` and the
+within the existing subset. This fixed creator does not include live channel attachment, broader layouts,
+or crash recovery. See `examples/shared_tree_cli` and the
 `shared-tree-create-interop` gate. Task 16's permanent gates and profile
 documentation are wired, including creation coverage. Its broad regression
 closure remains blocked by Hex API rate limits, and hosted CI has not yet run.
@@ -325,16 +325,23 @@ the commands and required outputs for each gate.
 | M8: scale and supported versions | Measured forest/history performance, safe reclamation, incremental summary writing, additional upstream versions, and automated compatibility regression runs. |
 
 M7 is still partial. The fixed-layout native creator and the SharedTree Lustre
-checklist now cover application-owned local undo/redo, grouped bulk
-transactions, explicit history cleanup, close, and reload. Broader declared
-layouts, handle-valued leaves, richer typed APIs, and crash-recoverable pending
-state remain open.
+checklist cover application-owned local undo/redo, grouped bulk transactions,
+explicit history cleanup, close, and reload. The accepted handle slice adds
+handle-valued leaves, detached SharedMap/SharedTree creation, and attachment
+graphs across the declared secondary datastore on JavaScript and BEAM. Arbitrary
+factories and layouts, blob and cross-container handles, new alias authoring,
+richer typed APIs, production authentication, GC sweep, and crash-recoverable
+pending state remain open.
 
 The [handles and live attachment slice](2026-10-10-shared-tree-handles-attachment-design.md)
 uses upstream's separation of handle-valued tree data and runtime attachment
-graphs, including references across declared datastores. Preliminary
-pinned-source discovery started on 2026-10-10, but its complete discovery gate
-remains open. It adds no implemented or accepted native capability.
+graphs, including references across declared datastores. All nine tasks in
+that selected slice are accepted locally as of 2026-10-13, including final
+source/native/codec/service/browser gates and release-profile integration.
+The [implementation plan](../plans/2026-10-10-shared-tree-handles-attachment.md)
+records the code range, run IDs, counts, review closures and execution rulings.
+This is local acceptance; the controller did not run a hosted workflow or
+publish a release. The broader M7 items listed above remain open.
 
 M0 precedes M1. Each later milestone requires M1 and its own approved design and
 plan. Map/sequence/schema development can proceed independently only after
