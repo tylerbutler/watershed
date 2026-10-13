@@ -146,6 +146,51 @@ pub fn shared_tree_typed_schema_accepts_leaf_roots_test() {
   })
 }
 
+pub fn shared_tree_typed_schema_accepts_optional_singleton_root_test() {
+  let identifier = "com.fluidframework.leaf.string"
+  let raw =
+    "{\"version\":2,\"nodes\":{\""
+    <> identifier
+    <> "\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\""
+    <> identifier
+    <> "\"]}}"
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok
+  let codec = typed.node(identifier, fn(value) { Ok(value) }) |> expect.to_be_ok
+  let assert Ok(_) = typed.schema(view, codec)
+  Nil
+}
+
+pub fn shared_tree_typed_schema_rejects_optional_root_wrong_identifier_test() {
+  let raw =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok
+  let codec =
+    typed.node("com.fluidframework.leaf.number", fn(value) { Ok(value) })
+    |> expect.to_be_ok
+  typed.schema(view, codec)
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "root does not allow com.fluidframework.leaf.number",
+    )),
+  )
+}
+
+pub fn shared_tree_typed_schema_cannot_accept_sequence_root_test() {
+  let identifier = "com.fluidframework.leaf.string"
+  let raw =
+    "{\"version\":2,\"nodes\":{\""
+    <> identifier
+    <> "\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Sequence\",\"types\":[\""
+    <> identifier
+    <> "\"]}}"
+  tree_schema.view_from_string(raw)
+  |> expect.to_equal(
+    Error(types.InvalidSchema(
+      "$.root: sequence field is only valid as an array primary field",
+    )),
+  )
+}
+
 pub fn shared_tree_typed_optional_absence_differs_from_present_null_test() {
   let assert Ok(codec) =
     typed.node("MaybeNull", fn(value) {
@@ -178,7 +223,7 @@ pub fn shared_tree_typed_schema_checks_root_identifier_test() {
   typed.schema(fixture.view(), fixture.checklist_codec()) |> expect.to_be_ok
   typed.schema(fixture.view(), fixture.item_codec())
   |> expect.to_equal(
-    Error(typed.SchemaMismatch("root does not allow " <> fixture.item_type)),
+    Error(typed.InvalidDeclaration("root does not allow " <> fixture.item_type)),
   )
 }
 

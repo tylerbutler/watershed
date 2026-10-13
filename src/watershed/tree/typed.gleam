@@ -20,9 +20,10 @@ const null_identifier = "com.fluidframework.leaf.null"
 const largest_finite = 1.7976931348623157e308
 
 pub type Error {
-  InvalidDeclaration(detail: String)
-  DecodeFailed(detail: String)
-  SchemaMismatch(detail: String)
+  AccessFailed(reason: String)
+  DecodeFailed(reason: String)
+  InvalidDeclaration(reason: String)
+  MissingRequired(field: String)
 }
 
 pub opaque type Required {
@@ -206,12 +207,13 @@ pub fn schema(
   use _ <- result.try(case tree_schema.node_schema(stored, root.identifier) {
     Ok(_) -> Ok(Nil)
     Error(_) ->
-      Error(SchemaMismatch("root node is absent: " <> root.identifier))
+      Error(InvalidDeclaration("root node is absent: " <> root.identifier))
   })
   let definition = tree_schema.root_field_schema(stored)
-  case field_matches(definition, tree_schema.Required, [root.identifier]) {
+  case root_field_matches(definition, root.identifier) {
     True -> Ok(Schema(view, root))
-    False -> Error(SchemaMismatch("root does not allow " <> root.identifier))
+    False ->
+      Error(InvalidDeclaration("root does not allow " <> root.identifier))
   }
 }
 
@@ -390,7 +392,7 @@ pub fn validate_array(
     case tree_schema.array_element_schema(stored, field.identifier) {
       Ok(value) -> Ok(value)
       Error(_) ->
-        Error(SchemaMismatch(
+        Error(InvalidDeclaration(
           "array declaration is absent: " <> field.identifier,
         ))
     },
@@ -416,7 +418,9 @@ pub fn validate_map(
     case tree_schema.map_entry_schema(stored, field.identifier) {
       Ok(value) -> Ok(value)
       Error(_) ->
-        Error(SchemaMismatch("map declaration is absent: " <> field.identifier))
+        Error(InvalidDeclaration(
+          "map declaration is absent: " <> field.identifier,
+        ))
     },
   )
   result_from_bool(
@@ -440,9 +444,20 @@ fn check_object_field(
         "field declaration does not match " <> owner <> "." <> key,
       )
     Error(_) ->
-      Error(SchemaMismatch(
+      Error(InvalidDeclaration(
         "field declaration is absent: " <> owner <> "." <> key,
       ))
+  }
+}
+
+fn root_field_matches(
+  definition: tree_schema.FieldSchema,
+  identifier: String,
+) -> Bool {
+  case definition.cardinality {
+    tree_schema.Required | tree_schema.Optional ->
+      definition.allowed_types == [identifier]
+    tree_schema.Sequence | tree_schema.Identifier -> False
   }
 }
 
@@ -486,6 +501,6 @@ fn finite(value: Float) -> Bool {
 fn result_from_bool(valid: Bool, detail: String) -> Result(Nil, Error) {
   case valid {
     True -> Ok(Nil)
-    False -> Error(SchemaMismatch(detail))
+    False -> Error(InvalidDeclaration(detail))
   }
 }
