@@ -60,7 +60,9 @@ import watershed/text_kernel
 import watershed/tree/branch as tree_branch
 import watershed/tree/change as tree_change
 import watershed/tree/codec as tree_codec
+import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/node
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
 import watershed/tree/shared_change
@@ -4692,6 +4694,124 @@ pub fn tree_read_view_on(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_node_reference_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), CoreError) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  use value <- result.try(
+    tree_kernel.read(state, path)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  case value {
+    None -> Ok(None)
+    Some(_) ->
+      tree_kernel.reference_at(state, path)
+      |> result.map(Some)
+      |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+  }
+}
+
+pub fn tree_node_read_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  use path <- result.try(
+    tree_kernel.reference_path(state, reference)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.read(state, list.append(path, relative_path))
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_node_child_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), CoreError) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  use path <- result.try(
+    tree_kernel.reference_path(state, reference)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  let path = list.append(path, relative_path)
+  use value <- result.try(
+    tree_kernel.read(state, path)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  case value {
+    None -> Ok(None)
+    Some(_) ->
+      tree_kernel.reference_at(state, path)
+      |> result.map(Some)
+      |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+  }
+}
+
+pub fn tree_node_array_references_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(forest.NodeRef), CoreError) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  tree_kernel.array_references(state, reference)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_node_map_entries_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  use path <- result.try(
+    tree_kernel.reference_path(state, reference)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.map_entries(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_map_get(
   core: Core,
   address: String,
@@ -5561,6 +5681,30 @@ pub fn submit_tree_edits_view_on(
       |> result.map(fn(_) { Nil })
   })
   submit_tree_edits_on(core, address, selector, edits)
+}
+
+pub fn submit_tree_node_edit_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  edit: node.Edit,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
+  use operation <- result.try(
+    node.resolve(state, reference, edit)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  submit_tree_edits_view_on(core, address, selector, view, [operation])
 }
 
 pub fn submit_tree_edits_view(

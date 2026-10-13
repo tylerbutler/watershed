@@ -93,6 +93,10 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
+import watershed/tree/forest
+@target(javascript)
+import watershed/tree/node
+@target(javascript)
 import watershed/tree/schema as tree_schema
 @target(javascript)
 import watershed/tree/types as tree_types
@@ -2513,6 +2517,130 @@ pub fn tree_read_view_on(
 }
 
 @target(javascript)
+pub fn tree_node_reference_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), String) {
+  read(
+    runtime.cell,
+    Error("tree node reference requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_node_reference_view_on(
+        core,
+        address,
+        selector,
+        view,
+        path,
+      )
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_node_read_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
+  read(
+    runtime.cell,
+    Error("tree node read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_node_read_view_on(
+        core,
+        address,
+        selector,
+        view,
+        reference,
+        relative_path,
+      )
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_node_child_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), String) {
+  read(
+    runtime.cell,
+    Error("tree node child requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_node_child_view_on(
+        core,
+        address,
+        selector,
+        view,
+        reference,
+        relative_path,
+      )
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_node_array_references_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(forest.NodeRef), String) {
+  read(
+    runtime.cell,
+    Error("tree node array read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_node_array_references_view_on(
+        core,
+        address,
+        selector,
+        view,
+        reference,
+      )
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_node_map_entries_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  read(
+    runtime.cell,
+    Error("tree node map read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_node_map_entries_view_on(
+        core,
+        address,
+        selector,
+        view,
+        reference,
+      )
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 pub fn tree_map_get(
   runtime: Runtime,
   address: String,
@@ -3010,6 +3138,59 @@ pub fn tree_edit_view_on(
       Error("tree edit requires a ready document connection")
     Ready(_, Some(_)), _ | Reconnecting(_), _ ->
       Error("tree edit requires a ready document connection")
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+  }
+}
+
+@target(javascript)
+pub fn tree_node_edit_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  edit: node.Edit,
+) -> Result(Nil, String) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.bootstrap {
+    Ready(core, None), None ->
+      case
+        runtime_core.submit_tree_node_edit_view_on(
+          core,
+          address,
+          selector,
+          view,
+          reference,
+          edit,
+        )
+      {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, events, outbound)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, None)))
+          prime_scoped_tree_commit_deliveries(cell, events)
+          queue_outbound(cell, outbound)
+          case cell_get(cell).phase {
+            Ready(_, _) | Reconnecting(_) -> {
+              fan_out_scoped(
+                cell,
+                state.subscribers,
+                state.tree_commit_subscribers,
+                events,
+              )
+              Ok(Nil)
+            }
+            Failed(reason) -> Error(reason)
+            SuspendedPendingTree(_, reason) -> Error(reason)
+            Connecting ->
+              Error("tree node edit requires a ready document connection")
+          }
+        }
+      }
+    Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
+      Error("tree node edit requires a ready document connection")
+    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+      Error("tree node edit requires a ready document connection")
     SuspendedPendingTree(_, reason), _ -> Error(reason)
   }
 }

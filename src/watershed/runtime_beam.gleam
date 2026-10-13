@@ -208,6 +208,10 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree/forest
+@target(erlang)
+import watershed/tree/node
+@target(erlang)
 import watershed/tree/schema as tree_schema
 @target(erlang)
 import watershed/tree/types as tree_types
@@ -696,6 +700,43 @@ pub type Msg {
     path: tree_types.FieldPath,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
+  TreeNodeReferenceView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    path: tree_types.FieldPath,
+    reply: Subject(Result(Option(forest.NodeRef), String)),
+  )
+  TreeNodeReadView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    relative_path: tree_types.FieldPath,
+    reply: Subject(Result(Option(tree_types.TreeValue), String)),
+  )
+  TreeNodeChildView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    relative_path: tree_types.FieldPath,
+    reply: Subject(Result(Option(forest.NodeRef), String)),
+  )
+  TreeNodeArrayReferencesView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    reply: Subject(Result(List(forest.NodeRef), String)),
+  )
+  TreeNodeMapEntriesView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    reply: Subject(Result(List(#(String, tree_types.TreeValue)), String)),
+  )
   TreeMapGetView(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -716,6 +757,14 @@ pub type Msg {
     selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     edit: tree_types.Edit,
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeNodeEditView(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    edit: node.Edit,
     reply: Subject(Result(Nil, String)),
   )
   TreeTransactionBegin(
@@ -1607,6 +1656,73 @@ pub fn tree_read_view_on(
 }
 
 @target(erlang)
+pub fn tree_node_reference_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeReferenceView(address, selector, view, path, reply)
+  })
+}
+
+@target(erlang)
+pub fn tree_node_read_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeReadView(address, selector, view, reference, relative_path, reply)
+  })
+}
+
+@target(erlang)
+pub fn tree_node_child_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  relative_path: tree_types.FieldPath,
+) -> Result(Option(forest.NodeRef), String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeChildView(address, selector, view, reference, relative_path, reply)
+  })
+}
+
+@target(erlang)
+pub fn tree_node_array_references_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(forest.NodeRef), String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeArrayReferencesView(address, selector, view, reference, reply)
+  })
+}
+
+@target(erlang)
+pub fn tree_node_map_entries_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeMapEntriesView(address, selector, view, reference, reply)
+  })
+}
+
+@target(erlang)
 pub fn tree_map_get(
   runtime: Subject(Msg),
   address: String,
@@ -1845,6 +1961,20 @@ pub fn tree_edit_view_on(
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeEditView(address, selector, view, edit, reply) },
   )
+}
+
+@target(erlang)
+pub fn tree_node_edit_view_on(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+  edit: node.Edit,
+) -> Result(Nil, String) {
+  call_runtime(runtime, fn(reply) {
+    TreeNodeEditView(address, selector, view, reference, edit, reply)
+  })
 }
 
 @target(erlang)
@@ -2769,15 +2899,27 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     | TreeArrayGet(_, _, _, _, reply)
     | TreeArrayGetView(_, _, _, _, _, reply)
     | TreeReadView(_, _, _, _, reply)
-    | TreeMapGetView(_, _, _, _, _, reply) -> {
+    | TreeMapGetView(_, _, _, _, _, reply)
+    | TreeNodeReadView(_, _, _, _, _, reply) -> {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
-    TreeMapEntries(_, _, _, reply) | TreeMapEntriesView(_, _, _, _, reply) -> {
+    TreeNodeReferenceView(_, _, _, _, reply)
+    | TreeNodeChildView(_, _, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeMapEntries(_, _, _, reply)
+    | TreeMapEntriesView(_, _, _, _, reply)
+    | TreeNodeMapEntriesView(_, _, _, _, reply) -> {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
     TreeArrayValues(_, _, _, reply) | TreeArrayValuesView(_, _, _, _, reply) -> {
+      process.send(reply, Error("tree runtime is closing"))
+      actor.continue(state)
+    }
+    TreeNodeArrayReferencesView(_, _, _, _, reply) -> {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
@@ -2824,6 +2966,7 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     | DisposeTreeBranch(_, _, reply)
     | TreeEdit(_, _, _, reply)
     | TreeEditView(_, _, _, _, reply)
+    | TreeNodeEditView(_, _, _, _, _, reply)
     | TreeTransactionBegin(_, _, _, _, reply)
     | TreeTransactionCommit(_, _, reply)
     | TreeTransactionAbort(_, _, reply)
@@ -3463,6 +3606,118 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
+    TreeNodeReferenceView(address, selector, view, path, reply) -> {
+      process.send(
+        reply,
+        read_transaction_tree(
+          state,
+          address,
+          reply,
+          Error("tree node reference requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_node_reference_view_on(
+              core,
+              address,
+              selector,
+              view,
+              path,
+            )
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeNodeReadView(address, selector, view, reference, relative_path, reply) -> {
+      process.send(
+        reply,
+        read_transaction_tree(
+          state,
+          address,
+          reply,
+          Error("tree node read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_node_read_view_on(
+              core,
+              address,
+              selector,
+              view,
+              reference,
+              relative_path,
+            )
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeNodeChildView(address, selector, view, reference, relative_path, reply) -> {
+      process.send(
+        reply,
+        read_transaction_tree(
+          state,
+          address,
+          reply,
+          Error("tree node child requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_node_child_view_on(
+              core,
+              address,
+              selector,
+              view,
+              reference,
+              relative_path,
+            )
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeNodeArrayReferencesView(address, selector, view, reference, reply) -> {
+      process.send(
+        reply,
+        read_transaction_tree(
+          state,
+          address,
+          reply,
+          Error("tree node array read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_node_array_references_view_on(
+              core,
+              address,
+              selector,
+              view,
+              reference,
+            )
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeNodeMapEntriesView(address, selector, view, reference, reply) -> {
+      process.send(
+        reply,
+        read_transaction_tree(
+          state,
+          address,
+          reply,
+          Error("tree node map read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_node_map_entries_view_on(
+              core,
+              address,
+              selector,
+              view,
+              reference,
+            )
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
     TreeArrayValues(address, selector, path, reply) -> {
       process.send(
         reply,
@@ -3664,6 +3919,59 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
               process.send(
                 reply,
                 Error("tree edit requires a ready document connection"),
+              )
+              actor.continue(state)
+            }
+          }
+      }
+    TreeNodeEditView(address, selector, view, reference, edit, reply) ->
+      case transaction_tree_access(state, address, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(Nil) ->
+          case state.phase {
+            Ready(core, None) ->
+              case
+                runtime_core.submit_tree_node_edit_view_on(
+                  core,
+                  address,
+                  selector,
+                  view,
+                  reference,
+                  edit,
+                )
+              {
+                Error(error) -> {
+                  process.send(reply, Error(string.inspect(error)))
+                  actor.continue(state)
+                }
+                Ok(#(core, events, outbound)) -> {
+                  let #(next, outcome) =
+                    queue_or_send(state, core, None, outbound)
+                  process.send(reply, case next.phase {
+                    Reconnecting(_) -> Ok(Nil)
+                    _ -> outcome
+                  })
+                  actor.continue(fan_out_scoped(next, events))
+                }
+              }
+            Ready(_, Some(_)) | Reconnecting(_) -> {
+              process.send(
+                reply,
+                Error("tree node edit requires a ready document connection"),
+              )
+              actor.continue(state)
+            }
+            SuspendedPendingTree(_, reason) -> {
+              process.send(reply, Error(reason))
+              actor.continue(state)
+            }
+            Connecting(_) | Failed(_) -> {
+              process.send(
+                reply,
+                Error("tree node edit requires a ready document connection"),
               )
               actor.continue(state)
             }
