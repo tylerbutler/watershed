@@ -13,6 +13,7 @@ import watershed/runtime_core
 import watershed/sluice/frame
 import watershed/transport_js
 import watershed/tree/schema
+import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
 import watershed/wire/fluid_container
@@ -25,15 +26,17 @@ type CallbackProblem {
 
 type Msg {
   Performed(Result(Nil, String))
-  Created(Result(String, String))
-  Opened(Result(watershed.SharedTree, String))
-  ReadRoot(Result(Option(types.TreeValue), String))
+  TypedPerformed(Result(String, typed.Error))
+  Created(Result(String, typed.Error))
+  Opened(Result(watershed.SharedTree(Text, String), typed.Error))
+  ReadRoot(Result(Option(String), typed.Error))
   TreeSubscribed(watershed.SubscriptionToken)
   Changed(tree_kernel.TreeEvent)
   Subscribed(watershed.SubscriptionToken)
   Committed(Result(tree.CommitEvent, String))
   Settled(Result(types.TreeCommitOutcome, String))
   TransactionCompleted(Result(Int, watershed.TreeTransactionError(String)))
+  TransactionTyped(Result(Int, watershed.TreeTransactionError(typed.Error)))
   TransactionText(
     Result(String, watershed.TreeTransactionError(CallbackProblem)),
   )
@@ -41,22 +44,24 @@ type Msg {
 
 const definition = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
 
+type Text
+
 type Fixture(root) {
   Fixture(
     document: watershed.Document(root),
-    tree: watershed.SharedTree,
-    view: schema.ViewSchema,
+    tree: watershed.SharedTree(Text, String),
+    definition: typed.Schema(Text, String),
     callbacks: runtime.TransportCallbacks,
     submissions: transport_js.Cell(List(json.Json)),
   )
 }
 
-pub fn open_is_lazy_and_defers_handle_construction_test() -> Promise(Nil) {
+pub fn open_is_lazy_and_resolves_on_perform_test() -> Promise(Nil) {
   let fixture = fixture(False)
   let sink = transport_js.new_cell([])
   let constructors = transport_js.new_cell(0)
   let pending =
-    tree.open(fixture.document, fixture.view, fn(outcome) {
+    tree.open(fixture.document, fixture.definition, fn(outcome) {
       transport_js.set_cell(
         constructors,
         transport_js.get_cell(constructors) + 1,
@@ -65,17 +70,17 @@ pub fn open_is_lazy_and_defers_handle_construction_test() -> Promise(Nil) {
     })
 
   let assert 0 = transport_js.get_cell(constructors)
+  watershed.close(fixture.document)
   run(pending, sink)
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
-  let assert [Opened(Ok(_))] = messages(sink)
+  let assert [Opened(Error(typed.AccessFailed(_)))] = messages(sink)
   let assert 1 = transport_js.get_cell(constructors)
-  watershed.close(fixture.document)
   promise.resolve(Nil)
 }
 
-pub fn read_root_runs_in_a_microtask_and_reads_current_state_test() -> Promise(
+pub fn read_root_reads_on_perform_and_dispatches_in_a_microtask_test() -> Promise(
   Nil,
 ) {
   let fixture = fixture(False)
@@ -92,11 +97,11 @@ pub fn read_root_runs_in_a_microtask_and_reads_current_state_test() -> Promise(
     sink,
   )
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("latest"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "latest")
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
-  let assert [ReadRoot(Ok(Some(types.StringValue("latest"))))] = messages(sink)
+  let assert [ReadRoot(Ok(Some("initial")))] = messages(sink)
   watershed.close(fixture.document)
   promise.resolve(Nil)
 }
@@ -126,10 +131,10 @@ pub fn change_subscription_and_unsubscribe_are_lazy_and_deferred_test() -> Promi
       },
     )
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("before"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "before")
   run(pending, sink)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("after"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "after")
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
@@ -141,10 +146,10 @@ pub fn change_subscription_and_unsubscribe_are_lazy_and_deferred_test() -> Promi
 
   let pending_unsubscribe = tree.unsubscribe(subscription)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("queued"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "queued")
   run(pending_unsubscribe, sink)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("ignored"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "ignored")
   let assert 2 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
@@ -180,11 +185,11 @@ pub fn commit_subscription_is_lazy_and_defers_captured_handles_test() -> Promise
     )
 
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("before"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "before")
   let assert [] = messages(sink)
   run(pending, sink)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("after"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "after")
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
@@ -230,7 +235,7 @@ pub fn commit_subscription_reports_default_undo_redo_and_settlement_test() -> Pr
   clear_messages(sink)
 
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("changed"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "changed")
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
@@ -283,7 +288,7 @@ pub fn commit_subscription_reports_remote_commits_without_handles_test() -> Prom
   clear_messages(sink)
 
   let assert Ok(Nil) =
-    watershed.tree_set(author.tree, [], types.StringValue("remote"))
+    watershed.tree_set_root(author.tree, text_builder(), "remote")
   let assert [submitted] = transport_js.get_cell(author.submissions)
   peer.callbacks.on_event("op", acknowledgement(submitted) |> json.to_string)
   let assert [] = messages(sink)
@@ -321,7 +326,7 @@ pub fn commit_subscription_reports_factory_and_registration_errors_test() -> Pro
     })
 
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("changed"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "changed")
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
   let assert [Committed(Error(_)), Settled(Error(_))] = messages(sink)
@@ -337,10 +342,11 @@ pub fn commit_subscription_omits_factories_for_schema_commits_test() -> Promise(
   let assert Ok(root) = watershed.resolve_root(fixture.document)
   let assert Ok(marker) = watershed.get(root, "tree")
   let upgraded_definition =
-    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\"]}}"
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
   let assert Ok(upgraded_view) = schema.view_from_string(upgraded_definition)
+  let assert Ok(upgraded_schema) = typed.schema(upgraded_view, text_codec())
   let assert Ok(upgraded_tree) =
-    watershed.open_tree(fixture.document, marker, upgraded_view)
+    watershed.open_tree(fixture.document, marker, upgraded_schema)
   let sink = transport_js.new_cell([])
   run(
     tree.subscribe_commits(upgraded_tree, Subscribed, Committed, Settled),
@@ -372,7 +378,7 @@ pub fn unsubscribe_stops_future_commits_but_keeps_queued_messages_test() -> Prom
   clear_messages(sink)
 
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("queued"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "queued")
   run(tree.unsubscribe(subscription), sink)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
@@ -381,7 +387,7 @@ pub fn unsubscribe_stops_future_commits_but_keeps_queued_messages_test() -> Prom
   clear_messages(sink)
 
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("ignored"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "ignored")
   use _ <- promise.await(promise.wait(0))
   let assert [] = messages(sink)
   watershed.close(fixture.document)
@@ -400,20 +406,18 @@ pub fn revert_is_lazy_mutates_on_perform_and_defers_errors_test() -> Promise(
   use _ <- promise.await(promise.wait(0))
   clear_messages(sink)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("changed"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "changed")
   use _ <- promise.await(promise.wait(0))
   let assert [Committed(Ok(tree.CommitEvent(_, True, Some(revertible))))] =
     messages(sink)
   clear_messages(sink)
 
   let pending = tree.revert(revertible, True, Performed)
-  let assert Ok(Some(types.StringValue("changed"))) =
-    watershed.tree_get(fixture.tree, [])
+  let assert Ok(Some("changed")) = watershed.tree_read_root(fixture.tree)
   let assert watershed.RevertibleValid =
     watershed.tree_revertible_status(revertible)
   run(pending, sink)
-  let assert Ok(Some(types.StringValue("initial"))) =
-    watershed.tree_get(fixture.tree, [])
+  let assert Ok(Some("initial")) = watershed.tree_read_root(fixture.tree)
   let assert watershed.RevertibleDisposed =
     watershed.tree_revertible_status(revertible)
   let assert [] = messages(sink)
@@ -442,7 +446,7 @@ pub fn dispose_revertible_is_lazy_and_defers_errors_test() -> Promise(Nil) {
   use _ <- promise.await(promise.wait(0))
   clear_messages(sink)
   let assert Ok(Nil) =
-    watershed.tree_set(fixture.tree, [], types.StringValue("changed"))
+    watershed.tree_set_root(fixture.tree, text_builder(), "changed")
   use _ <- promise.await(promise.wait(0))
   let assert [Committed(Ok(tree.CommitEvent(_, True, Some(revertible))))] =
     messages(sink)
@@ -505,7 +509,7 @@ pub fn transaction_aborts_real_edits_and_preserves_callback_errors_test() -> Pro
       [],
       fn(tree) {
         let assert Ok(Nil) =
-          watershed.tree_set(tree, [], types.StringValue("temporary"))
+          watershed.tree_set_root(tree, text_builder(), "temporary")
         Error(Stop)
       },
       TransactionText,
@@ -513,8 +517,7 @@ pub fn transaction_aborts_real_edits_and_preserves_callback_errors_test() -> Pro
     sink,
   )
 
-  let assert Ok(Some(types.StringValue("initial"))) =
-    watershed.tree_get(fixture.tree, [])
+  let assert Ok(Some("initial")) = watershed.tree_read_root(fixture.tree)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
   let assert [TransactionText(Error(watershed.Aborted(Stop)))] = messages(sink)
@@ -565,30 +568,29 @@ pub fn transaction_composes_two_real_edits_into_one_commit_test() -> Promise(
       fixture.tree,
       [],
       fn(tree) {
-        use _ <- result.try(watershed.tree_set(
+        use _ <- result.try(watershed.tree_set_root(
           tree,
-          [],
-          types.StringValue("first"),
+          text_builder(),
+          "first",
         ))
-        use _ <- result.try(watershed.tree_set(
+        use _ <- result.try(watershed.tree_set_root(
           tree,
-          [],
-          types.StringValue("second"),
+          text_builder(),
+          "second",
         ))
         Ok(7)
       },
-      TransactionCompleted,
+      TransactionTyped,
     ),
     sink,
   )
 
   let assert 1 = transport_js.get_cell(commits)
   let assert [_] = transport_js.get_cell(fixture.submissions)
-  let assert Ok(Some(types.StringValue("second"))) =
-    watershed.tree_get(fixture.tree, [])
+  let assert Ok(Some("second")) = watershed.tree_read_root(fixture.tree)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
-  let assert [TransactionCompleted(Ok(7))] = messages(sink)
+  let assert [TransactionTyped(Ok(7))] = messages(sink)
   watershed.unsubscribe(subscription)
   watershed.close(fixture.document)
   promise.resolve(Nil)
@@ -620,24 +622,90 @@ pub fn perform_preserves_errors_test() -> Promise(Nil) {
   promise.resolve(Nil)
 }
 
+pub fn typed_perform_is_lazy_and_dispatches_once_test() -> Promise(Nil) {
+  let calls = transport_js.new_cell(0)
+  let sink = transport_js.new_cell([])
+  let pending =
+    tree.perform(
+      fn() {
+        transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+        Ok("read")
+      },
+      TypedPerformed,
+    )
+  let assert 0 = transport_js.get_cell(calls)
+  run(pending, sink)
+  let assert 1 = transport_js.get_cell(calls)
+  let assert [] = messages(sink)
+  use _ <- promise.await(promise.wait(0))
+  let assert [TypedPerformed(Ok("read"))] = messages(sink)
+  let assert 1 = transport_js.get_cell(calls)
+  promise.resolve(Nil)
+}
+
 pub fn create_preserves_invalid_configuration_and_defers_dispatch_test() -> Promise(
   Nil,
 ) {
-  let assert Ok(stored) = schema.stored_from_string(definition)
+  let calls = transport_js.new_cell(0)
+  let constructors = transport_js.new_cell(0)
+  let builder = counting_builder(calls)
   let sink = transport_js.new_cell([])
-  run(
+  let pending =
     tree.create(
       container.CreateConfig("ftp://invalid", "dev-tenant", "token"),
-      stored,
-      None,
-      Created,
-    ),
-    sink,
-  )
+      text_definition(),
+      builder,
+      Some("initial"),
+      fn(outcome) {
+        transport_js.set_cell(
+          constructors,
+          transport_js.get_cell(constructors) + 1,
+        )
+        Created(outcome)
+      },
+    )
+  let assert 0 = transport_js.get_cell(calls)
+  let assert 0 = transport_js.get_cell(constructors)
+  run(pending, sink)
+  let assert 1 = transport_js.get_cell(calls)
+  let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
-  let assert [Created(Error(detail))] = messages(sink)
+  let assert [Created(Error(typed.AccessFailed(detail)))] = messages(sink)
   let assert True = detail != ""
+  let assert 1 = transport_js.get_cell(constructors)
+  promise.resolve(Nil)
+}
+
+pub fn create_dev_is_lazy_and_defers_dispatch_test() -> Promise(Nil) {
+  let calls = transport_js.new_cell(0)
+  let constructors = transport_js.new_cell(0)
+  let sink = transport_js.new_cell([])
+  let pending =
+    tree.create_dev(
+      "ftp://invalid",
+      "dev-tenant",
+      "secret",
+      text_definition(),
+      counting_builder(calls),
+      Some("initial"),
+      fn(outcome) {
+        transport_js.set_cell(
+          constructors,
+          transport_js.get_cell(constructors) + 1,
+        )
+        Created(outcome)
+      },
+    )
+  let assert 0 = transport_js.get_cell(calls)
+  let assert 0 = transport_js.get_cell(constructors)
+  run(pending, sink)
+  let assert 0 = transport_js.get_cell(constructors)
+  let assert [] = messages(sink)
+  use _ <- promise.await(promise.wait(10))
+  let assert 1 = transport_js.get_cell(calls)
+  let assert [Created(Error(typed.AccessFailed(_)))] = messages(sink)
+  let assert 1 = transport_js.get_cell(constructors)
   promise.resolve(Nil)
 }
 
@@ -674,16 +742,13 @@ fn fixture_named(
   inline_ack: Bool,
 ) -> Fixture(root) {
   let assert Ok(stored) = schema.stored_from_string(definition)
+  let definition = text_definition()
   let assert Ok(session) = fluid_ids.session_id(session_id)
   let assert Ok(view_id) =
     fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
+  let assert Ok(initial_root) = typed.build(text_builder(), "initial")
   let assert Ok(summary) =
-    fluid_document.initial_tree(
-      stored,
-      Some(types.StringValue("initial")),
-      session,
-      view_id,
-    )
+    fluid_document.initial_tree(stored, Some(initial_root), session, view_id)
   let assert Ok(seed) = runtime_core.document_seed(summary)
   let callbacks: transport_js.Cell(Option(runtime.TransportCallbacks)) =
     transport_js.new_cell(None)
@@ -738,9 +803,41 @@ fn fixture_named(
   )
   let assert Ok(root) = watershed.resolve_root(document)
   let assert Ok(marker) = watershed.get(root, "tree")
-  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
-  let assert Ok(tree) = watershed.resolve_tree(document, marker, view)
-  Fixture(document:, tree:, view:, callbacks:, submissions:)
+  let assert Ok(tree) = watershed.resolve_tree(document, marker, definition)
+  Fixture(document:, tree:, definition:, callbacks:, submissions:)
+}
+
+fn text_codec() -> typed.NodeCodec(Text, String) {
+  let assert Ok(value) =
+    typed.node("com.fluidframework.leaf.string", fn(value) {
+      typed.decode(typed.string(), value)
+    })
+  value
+}
+
+fn text_builder() -> typed.Builder(Text, String) {
+  let assert Ok(value) =
+    typed.builder("com.fluidframework.leaf.string", fn(value) {
+      typed.encode(typed.string(), value)
+    })
+  value
+}
+
+fn counting_builder(
+  calls: transport_js.Cell(Int),
+) -> typed.Builder(Text, String) {
+  let assert Ok(value) =
+    typed.builder("com.fluidframework.leaf.string", fn(value) {
+      transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+      typed.encode(typed.string(), value)
+    })
+  value
+}
+
+fn text_definition() -> typed.Schema(Text, String) {
+  let assert Ok(view) = schema.view_from_string(definition)
+  let assert Ok(value) = typed.schema(view, text_codec())
+  value
 }
 
 fn acknowledgement(payload: json.Json) -> json.Json {

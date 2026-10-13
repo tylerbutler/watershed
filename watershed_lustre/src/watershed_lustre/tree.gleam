@@ -4,7 +4,7 @@ import gleam/result
 import lustre/effect.{type Effect}
 import watershed
 import watershed/container
-import watershed/tree/schema as tree_schema
+import watershed/tree/typed
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 
@@ -21,15 +21,17 @@ pub type CommitEvent {
 
 pub fn create(
   config: container.CreateConfig,
-  stored: tree_schema.StoredSchema,
-  initial_root: Option(tree_types.TreeValue),
-  created: fn(Result(String, String)) -> msg,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+  created: fn(Result(String, typed.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _ = {
     use outcome <- promise.map(watershed.create_tree_container(
       config,
-      stored,
+      definition,
+      builder,
       initial_root,
     ))
     queue_microtask(fn() { dispatch(created(outcome)) })
@@ -41,9 +43,10 @@ pub fn create_dev(
   base_url: String,
   tenant: String,
   secret: String,
-  stored: tree_schema.StoredSchema,
-  initial_root: Option(tree_types.TreeValue),
-  created: fn(Result(String, String)) -> msg,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+  created: fn(Result(String, typed.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _ = {
@@ -55,7 +58,8 @@ pub fn create_dev(
     ))
     use outcome <- promise.map(watershed.create_tree_container(
       container.CreateConfig(base_url, tenant, token),
-      stored,
+      definition,
+      builder,
       initial_root,
     ))
     queue_microtask(fn() { dispatch(created(outcome)) })
@@ -65,25 +69,27 @@ pub fn create_dev(
 
 pub fn open(
   document: watershed.Document(root),
-  view: tree_schema.ViewSchema,
-  opened: fn(Result(watershed.SharedTree, String)) -> msg,
+  definition: typed.Schema(s, r),
+  opened: fn(Result(watershed.SharedTree(s, r), typed.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  queue_microtask(fn() {
-    let outcome = {
-      use root <- result.try(watershed.resolve_root(document))
-      use handle <- result.try(
-        watershed.get(root, "tree")
-        |> result.replace_error("tree handle is absent"),
-      )
-      watershed.resolve_tree(document, handle, view)
-    }
-    dispatch(opened(outcome))
-  })
+  let outcome = {
+    use root <- result.try(
+      watershed.resolve_root(document)
+      |> result.map_error(typed.AccessFailed),
+    )
+    use handle <- result.try(
+      watershed.get(root, "tree")
+      |> result.replace_error("tree handle is absent")
+      |> result.map_error(typed.AccessFailed),
+    )
+    watershed.resolve_tree(document, handle, definition)
+  }
+  queue_microtask(fn() { dispatch(opened(outcome)) })
 }
 
 pub fn subscribe(
-  tree: watershed.SharedTree,
+  tree: watershed.SharedTree(s, r),
   subscribed: fn(watershed.SubscriptionToken) -> msg,
   changed: fn(tree_kernel.TreeEvent) -> msg,
 ) -> Effect(msg) {
@@ -96,7 +102,7 @@ pub fn subscribe(
 }
 
 pub fn subscribe_commits(
-  tree: watershed.SharedTree,
+  tree: watershed.SharedTree(s, r),
   subscribed: fn(watershed.SubscriptionToken) -> msg,
   committed: fn(Result(CommitEvent, String)) -> msg,
   settled: fn(Result(tree_types.TreeCommitOutcome, String)) -> msg,
@@ -138,17 +144,18 @@ pub fn unsubscribe(subscription: watershed.SubscriptionToken) -> Effect(msg) {
 }
 
 pub fn read_root(
-  tree: watershed.SharedTree,
-  read: fn(Result(Option(tree_types.TreeValue), String)) -> msg,
+  tree: watershed.SharedTree(s, r),
+  read: fn(Result(Option(r), typed.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  queue_microtask(fn() { dispatch(read(watershed.tree_get(tree, []))) })
+  let outcome = watershed.tree_read_root(tree)
+  queue_microtask(fn() { dispatch(read(outcome)) })
 }
 
 pub fn transaction(
-  tree: watershed.SharedTree,
+  tree: watershed.SharedTree(s, r),
   constraints: List(watershed.TreeTransactionConstraint),
-  callback: fn(watershed.SharedTree) -> Result(value, callback_error),
+  callback: fn(watershed.SharedTree(s, r)) -> Result(value, callback_error),
   completed: fn(Result(value, watershed.TreeTransactionError(callback_error))) ->
     msg,
 ) -> Effect(msg) {
@@ -173,8 +180,8 @@ pub fn dispose_revertible(
 }
 
 pub fn perform(
-  operation: fn() -> Result(Nil, String),
-  completed: fn(Result(Nil, String)) -> msg,
+  operation: fn() -> Result(value, error),
+  completed: fn(Result(value, error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let outcome = operation()
