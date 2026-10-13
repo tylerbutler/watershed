@@ -497,6 +497,33 @@ pub fn shared_tree_map_facade_js_operations_test() {
 }
 
 @target(javascript)
+pub fn shared_tree_map_facade_js_stale_traversal_unwraps_access_error_test() {
+  let input = input(False)
+  let #(document, callbacks, _) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+  let assert [tree_view] = input.tree_views
+  let captured =
+    facade_fixture.node_javascript(tree, ["items"]) |> expect.to_be_ok()
+  facade_fixture.set_javascript(
+    tree,
+    [],
+    types.ObjectValue("org.watershed.shared-tree.m2.Root", [
+      #("items", types.MapValue(map_type, [])),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  facade_fixture.descend_javascript(captured, ["missing"], tree_view.view)
+  |> expect.to_equal(Error(
+    "TreeOperationFailed(address: \"A/_C\", error: InvalidEdit(path: [], detail: \"node is not attached\"))",
+  ))
+  watershed.close(document)
+}
+
+@target(javascript)
 pub fn shared_tree_map_facade_js_generates_identifier_defaults_test() {
   let input = identifier_input()
   let #(document, callbacks, _) = js_document(input)
@@ -1625,6 +1652,32 @@ pub fn shared_tree_map_facade_beam_operations_test() {
     fn(path) { facade_fixture.map_entries_erlang(tree, path) },
     fn(path, value) { facade_fixture.set_erlang(tree, path, value) },
   )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_stale_traversal_unwraps_access_error_test() {
+  let input = input(False)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let assert [tree_view] = input.tree_views
+  let captured =
+    facade_fixture.node_erlang(tree, ["items"]) |> expect.to_be_ok()
+  facade_fixture.set_erlang(
+    tree,
+    [],
+    types.ObjectValue("org.watershed.shared-tree.m2.Root", [
+      #("items", types.MapValue(map_type, [])),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  facade_fixture.descend_erlang(captured, ["missing"], tree_view.view)
+  |> expect.to_equal(Error(
+    "TreeOperationFailed(\"A/_C\", InvalidEdit([], \"node is not attached\"))",
+  ))
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

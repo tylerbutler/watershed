@@ -762,7 +762,7 @@ fn node_identifier_erlang(
 }
 
 @target(javascript)
-fn node_javascript(
+pub fn node_javascript(
   tree: watershed.SharedTree(Dynamic, types.TreeValue),
   path: types.FieldPath,
 ) -> Result(watershed.TreeNode(Dynamic, types.TreeValue), String) {
@@ -777,7 +777,7 @@ fn node_javascript(
 }
 
 @target(erlang)
-fn node_erlang(
+pub fn node_erlang(
   tree: watershed_beam.SharedTree(Dynamic, types.TreeValue),
   path: types.FieldPath,
 ) -> Result(watershed_beam.TreeNode(Dynamic, types.TreeValue), String) {
@@ -792,7 +792,7 @@ fn node_erlang(
 }
 
 @target(javascript)
-fn descend_javascript(
+pub fn descend_javascript(
   node: watershed.TreeNode(Dynamic, types.TreeValue),
   path: types.FieldPath,
   view: schema.ViewSchema,
@@ -835,7 +835,7 @@ fn descend_javascript(
           use codec <- result.try(collection_codec(items))
           use map <- result.try(
             watershed.tree_as_map(node, codec)
-            |> result.map_error(string.inspect),
+            |> result.map_error(typed_error),
           )
           watershed.tree_map_node(map, key)
           |> result.map_error(typed_error)
@@ -850,11 +850,11 @@ fn descend_javascript(
           use codec <- result.try(collection_codec(items))
           use array <- result.try(
             watershed.tree_as_array(node, codec)
-            |> result.map_error(string.inspect),
+            |> result.map_error(typed_error),
           )
           use nodes <- result.try(
             watershed.tree_array_nodes(array)
-            |> result.map_error(string.inspect),
+            |> result.map_error(typed_error),
           )
           node_at(nodes, index)
         }
@@ -867,7 +867,7 @@ fn descend_javascript(
 }
 
 @target(erlang)
-fn descend_erlang(
+pub fn descend_erlang(
   node: watershed_beam.TreeNode(Dynamic, types.TreeValue),
   path: types.FieldPath,
   view: schema.ViewSchema,
@@ -910,10 +910,10 @@ fn descend_erlang(
           use codec <- result.try(collection_codec(items))
           use map <- result.try(
             watershed_beam.tree_as_map(node, codec)
-            |> result.map_error(string.inspect),
+            |> result.map_error(typed_error),
           )
           watershed_beam.tree_map_node(map, key)
-          |> result.map_error(string.inspect)
+          |> result.map_error(typed_error)
           |> and_then(required_node(key))
         }
         Ok(schema.Array(_)) -> {
