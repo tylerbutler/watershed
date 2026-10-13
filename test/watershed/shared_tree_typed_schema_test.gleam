@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -80,6 +81,69 @@ pub fn shared_tree_typed_node_decode_checks_identifier_and_field_order_test() {
   |> expect.to_equal(
     Error(typed.DecodeFailed("expected node " <> fixture.item_type)),
   )
+}
+
+pub fn shared_tree_typed_leaf_nodes_decode_and_build_test() {
+  let assert Ok(reference) = handle.reference_from_path("/data/tree")
+  [
+    #("com.fluidframework.leaf.string", types.StringValue("water")),
+    #("com.fluidframework.leaf.number", types.NumberValue(1.25)),
+    #("com.fluidframework.leaf.boolean", types.BooleanValue(True)),
+    #("com.fluidframework.leaf.null", types.NullValue),
+    #("com.fluidframework.leaf.handle", types.HandleValue(reference)),
+  ]
+  |> list.each(fn(leaf) {
+    let codec = typed.node(leaf.0, fn(value) { Ok(value) }) |> expect.to_be_ok
+    typed.decode_node(codec, leaf.1) |> expect.to_equal(Ok(leaf.1))
+
+    let builder = typed.builder(leaf.0, fn(_) { Ok(leaf.1) }) |> expect.to_be_ok
+    typed.build(builder, Nil) |> expect.to_equal(Ok(leaf.1))
+  })
+}
+
+pub fn shared_tree_typed_leaf_nodes_reject_mismatched_identifiers_test() {
+  let string_node =
+    typed.node("com.fluidframework.leaf.string", fn(value) {
+      typed.decode(typed.string(), value)
+    })
+    |> expect.to_be_ok
+  typed.decode_node(string_node, types.NumberValue(1.0))
+  |> expect.to_equal(
+    Error(typed.DecodeFailed("expected node com.fluidframework.leaf.string")),
+  )
+
+  let string_builder =
+    typed.builder("com.fluidframework.leaf.string", fn(_) {
+      Ok(types.NumberValue(1.0))
+    })
+    |> expect.to_be_ok
+  typed.build(string_builder, Nil)
+  |> expect.to_equal(
+    Error(typed.DecodeFailed("expected node com.fluidframework.leaf.string")),
+  )
+}
+
+pub fn shared_tree_typed_schema_accepts_leaf_roots_test() {
+  [
+    #("com.fluidframework.leaf.number", 0),
+    #("com.fluidframework.leaf.string", 1),
+    #("com.fluidframework.leaf.boolean", 2),
+    #("com.fluidframework.leaf.handle", 3),
+    #("com.fluidframework.leaf.null", 4),
+  ]
+  |> list.each(fn(leaf) {
+    let raw =
+      "{\"version\":2,\"nodes\":{\""
+      <> leaf.0
+      <> "\":{\"kind\":{\"leaf\":"
+      <> int.to_string(leaf.1)
+      <> "}}},\"root\":{\"kind\":\"Value\",\"types\":[\""
+      <> leaf.0
+      <> "\"]}}"
+    let view = tree_schema.view_from_string(raw) |> expect.to_be_ok
+    let codec = typed.node(leaf.0, fn(value) { Ok(value) }) |> expect.to_be_ok
+    typed.schema(view, codec) |> expect.to_be_ok
+  })
 }
 
 pub fn shared_tree_typed_optional_absence_differs_from_present_null_test() {

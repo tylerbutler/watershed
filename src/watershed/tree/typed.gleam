@@ -192,7 +192,7 @@ pub fn build(
   value: input,
 ) -> Result(types.TreeValue, Error) {
   use encoded <- result.try(builder.encode(value))
-  case node_value_identifier(encoded) == Ok(builder.identifier) {
+  case node_value_identifier(encoded) == builder.identifier {
     True -> Ok(encoded)
     False -> Error(DecodeFailed("expected node " <> builder.identifier))
   }
@@ -203,6 +203,11 @@ pub fn schema(
   root: NodeCodec(schema, record),
 ) -> Result(Schema(schema, record), Error) {
   let stored = tree_schema.view_to_stored(view)
+  use _ <- result.try(case tree_schema.node_schema(stored, root.identifier) {
+    Ok(_) -> Ok(Nil)
+    Error(_) ->
+      Error(SchemaMismatch("root node is absent: " <> root.identifier))
+  })
   let definition = tree_schema.root_field_schema(stored)
   case field_matches(definition, tree_schema.Required, [root.identifier]) {
     True -> Ok(Schema(view, root))
@@ -268,7 +273,7 @@ pub fn decode_node(
   codec: NodeCodec(s, r),
   value: types.TreeValue,
 ) -> Result(r, Error) {
-  case node_value_identifier(value) == Ok(codec.identifier) {
+  case node_value_identifier(value) == codec.identifier {
     True -> codec.decode(value)
     False -> Error(DecodeFailed("expected node " <> codec.identifier))
   }
@@ -457,12 +462,16 @@ fn field_cardinality(optional: Bool) -> tree_schema.Cardinality {
   }
 }
 
-fn node_value_identifier(value: types.TreeValue) -> Result(String, Nil) {
+fn node_value_identifier(value: types.TreeValue) -> String {
   case value {
+    types.StringValue(_) -> string_identifier
+    types.NumberValue(_) -> number_identifier
+    types.BooleanValue(_) -> boolean_identifier
+    types.NullValue -> null_identifier
+    types.HandleValue(_) -> handle_identifier
     types.ObjectValue(identifier, _)
     | types.MapValue(identifier, _)
-    | types.ArrayValue(identifier, _) -> Ok(identifier)
-    _ -> Error(Nil)
+    | types.ArrayValue(identifier, _) -> identifier
   }
 }
 
