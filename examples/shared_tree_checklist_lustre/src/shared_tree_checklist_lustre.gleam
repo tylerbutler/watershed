@@ -8,13 +8,15 @@ import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/event
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/history
 import shared_tree_checklist_lustre/lifecycle
-import shared_tree_checklist_lustre/schema as document_schema
+import shared_tree_checklist_lustre/typed_schema
 import watershed
 import watershed/id
+import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
 import watershed_lustre
@@ -46,10 +48,13 @@ type Model {
     phase: Phase,
     document_id: String,
     document: Option(watershed.Document(Nil)),
-    tree: Option(watershed.SharedTree),
+    tree: Option(
+      watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+    ),
     change_subscription: Option(watershed.SubscriptionToken),
     commit_subscription: Option(watershed.SubscriptionToken),
     checklist: checklist.Checklist,
+    item_nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
     history: history.History(watershed.TreeRevertible),
     history_action: Option(lifecycle.Action),
     draft: String,
@@ -58,42 +63,58 @@ type Model {
   )
 }
 
-pub type Action {
-  Add(id: String, text: String)
-  Edit(id: String, text: String)
-  Toggle(id: String)
-  Delete(id: String)
-  MoveUp(id: String)
-  MoveDown(id: String)
-}
-
 type Msg {
-  Created(Result(String, String))
+  Created(Result(String, typed.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
-  Opened(Result(watershed.SharedTree, String))
+  Opened(
+    Result(
+      watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+      typed.Error,
+    ),
+  )
   ChangeSubscribed(watershed.SubscriptionToken)
   CommitSubscribed(watershed.SubscriptionToken)
   TreeChanged(tree_kernel.TreeEvent)
   CommitCaptured(Result(tree.CommitEvent, String))
   CommitSettled(Result(types.TreeCommitOutcome, String))
-  Read(Result(Option(types.TreeValue), String))
+  Read(
+    Result(
+      #(
+        checklist.Checklist,
+        List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+      ),
+      typed.Error,
+    ),
+  )
   DraftChanged(String)
   AddClicked
-  EditCommitted(id: String, text: String)
-  ToggleClicked(id: String)
-  DeleteClicked(id: String)
-  MoveUpClicked(id: String)
-  MoveDownClicked(id: String)
+  EditCommitted(
+    item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+    text: String,
+  )
+  ToggleClicked(
+    item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+    completed: Bool,
+  )
+  DeleteClicked(item: watershed.TreeNode(typed_schema.Item, checklist.Item))
+  MoveClicked(
+    item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+    before: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  )
   UndoClicked
   RedoClicked
   CompleteAllClicked
-  RunCompleteAll(watershed.SharedTree)
+  RunCompleteAll(
+    watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+  )
   ClearHistoryClicked
   CloseClicked
-  MutationFinished(Result(Nil, String))
+  QueueMutation(operation: fn() -> Result(Nil, typed.Error))
+  RunMutation(operation: fn() -> Result(Nil, typed.Error))
+  MutationFinished(Result(Nil, typed.Error))
   HistoryFinished(Result(Nil, String))
-  BulkFinished(Result(Bool, watershed.TreeTransactionError(String)))
+  BulkFinished(Result(Bool, watershed.TreeTransactionError(typed.Error)))
   Disposed(Result(Nil, String))
   CloseFinished(Result(Nil, String))
 }
@@ -153,6 +174,7 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
       change_subscription: None,
       commit_subscription: None,
       checklist: checklist.empty(),
+      item_nodes: [],
       history: history.new(),
       history_action: None,
       draft: "",
@@ -166,8 +188,9 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
         config.base_url,
         config.tenant,
         config.secret,
-        document_schema.stored(),
-        Some(document_schema.initial()),
+        typed_schema.definition(),
+        typed_schema.builder(),
+        Some(typed_schema.initial()),
         Created,
       ),
     )
@@ -194,7 +217,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       let model = Model(..model, phase: Connecting, document_id: document_id)
       #(model, connect(model.config, document_id))
     }
-    Created(Error(detail)) -> fail(model, creation_error(detail))
+    Created(Error(error)) -> fail(model, creation_error(typed_error(error)))
     GotDocument(document) -> #(
       Model(..model, document: Some(document)),
       effect.none(),
@@ -204,12 +227,12 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       case model.document {
         Some(document) -> #(
           model,
-          tree.open(document, document_schema.view(), Opened),
+          tree.open(document, typed_schema.definition(), Opened),
         )
         None ->
           fail(model, "connection completed before the document handle arrived")
       }
-    Opened(Error(detail)) -> fail(model, detail)
+    Opened(Error(error)) -> fail(model, typed_error(error))
     Opened(Ok(shared_tree)) -> #(
       Model(..model, tree: Some(shared_tree)),
       effect.batch([
@@ -220,7 +243,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           CommitCaptured,
           CommitSettled,
         ),
-        tree.read_root(shared_tree, Read),
+        read_effect(shared_tree),
       ]),
     )
     ChangeSubscribed(subscription) ->
@@ -248,7 +271,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     TreeChanged(_) ->
       case model.phase, model.tree {
         Closed, _ | _, None -> #(model, effect.none())
-        _, Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        _, Some(shared_tree) -> #(model, read_effect(shared_tree))
       }
     CommitCaptured(outcome) -> {
       let outcome =
@@ -274,29 +297,38 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Some(detail) -> #(append_error(model, detail), effect.none())
         None -> #(model, effect.none())
       }
-    Read(Error(detail)) -> #(append_error(model, detail), effect.none())
-    Read(Ok(None)) -> fail(model, "The SharedTree root is absent")
-    Read(Ok(Some(value))) ->
+    Read(Error(error)) -> #(
+      append_error(model, typed_error(error)),
+      effect.none(),
+    )
+    Read(Ok(#(decoded, item_nodes))) ->
       case model.phase {
         Closed -> #(model, effect.none())
-        _ ->
-          case checklist.decode(value) {
-            Ok(decoded) -> #(
-              Model(..model, phase: Ready, checklist: decoded),
-              effect.none(),
-            )
-            Error(detail) ->
-              fail(model, "Invalid checklist snapshot: " <> detail)
-          }
+        _ -> #(
+          Model(
+            ..model,
+            phase: Ready,
+            checklist: decoded,
+            item_nodes: item_nodes,
+          ),
+          effect.none(),
+        )
       }
     DraftChanged(draft) -> #(Model(..model, draft: draft), effect.none())
-    AddClicked ->
-      mutate(Model(..model, draft: ""), Add(id.uuid_v4(), model.draft))
-    EditCommitted(item_id, text) -> mutate(model, Edit(item_id, text))
-    ToggleClicked(item_id) -> mutate(model, Toggle(item_id))
-    DeleteClicked(item_id) -> mutate(model, Delete(item_id))
-    MoveUpClicked(item_id) -> mutate(model, MoveUp(item_id))
-    MoveDownClicked(item_id) -> mutate(model, MoveDown(item_id))
+    AddClicked -> add(Model(..model, draft: ""), id.uuid_v4(), model.draft)
+    EditCommitted(item, text) -> mutate(model, fn() { rename_item(item, text) })
+    ToggleClicked(item, completed) ->
+      defer_mutation(model, fn() { toggle_item(item, completed) })
+    DeleteClicked(item) ->
+      mutate(model, fn() {
+        use items <- result.try(current_items(model))
+        delete_item(items, item)
+      })
+    MoveClicked(item, before) ->
+      mutate(model, fn() {
+        use items <- result.try(current_items(model))
+        move_item(items, item, before)
+      })
     UndoClicked -> request_history(model, lifecycle.Undoing)
     RedoClicked -> request_history(model, lifecycle.Redoing)
     CompleteAllClicked -> request_complete_all(model)
@@ -314,14 +346,19 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     CloseClicked -> close_document(model)
+    QueueMutation(operation) -> #(model, after_paint(RunMutation(operation)))
+    RunMutation(operation) -> #(
+      model,
+      tree.perform(operation, MutationFinished),
+    )
     MutationFinished(outcome) -> {
       let model = finish_pending(model)
       let model = case outcome {
         Ok(Nil) -> model
-        Error(detail) -> append_error(model, detail)
+        Error(error) -> append_error(model, typed_error(error))
       }
       case model.tree {
-        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        Some(shared_tree) -> #(model, read_effect(shared_tree))
         None -> #(model, effect.none())
       }
     }
@@ -334,7 +371,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         None -> model
       }
       case model.tree {
-        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        Some(shared_tree) -> #(model, read_effect(shared_tree))
         None -> #(model, effect.none())
       }
     }
@@ -342,13 +379,13 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       let model = finish_pending(model)
       let model = case outcome {
         Ok(_) -> model
-        Error(watershed.Aborted(detail)) ->
-          append_error(model, "Complete all aborted: " <> detail)
+        Error(watershed.Aborted(error)) ->
+          append_error(model, "Complete all aborted: " <> typed_error(error))
         Error(watershed.TransactionFailed(detail)) ->
           append_error(model, "Complete all failed: " <> detail)
       }
       case model.tree {
-        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        Some(shared_tree) -> #(model, read_effect(shared_tree))
         None -> #(model, effect.none())
       }
     }
@@ -375,57 +412,61 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-pub fn prepare(
-  value: checklist.Checklist,
-  action: Action,
-) -> Result(Option(types.Edit), String) {
-  case action {
-    Add(item_id, text) ->
-      checklist.add(value, item_id, text) |> result.map(Some)
-    Edit(item_id, text) ->
-      checklist.edit(value, item_id, text) |> result.map(Some)
-    Toggle(item_id) -> checklist.toggle(value, item_id) |> result.map(Some)
-    Delete(item_id) -> checklist.delete(value, item_id) |> result.map(Some)
-    MoveUp(item_id) -> checklist.move_up(value, item_id)
-    MoveDown(item_id) -> checklist.move_down(value, item_id)
-  }
+pub fn rename_item(
+  item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+  text: String,
+) -> Result(Nil, typed.Error) {
+  use text <- result.try(
+    checklist.normalize_text(text)
+    |> result.map_error(typed.DecodeFailed),
+  )
+  watershed.tree_set(item, typed_schema.text(), text)
 }
 
-pub fn complete_all(shared_tree: watershed.SharedTree) -> Result(Bool, String) {
-  use root <- result.try(watershed.tree_get(shared_tree, []))
-  use value <- result.try(
-    root
-    |> option.to_result("The SharedTree root is absent"),
-  )
-  use decoded <- result.try(checklist.decode(value))
-  let checklist.Checklist(items: items, ..) = decoded
-  complete_incomplete(shared_tree, items, 0, False)
+pub fn toggle_item(
+  item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+  completed: Bool,
+) -> Result(Nil, typed.Error) {
+  watershed.tree_set(item, typed_schema.completed(), !completed)
+}
+
+pub fn delete_item(
+  items: watershed.TreeArray(typed_schema.Item, checklist.Item),
+  item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+) -> Result(Nil, typed.Error) {
+  watershed.tree_array_remove_node(items, item)
+}
+
+pub fn move_item(
+  items: watershed.TreeArray(typed_schema.Item, checklist.Item),
+  item: watershed.TreeNode(typed_schema.Item, checklist.Item),
+  before: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(Nil, typed.Error) {
+  watershed.tree_array_move_before(items, item, items, before)
+}
+
+pub fn complete_all(
+  shared_tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+) -> Result(Bool, typed.Error) {
+  use root <- result.try(required_root(shared_tree))
+  use items <- result.try(watershed.tree_array(root, typed_schema.items()))
+  use nodes <- result.try(watershed.tree_array_nodes(items))
+  complete_incomplete(nodes, False)
 }
 
 fn complete_incomplete(
-  shared_tree: watershed.SharedTree,
-  items: List(checklist.Item),
-  index: Int,
+  items: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
   changed: Bool,
-) -> Result(Bool, String) {
+) -> Result(Bool, typed.Error) {
   case items {
     [] -> Ok(changed)
     [item, ..rest] -> {
-      use _ <- result.try(case item.completed {
+      use value <- result.try(watershed.tree_read(item))
+      use _ <- result.try(case value.completed {
         True -> Ok(Nil)
-        False ->
-          watershed.tree_set(
-            shared_tree,
-            ["items", int.to_string(index), "completed"],
-            types.BooleanValue(True),
-          )
+        False -> watershed.tree_set(item, typed_schema.completed(), True)
       })
-      complete_incomplete(
-        shared_tree,
-        rest,
-        index + 1,
-        changed || !item.completed,
-      )
+      complete_incomplete(rest, changed || !value.completed)
     }
   }
 }
@@ -469,22 +510,51 @@ fn after_paint(message: Msg) -> Effect(Msg) {
   dispatch(message)
 }
 
-fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
+fn add(model: Model, id: String, text: String) -> #(Model, Effect(Msg)) {
+  mutate(model, fn() {
+    use items <- result.try(current_items(model))
+    watershed.tree_array_insert(
+      items,
+      list.length(model.item_nodes),
+      typed_schema.item_builder(),
+      [
+        typed_schema.ItemInput(id, text, False),
+      ],
+    )
+  })
+}
+
+fn mutate(
+  model: Model,
+  operation: fn() -> Result(Nil, typed.Error),
+) -> #(Model, Effect(Msg)) {
   case can_interact(model), model.tree {
     False, _ -> #(model, effect.none())
     True, None -> #(
       append_error(model, "SharedTree is not ready"),
       effect.none(),
     )
-    True, Some(shared_tree) ->
-      case prepare(model.checklist, action) {
-        Error(detail) -> #(append_error(model, detail), effect.none())
-        Ok(None) -> #(model, effect.none())
-        Ok(Some(edit)) -> #(
-          Model(..model, pending: model.pending + 1),
-          tree.perform(fn() { operation(shared_tree, edit) }, MutationFinished),
-        )
-      }
+    True, Some(_) -> #(
+      Model(..model, pending: model.pending + 1),
+      tree.perform(operation, MutationFinished),
+    )
+  }
+}
+
+fn defer_mutation(
+  model: Model,
+  operation: fn() -> Result(Nil, typed.Error),
+) -> #(Model, Effect(Msg)) {
+  case can_interact(model), model.tree {
+    False, _ -> #(model, effect.none())
+    True, None -> #(
+      append_error(model, "SharedTree is not ready"),
+      effect.none(),
+    )
+    True, Some(_) -> #(
+      Model(..model, pending: model.pending + 1),
+      after_paint(QueueMutation(operation)),
+    )
   }
 }
 
@@ -607,28 +677,110 @@ fn finish_pending(model: Model) -> Model {
   })
 }
 
-fn operation(
-  shared_tree: watershed.SharedTree,
-  edit: types.Edit,
-) -> Result(Nil, String) {
-  case edit {
-    types.SetField(path, value) -> watershed.tree_set(shared_tree, path, value)
-    types.ClearField(path) -> watershed.tree_clear(shared_tree, path)
-    types.ArrayInsert(path, index, values) ->
-      watershed.tree_array_insert(shared_tree, path, index, values)
-    types.ArrayRemove(path, start, end) ->
-      watershed.tree_array_remove(shared_tree, path, start, end)
-    types.ArrayMove(source, start, end, destination, gap) ->
-      watershed.tree_array_move(
-        shared_tree,
-        source,
-        start,
-        end,
-        destination,
-        gap,
-      )
-    types.MapSet(_, _, _) -> Error("checklist does not use map edits")
-    types.MapDelete(_, _) -> Error("checklist does not use map edits")
+fn read_effect(
+  shared_tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+) -> Effect(Msg) {
+  tree.perform(fn() { read_checklist(shared_tree) }, Read)
+}
+
+fn read_checklist(
+  shared_tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+) -> Result(
+  #(
+    checklist.Checklist,
+    List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  ),
+  typed.Error,
+) {
+  use decoded <- result.try(watershed.tree_read_root(shared_tree))
+  use decoded <- result.try(
+    decoded
+    |> option.to_result(typed.AccessFailed("The SharedTree root is absent")),
+  )
+  use root <- result.try(required_root(shared_tree))
+  use items <- result.try(watershed.tree_array(root, typed_schema.items()))
+  use nodes <- result.try(watershed.tree_array_nodes(items))
+  let checklist.Checklist(items: snapshots, ..) = decoded
+  use nodes <- result.try(reconcile_nodes(snapshots, nodes))
+  Ok(#(decoded, nodes))
+}
+
+fn reconcile_nodes(
+  snapshots: List(checklist.Item),
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(
+  List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  typed.Error,
+) {
+  case snapshots {
+    [] ->
+      case nodes {
+        [] -> Ok([])
+        _ ->
+          Error(typed.AccessFailed("The checklist changed while it was read"))
+      }
+    [snapshot, ..rest] -> {
+      use node <- result.try(find_snapshot_node(snapshot, nodes))
+      use reconciled <- result.try(reconcile_nodes(
+        rest,
+        list.filter(nodes, fn(candidate) { candidate != node }),
+      ))
+      Ok([node, ..reconciled])
+    }
+  }
+}
+
+fn find_snapshot_node(
+  snapshot: checklist.Item,
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(watershed.TreeNode(typed_schema.Item, checklist.Item), typed.Error) {
+  case nodes {
+    [] -> Error(typed.AccessFailed("The checklist changed while it was read"))
+    [node, ..rest] -> {
+      use value <- result.try(watershed.tree_read(node))
+      case value.id == snapshot.id {
+        True ->
+          case value == snapshot {
+            True -> Ok(node)
+            False ->
+              Error(typed.AccessFailed(
+                "The checklist changed while it was read",
+              ))
+          }
+        False -> find_snapshot_node(snapshot, rest)
+      }
+    }
+  }
+}
+
+fn required_root(
+  shared_tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+) -> Result(
+  watershed.TreeNode(typed_schema.Checklist, checklist.Checklist),
+  typed.Error,
+) {
+  use root <- result.try(watershed.tree_root(shared_tree))
+  root
+  |> option.to_result(typed.AccessFailed("The SharedTree root is absent"))
+}
+
+fn current_items(
+  model: Model,
+) -> Result(watershed.TreeArray(typed_schema.Item, checklist.Item), typed.Error) {
+  use shared_tree <- result.try(
+    model.tree
+    |> option.to_result(typed.AccessFailed("SharedTree is not ready")),
+  )
+  use root <- result.try(required_root(shared_tree))
+  watershed.tree_array(root, typed_schema.items())
+}
+
+fn typed_error(error: typed.Error) -> String {
+  case error {
+    typed.AccessFailed(reason)
+    | typed.DecodeFailed(reason)
+    | typed.InvalidDeclaration(reason) -> reason
+    typed.MissingRequired(field) -> "Missing required field: " <> field
   }
 }
 
@@ -737,10 +889,21 @@ fn view(model: Model) -> Element(Msg) {
         ),
       ],
     ),
-    html.ul(
+    keyed.ul(
       [],
-      list.index_map(items, fn(item, index) {
-        item_view(item, index, list.length(items), ready)
+      list.index_map(list.zip(items, model.item_nodes), fn(entry, index) {
+        #(
+          entry.0.id,
+          item_view(
+            entry.0,
+            entry.1,
+            node_at(model.item_nodes, index - 1),
+            node_at(model.item_nodes, index + 2),
+            index,
+            list.length(items),
+            ready,
+          ),
+        )
       }),
     ),
     html.p(
@@ -765,6 +928,9 @@ fn view(model: Model) -> Element(Msg) {
 
 fn item_view(
   item: checklist.Item,
+  node: watershed.TreeNode(typed_schema.Item, checklist.Item),
+  before_up: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  before_down: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
   index: Int,
   length: Int,
   ready: Bool,
@@ -781,7 +947,7 @@ fn item_view(
         attribute.disabled(!ready),
         attribute.aria_label("Toggle " <> item.text),
         attribute.attribute("data-action", "toggle"),
-        event.on_check(fn(_) { ToggleClicked(item.id) }),
+        event.on_check(fn(_) { ToggleClicked(node, item.completed) }),
       ]),
       html.input([
         attribute.type_("text"),
@@ -789,13 +955,13 @@ fn item_view(
         attribute.disabled(!ready),
         attribute.aria_label("Edit " <> item.text),
         attribute.attribute("data-action", "edit"),
-        event.on_change(fn(text) { EditCommitted(item.id, text) }),
+        event.on_change(fn(text) { EditCommitted(node, text) }),
       ]),
       html.button(
         [
           attribute.disabled(!ready || index == 0),
           attribute.attribute("data-action", "move-up"),
-          event.on_click(MoveUpClicked(item.id)),
+          event.on_click(MoveClicked(node, before_up)),
         ],
         [html.text("Up")],
       ),
@@ -803,7 +969,7 @@ fn item_view(
         [
           attribute.disabled(!ready || index == length - 1),
           attribute.attribute("data-action", "move-down"),
-          event.on_click(MoveDownClicked(item.id)),
+          event.on_click(MoveClicked(node, before_down)),
         ],
         [html.text("Down")],
       ),
@@ -811,12 +977,26 @@ fn item_view(
         [
           attribute.disabled(!ready),
           attribute.attribute("data-action", "delete"),
-          event.on_click(DeleteClicked(item.id)),
+          event.on_click(DeleteClicked(node)),
         ],
         [html.text("Delete")],
       ),
     ],
   )
+}
+
+fn node_at(
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  index: Int,
+) -> Option(watershed.TreeNode(typed_schema.Item, checklist.Item)) {
+  case index < 0 {
+    True -> None
+    False ->
+      case list.first(list.drop(nodes, index)) {
+        Ok(node) -> Some(node)
+        Error(Nil) -> None
+      }
+  }
 }
 
 fn phase_name(phase: Phase) -> String {

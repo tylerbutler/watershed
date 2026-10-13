@@ -375,12 +375,68 @@ async function main() {
                 value.items.find((item) => item.id === editedId)?.text ===
                 "retained handle closes cleanly",
             );
-            const beforeClose = pair.first.items;
             await waitForSnapshot(
               firstSend,
               "close to begin with one retained undo handle",
               (value) => ready(value) && value.undo === 1 && value.redo === 0,
             );
+
+            await captureItemControl(firstSend, editedId, "edit");
+            await clickAction(secondSend, editedId, "move-up");
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "the peer reorder of the captured target",
+              (value) =>
+                value.items.length === 3 &&
+                value.items[1].id === editedId,
+            );
+            await triggerCapturedEdit(
+              firstSend,
+              "captured target follows peer reorder",
+            );
+            pair = await waitForPair(
+              firstSend,
+              secondSend,
+              "the captured edit to follow physical identity",
+              (value) =>
+                value.items.find((item) => item.id === editedId)?.text ===
+                "captured target follows peer reorder",
+            );
+
+            await captureItemControl(firstSend, planId, "toggle");
+            const beforeRefusal = pair.first.items.filter(
+              (item) => item.id !== planId,
+            );
+            await triggerCapturedAction(firstSend);
+            await clickAction(secondSend, planId, "delete");
+            const refused = await waitForSnapshot(
+              firstSend,
+              "the removed captured target to report a visible refusal",
+              (value) =>
+                value.status === "ready" &&
+                value.pending === 0 &&
+                value.errors.length === 1 &&
+                JSON.stringify(value.items) === JSON.stringify(beforeRefusal),
+            );
+            const peerAfterRefusal = await waitForSnapshot(
+              secondSend,
+              "the peer removal to remain visible after refusal",
+              (value) =>
+                ready(value) &&
+                JSON.stringify(value.items) === JSON.stringify(beforeRefusal),
+            );
+            assertClean(peerAfterRefusal);
+            if (
+              JSON.stringify(peerAfterRefusal.items) !==
+              JSON.stringify(beforeRefusal)
+            ) {
+              throw new Error(
+                "the removed captured action retargeted visible data:\n" +
+                  JSON.stringify({ refused, peerAfterRefusal }, null, 2),
+              );
+            }
+            const beforeClose = refused.items;
 
             await clickGlobalAction(firstSend, "close");
             const closed = await waitForSnapshot(
@@ -391,7 +447,7 @@ async function main() {
                 value.pending === 0 &&
                 value.undo === 0 &&
                 value.redo === 0 &&
-                value.errors.length === 0 &&
+                value.errors.length === 1 &&
                 allControlsDisabled(value.controls),
             );
 
@@ -426,8 +482,9 @@ async function main() {
 
     console.log(
       "PASS: two browser contexts created one native SharedTree document and " +
-        "proved CRUD, move-up, a reorder race, grouped completion, undo/redo, " +
-        "peer-edit preservation, redo invalidation, clear, close, and reload.",
+        "proved CRUD, captured-target reorder and removal refusal, grouped " +
+        "completion, undo/redo, peer-edit preservation, redo invalidation, " +
+        "clear, close, and reload.",
     );
     console.log(JSON.stringify(report.first, null, 2));
     return 0;
@@ -539,6 +596,55 @@ async function editItem(send, id, text) {
       return { ok: true };
     },
     [id, text],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function captureItemControl(send, id, action) {
+  const result = await call(
+    send,
+    function (itemId, actionName) {
+      const row = Array.from(document.querySelectorAll("[data-item-id]")).find(
+        (candidate) => candidate.dataset.itemId === itemId,
+      );
+      const control = row?.querySelector(
+        '[data-action="' + actionName + '"]',
+      );
+      if (!control) return { ok: false, detail: actionName + " is missing" };
+      window.__capturedChecklistControl = control;
+      return { ok: true };
+    },
+    [id, action],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function triggerCapturedEdit(send, text) {
+  const result = await call(
+    send,
+    function (value) {
+      const input = window.__capturedChecklistControl;
+      if (!input) return { ok: false, detail: "no item control was captured" };
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true };
+    },
+    [text],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function triggerCapturedAction(send) {
+  const result = await call(
+    send,
+    function () {
+      const control = window.__capturedChecklistControl;
+      if (!control) return { ok: false, detail: "no item control was captured" };
+      control.click();
+      return { ok: true };
+    },
+    [],
   );
   if (!result.ok) throw new Error(result.detail);
 }

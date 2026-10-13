@@ -10,6 +10,7 @@ import gleam/result
 import gleam/string
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/schema as checklist_schema
+import shared_tree_checklist_lustre/typed_schema
 import signet/types as token
 import spillway/message
 import spillway/types
@@ -21,7 +22,7 @@ import watershed/id
 import watershed/json_ot
 import watershed/or_map_kernel
 import watershed/runtime_core
-import watershed/tree/types as tree_types
+import watershed/tree/typed
 import watershed/wire
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
@@ -51,7 +52,9 @@ pub type TallyEntry {
 }
 
 pub opaque type SharedTreeChecklist {
-  SharedTreeChecklist(tree: watershed.SharedTree)
+  SharedTreeChecklist(
+    tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+  )
 }
 
 pub type SharedTreeChecklistItem {
@@ -68,16 +71,25 @@ pub fn shared_tree_checklist_seed() -> Result(
   use view <- result.try(
     fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
   )
+  use initial <- result.try(
+    typed.build(
+      typed_schema.builder(),
+      typed_schema.ChecklistInput("SharedTree checklist", [
+        typed_schema.ItemInput("inspect-spillway", "inspect spillway", False),
+        typed_schema.ItemInput(
+          "review-field-notes",
+          "review field notes",
+          False,
+        ),
+        typed_schema.ItemInput("publish-survey", "publish survey", False),
+      ]),
+    )
+    |> result.map_error(typed_error),
+  )
   use summary <- result.try(
     fluid_document.initial_tree(
       checklist_schema.stored(),
-      Some(
-        checklist_schema.checklist_value([
-          #("inspect-spillway", "inspect spillway", False),
-          #("review-field-notes", "review field notes", False),
-          #("publish-survey", "publish survey", False),
-        ]),
-      ),
+      Some(initial),
       session,
       view,
     )
@@ -95,20 +107,23 @@ pub fn open_shared_tree_checklist(
     watershed.get(root, "tree")
     |> result.map_error(fn(_) { "checklist root does not contain tree" }),
   )
-  watershed.resolve_tree(document, tree_value, checklist_schema.view())
+  watershed.resolve_tree(document, tree_value, typed_schema.definition())
   |> result.map(SharedTreeChecklist)
+  |> result.map_error(typed_error)
 }
 
 pub fn shared_tree_checklist_items(
   checklist: SharedTreeChecklist,
 ) -> Result(List(SharedTreeChecklistItem), String) {
   let SharedTreeChecklist(tree) = checklist
-  use root <- result.try(watershed.tree_get(tree, []))
-  use value <- result.try(
-    root
+  use decoded <- result.try(
+    watershed.tree_read_root(tree)
+    |> result.map_error(typed_error),
+  )
+  use decoded <- result.try(
+    decoded
     |> option.to_result("SharedTree checklist root is absent"),
   )
-  use decoded <- result.try(checklist.decode(value))
   let checklist.Checklist(items: items, ..) = decoded
   Ok(
     list.map(items, fn(item) {
@@ -122,9 +137,15 @@ pub fn shared_tree_checklist_add(
   id: String,
   text: String,
 ) -> Result(Nil, String) {
-  mutate_shared_tree_checklist(checklist, fn(value) {
-    checklist.add(value, id, text) |> result.map(Some)
-  })
+  let SharedTreeChecklist(tree) = checklist
+  use #(_, items, nodes) <- result.try(checklist_state(tree))
+  watershed.tree_array_insert(
+    items,
+    list.length(nodes),
+    typed_schema.item_builder(),
+    [typed_schema.ItemInput(id, text, False)],
+  )
+  |> result.map_error(typed_error)
 }
 
 pub fn shared_tree_checklist_edit(
@@ -132,63 +153,189 @@ pub fn shared_tree_checklist_edit(
   id: String,
   text: String,
 ) -> Result(Nil, String) {
-  mutate_shared_tree_checklist(checklist, fn(value) {
-    checklist.edit(value, id, text) |> result.map(Some)
-  })
+  let SharedTreeChecklist(tree) = checklist
+  use #(node, _, _, _) <- result.try(checklist_target(tree, id))
+  use text <- result.try(checklist.normalize_text(text))
+  watershed.tree_set(node, typed_schema.text(), text)
+  |> result.map_error(typed_error)
 }
 
 pub fn shared_tree_checklist_toggle(
   checklist: SharedTreeChecklist,
   id: String,
 ) -> Result(Nil, String) {
-  mutate_shared_tree_checklist(checklist, fn(value) {
-    checklist.toggle(value, id) |> result.map(Some)
-  })
+  let SharedTreeChecklist(tree) = checklist
+  use #(node, item, _, _) <- result.try(checklist_target(tree, id))
+  watershed.tree_set(node, typed_schema.completed(), !item.completed)
+  |> result.map_error(typed_error)
 }
 
 pub fn shared_tree_checklist_move_up(
   checklist: SharedTreeChecklist,
   id: String,
 ) -> Result(Nil, String) {
-  mutate_shared_tree_checklist(checklist, fn(value) {
-    checklist.move_up(value, id)
-  })
+  let SharedTreeChecklist(tree) = checklist
+  use #(node, _, previous, _) <- result.try(checklist_target(tree, id))
+  case previous {
+    None -> Ok(Nil)
+    Some(previous) -> {
+      use #(_, items, _) <- result.try(checklist_state(tree))
+      watershed.tree_array_move_before(items, node, items, Some(previous))
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
 pub fn shared_tree_checklist_move_down(
   checklist: SharedTreeChecklist,
   id: String,
 ) -> Result(Nil, String) {
-  mutate_shared_tree_checklist(checklist, fn(value) {
-    checklist.move_down(value, id)
-  })
+  let SharedTreeChecklist(tree) = checklist
+  use #(node, _, _, following) <- result.try(checklist_target(tree, id))
+  case following {
+    [] -> Ok(Nil)
+    [_next, ..after] -> {
+      use #(_, items, _) <- result.try(checklist_state(tree))
+      let before = case list.first(after) {
+        Ok(node) -> Some(node)
+        Error(Nil) -> None
+      }
+      watershed.tree_array_move_before(items, node, items, before)
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
-fn mutate_shared_tree_checklist(
-  checklist: SharedTreeChecklist,
-  prepare: fn(checklist.Checklist) -> Result(Option(tree_types.Edit), String),
-) -> Result(Nil, String) {
-  let SharedTreeChecklist(tree) = checklist
-  use root <- result.try(watershed.tree_get(tree, []))
-  use value <- result.try(
+fn checklist_state(
+  tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+) -> Result(
+  #(
+    checklist.Checklist,
+    watershed.TreeArray(typed_schema.Item, checklist.Item),
+    List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  ),
+  String,
+) {
+  use decoded <- result.try(
+    watershed.tree_read_root(tree)
+    |> result.map_error(typed_error),
+  )
+  use decoded <- result.try(
+    decoded
+    |> option.to_result("SharedTree checklist root is absent"),
+  )
+  use root <- result.try(
+    watershed.tree_root(tree)
+    |> result.map_error(typed_error),
+  )
+  use root <- result.try(
     root
     |> option.to_result("SharedTree checklist root is absent"),
   )
-  use decoded <- result.try(checklist.decode(value))
-  use edit <- result.try(prepare(decoded))
-  case edit {
-    None -> Ok(Nil)
-    Some(tree_types.SetField(path, value)) ->
-      watershed.tree_set(tree, path, value)
-    Some(tree_types.ArrayInsert(path, index, values)) ->
-      watershed.tree_array_insert(tree, path, index, values)
-    Some(tree_types.ArrayRemove(path, start, end)) ->
-      watershed.tree_array_remove(tree, path, start, end)
-    Some(tree_types.ArrayMove(source, start, end, destination, gap)) ->
-      watershed.tree_array_move(tree, source, start, end, destination, gap)
-    Some(tree_types.ClearField(_)) -> Error("checklist does not clear fields")
-    Some(tree_types.MapSet(_, _, _)) | Some(tree_types.MapDelete(_, _)) ->
-      Error("checklist does not use map edits")
+  use items <- result.try(
+    watershed.tree_array(root, typed_schema.items())
+    |> result.map_error(typed_error),
+  )
+  use nodes <- result.try(
+    watershed.tree_array_nodes(items)
+    |> result.map_error(typed_error),
+  )
+  let checklist.Checklist(items: snapshots, ..) = decoded
+  use nodes <- result.try(reconcile_checklist_nodes(snapshots, nodes))
+  Ok(#(decoded, items, nodes))
+}
+
+fn reconcile_checklist_nodes(
+  snapshots: List(checklist.Item),
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(List(watershed.TreeNode(typed_schema.Item, checklist.Item)), String) {
+  case snapshots {
+    [] ->
+      case nodes {
+        [] -> Ok([])
+        _ -> Error("SharedTree checklist changed while it was read")
+      }
+    [snapshot, ..rest] -> {
+      use node <- result.try(find_checklist_node(snapshot, nodes))
+      use reconciled <- result.try(reconcile_checklist_nodes(
+        rest,
+        list.filter(nodes, fn(candidate) { candidate != node }),
+      ))
+      Ok([node, ..reconciled])
+    }
+  }
+}
+
+fn find_checklist_node(
+  snapshot: checklist.Item,
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(watershed.TreeNode(typed_schema.Item, checklist.Item), String) {
+  case nodes {
+    [] -> Error("SharedTree checklist changed while it was read")
+    [node, ..rest] -> {
+      use value <- result.try(
+        watershed.tree_read(node)
+        |> result.map_error(typed_error),
+      )
+      case value.id == snapshot.id {
+        True ->
+          case value == snapshot {
+            True -> Ok(node)
+            False -> Error("SharedTree checklist changed while it was read")
+          }
+        False -> find_checklist_node(snapshot, rest)
+      }
+    }
+  }
+}
+
+fn checklist_target(
+  tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+  id: String,
+) -> Result(
+  #(
+    watershed.TreeNode(typed_schema.Item, checklist.Item),
+    checklist.Item,
+    Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+    List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  ),
+  String,
+) {
+  use #(decoded, _, nodes) <- result.try(checklist_state(tree))
+  let checklist.Checklist(items: snapshots, ..) = decoded
+  find_checklist_target(snapshots, nodes, id, None)
+}
+
+fn find_checklist_target(
+  snapshots: List(checklist.Item),
+  nodes: List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  id: String,
+  previous: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+) -> Result(
+  #(
+    watershed.TreeNode(typed_schema.Item, checklist.Item),
+    checklist.Item,
+    Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+    List(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  ),
+  String,
+) {
+  case snapshots, nodes {
+    [snapshot, ..snapshot_rest], [node, ..node_rest] ->
+      case snapshot.id == id {
+        True -> Ok(#(node, snapshot, previous, node_rest))
+        False -> find_checklist_target(snapshot_rest, node_rest, id, Some(node))
+      }
+    _, _ -> Error("checklist item " <> id <> " is no longer present")
+  }
+}
+
+fn typed_error(error: typed.Error) -> String {
+  case error {
+    typed.AccessFailed(reason)
+    | typed.DecodeFailed(reason)
+    | typed.InvalidDeclaration(reason) -> reason
+    typed.MissingRequired(field) -> "Missing required field: " <> field
   }
 }
 
