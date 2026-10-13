@@ -5,7 +5,7 @@
   "description": "Pinned Fluid SharedTree interoperability oracle",
   "type": "module",
   "scripts": {
-    "test": "node --test *.test.mjs",
+    "test": "node --test --test-concurrency=1 *.test.mjs",
     "generate": "node generate.mjs",
     "check": "node generate.mjs --check",
     "source:prepare": "node source.mjs prepare",

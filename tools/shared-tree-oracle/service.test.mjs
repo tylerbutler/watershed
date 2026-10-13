@@ -22,6 +22,7 @@ import {
   mapServiceStore,
   handleGraphStore,
   handleServiceStore,
+  lifecycleProfile,
   excludedFeatures,
   serviceConfig,
   serviceStore,
@@ -40,6 +41,7 @@ import {
   initialHandleRoot,
 } from "./schema.mjs";
 import {
+  assertPreflightProfile,
   validateLocalBranchRow,
   validateLocalBranchSections,
 } from "./interop.mjs";
@@ -106,6 +108,63 @@ test("service profile names supported M5 behavior and its limits", () => {
   ]) {
     assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
   }
+});
+
+test("service profile publishes the accepted handle lifecycle boundary", {
+  timeout: 180_000,
+}, async () => {
+  assert.deepEqual(lifecycleProfile, {
+    nativeTargets: ["javascript", "erlang"],
+    seed: 42,
+    iterations: 300,
+    reloadCells: 27,
+    targetKinds: ["SharedMap", "SharedTree"],
+    datastoreType: "org.watershed.shared-tree.m7.graph",
+    cases: [
+      "handle-leaves",
+      "live-channel-attachment",
+      "cross-datastore-attachment",
+      "handle-transaction-branch",
+      "handle-retention",
+    ],
+    requiredSections: [
+      "handleValues",
+      "channelAttachment",
+      "datastoreAttachment",
+      "handleTransactionBranch",
+      "handleRetention",
+      "handleReconnect",
+      "handleReloadMatrix",
+    ],
+  });
+  for (const feature of [
+    "handle-valued-tree-leaves",
+    "detached-shared-map-and-tree-creation",
+    "implicit-attachment-graphs",
+    "declared-cross-datastore-references",
+    "retained-handle-routes",
+  ]) {
+    assert(supportedFeatures.includes(feature), `Missing support: ${feature}`);
+  }
+  for (const feature of [
+    "blob-handles",
+    "arbitrary-datastore-factories",
+    "new-alias-authoring",
+    "cross-container-handles",
+    "production-authentication",
+    "pending-state-disk-recovery",
+    "richer-typed-handle-consumers",
+  ]) {
+    assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
+  }
+  await withLocalFloodgate(async (config) => {
+    const captured = await preflight(config);
+    const committed = JSON.parse(await readFile(new URL(
+      "../../test/fixtures/shared_tree/profile.json",
+      import.meta.url,
+    ), "utf8"));
+    assertPreflightProfile(captured.profile, committed);
+  });
 });
 
 test("handle schema and exact primary and secondary stores are exported", () => {

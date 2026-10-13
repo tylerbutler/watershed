@@ -140,6 +140,31 @@ export const branchServiceReport = {
   iterations: 300,
 };
 
+export const lifecycleProfile = {
+  nativeTargets: ["javascript", "erlang"],
+  seed: 42,
+  iterations: 300,
+  reloadCells: 27,
+  targetKinds: ["SharedMap", "SharedTree"],
+  datastoreType: "org.watershed.shared-tree.m7.graph",
+  cases: [
+    "handle-leaves",
+    "live-channel-attachment",
+    "cross-datastore-attachment",
+    "handle-transaction-branch",
+    "handle-retention",
+  ],
+  requiredSections: [
+    "handleValues",
+    "channelAttachment",
+    "datastoreAttachment",
+    "handleTransactionBranch",
+    "handleRetention",
+    "handleReconnect",
+    "handleReloadMatrix",
+  ],
+};
+
 export const supportedFeatures = [
   "fixed-object-schema",
   "primitive-leaves",
@@ -160,6 +185,11 @@ export const supportedFeatures = [
   "grouped-batches",
   "gc-metadata",
   "strict-view-object-map-schema-evolution",
+  "handle-valued-tree-leaves",
+  "detached-shared-map-and-tree-creation",
+  "implicit-attachment-graphs",
+  "declared-cross-datastore-references",
+  "retained-handle-routes",
   ...transactionSupportedFeatures,
   ...undoRedoSupportedFeatures,
   ...branchSupportedFeatures,
@@ -181,6 +211,13 @@ export const excludedFeatures = [
   "custom-identifier-global-uniqueness",
   "detached-node-builder",
   "uuidv5-healing",
+  "blob-handles",
+  "arbitrary-datastore-factories",
+  "new-alias-authoring",
+  "cross-container-handles",
+  "production-authentication",
+  "pending-state-disk-recovery",
+  "richer-typed-handle-consumers",
   ...undoRedoExcludedFeatures,
   ...transactionExcludedFeatures,
   ...branchExcludedFeatures,
@@ -923,6 +960,7 @@ export async function preflight(config) {
         compressorFormat: { version: compressorVersion, byteOrder: endianness() },
         supportedFeatures,
         excludedFeatures,
+        lifecycle: lifecycleProfile,
       },
       capture: {
         documentId: id,

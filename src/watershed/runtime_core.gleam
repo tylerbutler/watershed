@@ -3233,6 +3233,16 @@ fn handle_operation(
                       "tree channel has no document compressor",
                     ))
                 })
+                use context <- result.try(handle_context(address))
+                use contents <- result.try(
+                  handle.bind_serialized_references(contents, context)
+                  |> result.map_error(fn(error) {
+                    TreeOperationFailed(
+                      address,
+                      tree_types.CorruptData("message", string.inspect(error)),
+                    )
+                  }),
+                )
                 use #(commit, _) <- result.try(
                   tree_runtime.decode_sequenced_message(
                     json.to_string(contents),
@@ -6452,6 +6462,7 @@ fn submit_tree_commits(
       ..core,
       channels: dict.insert(core.channels, address, channel.TreeState(state)),
       compressor: Some(compressor),
+      prepared_attachments: [],
       next_client_sequence_number: csn + 1,
       in_flight: list.append(core.in_flight, [
         InFlightBatch(
@@ -9523,6 +9534,7 @@ pub fn prepare_attachments(
       ),
       prepared_attachments: [],
     )
+  use candidates <- result.try(attachment_candidates(core, references))
   use #(core, messages, _) <- result.try(
     list.try_fold(references, #(core, [], []), fn(acc, reference) {
       let #(core, messages, visited) = acc
@@ -9531,6 +9543,7 @@ pub fn prepare_attachments(
         reference,
         visited,
         visible_datastores,
+        candidates,
       ))
       Ok(#(core, list.append(messages, next), visited))
     }),
@@ -9553,17 +9566,9 @@ fn prepare_reference(
   reference: handle.Reference,
   visited: List(String),
   visible_datastores: List(String),
+  candidates: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
-  use address <- result.try(
-    handle.routed_address(handle.reference_to_json(reference), "/")
-    |> result.map_error(fn(error) {
-      ContainerOperationFailed(fluid_container.InvalidRoute(
-        "handle",
-        string.inspect(error),
-      ))
-    }),
-  )
-  use address <- result.try(resolve_alias(core, address))
+  use address <- result.try(routed_reference_address(core, reference))
   case list.any(visited, fn(seen) { seen == address }) {
     True -> Ok(#(core, [], visited))
     False -> {
@@ -9602,6 +9607,7 @@ fn prepare_reference(
             store,
             visited,
             visible_datastores,
+            candidates,
           )
         _, _ -> {
           use #(core, messages, visited) <- result.try(prepare_bound_references(
@@ -9609,6 +9615,7 @@ fn prepare_reference(
             address,
             visited,
             visible_datastores,
+            candidates,
           ))
           case dict.get(core.detached, address) {
             Error(_) -> Ok(#(core, messages, visited))
@@ -9647,8 +9654,9 @@ fn prepare_local_datastore(
   store: LocalDatastore,
   visited: List(String),
   visible_datastores: List(String),
+  candidates: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
-  let channels =
+  let available =
     core.detached
     |> dict.to_list
     |> list.filter_map(fn(entry) {
@@ -9659,9 +9667,37 @@ fn prepare_local_datastore(
       }
     })
   use _ <- result.try(seed_requirement(
-    list.any(channels, fn(entry) { entry.1 == store.entry_point_channel_id }),
+    list.any(available, fn(entry) { entry.1 == store.entry_point_channel_id }),
     "declared datastore has no entry point channel",
   ))
+  let seeds =
+    list.filter_map(available, fn(entry) {
+      case
+        entry.1 == store.entry_point_channel_id
+        || list.contains(candidates, entry.0)
+      {
+        True -> Ok(entry.0)
+        False -> Error(Nil)
+      }
+    })
+  let channels =
+    list.filter(available, fn(entry) { list.contains(seeds, entry.0) })
+  use _ <- result.try(
+    list.try_fold(channels, Nil, fn(_, entry) {
+      case core.active_tree_transaction {
+        Some(#(active_address, _, _, _)) if active_address == entry.0 ->
+          transaction_error(entry.0, "tree transaction blocks attachment")
+        _ -> Ok(Nil)
+      }
+    }),
+  )
+  let visited =
+    list.fold(channels, visited, fn(visited, entry) {
+      case list.contains(visited, entry.0) {
+        True -> visited
+        False -> [entry.0, ..visited]
+      }
+    })
   use #(core, messages, visited) <- result.try(
     list.try_fold(channels, #(core, [], visited), fn(acc, entry) {
       let #(core, messages, visited) = acc
@@ -9670,6 +9706,7 @@ fn prepare_local_datastore(
         entry.0,
         visited,
         visible_datastores,
+        candidates,
       ))
       Ok(#(core, list.append(messages, next), visited))
     }),
@@ -9819,6 +9856,7 @@ fn prepare_bound_references(
   address: String,
   visited: List(String),
   visible_datastores: List(String),
+  candidates: List(String),
 ) -> Result(#(Core, List(fluid_container.MessageKind), List(String)), CoreError) {
   use references <- result.try(references_for(core, address))
   let core =
@@ -9830,9 +9868,74 @@ fn prepare_bound_references(
       reference,
       visited,
       visible_datastores,
+      candidates,
     ))
     Ok(#(core, list.append(messages, next), visited))
   })
+}
+
+fn attachment_candidates(
+  core: Core,
+  references: List(handle.Reference),
+) -> Result(List(String), CoreError) {
+  use pending <- result.try(
+    list.try_map(references, routed_reference_address(core, _)),
+  )
+  attachment_candidate_closure(core, pending, [])
+}
+
+fn attachment_candidate_closure(
+  core: Core,
+  pending: List(String),
+  included: List(String),
+) -> Result(List(String), CoreError) {
+  case pending {
+    [] -> Ok(included)
+    [address, ..rest] ->
+      case list.contains(included, address) {
+        True -> attachment_candidate_closure(core, rest, included)
+        False -> {
+          use route <- result.try(
+            fluid_container.route_from_path("/" <> address)
+            |> result.map_error(ContainerOperationFailed),
+          )
+          let entry_point = case
+            dict.get(core.local_datastores, route.data_store_id),
+            dict.has_key(core.routing.datastores, route.data_store_id)
+          {
+            Ok(store), False -> [
+              route.data_store_id <> "/" <> store.entry_point_channel_id,
+            ]
+            _, _ -> []
+          }
+          use references <- result.try(references_for(core, address))
+          use reached <- result.try(
+            list.try_map(references, routed_reference_address(core, _)),
+          )
+          attachment_candidate_closure(
+            core,
+            list.append(rest, list.append(entry_point, reached)),
+            list.append(included, [address]),
+          )
+        }
+      }
+  }
+}
+
+fn routed_reference_address(
+  core: Core,
+  reference: handle.Reference,
+) -> Result(String, CoreError) {
+  use address <- result.try(
+    handle.routed_address(handle.reference_to_json(reference), "/")
+    |> result.map_error(fn(error) {
+      ContainerOperationFailed(fluid_container.InvalidRoute(
+        "handle",
+        string.inspect(error),
+      ))
+    }),
+  )
+  resolve_alias(core, address)
 }
 
 fn references_for(

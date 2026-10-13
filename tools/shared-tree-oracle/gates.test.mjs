@@ -50,6 +50,22 @@ const branchExcludedFeatures = [
   "portable-branch-handles-and-revertibles",
   "historical-checkouts",
 ];
+const lifecycleCaseIds = [
+  "handle-leaves",
+  "live-channel-attachment",
+  "cross-datastore-attachment",
+  "handle-transaction-branch",
+  "handle-retention",
+];
+const lifecycleSections = [
+  "handleValues",
+  "channelAttachment",
+  "datastoreAttachment",
+  "handleTransactionBranch",
+  "handleRetention",
+  "handleReconnect",
+  "handleReloadMatrix",
+];
 
 function recipeCommands(name) {
   const result = spawnSync("just", [
@@ -73,6 +89,12 @@ test("native gate selects both complete file suites and HTTP smokes", () => {
 test("acceptance delegates to the 300-schedule coordinator", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop"), [
     "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42",
+  ]);
+});
+
+test("lifecycle acceptance runs the complete owned-service profile", () => {
+  assert.deepEqual(recipeCommands("shared-tree-lifecycle-interop"), [
+    "node tools/shared-tree-oracle/lifecycle-interop.mjs --local-floodgate --iterations 300 --seed 42",
   ]);
 });
 
@@ -146,10 +168,41 @@ test("committed profile and corpus publish the complete local branch contract", 
       iterations: 300,
     },
   });
+
   const sourceCases = new Set(manifest.cases.map(({ id }) => id));
   for (const id of branchCaseIds) {
     assert(sourceCases.has(id), `Source corpus lacks ${id}`);
     for (const target of ["javascript", "erlang"]) {
+      assert(manifest.nativeSemanticRunners[target].includes(id),
+        `${target} native coverage lacks ${id}`);
+    }
+  }
+});
+
+test("committed profile and corpus publish the complete lifecycle contract", () => {
+  const profile = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/profile.json"),
+    "utf8",
+  ));
+  const manifest = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/manifest.json"),
+    "utf8",
+  ));
+  assert.deepEqual(profile.lifecycle, {
+    nativeTargets: ["javascript", "erlang"],
+    seed: 42,
+    iterations: 300,
+    reloadCells: 27,
+    targetKinds: ["SharedMap", "SharedTree"],
+    datastoreType: "org.watershed.shared-tree.m7.graph",
+    cases: lifecycleCaseIds,
+    requiredSections: lifecycleSections,
+  });
+  assert.deepEqual(manifest.inventory.lifecycleContract, profile.lifecycle);
+  const sourceCases = new Set(manifest.cases.map(({ id }) => id));
+  for (const id of lifecycleCaseIds) {
+    assert(sourceCases.has(id), `Source corpus lacks ${id}`);
+    for (const target of profile.lifecycle.nativeTargets) {
       assert(manifest.nativeSemanticRunners[target].includes(id),
         `${target} native coverage lacks ${id}`);
     }
@@ -190,8 +243,13 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.doesNotMatch(nativeWorkflow, /^\s*install_args:/m);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-interop/);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-create-interop/);
-  assert.match(nativeWorkflow, /name: M6 local SharedTree profile validators/);
-  assert.match(nativeWorkflow, /name: M6 local SharedTree native acceptance/);
+  const nativeBuild = nativeWorkflow.indexOf("run: just shared-tree-test");
+  const nativeValidators = nativeWorkflow.indexOf(
+    "run: node --test tools/shared-tree-oracle/source.test.mjs tools/shared-tree-oracle/generate.test.mjs tools/shared-tree-oracle/gates.test.mjs",
+  );
+  assert(nativeBuild > nativeWorkflow.indexOf("run: npm --prefix tools/shared-tree-oracle run source:prepare"));
+  assert(nativeValidators > nativeBuild);
+  assert.doesNotMatch(nativeWorkflow, /npm --prefix tools\/shared-tree-oracle test/);
   assert.equal(existsSync(interopWorkflowPath), true);
 
   const interopWorkflow = readFileSync(interopWorkflowPath, "utf8");
@@ -201,9 +259,30 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.doesNotMatch(interopWorkflow, /^\s*install_args:/m);
   assert.match(interopWorkflow, /run: just shared-tree-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);
-  assert.match(interopWorkflow, /name: M6 local SharedTree profile validators/);
-  assert.match(interopWorkflow, /name: M6 local SharedTree three-client acceptance/);
+  assert.match(interopWorkflow, /run: just shared-tree-lifecycle-interop/);
+  const sourcePrepare = interopWorkflow.indexOf(
+    "run: npm --prefix tools/shared-tree-oracle run source:prepare",
+  );
+  const sourceVerify = interopWorkflow.indexOf(
+    "run: npm --prefix tools/shared-tree-oracle run source:verify",
+  );
+  const nativeAcceptance = interopWorkflow.indexOf("run: just shared-tree-test");
+  const sourceCapture = interopWorkflow.indexOf(
+    "run: npm --prefix tools/shared-tree-oracle run source:capture",
+  );
+  const allNode = interopWorkflow.indexOf(
+    "run: npm --prefix tools/shared-tree-oracle test",
+  );
+  assert(sourcePrepare > 0 && sourceVerify > sourcePrepare);
+  assert(nativeAcceptance > sourceVerify);
+  assert(sourceCapture > nativeAcceptance);
+  assert(allNode > sourceCapture);
+  assert.match(
+    readFileSync(resolve(repository, "tools/shared-tree-oracle/package.json"), "utf8"),
+    /"test": "node --test --test-concurrency=1 \*\.test\.mjs"/,
+  );
   assert.match(interopWorkflow, /uses: actions\/upload-artifact@v4/);
+  assert.match(interopWorkflow, /tools\/shared-tree-oracle\/\.output\/lifecycle\//);
 });
 
 test("BEAM reconnect command restarts the native transport", () => {

@@ -346,7 +346,11 @@ fn apply_to_client(
 /// synchronous: the reaction to each delivery goes back into the core before
 /// the next iteration.
 pub fn settle(sluice: Sluice) -> Nil {
-  fire_due(sluice)
+  let state = transport_js.get_cell(sluice.cell)
+  list.each(state.bindings, fn(binding) {
+    let _ = runtime.is_synced(binding.0)
+    Nil
+  })
   case step(sluice) {
     True -> settle(sluice)
     False -> Nil

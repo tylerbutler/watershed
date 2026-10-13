@@ -19,6 +19,7 @@ import {
   branchServiceReport,
   branchSupportedFeatures,
   excludedFeatures,
+  lifecycleProfile,
   supportedFeatures,
   transactionExcludedFeatures,
   transactionSupportedFeatures,
@@ -8593,6 +8594,7 @@ export async function writeCorpus(output, cases, smoke) {
         excludedFeatures: branchExcludedFeatures,
         serviceReport: branchServiceReport,
       },
+      lifecycleContract: lifecycleProfile,
     },
     nativeSemanticRunners: {
       javascript: [
@@ -8607,6 +8609,7 @@ export async function writeCorpus(output, cases, smoke) {
         ...schemaEvolutionCaseIds,
         ...requiredIdentifierCases.map(([id]) => id),
         ...requiredBranchCases,
+        ...requiredLifecycleCases,
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -8620,6 +8623,7 @@ export async function writeCorpus(output, cases, smoke) {
         ...schemaEvolutionCaseIds,
         ...requiredIdentifierCases.map(([id]) => id),
         ...requiredBranchCases,
+        ...requiredLifecycleCases,
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
@@ -8634,6 +8638,7 @@ export async function writeCorpus(output, cases, smoke) {
     JSON.parse(await readFile(join(fixtures, "profile.json"), "utf8"));
   generatedProfile.supportedFeatures = supportedFeatures;
   generatedProfile.excludedFeatures = excludedFeatures;
+  generatedProfile.lifecycle = lifecycleProfile;
   await writeFile(
     join(output, "profile.json"),
     `${JSON.stringify(generatedProfile, null, 2)}\n`,

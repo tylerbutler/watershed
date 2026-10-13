@@ -6517,7 +6517,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "51a465c9e685197b578eaa1a53cea84aa2da955da1000855fa5214534fb84608",
+    "997cd8cb8d91f9ef7c82a18eee661791ea6985e6c78a04e2976357fcc98458a7",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -6547,6 +6547,11 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "grouped-batches",
     "gc-metadata",
     "strict-view-object-map-schema-evolution",
+    "handle-valued-tree-leaves",
+    "detached-shared-map-and-tree-creation",
+    "implicit-attachment-graphs",
+    "declared-cross-datastore-references",
+    "retained-handle-routes",
     "synchronous-single-tree-transactions",
     "stable-node-existence-constraints",
     "application-owned-revertibles",
@@ -6579,6 +6584,13 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "custom-identifier-global-uniqueness",
     "detached-node-builder",
     "uuidv5-healing",
+    "blob-handles",
+    "arbitrary-datastore-factories",
+    "new-alias-authoring",
+    "cross-container-handles",
+    "production-authentication",
+    "pending-state-disk-recovery",
+    "richer-typed-handle-consumers",
     "persisted-undo-redo-stacks",
     "schema-undo",
     "remote-commit-undo",
@@ -6602,6 +6614,30 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "historical-checkouts",
     "async-cross-tree-transactions",
   ]);
+  assert.deepEqual(loaded.profile.lifecycle, {
+    nativeTargets: ["javascript", "erlang"],
+    seed: 42,
+    iterations: 300,
+    reloadCells: 27,
+    targetKinds: ["SharedMap", "SharedTree"],
+    datastoreType: "org.watershed.shared-tree.m7.graph",
+    cases: [
+      "handle-leaves",
+      "live-channel-attachment",
+      "cross-datastore-attachment",
+      "handle-transaction-branch",
+      "handle-retention",
+    ],
+    requiredSections: [
+      "handleValues",
+      "channelAttachment",
+      "datastoreAttachment",
+      "handleTransactionBranch",
+      "handleRetention",
+      "handleReconnect",
+      "handleReloadMatrix",
+    ],
+  });
   assert(!loaded.profile.excludedFeatures.includes("public-transactions"));
   assert(!loaded.profile.excludedFeatures.includes("undo-redo"));
   assert(!loaded.profile.excludedFeatures.includes("arrays"));
@@ -6624,6 +6660,8 @@ test("the committed profile is hashed and every compatibility pin is validated",
     ["schema", (copy) => { copy.container.treePath = "/wrong"; }],
     ["codec", (copy) => { copy.codecTree.children[0].version = 3; }],
     ["compressor", (copy) => { copy.compressorFormat.byteOrder = "BE"; }],
+    ["lifecycle", (copy) => { copy.lifecycle.reloadCells = 26; }],
+    ["lifecycle-sections", (copy) => { copy.lifecycle.requiredSections.pop(); }],
   ]) {
     const copy = structuredClone(profile);
     mutate(copy);

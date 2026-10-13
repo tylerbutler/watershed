@@ -4611,6 +4611,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
     IsSynced(reply) -> {
+      let #(state, _) = flush_outbound_now(state)
       let synced = case state.phase {
         Ready(core, None) -> runtime_core.is_synced(core)
         _ -> False

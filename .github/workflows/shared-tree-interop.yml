@@ -24,14 +24,19 @@ jobs:
           cache-dependency-path: tools/shared-tree-oracle/package-lock.json
       - run: pnpm install --frozen-lockfile
       - run: npm --prefix tools/shared-tree-oracle ci
-      - name: M6 local SharedTree profile validators
-        run: npm --prefix tools/shared-tree-oracle test
       - run: npm --prefix tools/shared-tree-oracle run source:prepare
       - run: npm --prefix tools/shared-tree-oracle run source:verify
-      - name: M6 local SharedTree three-client acceptance
+      - name: SharedTree native acceptance
+        run: just shared-tree-test
+      - run: npm --prefix tools/shared-tree-oracle run source:capture
+      - name: SharedTree complete Node acceptance
+        run: npm --prefix tools/shared-tree-oracle test
+      - name: SharedTree three-client acceptance
         run: just shared-tree-interop
       - name: Supported SharedTree creation acceptance
         run: just shared-tree-create-interop
+      - name: SharedTree handle lifecycle acceptance
+        run: just shared-tree-lifecycle-interop
       - name: Preserve interoperability evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,3 +47,4 @@ jobs:
           path: |
             tools/shared-tree-oracle/.output/interop/
             tools/shared-tree-oracle/.output/creation/
+            tools/shared-tree-oracle/.output/lifecycle/

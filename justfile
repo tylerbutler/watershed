@@ -215,6 +215,10 @@ shared-tree-create-test:
 shared-tree-create-interop: shared-tree-create-test
     node tools/shared-tree-oracle/creation.mjs interop --local-floodgate
 
+# Handle values, attachment graphs, retention, reconnect, reload, and schedules.
+shared-tree-lifecycle-interop:
+    node tools/shared-tree-oracle/lifecycle-interop.mjs --local-floodgate --iterations 300 --seed 42
+
 # The p2p gate: two *real* browser pages join a room through the real
 # signaling process, clap concurrently, and must converge on the same total
 # and the same canonical digest — with the late page ready only after its

@@ -347,6 +347,36 @@
         "seed": 42,
         "iterations": 300
       }
+    },
+    "lifecycleContract": {
+      "nativeTargets": [
+        "javascript",
+        "erlang"
+      ],
+      "seed": 42,
+      "iterations": 300,
+      "reloadCells": 27,
+      "targetKinds": [
+        "SharedMap",
+        "SharedTree"
+      ],
+      "datastoreType": "org.watershed.shared-tree.m7.graph",
+      "cases": [
+        "handle-leaves",
+        "live-channel-attachment",
+        "cross-datastore-attachment",
+        "handle-transaction-branch",
+        "handle-retention"
+      ],
+      "requiredSections": [
+        "handleValues",
+        "channelAttachment",
+        "datastoreAttachment",
+        "handleTransactionBranch",
+        "handleRetention",
+        "handleReconnect",
+        "handleReloadMatrix"
+      ]
     }
   },
   "nativeSemanticRunners": {
@@ -387,7 +417,12 @@
       "local-branch-undo",
       "local-branch-allocation",
       "local-branch-retention",
-      "local-branch-recovery"
+      "local-branch-recovery",
+      "handle-leaves",
+      "live-channel-attachment",
+      "cross-datastore-attachment",
+      "handle-transaction-branch",
+      "handle-retention"
     ],
     "erlang": [
       "id-ranges",
@@ -426,7 +461,12 @@
       "local-branch-undo",
       "local-branch-allocation",
       "local-branch-retention",
-      "local-branch-recovery"
+      "local-branch-recovery",
+      "handle-leaves",
+      "live-channel-attachment",
+      "cross-datastore-attachment",
+      "handle-transaction-branch",
+      "handle-retention"
     ]
   },
   "cases": [

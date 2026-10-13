@@ -3817,6 +3817,7 @@ fn notify_tree_revertible_disposals(
 /// Whether the document is caught up, which is true when the server acked every
 /// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Runtime) -> Bool {
+  flush_outbound(runtime.cell)
   let state = cell_get(runtime.cell)
   use <- bool.guard(state.bootstrap != None, False)
   case state.phase {

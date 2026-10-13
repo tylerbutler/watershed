@@ -5311,6 +5311,32 @@ test("manifest records complete native runners and actual wire field kinds", asy
       iterations: 300,
     },
   });
+  assert.deepEqual(manifest.inventory.lifecycleContract, {
+    nativeTargets: ["javascript", "erlang"],
+    seed: 42,
+    iterations: 300,
+    reloadCells: 27,
+    targetKinds: ["SharedMap", "SharedTree"],
+    datastoreType: "org.watershed.shared-tree.m7.graph",
+    cases: [
+      "handle-leaves",
+      "live-channel-attachment",
+      "cross-datastore-attachment",
+      "handle-transaction-branch",
+      "handle-retention",
+    ],
+    requiredSections: [
+      "handleValues",
+      "channelAttachment",
+      "datastoreAttachment",
+      "handleTransactionBranch",
+      "handleRetention",
+      "handleReconnect",
+      "handleReloadMatrix",
+    ],
+  });
+  const generatedProfile = JSON.parse(readFileSync(join(output, "profile.json"), "utf8"));
+  assert.deepEqual(generatedProfile.lifecycle, manifest.inventory.lifecycleContract);
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
       "id-ranges", "schema-validation", "forest-delta",
@@ -5326,6 +5352,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "identifier-schema", "identifier-values",
       "identifier-field-batches", "identifier-persistence",
       ...generator.requiredBranchCases,
+      ...generator.requiredLifecycleCases,
     ]);
   }
 });
