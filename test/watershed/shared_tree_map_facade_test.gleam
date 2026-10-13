@@ -20,6 +20,7 @@ import watershed/runtime_core
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/facade_fixture
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
@@ -465,11 +466,12 @@ fn js_document(input: runtime_core.BootstrapSeedInput) {
 fn js_tree(
   document: watershed.Document(root),
   input: runtime_core.BootstrapSeedInput,
-) -> watershed.SharedTree {
+) -> watershed.SharedTree(facade_fixture.Dynamic, types.TreeValue) {
   let root = watershed.resolve_root(document) |> expect.to_be_ok()
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
-  watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  facade_fixture.resolve_javascript(document, marker, view.view)
+  |> expect.to_be_ok()
 }
 
 @target(javascript)
@@ -482,12 +484,14 @@ pub fn shared_tree_map_facade_js_operations_test() {
   )
   let tree = js_tree(document, input)
   assert_map_operations(
-    fn(path, key) { watershed.tree_map_get(tree, path, key) },
-    fn(path, key, value) { watershed.tree_map_set(tree, path, key, value) },
-    fn(path, key) { watershed.tree_map_delete(tree, path, key) },
-    fn(path) { watershed.tree_map_keys(tree, path) },
-    fn(path) { watershed.tree_map_entries(tree, path) },
-    fn(path, value) { watershed.tree_set(tree, path, value) },
+    fn(path, key) { facade_fixture.map_get_javascript(tree, path, key) },
+    fn(path, key, value) {
+      facade_fixture.map_set_javascript(tree, path, key, value)
+    },
+    fn(path, key) { facade_fixture.map_delete_javascript(tree, path, key) },
+    fn(path) { facade_fixture.map_keys_javascript(tree, path) },
+    fn(path) { facade_fixture.map_entries_javascript(tree, path) },
+    fn(path, value) { facade_fixture.set_javascript(tree, path, value) },
   )
   watershed.close(document)
 }
@@ -501,14 +505,14 @@ pub fn shared_tree_map_facade_js_generates_identifier_defaults_test() {
     json.to_string(connected("reader", 0)),
   )
   let tree = js_tree(document, input)
-  watershed.tree_map_set(
+  facade_fixture.map_set_javascript(
     tree,
     ["byKey"],
     "point",
     missing_identifier_point("map"),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_get(tree, ["byKey"], "point")
+  facade_fixture.map_get_javascript(tree, ["byKey"], "point")
   |> expect.to_be_ok()
   |> expect_generated_identifier("map")
   watershed.close(document)
@@ -535,7 +539,7 @@ pub fn shared_tree_map_facade_js_commit_event_constructor_test() {
       transport_js.set_cell(observed, True)
     })
 
-  watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_javascript(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(observed) |> expect.to_equal(True)
   watershed.unsubscribe(token)
@@ -598,7 +602,7 @@ pub fn shared_tree_map_facade_js_commit_subscription_test() {
       transport_js.set_cell(order, ["commit", ..transport_js.get_cell(order)])
       transport_js.set_cell(
         observed,
-        Some(watershed.tree_map_get(tree, [], "key")),
+        Some(facade_fixture.map_get_javascript(tree, [], "key")),
       )
       transport_js.set_cell(late_factory, Some(get_revertible))
       transport_js.set_cell(late_settlement, Some(on_settled))
@@ -615,7 +619,7 @@ pub fn shared_tree_map_facade_js_commit_subscription_test() {
       |> expect.to_equal(Ok(Nil))
     })
 
-  watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_javascript(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(order)
   |> list.reverse
@@ -650,7 +654,8 @@ pub fn shared_tree_map_facade_js_commit_subscription_test() {
       ])
     })
   watershed.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_get(tree, [], "key") |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_javascript(tree, [], "key")
+  |> expect.to_equal(Ok(None))
   transport_js.get_cell(revert_kinds) |> expect.to_equal([types.UndoCommit])
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
   watershed.tree_revertible_status(revertible)
@@ -677,7 +682,12 @@ pub fn shared_tree_map_facade_js_commit_subscription_test() {
       })
       |> expect.to_equal(Ok(Nil))
     })
-  watershed.tree_map_set(tree, [], "cleanup", types.StringValue("value"))
+  facade_fixture.map_set_javascript(
+    tree,
+    [],
+    "cleanup",
+    types.StringValue("value"),
+  )
   |> expect.to_equal(Ok(Nil))
   let assert Some(cleanup_handle) = transport_js.get_cell(cleanup_handle)
   watershed.close(document)
@@ -711,7 +721,7 @@ pub fn shared_tree_map_facade_js_close_rejects_later_settlement_registration_tes
   let closer =
     watershed.subscribe_tree_commits(tree, fn(_) { watershed.close(document) })
 
-  watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_javascript(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(registrations) |> expect.to_equal([])
   watershed.unsubscribe(closer)
@@ -775,7 +785,7 @@ pub fn shared_tree_map_facade_js_revert_rejects_inline_transport_failure_test() 
         _, _ -> Nil
       }
     })
-  watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_javascript(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   let assert [submitted] = transport_js.get_cell(submissions)
   callbacks.on_event("op", acknowledgement(submitted) |> json.to_string)
@@ -840,7 +850,12 @@ pub fn shared_tree_map_facade_js_inline_settlement_test() {
       })
       |> expect.to_equal(Ok(Nil))
     })
-  watershed.tree_map_set(tree, ["items"], "key", types.StringValue("value"))
+  facade_fixture.map_set_javascript(
+    tree,
+    ["items"],
+    "key",
+    types.StringValue("value"),
+  )
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(settled) |> expect.to_equal([types.FullyApplied])
   watershed.unsubscribe(token)
@@ -901,7 +916,7 @@ pub fn shared_tree_map_facade_js_settlement_edit_waits_for_fanout_test() {
           True -> Nil
           False -> {
             transport_js.set_cell(edited, True)
-            watershed.tree_map_set(
+            facade_fixture.map_set_javascript(
               tree,
               ["items"],
               "nested",
@@ -914,7 +929,12 @@ pub fn shared_tree_map_facade_js_settlement_edit_waits_for_fanout_test() {
       |> expect.to_equal(Ok(Nil))
     })
 
-  watershed.tree_map_set(tree, ["items"], "outer", types.StringValue("value"))
+  facade_fixture.map_set_javascript(
+    tree,
+    ["items"],
+    "outer",
+    types.StringValue("value"),
+  )
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(order)
   |> list.reverse
@@ -944,22 +964,22 @@ pub fn shared_tree_map_facade_js_transaction_callback_test() {
   let subscription =
     watershed.subscribe_tree(tree, fn(event) {
       transport_js.set_cell(observed, [
-        #(event, watershed.tree_map_entries(tree, [])),
+        #(event, facade_fixture.map_entries_javascript(tree, [])),
         ..transport_js.get_cell(observed)
       ])
     })
 
   watershed.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_javascript(
       tree,
       [],
       "outer",
       types.StringValue("one"),
     ))
-    watershed.tree_map_get(tree, [], "outer")
+    facade_fixture.map_get_javascript(tree, [], "outer")
     |> expect.to_equal(Ok(Some(types.StringValue("one"))))
     watershed.tree_transaction(tree, [], fn(tree) {
-      use _ <- result.try(watershed.tree_map_set(
+      use _ <- result.try(facade_fixture.map_set_javascript(
         tree,
         [],
         "nested",
@@ -969,14 +989,19 @@ pub fn shared_tree_map_facade_js_transaction_callback_test() {
     })
     |> expect.to_equal(Ok(Nil))
     watershed.tree_transaction(tree, [], fn(tree) {
-      watershed.tree_map_set(tree, [], "rolled-back", types.StringValue("x"))
+      facade_fixture.map_set_javascript(
+        tree,
+        [],
+        "rolled-back",
+        types.StringValue("x"),
+      )
       |> expect.to_equal(Ok(Nil))
       Error(Stop)
     })
     |> expect.to_equal(Error(watershed.Aborted(Stop)))
-    watershed.tree_map_get(tree, [], "rolled-back")
+    facade_fixture.map_get_javascript(tree, [], "rolled-back")
     |> expect.to_equal(Ok(None))
-    use _ <- result.try(watershed.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_javascript(
       tree,
       [],
       "after",
@@ -991,7 +1016,7 @@ pub fn shared_tree_map_facade_js_transaction_callback_test() {
     #("nested", types.StringValue("two")),
     #("outer", types.StringValue("one")),
   ]
-  watershed.tree_map_entries(tree, []) |> expect.to_equal(Ok(final))
+  facade_fixture.map_entries_javascript(tree, []) |> expect.to_equal(Ok(final))
   transport_js.get_cell(observed)
   |> expect.to_equal([
     #(tree_kernel.TreeChanged(True), Ok(final)),
@@ -1000,14 +1025,14 @@ pub fn shared_tree_map_facade_js_transaction_callback_test() {
 
   let aborted =
     watershed.tree_transaction(tree, [], fn(tree) {
-      use _ <- result.try(watershed.tree_map_set(
+      use _ <- result.try(facade_fixture.map_set_javascript(
         tree,
         [],
         "temporary",
         types.StringValue("value"),
       ))
       case
-        watershed.tree_map_set(
+        facade_fixture.map_set_javascript(
           tree,
           [],
           "invalid",
@@ -1019,7 +1044,8 @@ pub fn shared_tree_map_facade_js_transaction_callback_test() {
       }
     })
   let assert Error(watershed.Aborted(_)) = aborted
-  watershed.tree_map_get(tree, [], "temporary") |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_javascript(tree, [], "temporary")
+  |> expect.to_equal(Ok(None))
   transport_js.get_cell(observed) |> list.length |> expect.to_equal(1)
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
 
@@ -1043,9 +1069,10 @@ pub fn shared_tree_map_facade_js_transaction_rejections_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [initial] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, initial.view)
+    |> expect.to_be_ok()
   let other_view =
-    watershed.open_tree(document, marker, optional_view(input))
+    facade_fixture.open_javascript(document, marker, optional_view(input))
     |> expect.to_be_ok()
   let ran = transport_js.new_cell(False)
 
@@ -1073,7 +1100,7 @@ pub fn shared_tree_map_facade_js_transaction_rejections_test() {
       let assert Error(watershed.TransactionFailed(_)) = wrong_view
       transport_js.get_cell(ran) |> expect.to_equal(False)
       watershed.tree_upgrade_schema(other_view) |> expect.to_be_error()
-      use _ <- result.try(watershed.tree_map_set(
+      use _ <- result.try(facade_fixture.map_set_javascript(
         tree,
         ["items"],
         "kept",
@@ -1083,7 +1110,7 @@ pub fn shared_tree_map_facade_js_transaction_rejections_test() {
     },
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_get(tree, ["items"], "kept")
+  facade_fixture.map_get_javascript(tree, ["items"], "kept")
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
 
@@ -1111,7 +1138,7 @@ pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
 
   let result =
     watershed.tree_transaction(tree, [], fn(tree) {
-      watershed.tree_map_set(
+      facade_fixture.map_set_javascript(
         tree,
         [],
         "outer",
@@ -1120,7 +1147,7 @@ pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
       |> expect.to_equal(Ok(Nil))
       let nested =
         watershed.tree_transaction(tree, [], fn(tree) {
-          use _ <- result.try(watershed.tree_map_set(
+          use _ <- result.try(facade_fixture.map_set_javascript(
             tree,
             [],
             "inner",
@@ -1130,14 +1157,17 @@ pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
           Ok("inner")
         })
       let assert watershed.TransactionFailed(_) = nested |> expect.to_be_error
-      watershed.tree_map_get(tree, [], "inner") |> expect.to_equal(Ok(None))
-      watershed.tree_map_get(tree, [], "outer")
+      facade_fixture.map_get_javascript(tree, [], "inner")
+      |> expect.to_equal(Ok(None))
+      facade_fixture.map_get_javascript(tree, [], "outer")
       |> expect.to_equal(Ok(Some(types.StringValue("kept until outer abort"))))
       Error(Stop)
     })
   result |> expect.to_equal(Error(watershed.Aborted(Stop)))
-  watershed.tree_map_get(tree, [], "outer") |> expect.to_equal(Ok(None))
-  watershed.tree_map_get(tree, [], "inner") |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_javascript(tree, [], "outer")
+  |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_javascript(tree, [], "inner")
+  |> expect.to_equal(Ok(None))
   transport_js.get_cell(submissions) |> expect.to_equal([])
 
   callbacks.on_event(
@@ -1145,7 +1175,7 @@ pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
     json.to_string(connected("reader-reconnected", 0)),
   )
   watershed.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_javascript(
       tree,
       [],
       "later",
@@ -1154,7 +1184,7 @@ pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_get(tree, [], "later")
+  facade_fixture.map_get_javascript(tree, [], "later")
   |> expect.to_equal(Ok(Some(types.StringValue("usable"))))
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
   watershed.close(document)
@@ -1173,13 +1203,15 @@ pub fn shared_tree_map_facade_js_view_lifecycle_test() {
   let assert [initial] = input.tree_views
   let optional = optional_view(input)
   let v1 =
-    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, initial.view)
+    |> expect.to_be_ok()
   let next =
-    watershed.open_tree(document, marker, optional) |> expect.to_be_ok()
-  watershed.tree_get(v1, ["items"]) |> expect.to_be_ok()
+    facade_fixture.open_javascript(document, marker, optional)
+    |> expect.to_be_ok()
+  facade_fixture.get_javascript(v1, ["items"]) |> expect.to_be_ok()
   watershed.tree_compatibility(next)
   |> expect.to_equal(Ok(tree_schema.Compatibility(False, True, False)))
-  expect_compatibility_error(watershed.tree_get(next, ["items"]))
+  expect_compatibility_error(facade_fixture.get_javascript(next, ["items"]))
 
   let observed = transport_js.new_cell([])
   let subscription =
@@ -1188,7 +1220,7 @@ pub fn shared_tree_map_facade_js_view_lifecycle_test() {
         #(
           event,
           watershed.tree_compatibility(next),
-          case watershed.tree_get(next, ["items"]) {
+          case facade_fixture.get_javascript(next, ["items"]) {
             Ok(_) -> True
             Error(_) -> False
           },
@@ -1210,30 +1242,41 @@ pub fn shared_tree_map_facade_js_view_lifecycle_test() {
 
   watershed.tree_compatibility(v1)
   |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
-  expect_compatibility_error(watershed.tree_get(v1, ["items"]))
-  expect_compatibility_error(watershed.tree_set(
+  expect_compatibility_error(facade_fixture.get_javascript(v1, ["items"]))
+  expect_compatibility_error(facade_fixture.set_javascript(
     v1,
     ["score"],
     types.NumberValue(1.0),
   ))
-  expect_compatibility_error(watershed.tree_clear(v1, ["score"]))
-  expect_compatibility_error(watershed.tree_map_get(v1, ["items"], "key"))
-  expect_compatibility_error(watershed.tree_map_set(
+  expect_compatibility_error(facade_fixture.clear_javascript(v1, ["score"]))
+  expect_compatibility_error(facade_fixture.map_get_javascript(
+    v1,
+    ["items"],
+    "key",
+  ))
+  expect_compatibility_error(facade_fixture.map_set_javascript(
     v1,
     ["items"],
     "key",
     types.StringValue("stale"),
   ))
-  expect_compatibility_error(watershed.tree_map_delete(v1, ["items"], "key"))
-  expect_compatibility_error(watershed.tree_map_entries(v1, ["items"]))
-  expect_compatibility_error(watershed.tree_map_keys(v1, ["items"]))
+  expect_compatibility_error(facade_fixture.map_delete_javascript(
+    v1,
+    ["items"],
+    "key",
+  ))
+  expect_compatibility_error(
+    facade_fixture.map_entries_javascript(v1, ["items"]),
+  )
+  expect_compatibility_error(facade_fixture.map_keys_javascript(v1, ["items"]))
   watershed.get(root, "tree") |> expect.to_equal(Ok(marker))
 
   let recovered =
-    watershed.resolve_tree(document, marker, optional) |> expect.to_be_ok()
-  watershed.tree_set(recovered, ["score"], types.NumberValue(1.0))
+    facade_fixture.resolve_javascript(document, marker, optional)
+    |> expect.to_be_ok()
+  facade_fixture.set_javascript(recovered, ["score"], types.NumberValue(1.0))
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_get(recovered, ["score"])
+  facade_fixture.get_javascript(recovered, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
   watershed.unsubscribe(subscription)
@@ -1253,9 +1296,11 @@ pub fn shared_tree_map_facade_js_remote_schema_and_data_test() {
   let assert [initial] = input.tree_views
   let optional = optional_view(input)
   let old =
-    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, initial.view)
+    |> expect.to_be_ok()
   let compatible =
-    watershed.open_tree(document, marker, optional) |> expect.to_be_ok()
+    facade_fixture.open_javascript(document, marker, optional)
+    |> expect.to_be_ok()
   let observed = transport_js.new_cell([])
   let subscription =
     watershed.subscribe_tree(compatible, fn(event) {
@@ -1263,7 +1308,7 @@ pub fn shared_tree_map_facade_js_remote_schema_and_data_test() {
         #(
           event,
           watershed.tree_compatibility(compatible),
-          watershed.tree_get(compatible, ["score"]),
+          facade_fixture.get_javascript(compatible, ["score"]),
         ),
         ..transport_js.get_cell(observed)
       ])
@@ -1277,9 +1322,10 @@ pub fn shared_tree_map_facade_js_remote_schema_and_data_test() {
   let peer_root = watershed.resolve_root(peer) |> expect.to_be_ok()
   let peer_marker = watershed.get(peer_root, "tree") |> expect.to_be_ok()
   let next =
-    watershed.open_tree(peer, peer_marker, optional) |> expect.to_be_ok()
+    facade_fixture.open_javascript(peer, peer_marker, optional)
+    |> expect.to_be_ok()
   watershed.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
-  watershed.tree_set(next, ["score"], types.NumberValue(7.0))
+  facade_fixture.set_javascript(next, ["score"], types.NumberValue(7.0))
   |> expect.to_equal(Ok(Nil))
   let assert [data, schema] = transport_js.get_cell(peer_submissions)
   callbacks.on_event(
@@ -1301,12 +1347,12 @@ pub fn shared_tree_map_facade_js_remote_schema_and_data_test() {
       Ok(Some(types.NumberValue(7.0))),
     ),
   ])
-  expect_compatibility_error(watershed.tree_get(old, ["items"]))
+  expect_compatibility_error(facade_fixture.get_javascript(old, ["items"]))
   watershed.set(root, "alive", json.string("yes"))
   watershed.get(root, "alive") |> expect.to_equal(Ok(json.string("yes")))
-  watershed.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  facade_fixture.set_javascript(compatible, ["score"], types.NumberValue(8.0))
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_get(compatible, ["score"])
+  facade_fixture.get_javascript(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(8.0))))
   watershed.unsubscribe(subscription)
   watershed.close(peer)
@@ -1345,14 +1391,15 @@ pub fn shared_tree_map_facade_js_upgraded_summary_recovery_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [initial] = input.tree_views
   let old =
-    watershed.open_tree(document, marker, initial.view) |> expect.to_be_ok()
-  let compatible =
-    watershed.resolve_tree(document, marker, optional_view(input))
+    facade_fixture.open_javascript(document, marker, initial.view)
     |> expect.to_be_ok()
-  expect_compatibility_error(watershed.tree_get(old, ["items"]))
-  watershed.tree_get(compatible, ["score"])
+  let compatible =
+    facade_fixture.resolve_javascript(document, marker, optional_view(input))
+    |> expect.to_be_ok()
+  expect_compatibility_error(facade_fixture.get_javascript(old, ["items"]))
+  facade_fixture.get_javascript(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
-  watershed.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  facade_fixture.set_javascript(compatible, ["score"], types.NumberValue(8.0))
   |> expect.to_equal(Ok(Nil))
   watershed.set(root, "alive", json.string("yes"))
   watershed.get(root, "alive") |> expect.to_equal(Ok(json.string("yes")))
@@ -1395,17 +1442,17 @@ pub fn shared_tree_map_facade_js_root_events_and_atomicity_test() {
     watershed.subscribe_tree(tree, fn(event) {
       transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
     })
-  watershed.tree_map_set(tree, [], "", types.StringValue("value"))
+  facade_fixture.map_set_javascript(tree, [], "", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_keys(tree, []) |> expect.to_equal(Ok([""]))
-  watershed.tree_map_entries(tree, [])
+  facade_fixture.map_keys_javascript(tree, []) |> expect.to_equal(Ok([""]))
+  facade_fixture.map_entries_javascript(tree, [])
   |> expect.to_equal(Ok([#("", types.StringValue("value"))]))
-  watershed.tree_map_get(tree, [], "")
+  facade_fixture.map_get_javascript(tree, [], "")
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   let assert [submitted] = transport_js.get_cell(submissions)
   peer_callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
   peer_callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
-  watershed.tree_map_get(peer_tree, [], "")
+  facade_fixture.map_get_javascript(peer_tree, [], "")
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   transport_js.get_cell(remote_events)
   |> expect.to_equal([tree_kernel.TreeChanged(False)])
@@ -1415,16 +1462,23 @@ pub fn shared_tree_map_facade_js_root_events_and_atomicity_test() {
   callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
   runtime.connection_observation(watershed.runtime_of(document)).pending_tree_count
   |> expect.to_equal(0)
-  watershed.tree_map_delete(tree, [], "absent") |> expect.to_equal(Ok(Nil))
-  watershed.tree_map_set(tree, [], "bad", types.ObjectValue("unknown", []))
+  facade_fixture.map_delete_javascript(tree, [], "absent")
+  |> expect.to_equal(Ok(Nil))
+  facade_fixture.map_set_javascript(
+    tree,
+    [],
+    "bad",
+    types.ObjectValue("unknown", []),
+  )
   |> expect.to_be_error()
-  watershed.tree_map_delete(tree, [""], "bad") |> expect.to_be_error()
+  facade_fixture.map_delete_javascript(tree, [""], "bad")
+  |> expect.to_be_error()
   transport_js.get_cell(events)
   |> expect.to_equal([tree_kernel.TreeChanged(True)])
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
   runtime.connection_observation(watershed.runtime_of(document)).pending_tree_count
   |> expect.to_equal(1)
-  watershed.tree_map_entries(tree, [])
+  facade_fixture.map_entries_javascript(tree, [])
   |> expect.to_equal(Ok([#("", types.StringValue("value"))]))
   watershed.unsubscribe(subscription)
   watershed.unsubscribe(remote_subscription)
@@ -1447,31 +1501,43 @@ pub fn shared_tree_map_facade_js_retained_reads_test() {
     json.to_string(connected("reader", 0)),
   )
   let tree = js_tree(document, input)
-  watershed.tree_map_set(tree, ["items"], "key", types.StringValue("retained"))
+  facade_fixture.map_set_javascript(
+    tree,
+    ["items"],
+    "key",
+    types.StringValue("retained"),
+  )
   |> expect.to_equal(Ok(Nil))
   callbacks.on_close()
   runtime.connection_observation(owner).phase |> expect.to_equal("reconnecting")
-  watershed.tree_map_get(tree, ["items"], "key")
+  facade_fixture.map_get_javascript(tree, ["items"], "key")
   |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
-  watershed.tree_map_delete(tree, ["items"], "key") |> expect.to_be_error()
+  facade_fixture.map_delete_javascript(tree, ["items"], "key")
+  |> expect.to_be_error()
   callbacks.on_join()
   callbacks.on_event(
     "connect_document_success",
     json.to_string(connected("rejoined", 1)),
   )
   runtime.connection_observation(owner).phase |> expect.to_equal("catching-up")
-  watershed.tree_map_entries(tree, ["items"])
+  facade_fixture.map_entries_javascript(tree, ["items"])
   |> expect.to_equal(Ok([#("key", types.StringValue("retained"))]))
-  watershed.tree_map_set(tree, ["items"], "key", types.StringValue("lost"))
+  facade_fixture.map_set_javascript(
+    tree,
+    ["items"],
+    "key",
+    types.StringValue("lost"),
+  )
   |> expect.to_be_error()
   callbacks.on_close()
   callbacks.on_join()
   callbacks.on_event("connect_document_error", json.to_string(rejected()))
   runtime.connection_observation(owner).phase |> expect.to_equal("suspended")
-  watershed.tree_map_keys(tree, ["items"]) |> expect.to_equal(Ok(["key"]))
-  watershed.tree_map_get(tree, ["items"], "key")
+  facade_fixture.map_keys_javascript(tree, ["items"])
+  |> expect.to_equal(Ok(["key"]))
+  facade_fixture.map_get_javascript(tree, ["items"], "key")
   |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
-  watershed.tree_map_delete(tree, ["items"], "key")
+  facade_fixture.map_delete_javascript(tree, ["items"], "key")
   |> expect.to_equal(Error("authorization revoked"))
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
   watershed.close(document)
@@ -1531,13 +1597,14 @@ fn beam_transport(
 fn beam_tree(
   document: watershed_beam.Document(root),
   input: runtime_core.BootstrapSeedInput,
-) -> watershed_beam.SharedTree {
+) -> watershed_beam.SharedTree(facade_fixture.Dynamic, types.TreeValue) {
   runtime_beam.await_ready(watershed_beam.runtime_subject(document))
   |> expect.to_equal(Ok(Nil))
   let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
-  watershed_beam.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  facade_fixture.resolve_erlang(document, marker, view.view)
+  |> expect.to_be_ok()
 }
 
 @target(erlang)
@@ -1549,12 +1616,14 @@ pub fn shared_tree_map_facade_beam_operations_test() {
   callbacks.on_event("connect_document_success", connected("reader", 0))
   let tree = beam_tree(document, input)
   assert_map_operations(
-    fn(path, key) { watershed_beam.tree_map_get(tree, path, key) },
-    fn(path, key, value) { watershed_beam.tree_map_set(tree, path, key, value) },
-    fn(path, key) { watershed_beam.tree_map_delete(tree, path, key) },
-    fn(path) { watershed_beam.tree_map_keys(tree, path) },
-    fn(path) { watershed_beam.tree_map_entries(tree, path) },
-    fn(path, value) { watershed_beam.tree_set(tree, path, value) },
+    fn(path, key) { facade_fixture.map_get_erlang(tree, path, key) },
+    fn(path, key, value) {
+      facade_fixture.map_set_erlang(tree, path, key, value)
+    },
+    fn(path, key) { facade_fixture.map_delete_erlang(tree, path, key) },
+    fn(path) { facade_fixture.map_keys_erlang(tree, path) },
+    fn(path) { facade_fixture.map_entries_erlang(tree, path) },
+    fn(path, value) { facade_fixture.set_erlang(tree, path, value) },
   )
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
@@ -1567,14 +1636,14 @@ pub fn shared_tree_map_facade_beam_generates_identifier_defaults_test() {
   beam_transport(callbacks, submissions)
   callbacks.on_event("connect_document_success", connected("reader", 0))
   let tree = beam_tree(document, input)
-  watershed_beam.tree_map_set(
+  facade_fixture.map_set_erlang(
     tree,
     ["byKey"],
     "point",
     missing_identifier_point("map"),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_map_get(tree, ["byKey"], "point")
+  facade_fixture.map_get_erlang(tree, ["byKey"], "point")
   |> expect.to_be_ok()
   |> expect_generated_identifier("map")
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
@@ -1628,7 +1697,7 @@ pub fn shared_tree_map_facade_beam_commit_subscription_test() {
       |> expect.to_equal(Ok(Nil))
     })
 
-  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_erlang(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   process.receive(order, 1000) |> expect.to_equal(Ok("winner"))
   process.receive(order, 1000) |> expect.to_equal(Ok("loser"))
@@ -1670,7 +1739,7 @@ pub fn shared_tree_map_facade_beam_commit_subscription_test() {
   watershed_beam.unsubscribe(winner)
   watershed_beam.unsubscribe(loser)
   watershed_beam.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_map_get(tree, [], "key") |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_erlang(tree, [], "key") |> expect.to_equal(Ok(None))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   watershed_beam.tree_revertible_status(revertible)
   |> expect.to_equal(watershed_beam.RevertibleDisposed)
@@ -1683,7 +1752,7 @@ pub fn shared_tree_map_facade_beam_commit_subscription_test() {
         event
       process.send(cleanup, factory())
     })
-  watershed_beam.tree_map_set(tree, [], "cleanup", types.StringValue("value"))
+  facade_fixture.map_set_erlang(tree, [], "cleanup", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   let cleanup_handle =
     process.receive(cleanup, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
@@ -1721,7 +1790,7 @@ pub fn shared_tree_map_facade_beam_settlement_callback_failure_isolated_test() {
       |> expect.to_equal(Ok(Nil))
     })
 
-  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_erlang(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
   callbacks.on_event("op", acknowledgement(submitted))
@@ -1747,7 +1816,7 @@ pub fn shared_tree_map_facade_beam_shutdown_drops_pending_settlement_test() {
       |> expect.to_equal(Ok(Nil))
     })
 
-  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  facade_fixture.map_set_erlang(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   let runtime = watershed_beam.runtime_subject(document)
@@ -1784,7 +1853,7 @@ pub fn shared_tree_map_facade_beam_remote_commit_has_no_local_callbacks_test() {
   beam_transport(peer_callbacks, peer_submissions)
   peer_callbacks.on_event("connect_document_success", connected("other", 0))
   let peer_tree = beam_tree(peer, input)
-  watershed_beam.tree_map_set(
+  facade_fixture.map_set_erlang(
     peer_tree,
     [],
     "remote",
@@ -1824,13 +1893,13 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
   let peer_tree = beam_tree(peer, input)
 
   watershed_beam.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed_beam.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_erlang(
       tree,
       [],
       "outer",
       types.StringValue("one"),
     ))
-    watershed_beam.tree_map_set(
+    facade_fixture.map_set_erlang(
       peer_tree,
       [],
       "remote",
@@ -1839,17 +1908,17 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
     |> expect.to_equal(Ok(Nil))
     let first = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
     callbacks.on_event("op", acknowledgement(first))
-    watershed_beam.tree_map_get(tree, [], "remote")
+    facade_fixture.map_get_erlang(tree, [], "remote")
     |> expect.to_equal(Ok(None))
 
     watershed_beam.tree_transaction(tree, [], fn(tree) {
-      use _ <- result.try(watershed_beam.tree_map_set(
+      use _ <- result.try(facade_fixture.map_set_erlang(
         tree,
         [],
         "nested",
         types.StringValue("two"),
       ))
-      watershed_beam.tree_map_set(
+      facade_fixture.map_set_erlang(
         peer_tree,
         [],
         "remote",
@@ -1858,14 +1927,14 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
       |> expect.to_equal(Ok(Nil))
       let second = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
       callbacks.on_event("op", acknowledgement(second))
-      watershed_beam.tree_map_get(tree, [], "remote")
+      facade_fixture.map_get_erlang(tree, [], "remote")
       |> expect.to_equal(Ok(None))
       Ok(Nil)
     })
     |> expect.to_equal(Ok(Nil))
-    watershed_beam.tree_map_get(tree, [], "remote")
+    facade_fixture.map_get_erlang(tree, [], "remote")
     |> expect.to_equal(Ok(None))
-    use _ <- result.try(watershed_beam.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_erlang(
       tree,
       [],
       "after",
@@ -1875,7 +1944,7 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
   })
   |> expect.to_equal(Ok(42))
 
-  watershed_beam.tree_map_entries(tree, [])
+  facade_fixture.map_entries_erlang(tree, [])
   |> expect.to_equal(
     Ok([
       #("after", types.StringValue("three")),
@@ -1896,14 +1965,14 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
 
   let aborted =
     watershed_beam.tree_transaction(tree, [], fn(tree) {
-      watershed_beam.tree_map_set(
+      facade_fixture.map_set_erlang(
         tree,
         [],
         "temporary",
         types.StringValue("discarded"),
       )
       |> expect.to_equal(Ok(Nil))
-      watershed_beam.tree_map_set(
+      facade_fixture.map_set_erlang(
         peer_tree,
         [],
         "remote-abort",
@@ -1913,13 +1982,13 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
       let first = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
       callbacks.on_event("op", acknowledgement(first))
       watershed_beam.tree_transaction(tree, [], fn(tree) {
-        use _ <- result.try(watershed_beam.tree_map_set(
+        use _ <- result.try(facade_fixture.map_set_erlang(
           tree,
           [],
           "nested-temporary",
           types.StringValue("discarded"),
         ))
-        watershed_beam.tree_map_set(
+        facade_fixture.map_set_erlang(
           peer_tree,
           [],
           "remote-abort",
@@ -1932,16 +2001,16 @@ pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() 
         Ok(Nil)
       })
       |> expect.to_equal(Ok(Nil))
-      watershed_beam.tree_map_get(tree, [], "remote-abort")
+      facade_fixture.map_get_erlang(tree, [], "remote-abort")
       |> expect.to_equal(Ok(None))
       Error(Stop)
     })
   aborted |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
-  watershed_beam.tree_map_get(tree, [], "temporary")
+  facade_fixture.map_get_erlang(tree, [], "temporary")
   |> expect.to_equal(Ok(None))
-  watershed_beam.tree_map_get(tree, [], "nested-temporary")
+  facade_fixture.map_get_erlang(tree, [], "nested-temporary")
   |> expect.to_equal(Ok(None))
-  watershed_beam.tree_map_get(tree, [], "remote-abort")
+  facade_fixture.map_get_erlang(tree, [], "remote-abort")
   |> expect.to_equal(Ok(Some(types.StringValue("second"))))
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
@@ -1969,10 +2038,10 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [initial] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, initial.view)
+    facade_fixture.resolve_erlang(document, marker, initial.view)
     |> expect.to_be_ok()
   let other_view =
-    watershed_beam.open_tree(document, marker, optional_view(input))
+    facade_fixture.open_erlang(document, marker, optional_view(input))
     |> expect.to_be_ok()
   let ran = process.new_subject()
 
@@ -1990,7 +2059,7 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
 
   let result =
     watershed_beam.tree_transaction(tree, [], fn(tree) {
-      watershed_beam.tree_map_set(
+      facade_fixture.map_set_erlang(
         tree,
         ["items"],
         "outer",
@@ -2009,7 +2078,7 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
 
       let nested =
         watershed_beam.tree_transaction(tree, [], fn(tree) {
-          use _ <- result.try(watershed_beam.tree_map_set(
+          use _ <- result.try(facade_fixture.map_set_erlang(
             tree,
             ["items"],
             "inner",
@@ -2033,20 +2102,20 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
         })
       let assert watershed_beam.TransactionFailed(_) =
         nested |> expect.to_be_error
-      watershed_beam.tree_map_get(tree, ["items"], "inner")
+      facade_fixture.map_get_erlang(tree, ["items"], "inner")
       |> expect.to_equal(Ok(None))
-      watershed_beam.tree_map_get(tree, ["items"], "outer")
+      facade_fixture.map_get_erlang(tree, ["items"], "outer")
       |> expect.to_equal(Ok(Some(types.StringValue("kept until outer abort"))))
       Error(Stop)
     })
   result |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
-  watershed_beam.tree_map_get(tree, ["items"], "outer")
+  facade_fixture.map_get_erlang(tree, ["items"], "outer")
   |> expect.to_equal(Ok(None))
-  watershed_beam.tree_map_get(tree, ["items"], "inner")
+  facade_fixture.map_get_erlang(tree, ["items"], "inner")
   |> expect.to_equal(Ok(None))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
   watershed_beam.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed_beam.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_erlang(
       tree,
       ["items"],
       "later",
@@ -2055,7 +2124,7 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_map_get(tree, ["items"], "later")
+  facade_fixture.map_get_erlang(tree, ["items"], "later")
   |> expect.to_equal(Ok(Some(types.StringValue("usable"))))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
@@ -2092,7 +2161,7 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_held_batches_after_nested_a
             connected("reader-reconnected", 0),
           )
 
-          watershed_beam.tree_map_set(
+          facade_fixture.map_set_erlang(
             peer_tree,
             [],
             "remote",
@@ -2104,7 +2173,7 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_held_batches_after_nested_a
           expect_allocation_batch(first)
           reconnect.on_event("op", acknowledgement(first))
 
-          watershed_beam.tree_map_set(
+          facade_fixture.map_set_erlang(
             peer_tree,
             [],
             "remote",
@@ -2115,19 +2184,19 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_held_batches_after_nested_a
             process.receive(peer_submissions, 1000) |> expect.to_be_ok()
           reconnect.on_event("op", acknowledgement(second))
 
-          watershed_beam.tree_map_get(tree, [], "remote")
+          facade_fixture.map_get_erlang(tree, [], "remote")
           |> expect.to_equal(Ok(None))
           Ok(Nil)
         })
       let assert watershed_beam.TransactionFailed(_) =
         nested |> expect.to_be_error()
-      watershed_beam.tree_map_get(tree, [], "remote")
+      facade_fixture.map_get_erlang(tree, [], "remote")
       |> expect.to_equal(Ok(None))
       Error(Stop)
     })
 
   result |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
-  watershed_beam.tree_map_get(tree, [], "remote")
+  facade_fixture.map_get_erlang(tree, [], "remote")
   |> expect.to_equal(Ok(Some(types.StringValue("second"))))
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
@@ -2157,7 +2226,7 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_before_outer_commit_failure
   let peer_tree = beam_tree(peer, input)
 
   watershed_beam.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed_beam.tree_map_set(
+    use _ <- result.try(facade_fixture.map_set_erlang(
       tree,
       [],
       "local",
@@ -2170,7 +2239,7 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_before_outer_commit_failure
       "connect_document_success",
       connected("reader-reconnected", 0),
     )
-    watershed_beam.tree_map_set(
+    facade_fixture.map_set_erlang(
       peer_tree,
       [],
       "remote",
@@ -2183,8 +2252,8 @@ pub fn shared_tree_map_facade_beam_reconnect_replays_before_outer_commit_failure
   })
   |> expect.to_be_error()
 
-  watershed_beam.tree_map_get(tree, [], "local") |> expect.to_equal(Ok(None))
-  watershed_beam.tree_map_get(tree, [], "remote")
+  facade_fixture.map_get_erlang(tree, [], "local") |> expect.to_equal(Ok(None))
+  facade_fixture.map_get_erlang(tree, [], "remote")
   |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
   process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
@@ -2238,7 +2307,7 @@ pub fn shared_tree_map_facade_beam_reconnect_resubmit_failure_replaces_abort_tes
   let tree = beam_tree(document, input)
   let owner = watershed_beam.runtime_subject(document)
 
-  watershed_beam.tree_map_set(
+  facade_fixture.map_set_erlang(
     tree,
     [],
     "retained",
@@ -2294,7 +2363,7 @@ pub fn shared_tree_map_facade_beam_reconnect_resubmit_failure_replaces_abort_tes
   let observation = runtime_beam.connection_observation(owner)
   observation.phase |> expect.to_equal("reconnecting")
   observation.pending_tree_count |> expect.to_equal(1)
-  watershed_beam.tree_map_get(tree, [], "retained")
+  facade_fixture.map_get_erlang(tree, [], "retained")
   |> expect.to_equal(Ok(Some(types.StringValue("optimistic"))))
   process.send(owner, runtime_beam.Shutdown)
 }
@@ -2311,14 +2380,14 @@ pub fn shared_tree_map_facade_beam_view_lifecycle_test() {
   let assert [initial] = input.tree_views
   let optional = optional_view(input)
   let v1 =
-    watershed_beam.resolve_tree(document, marker, initial.view)
+    facade_fixture.resolve_erlang(document, marker, initial.view)
     |> expect.to_be_ok()
   let next =
-    watershed_beam.open_tree(document, marker, optional) |> expect.to_be_ok()
-  watershed_beam.tree_get(v1, ["items"]) |> expect.to_be_ok()
+    facade_fixture.open_erlang(document, marker, optional) |> expect.to_be_ok()
+  facade_fixture.get_erlang(v1, ["items"]) |> expect.to_be_ok()
   watershed_beam.tree_compatibility(next)
   |> expect.to_equal(Ok(tree_schema.Compatibility(False, True, False)))
-  expect_compatibility_error(watershed_beam.tree_get(next, ["items"]))
+  expect_compatibility_error(facade_fixture.get_erlang(next, ["items"]))
 
   let events = watershed_beam.subscribe_tree(next)
   watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
@@ -2326,40 +2395,41 @@ pub fn shared_tree_map_facade_beam_view_lifecycle_test() {
   |> expect.to_equal(Ok(tree_kernel.SchemaChanged(True)))
   watershed_beam.tree_compatibility(next)
   |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
-  watershed_beam.tree_get(next, ["items"]) |> expect.to_be_ok()
+  facade_fixture.get_erlang(next, ["items"]) |> expect.to_be_ok()
   watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
 
   watershed_beam.tree_compatibility(v1)
   |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
-  expect_compatibility_error(watershed_beam.tree_get(v1, ["items"]))
-  expect_compatibility_error(watershed_beam.tree_set(
+  expect_compatibility_error(facade_fixture.get_erlang(v1, ["items"]))
+  expect_compatibility_error(facade_fixture.set_erlang(
     v1,
     ["score"],
     types.NumberValue(1.0),
   ))
-  expect_compatibility_error(watershed_beam.tree_clear(v1, ["score"]))
-  expect_compatibility_error(watershed_beam.tree_map_get(v1, ["items"], "key"))
-  expect_compatibility_error(watershed_beam.tree_map_set(
+  expect_compatibility_error(facade_fixture.clear_erlang(v1, ["score"]))
+  expect_compatibility_error(facade_fixture.map_get_erlang(v1, ["items"], "key"))
+  expect_compatibility_error(facade_fixture.map_set_erlang(
     v1,
     ["items"],
     "key",
     types.StringValue("stale"),
   ))
-  expect_compatibility_error(watershed_beam.tree_map_delete(
+  expect_compatibility_error(facade_fixture.map_delete_erlang(
     v1,
     ["items"],
     "key",
   ))
-  expect_compatibility_error(watershed_beam.tree_map_entries(v1, ["items"]))
-  expect_compatibility_error(watershed_beam.tree_map_keys(v1, ["items"]))
+  expect_compatibility_error(facade_fixture.map_entries_erlang(v1, ["items"]))
+  expect_compatibility_error(facade_fixture.map_keys_erlang(v1, ["items"]))
   watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
 
   let recovered =
-    watershed_beam.resolve_tree(document, marker, optional) |> expect.to_be_ok()
-  watershed_beam.tree_set(recovered, ["score"], types.NumberValue(1.0))
+    facade_fixture.resolve_erlang(document, marker, optional)
+    |> expect.to_be_ok()
+  facade_fixture.set_erlang(recovered, ["score"], types.NumberValue(1.0))
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_get(recovered, ["score"])
+  facade_fixture.get_erlang(recovered, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   process.receive(submissions, 1000) |> expect.to_be_ok()
@@ -2379,10 +2449,10 @@ pub fn shared_tree_map_facade_beam_remote_schema_and_data_test() {
   let assert [initial] = input.tree_views
   let optional = optional_view(input)
   let old =
-    watershed_beam.resolve_tree(document, marker, initial.view)
+    facade_fixture.resolve_erlang(document, marker, initial.view)
     |> expect.to_be_ok()
   let compatible =
-    watershed_beam.open_tree(document, marker, optional) |> expect.to_be_ok()
+    facade_fixture.open_erlang(document, marker, optional) |> expect.to_be_ok()
   let events = watershed_beam.subscribe_tree(compatible)
 
   let #(peer, peer_connections, peer_submissions) =
@@ -2394,9 +2464,9 @@ pub fn shared_tree_map_facade_beam_remote_schema_and_data_test() {
   let peer_root = watershed_beam.resolve_root(peer) |> expect.to_be_ok()
   let peer_marker = watershed_beam.get(peer_root, "tree") |> expect.to_be_ok()
   let next =
-    watershed_beam.open_tree(peer, peer_marker, optional) |> expect.to_be_ok()
+    facade_fixture.open_erlang(peer, peer_marker, optional) |> expect.to_be_ok()
   watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_set(next, ["score"], types.NumberValue(7.0))
+  facade_fixture.set_erlang(next, ["score"], types.NumberValue(7.0))
   |> expect.to_equal(Ok(Nil))
   let schema = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
   let data = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
@@ -2406,21 +2476,21 @@ pub fn shared_tree_map_facade_beam_remote_schema_and_data_test() {
   |> expect.to_equal(Ok(tree_kernel.SchemaChanged(False)))
   watershed_beam.tree_compatibility(compatible)
   |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
-  watershed_beam.tree_get(compatible, ["score"])
+  facade_fixture.get_erlang(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
   watershed_beam.tree_compatibility(compatible)
   |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
-  watershed_beam.tree_get(compatible, ["score"])
+  facade_fixture.get_erlang(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
-  expect_compatibility_error(watershed_beam.tree_get(old, ["items"]))
+  expect_compatibility_error(facade_fixture.get_erlang(old, ["items"]))
   watershed_beam.set(root, "alive", json.string("yes"))
   watershed_beam.get(root, "alive")
   |> expect.to_equal(Ok(json.string("yes")))
-  watershed_beam.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  facade_fixture.set_erlang(compatible, ["score"], types.NumberValue(8.0))
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_get(compatible, ["score"])
+  facade_fixture.get_erlang(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(8.0))))
   process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
@@ -2450,15 +2520,15 @@ pub fn shared_tree_map_facade_beam_upgraded_summary_recovery_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [initial] = input.tree_views
   let old =
-    watershed_beam.open_tree(document, marker, initial.view)
+    facade_fixture.open_erlang(document, marker, initial.view)
     |> expect.to_be_ok()
   let compatible =
-    watershed_beam.resolve_tree(document, marker, optional_view(input))
+    facade_fixture.resolve_erlang(document, marker, optional_view(input))
     |> expect.to_be_ok()
-  expect_compatibility_error(watershed_beam.tree_get(old, ["items"]))
-  watershed_beam.tree_get(compatible, ["score"])
+  expect_compatibility_error(facade_fixture.get_erlang(old, ["items"]))
+  facade_fixture.get_erlang(compatible, ["score"])
   |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
-  watershed_beam.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  facade_fixture.set_erlang(compatible, ["score"], types.NumberValue(8.0))
   |> expect.to_equal(Ok(Nil))
   watershed_beam.set(root, "alive", json.string("yes"))
   watershed_beam.get(root, "alive")
@@ -2487,17 +2557,17 @@ pub fn shared_tree_map_facade_beam_root_events_and_atomicity_test() {
   |> expect.to_be_ok()
   let events = watershed_beam.subscribe_tree(tree)
   runtime_beam.resolve_root(owner) |> expect.to_be_ok()
-  watershed_beam.tree_map_set(tree, [], "", types.StringValue("value"))
+  facade_fixture.map_set_erlang(tree, [], "", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_map_keys(tree, []) |> expect.to_equal(Ok([""]))
-  watershed_beam.tree_map_entries(tree, [])
+  facade_fixture.map_keys_erlang(tree, []) |> expect.to_equal(Ok([""]))
+  facade_fixture.map_entries_erlang(tree, [])
   |> expect.to_equal(Ok([#("", types.StringValue("value"))]))
-  watershed_beam.tree_map_get(tree, [], "")
+  facade_fixture.map_get_erlang(tree, [], "")
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
   peer_callbacks.on_event("op", acknowledgement(submitted))
   peer_callbacks.on_event("op", acknowledgement(submitted))
-  watershed_beam.tree_map_get(peer_tree, [], "")
+  facade_fixture.map_get_erlang(peer_tree, [], "")
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   process.receive(remote_events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
@@ -2506,11 +2576,16 @@ pub fn shared_tree_map_facade_beam_root_events_and_atomicity_test() {
   callbacks.on_event("op", acknowledgement(submitted))
   runtime_beam.connection_observation(owner).pending_tree_count
   |> expect.to_equal(0)
-  watershed_beam.tree_map_delete(tree, [], "absent")
+  facade_fixture.map_delete_erlang(tree, [], "absent")
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_map_set(tree, [], "bad", types.ObjectValue("unknown", []))
+  facade_fixture.map_set_erlang(
+    tree,
+    [],
+    "bad",
+    types.ObjectValue("unknown", []),
+  )
   |> expect.to_be_error()
-  watershed_beam.tree_map_delete(tree, [""], "bad") |> expect.to_be_error()
+  facade_fixture.map_delete_erlang(tree, [""], "bad") |> expect.to_be_error()
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
@@ -2518,7 +2593,7 @@ pub fn shared_tree_map_facade_beam_root_events_and_atomicity_test() {
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
   runtime_beam.connection_observation(owner).pending_tree_count
   |> expect.to_equal(1)
-  watershed_beam.tree_map_entries(tree, [])
+  facade_fixture.map_entries_erlang(tree, [])
   |> expect.to_equal(Ok([#("", types.StringValue("value"))]))
   process.send(owner, runtime_beam.Shutdown)
   process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
@@ -2537,7 +2612,7 @@ pub fn shared_tree_map_facade_beam_retained_reads_test() {
   beam_transport(callbacks, submissions)
   callbacks.on_event("connect_document_success", connected("reader", 0))
   let tree = beam_tree(document, input)
-  watershed_beam.tree_map_set(
+  facade_fixture.map_set_erlang(
     tree,
     ["items"],
     "key",
@@ -2548,16 +2623,22 @@ pub fn shared_tree_map_facade_beam_retained_reads_test() {
   let second = process.receive(connections, 1000) |> expect.to_be_ok()
   runtime_beam.connection_observation(owner).phase
   |> expect.to_equal("reconnecting")
-  watershed_beam.tree_map_get(tree, ["items"], "key")
+  facade_fixture.map_get_erlang(tree, ["items"], "key")
   |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
-  watershed_beam.tree_map_delete(tree, ["items"], "key") |> expect.to_be_error()
+  facade_fixture.map_delete_erlang(tree, ["items"], "key")
+  |> expect.to_be_error()
   beam_transport(second, submissions)
   second.on_event("connect_document_success", connected("rejoined", 1))
   runtime_beam.connection_observation(owner).phase
   |> expect.to_equal("catching-up")
-  watershed_beam.tree_map_entries(tree, ["items"])
+  facade_fixture.map_entries_erlang(tree, ["items"])
   |> expect.to_equal(Ok([#("key", types.StringValue("retained"))]))
-  watershed_beam.tree_map_set(tree, ["items"], "key", types.StringValue("lost"))
+  facade_fixture.map_set_erlang(
+    tree,
+    ["items"],
+    "key",
+    types.StringValue("lost"),
+  )
   |> expect.to_be_error()
   second.on_close("transport lost")
   let third = process.receive(connections, 1000) |> expect.to_be_ok()
@@ -2565,10 +2646,11 @@ pub fn shared_tree_map_facade_beam_retained_reads_test() {
   third.on_event("connect_document_error", rejected())
   runtime_beam.connection_observation(owner).phase
   |> expect.to_equal("suspended")
-  watershed_beam.tree_map_keys(tree, ["items"]) |> expect.to_equal(Ok(["key"]))
-  watershed_beam.tree_map_get(tree, ["items"], "key")
+  facade_fixture.map_keys_erlang(tree, ["items"])
+  |> expect.to_equal(Ok(["key"]))
+  facade_fixture.map_get_erlang(tree, ["items"], "key")
   |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
-  watershed_beam.tree_map_delete(tree, ["items"], "key")
+  facade_fixture.map_delete_erlang(tree, ["items"], "key")
   |> expect.to_equal(Error("authorization revoked"))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))

@@ -28,6 +28,7 @@ import watershed/sluice/frame
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/facade_fixture
 @target(erlang)
 import watershed/tree/identifier_fixture
 import watershed/tree/schema
@@ -105,7 +106,9 @@ pub fn native_created_tree_supports_revertible_facade_test() {
   let view =
     schema.view_from_json(schema.stored_to_json(stored))
     |> expect.to_be_ok()
-  let tree = watershed.resolve_tree(document, marker, view) |> expect.to_be_ok()
+  let tree =
+    facade_fixture.resolve_javascript(document, marker, view)
+    |> expect.to_be_ok()
   let handle = transport_js.new_cell(None)
   let token =
     watershed.subscribe_tree_commits(tree, fn(event) {
@@ -117,11 +120,11 @@ pub fn native_created_tree_supports_revertible_facade_test() {
         Some(#(acquired, watershed.tree_revertible_revision(acquired))),
       )
     })
-  watershed.tree_set(tree, [], types.StringValue("changed"))
+  facade_fixture.set_javascript(tree, [], types.StringValue("changed"))
   |> expect.to_equal(Ok(Nil))
   let assert Some(#(handle, revision)) = transport_js.get_cell(handle)
   watershed.tree_revert(handle, True) |> expect.to_equal(Ok(Nil))
-  watershed.tree_get(tree, [])
+  facade_fixture.get_javascript(tree, [])
   |> expect.to_equal(Ok(Some(types.StringValue("initial"))))
   watershed.tree_revertible_revision(handle) |> expect.to_equal(revision)
   watershed.unsubscribe(token)
@@ -188,7 +191,8 @@ pub fn native_created_tree_supports_beam_revertible_facade_test() {
     schema.view_from_json(schema.stored_to_json(stored))
     |> expect.to_be_ok()
   let tree =
-    watershed_beam.resolve_tree(document, marker, view) |> expect.to_be_ok()
+    facade_fixture.resolve_erlang(document, marker, view)
+    |> expect.to_be_ok()
   let token =
     watershed_beam.subscribe_tree_commits(tree, fn(event) {
       let assert watershed_beam.TreeCommitEvent(_, True, Some(factory), _) =
@@ -199,11 +203,11 @@ pub fn native_created_tree_supports_beam_revertible_facade_test() {
         watershed_beam.tree_revertible_revision(acquired),
       ))
     })
-  watershed_beam.tree_set(tree, [], types.StringValue("changed"))
+  facade_fixture.set_erlang(tree, [], types.StringValue("changed"))
   |> expect.to_equal(Ok(Nil))
   let #(handle, revision) = process.receive(handles, 1000) |> expect.to_be_ok()
   watershed_beam.tree_revert(handle, True) |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_get(tree, [])
+  facade_fixture.get_erlang(tree, [])
   |> expect.to_equal(Ok(Some(types.StringValue("initial"))))
   watershed_beam.tree_revertible_revision(handle) |> expect.to_equal(revision)
   watershed_beam.unsubscribe(token)

@@ -17,6 +17,7 @@ import watershed/runtime_core
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/facade_fixture
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
@@ -169,16 +170,19 @@ pub fn shared_tree_array_facade_js_operations_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
   assert_array_operations(
-    fn(path, index) { watershed.tree_array_get(tree, path, index) },
-    fn(path) { watershed.tree_array_values(tree, path) },
+    fn(path, index) { facade_fixture.array_get_javascript(tree, path, index) },
+    fn(path) { facade_fixture.array_values_javascript(tree, path) },
     fn(path, index, values) {
-      watershed.tree_array_insert(tree, path, index, values)
+      facade_fixture.array_insert_javascript(tree, path, index, values)
     },
-    fn(path, start, end) { watershed.tree_array_remove(tree, path, start, end) },
+    fn(path, start, end) {
+      facade_fixture.array_remove_javascript(tree, path, start, end)
+    },
     fn(source_path, source_start, source_end, destination_path, destination_gap) {
-      watershed.tree_array_move(
+      facade_fixture.array_move_javascript(
         tree,
         source_path,
         source_start,
@@ -223,12 +227,13 @@ pub fn shared_tree_array_facade_js_generates_identifier_defaults_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
-  watershed.tree_array_insert(tree, ["left"], 0, [
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
+  facade_fixture.array_insert_javascript(tree, ["left"], 0, [
     missing_identifier_point("array"),
   ])
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_array_get(tree, ["left"], 0)
+  facade_fixture.array_get_javascript(tree, ["left"], 0)
   |> expect.to_be_ok()
   |> expect_generated_identifier("array")
   watershed.close(document)
@@ -276,18 +281,28 @@ pub fn shared_tree_array_facade_js_transaction_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
 
   watershed.tree_transaction(tree, [], fn(tree) {
     use _ <- result.try(
-      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+      facade_fixture.array_insert_javascript(tree, [], 1, [
+        types.StringValue("X"),
+      ]),
     )
-    use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 4))
-    use _ <- result.try(watershed.tree_array_remove(tree, [], 1, 2))
+    use _ <- result.try(facade_fixture.array_move_javascript(
+      tree,
+      [],
+      1,
+      2,
+      [],
+      4,
+    ))
+    use _ <- result.try(facade_fixture.array_remove_javascript(tree, [], 1, 2))
     Ok("commit")
   })
   |> expect.to_equal(Ok("commit"))
-  watershed.tree_array_values(tree, [])
+  facade_fixture.array_values_javascript(tree, [])
   |> expect.to_equal(
     Ok([
       types.StringValue("A"),
@@ -341,7 +356,8 @@ pub fn shared_tree_array_facade_js_transaction_revertible_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
   let handles = transport_js.new_cell([])
   let events = transport_js.new_cell(0)
   let token =
@@ -353,12 +369,12 @@ pub fn shared_tree_array_facade_js_transaction_revertible_test() {
       transport_js.set_cell(events, transport_js.get_cell(events) + 1)
     })
 
-  watershed.tree_array_insert(tree, [], 3, [types.StringValue("D")])
+  facade_fixture.array_insert_javascript(tree, [], 3, [types.StringValue("D")])
   |> expect.to_equal(Ok(Nil))
   let assert [first] = transport_js.get_cell(handles)
   watershed.tree_transaction(tree, [], fn(tree) {
     watershed.tree_revert(first, False) |> expect.to_be_error()
-    watershed.tree_array_values(tree, [])
+    facade_fixture.array_values_javascript(tree, [])
     |> expect.to_equal(
       Ok([
         types.StringValue("A"),
@@ -368,9 +384,11 @@ pub fn shared_tree_array_facade_js_transaction_revertible_test() {
       ]),
     )
     use _ <- result.try(
-      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+      facade_fixture.array_insert_javascript(tree, [], 1, [
+        types.StringValue("X"),
+      ]),
     )
-    use _ <- result.try(watershed.tree_array_remove(tree, [], 2, 3))
+    use _ <- result.try(facade_fixture.array_remove_javascript(tree, [], 2, 3))
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
@@ -381,7 +399,7 @@ pub fn shared_tree_array_facade_js_transaction_revertible_test() {
   watershed.tree_revertible_status(retained)
   |> expect.to_equal(watershed.RevertibleValid)
   transport_js.get_cell(submissions) |> expect.to_equal(2)
-  watershed.tree_array_values(tree, [])
+  facade_fixture.array_values_javascript(tree, [])
   |> expect.to_equal(
     Ok([
       types.StringValue("A"),
@@ -428,20 +446,24 @@ pub fn shared_tree_array_facade_js_transaction_rejects_other_view_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
   let other =
-    watershed.open_tree(document, marker, wider_view(input))
+    facade_fixture.open_javascript(document, marker, wider_view(input))
     |> expect.to_be_ok()
 
   watershed.tree_transaction(tree, [], fn(_) {
-    watershed.tree_array_get(other, [], 0) |> expect.to_be_error()
-    watershed.tree_array_values(other, []) |> expect.to_be_error()
-    watershed.tree_array_insert(other, [], 1, [types.StringValue("wrong view")])
+    facade_fixture.array_get_javascript(other, [], 0) |> expect.to_be_error()
+    facade_fixture.array_values_javascript(other, []) |> expect.to_be_error()
+    facade_fixture.array_insert_javascript(other, [], 1, [
+      types.StringValue("wrong view"),
+    ])
     |> expect.to_be_error()
-    watershed.tree_array_remove(other, [], 0, 1) |> expect.to_be_error()
-    watershed.tree_array_move(other, [], 0, 1, [], 3)
+    facade_fixture.array_remove_javascript(other, [], 0, 1)
     |> expect.to_be_error()
-    watershed.tree_array_values(tree, [])
+    facade_fixture.array_move_javascript(other, [], 0, 1, [], 3)
+    |> expect.to_be_error()
+    facade_fixture.array_values_javascript(tree, [])
     |> expect.to_equal(
       Ok([
         types.StringValue("A"),
@@ -452,7 +474,7 @@ pub fn shared_tree_array_facade_js_transaction_rejects_other_view_test() {
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_array_values(tree, [])
+  facade_fixture.array_values_javascript(tree, [])
   |> expect.to_equal(
     Ok([
       types.StringValue("A"),
@@ -494,19 +516,19 @@ pub fn shared_tree_array_facade_beam_operations_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, view.view)
+    facade_fixture.resolve_erlang(document, marker, view.view)
     |> expect.to_be_ok()
   assert_array_operations(
-    fn(path, index) { watershed_beam.tree_array_get(tree, path, index) },
-    fn(path) { watershed_beam.tree_array_values(tree, path) },
+    fn(path, index) { facade_fixture.array_get_erlang(tree, path, index) },
+    fn(path) { facade_fixture.array_values_erlang(tree, path) },
     fn(path, index, values) {
-      watershed_beam.tree_array_insert(tree, path, index, values)
+      facade_fixture.array_insert_erlang(tree, path, index, values)
     },
     fn(path, start, end) {
-      watershed_beam.tree_array_remove(tree, path, start, end)
+      facade_fixture.array_remove_erlang(tree, path, start, end)
     },
     fn(source_path, source_start, source_end, destination_path, destination_gap) {
-      watershed_beam.tree_array_move(
+      facade_fixture.array_move_erlang(
         tree,
         source_path,
         source_start,
@@ -550,13 +572,13 @@ pub fn shared_tree_array_facade_beam_generates_identifier_defaults_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, view.view)
+    facade_fixture.resolve_erlang(document, marker, view.view)
     |> expect.to_be_ok()
-  watershed_beam.tree_array_insert(tree, ["left"], 0, [
+  facade_fixture.array_insert_erlang(tree, ["left"], 0, [
     missing_identifier_point("array"),
   ])
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_array_get(tree, ["left"], 0)
+  facade_fixture.array_get_erlang(tree, ["left"], 0)
   |> expect.to_be_ok()
   |> expect_generated_identifier("array")
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
@@ -598,19 +620,19 @@ pub fn shared_tree_array_facade_beam_transaction_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, view.view)
+    facade_fixture.resolve_erlang(document, marker, view.view)
     |> expect.to_be_ok()
 
   watershed_beam.tree_transaction(tree, [], fn(tree) {
     use _ <- result.try(
-      watershed_beam.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+      facade_fixture.array_insert_erlang(tree, [], 1, [types.StringValue("X")]),
     )
-    use _ <- result.try(watershed_beam.tree_array_move(tree, [], 1, 2, [], 4))
-    use _ <- result.try(watershed_beam.tree_array_remove(tree, [], 1, 2))
+    use _ <- result.try(facade_fixture.array_move_erlang(tree, [], 1, 2, [], 4))
+    use _ <- result.try(facade_fixture.array_remove_erlang(tree, [], 1, 2))
     Ok("commit")
   })
   |> expect.to_equal(Ok("commit"))
-  watershed_beam.tree_array_values(tree, [])
+  facade_fixture.array_values_erlang(tree, [])
   |> expect.to_equal(
     Ok([
       types.StringValue("A"),
@@ -660,7 +682,7 @@ pub fn shared_tree_array_facade_beam_transaction_revertible_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, view.view)
+    facade_fixture.resolve_erlang(document, marker, view.view)
     |> expect.to_be_ok()
   let token =
     watershed_beam.subscribe_tree_commits(tree, fn(event) {
@@ -673,16 +695,16 @@ pub fn shared_tree_array_facade_beam_transaction_revertible_test() {
       process.send(handles, get_revertible())
     })
 
-  watershed_beam.tree_array_insert(tree, [], 3, [types.StringValue("D")])
+  facade_fixture.array_insert_erlang(tree, [], 3, [types.StringValue("D")])
   |> expect.to_equal(Ok(Nil))
   let first =
     process.receive(handles, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
   watershed_beam.tree_transaction(tree, [], fn(tree) {
     watershed_beam.tree_revert(first, False) |> expect.to_be_error()
     use _ <- result.try(
-      watershed_beam.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+      facade_fixture.array_insert_erlang(tree, [], 1, [types.StringValue("X")]),
     )
-    watershed_beam.tree_array_remove(tree, [], 2, 3)
+    facade_fixture.array_remove_erlang(tree, [], 2, 3)
   })
   |> expect.to_equal(Ok(Nil))
   let transaction =
@@ -731,24 +753,24 @@ pub fn shared_tree_array_facade_beam_transaction_rejects_other_view_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let tree =
-    watershed_beam.resolve_tree(document, marker, view.view)
+    facade_fixture.resolve_erlang(document, marker, view.view)
     |> expect.to_be_ok()
   let other =
-    watershed_beam.open_tree(document, marker, wider_view(input))
+    facade_fixture.open_erlang(document, marker, wider_view(input))
     |> expect.to_be_ok()
 
   watershed_beam.tree_transaction(tree, [], fn(_) {
-    watershed_beam.tree_array_get(other, [], 0) |> expect.to_be_error()
-    watershed_beam.tree_array_values(other, []) |> expect.to_be_error()
-    watershed_beam.tree_array_insert(other, [], 1, [
+    facade_fixture.array_get_erlang(other, [], 0) |> expect.to_be_error()
+    facade_fixture.array_values_erlang(other, []) |> expect.to_be_error()
+    facade_fixture.array_insert_erlang(other, [], 1, [
       types.StringValue("wrong view"),
     ])
     |> expect.to_be_error()
-    watershed_beam.tree_array_remove(other, [], 0, 1)
+    facade_fixture.array_remove_erlang(other, [], 0, 1)
     |> expect.to_be_error()
-    watershed_beam.tree_array_move(other, [], 0, 1, [], 3)
+    facade_fixture.array_move_erlang(other, [], 0, 1, [], 3)
     |> expect.to_be_error()
-    watershed_beam.tree_array_values(tree, [])
+    facade_fixture.array_values_erlang(tree, [])
     |> expect.to_equal(
       Ok([
         types.StringValue("A"),
@@ -759,7 +781,7 @@ pub fn shared_tree_array_facade_beam_transaction_rejects_other_view_test() {
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_array_values(tree, [])
+  facade_fixture.array_values_erlang(tree, [])
   |> expect.to_equal(
     Ok([
       types.StringValue("A"),

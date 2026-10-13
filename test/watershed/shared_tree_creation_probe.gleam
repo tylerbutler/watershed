@@ -1,9 +1,13 @@
 import gleam/io
 import gleam/json
 import gleam/option.{type Option, Some}
+import gleam/result
+import gleam/string
 import watershed/container
 import watershed/tree/client_protocol
+import watershed/tree/facade_fixture
 import watershed/tree/schema
+import watershed/tree/typed
 import watershed/tree/types.{type TreeValue}
 
 @target(erlang)
@@ -47,12 +51,22 @@ fn inputs(
   schema_json: String,
   root_json: String,
   expected: String,
-) -> #(container.CreateConfig, schema.StoredSchema, Option(TreeValue), String) {
+) -> #(
+  container.CreateConfig,
+  typed.Schema(facade_fixture.Dynamic, TreeValue),
+  typed.Builder(facade_fixture.Dynamic, TreeValue),
+  Option(TreeValue),
+  String,
+) {
   let assert Ok(stored) = schema.stored_from_string(schema_json)
+  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
+  let assert Ok(definition) = facade_fixture.definition(view)
   let assert Ok(root) = client_protocol.decode_tree_value(root_json)
+  let assert Ok(builder) = facade_fixture.builder(root)
   #(
     container.CreateConfig(base_url, tenant, token),
-    stored,
+    definition,
+    builder,
     Some(root),
     expected,
   )
@@ -66,9 +80,10 @@ pub fn main() -> Nil {
   let assert Ok(schema_json) = envoy.get("WATERSHED_TREE_CREATION_SCHEMA")
   let assert Ok(root_json) = envoy.get("WATERSHED_TREE_CREATION_ROOT")
   let assert Ok(expected) = envoy.get("WATERSHED_TREE_CREATION_EXPECT")
-  let #(config, stored, root, expected) =
+  let #(config, definition, builder, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
-  watershed_beam.create_tree_container(config, stored, root)
+  watershed_beam.create_tree_container(config, definition, builder, root)
+  |> result.map_error(string.inspect)
   |> publish(expected)
 }
 
@@ -83,13 +98,14 @@ pub fn main() -> Promise(Nil) {
     javascript_envoy.get("WATERSHED_TREE_CREATION_ROOT")
   let assert Ok(expected) =
     javascript_envoy.get("WATERSHED_TREE_CREATION_EXPECT")
-  let #(config, stored, root, expected) =
+  let #(config, definition, builder, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
-  use result <- promise.await(watershed_javascript.create_tree_container(
+  use outcome <- promise.await(watershed_javascript.create_tree_container(
     config,
-    stored,
+    definition,
+    builder,
     root,
   ))
-  publish(result, expected)
+  publish(result.map_error(outcome, string.inspect), expected)
   promise.resolve(Nil)
 }

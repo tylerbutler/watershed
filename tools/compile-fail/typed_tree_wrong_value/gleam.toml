@@ -1,0 +1,7 @@
+name = "typed_tree_wrong_value"
+version = "1.0.0"
+gleam = ">= 1.7.0"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+watershed = { path = "../../.." }

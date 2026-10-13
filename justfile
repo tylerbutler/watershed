@@ -83,6 +83,39 @@ _test-compile-fail:
       exit 1
     fi
     echo "ok  incompatible port payload types are rejected"
+    check_typed_tree_failure() {
+      package=$1
+      target=$2
+      expected=$3
+      reason=$4
+      out=$(cd "tools/compile-fail/$package" && gleam build --target "$target" 2>&1)
+      if [ $? -eq 0 ]; then
+        echo "FAIL: $package compiled for $target. $reason"
+        exit 1
+      fi
+      if ! grep -q 'error: Type mismatch' <<<"$out" \
+        || ! grep -Fq "$expected" <<<"$out" \
+        || grep -Eq 'Unknown module|Unknown import|Syntax error|Target support mismatch' <<<"$out"; then
+        echo "FAIL: $package failed for $target, but not with the expected type error:"
+        echo "$out"
+        exit 1
+      fi
+      echo "ok  $package is rejected for $target"
+    }
+    for target in javascript erlang; do
+      check_typed_tree_failure typed_tree_wrong_schema "$target" \
+        'Field(Other, String, Required)' \
+        'A field from another schema now applies to this node.'
+      check_typed_tree_failure typed_tree_wrong_value "$target" \
+        'Found type:'$'\n''    Int' \
+        'A field now accepts a value of the wrong type.'
+      check_typed_tree_failure typed_tree_required_clear "$target" \
+        'Field(Item, String, Required)' \
+        'A required field can now be cleared.'
+      check_typed_tree_failure shared_tree_raw_edit "$target" \
+        'SharedTree(Item, ItemState)' \
+        'The old raw tree edit surface is available again.'
+    done
 
 # Build the source-backed snippets, then run every registered website test.
 # The Node registry covers the snippet drift gates and component contracts;

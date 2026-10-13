@@ -1,6 +1,7 @@
 //// Typed declarations and value adapters for SharedTree schemas.
 
 import gleam/float
+import gleam/list
 import gleam/result
 import gleam/string
 import watershed/handle
@@ -45,6 +46,7 @@ pub opaque type Codec(a) {
 pub opaque type NodeCodec(schema, record) {
   NodeCodec(
     identifier: String,
+    identifiers: List(String),
     decode: fn(types.TreeValue) -> Result(record, Error),
   )
 }
@@ -173,7 +175,7 @@ pub fn node(
   decode: fn(types.TreeValue) -> Result(record, Error),
 ) -> Result(NodeCodec(schema, record), Error) {
   case valid_identifier(identifier) {
-    True -> Ok(NodeCodec(identifier, decode))
+    True -> Ok(NodeCodec(identifier, [identifier], decode))
     False -> Error(InvalidDeclaration("node identifier is empty or padded"))
   }
 }
@@ -271,11 +273,16 @@ pub fn node_identifier(codec: NodeCodec(s, r)) -> String {
   codec.identifier
 }
 
+@internal
+pub fn node_identifiers(codec: NodeCodec(s, r)) -> List(String) {
+  codec.identifiers
+}
+
 pub fn decode_node(
   codec: NodeCodec(s, r),
   value: types.TreeValue,
 ) -> Result(r, Error) {
-  case node_value_identifier(value) == codec.identifier {
+  case list.contains(codec.identifiers, node_value_identifier(value)) {
     True -> codec.decode(value)
     False -> Error(DecodeFailed("expected node " <> codec.identifier))
   }
@@ -347,6 +354,116 @@ pub fn map_codec(field: MapField(s, item, r)) -> NodeCodec(item, r) {
   field.codec
 }
 
+@internal
+pub fn node_value_matches(
+  codec: NodeCodec(s, r),
+  value: types.TreeValue,
+) -> Result(Nil, Error) {
+  result_from_bool(
+    list.contains(codec.identifiers, node_value_identifier(value)),
+    "expected node " <> codec.identifier,
+  )
+  |> result.map_error(fn(_) {
+    DecodeFailed("expected node " <> codec.identifier)
+  })
+}
+
+@internal
+pub fn root_is_optional(definition: Schema(s, r)) -> Bool {
+  let stored = tree_schema.view_to_stored(definition.view)
+  tree_schema.root_field_schema(stored).cardinality == tree_schema.Optional
+}
+
+@internal
+pub fn validate_array_node(
+  view: tree_schema.ViewSchema,
+  identifier: String,
+  item: NodeCodec(s, r),
+) -> Result(Nil, Error) {
+  let stored = tree_schema.view_to_stored(view)
+  use elements <- result.try(
+    tree_schema.array_element_schema(stored, identifier)
+    |> result.map_error(fn(_) {
+      InvalidDeclaration("array declaration is absent: " <> identifier)
+    }),
+  )
+  result_from_bool(
+    field_allows_all(elements, tree_schema.Sequence, item.identifiers),
+    "array element does not allow " <> item.identifier,
+  )
+}
+
+@internal
+pub fn validate_map_node(
+  view: tree_schema.ViewSchema,
+  identifier: String,
+  item: NodeCodec(s, r),
+) -> Result(Nil, Error) {
+  let stored = tree_schema.view_to_stored(view)
+  use entries <- result.try(
+    tree_schema.map_entry_schema(stored, identifier)
+    |> result.map_error(fn(_) {
+      InvalidDeclaration("map declaration is absent: " <> identifier)
+    }),
+  )
+  result_from_bool(
+    field_allows_all(entries, tree_schema.Optional, item.identifiers),
+    "map entry does not allow " <> item.identifier,
+  )
+}
+
+@internal
+pub fn dynamic_node(
+  identifier: String,
+) -> Result(NodeCodec(s, types.TreeValue), Error) {
+  node(identifier, fn(value) { Ok(value) })
+}
+
+@internal
+pub fn dynamic_union_node(
+  identifiers: List(String),
+) -> Result(NodeCodec(s, types.TreeValue), Error) {
+  case identifiers {
+    [identifier, ..rest] ->
+      case
+        valid_identifier(identifier)
+        && list.all(rest, valid_identifier)
+        && list.length(list.unique(identifiers)) == list.length(identifiers)
+      {
+        True -> Ok(NodeCodec(identifier, identifiers, fn(value) { Ok(value) }))
+        False ->
+          Error(InvalidDeclaration("node identifiers are invalid or repeated"))
+      }
+    [] -> Error(InvalidDeclaration("node identifiers are empty"))
+  }
+}
+
+@internal
+pub fn dynamic_builder(
+  identifier: String,
+) -> Result(Builder(s, types.TreeValue), Error) {
+  builder(identifier, fn(value) { Ok(value) })
+}
+
+@internal
+pub fn dynamic_codec(identifier: String) -> Codec(types.TreeValue) {
+  Codec(
+    identifier,
+    fn(value) {
+      case node_value_identifier(value) == identifier {
+        True -> Ok(value)
+        False -> Error(DecodeFailed("expected node " <> identifier))
+      }
+    },
+    fn(value) {
+      case node_value_identifier(value) == identifier {
+        True -> Ok(value)
+        False -> Error(DecodeFailed("expected node " <> identifier))
+      }
+    },
+  )
+}
+
 pub fn validate_field(
   view: tree_schema.ViewSchema,
   owner: String,
@@ -398,7 +515,7 @@ pub fn validate_array(
     },
   )
   result_from_bool(
-    field_matches(elements, tree_schema.Sequence, [field.codec.identifier]),
+    field_allows_all(elements, tree_schema.Sequence, field.codec.identifiers),
     "array element does not allow " <> field.codec.identifier,
   )
 }
@@ -424,7 +541,7 @@ pub fn validate_map(
     },
   )
   result_from_bool(
-    field_matches(entries, tree_schema.Optional, [field.codec.identifier]),
+    field_allows_all(entries, tree_schema.Optional, field.codec.identifiers),
     "map entry does not allow " <> field.codec.identifier,
   )
 }
@@ -470,6 +587,17 @@ fn field_matches(
   && definition.allowed_types == allowed_types
 }
 
+fn field_allows_all(
+  definition: tree_schema.FieldSchema,
+  cardinality: tree_schema.Cardinality,
+  identifiers: List(String),
+) -> Bool {
+  definition.cardinality == cardinality
+  && list.all(identifiers, fn(identifier) {
+    list.contains(definition.allowed_types, identifier)
+  })
+}
+
 fn field_cardinality(optional: Bool) -> tree_schema.Cardinality {
   case optional {
     True -> tree_schema.Optional
@@ -488,6 +616,11 @@ fn node_value_identifier(value: types.TreeValue) -> String {
     | types.MapValue(identifier, _)
     | types.ArrayValue(identifier, _) -> identifier
   }
+}
+
+@internal
+pub fn value_identifier(value: types.TreeValue) -> String {
+  node_value_identifier(value)
 }
 
 fn valid_identifier(identifier: String) -> Bool {

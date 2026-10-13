@@ -29,6 +29,8 @@ import watershed/tree/client_protocol as protocol
 @target(erlang)
 import watershed/tree/client_retained_evidence
 @target(erlang)
+import watershed/tree/facade_fixture
+@target(erlang)
 import watershed/tree/types.{
   type TreeCommitKind, type TreeCommitOutcome, DefaultCommit, FullyApplied,
   FullyDropped, HandleValue, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
@@ -123,7 +125,9 @@ pub fn main() -> Nil {
                   ))
                 }
                 Ok(handle) ->
-                  case watershed.resolve_tree(document, handle, config.view) {
+                  case
+                    facade_fixture.resolve_erlang(document, handle, config.view)
+                  {
                     Error(reason) -> {
                       watershed.close(document)
                       fail(protocol.encode_startup_error(
@@ -233,7 +237,7 @@ fn loop(
   document: watershed.Document(a),
   handle: Json,
   config: protocol.Descriptor,
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   events: Dict(
     protocol.TreeOwner,
     #(process.Subject(tree_kernel.TreeEvent), Bool),
@@ -321,9 +325,9 @@ fn loop(
 fn execute(
   raw: String,
   document: watershed.Document(a),
-  handle: Json,
+  _handle: Json,
   config: protocol.Descriptor,
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   events: Dict(
     protocol.TreeOwner,
     #(process.Subject(tree_kernel.TreeEvent), Bool),
@@ -335,7 +339,7 @@ fn execute(
   object_store: process.Subject(ObjectMessage),
 ) -> #(
   String,
-  watershed.SharedTree,
+  facade_fixture.ErlangTree,
   Dict(protocol.TreeOwner, #(process.Subject(tree_kernel.TreeEvent), Bool)),
   Bool,
   Bool,
@@ -565,7 +569,12 @@ fn execute(
                 ))
                 use created <- result.try(case store_name {
                   None ->
-                    watershed.create_tree(document, stored, Some(initial), view)
+                    facade_fixture.create_from_parts_erlang(
+                      document,
+                      stored,
+                      Some(initial),
+                      view,
+                    )
                     |> result.map_error(fn(reason) {
                       facade("create-tree", reason)
                     })
@@ -585,7 +594,7 @@ fn execute(
                         )
                       }),
                     )
-                    watershed.create_tree_in(
+                    facade_fixture.create_in_from_parts_erlang(
                       document,
                       store,
                       stored,
@@ -614,7 +623,7 @@ fn execute(
             protocol.OpenTree(name, marker, view) -> {
               let outcome = {
                 use opened <- result.try(
-                  watershed.resolve_tree(document, marker, view)
+                  facade_fixture.resolve_erlang(document, marker, view)
                   |> result.map_error(fn(reason) { facade("open-tree", reason) }),
                 )
                 use _ <- result.try(
@@ -641,7 +650,7 @@ fn execute(
             protocol.Read(path) -> #(
               map_result(
                 "read",
-                watershed.tree_get(command_tree, path),
+                facade_fixture.get_erlang(command_tree, path),
                 protocol.encode_read,
               ),
               tree,
@@ -652,7 +661,7 @@ fn execute(
             protocol.Set(path, value) -> #(
               map_result(
                 "set",
-                watershed.tree_set(command_tree, path, value),
+                facade_fixture.set_erlang(command_tree, path, value),
                 fn(_) { json.null() },
               ),
               tree,
@@ -663,7 +672,7 @@ fn execute(
             protocol.Clear(path) -> #(
               map_result(
                 "clear",
-                watershed.tree_clear(command_tree, path),
+                facade_fixture.clear_erlang(command_tree, path),
                 fn(_) { json.null() },
               ),
               tree,
@@ -674,7 +683,7 @@ fn execute(
             protocol.MapGet(path, key) -> #(
               map_result(
                 "map-get",
-                watershed.tree_map_get(command_tree, path, key),
+                facade_fixture.map_get_erlang(command_tree, path, key),
                 protocol.encode_read,
               ),
               tree,
@@ -685,7 +694,7 @@ fn execute(
             protocol.MapSet(path, key, value) -> #(
               map_result(
                 "map-set",
-                watershed.tree_map_set(command_tree, path, key, value),
+                facade_fixture.map_set_erlang(command_tree, path, key, value),
                 fn(_) { json.null() },
               ),
               tree,
@@ -696,7 +705,7 @@ fn execute(
             protocol.MapDelete(path, key) -> #(
               map_result(
                 "map-delete",
-                watershed.tree_map_delete(command_tree, path, key),
+                facade_fixture.map_delete_erlang(command_tree, path, key),
                 fn(_) { json.null() },
               ),
               tree,
@@ -707,7 +716,7 @@ fn execute(
             protocol.MapKeys(path) -> #(
               map_result(
                 "map-keys",
-                watershed.tree_map_keys(command_tree, path),
+                facade_fixture.map_keys_erlang(command_tree, path),
                 protocol.encode_map_keys,
               ),
               tree,
@@ -718,7 +727,7 @@ fn execute(
             protocol.MapEntries(path) -> #(
               map_result(
                 "map-entries",
-                watershed.tree_map_entries(command_tree, path),
+                facade_fixture.map_entries_erlang(command_tree, path),
                 protocol.encode_map_entries,
               ),
               tree,
@@ -731,7 +740,7 @@ fn execute(
                 Error(error) -> Error(error)
                 Ok(view) -> {
                   use opened <- result.try(
-                    watershed.open_tree(
+                    facade_fixture.open_erlang(
                       document,
                       watershed.tree_handle_of(command_tree),
                       view,
@@ -758,7 +767,7 @@ fn execute(
                 Error(error) -> Error(error)
                 Ok(view) -> {
                   use opened <- result.try(
-                    watershed.open_tree(
+                    facade_fixture.open_erlang(
                       document,
                       watershed.tree_handle_of(command_tree),
                       view,
@@ -785,7 +794,7 @@ fn execute(
                 Error(error) -> #(Error(error), tree, events, active, False)
                 Ok(view) ->
                   case
-                    watershed.open_tree(
+                    facade_fixture.open_erlang(
                       document,
                       watershed.tree_handle_of(command_tree),
                       view,
@@ -833,7 +842,7 @@ fn execute(
             protocol.ArrayGet(path, index) -> #(
               map_result(
                 "array-get",
-                watershed.tree_array_get(command_tree, path, index),
+                facade_fixture.array_get_erlang(command_tree, path, index),
                 protocol.encode_read,
               ),
               tree,
@@ -844,7 +853,7 @@ fn execute(
             protocol.ArrayValues(path) -> #(
               map_result(
                 "array-values",
-                watershed.tree_array_values(command_tree, path),
+                facade_fixture.array_values_erlang(command_tree, path),
                 protocol.encode_array_values,
               ),
               tree,
@@ -855,7 +864,12 @@ fn execute(
             protocol.ArrayInsert(path, index, values) -> #(
               map_result(
                 "array-insert",
-                watershed.tree_array_insert(command_tree, path, index, values),
+                facade_fixture.array_insert_erlang(
+                  command_tree,
+                  path,
+                  index,
+                  values,
+                ),
                 fn(_) { json.null() },
               ),
               tree,
@@ -866,7 +880,12 @@ fn execute(
             protocol.ArrayRemove(path, start, end) -> #(
               map_result(
                 "array-remove",
-                watershed.tree_array_remove(command_tree, path, start, end),
+                facade_fixture.array_remove_erlang(
+                  command_tree,
+                  path,
+                  start,
+                  end,
+                ),
                 fn(_) { json.null() },
               ),
               tree,
@@ -883,7 +902,7 @@ fn execute(
             ) -> #(
               map_result(
                 "array-move",
-                watershed.tree_array_move(
+                facade_fixture.array_move_erlang(
                   command_tree,
                   source_path,
                   source_start,
@@ -904,7 +923,7 @@ fn execute(
                   command_tree,
                   [watershed.NodeInDocument(target_path)],
                   fn(transaction_tree) {
-                    watershed.tree_array_remove(
+                    facade_fixture.array_remove_erlang(
                       transaction_tree,
                       path,
                       start,
@@ -963,7 +982,7 @@ fn execute(
                     let before =
                       runtime_state_evidence(watershed.runtime_subject(document))
                     case
-                      watershed.tree_set(
+                      facade_fixture.set_erlang(
                         command_tree,
                         ["link"],
                         HandleValue(target_reference),
@@ -1500,12 +1519,12 @@ fn require_revert_evidence(
 
 @target(erlang)
 fn named_branch_tree(
-  main: watershed.SharedTree,
+  main: facade_fixture.ErlangTree,
   branch_store: process.Subject(BranchMessage),
   owner: protocol.TreeOwner,
   name: String,
   operation: String,
-) -> Result(watershed.SharedTree, protocol.ProtocolError) {
+) -> Result(facade_fixture.ErlangTree, protocol.ProtocolError) {
   case name {
     "main" -> Ok(main)
     _ ->
@@ -1521,40 +1540,42 @@ fn named_branch_tree(
 @target(erlang)
 fn run_branch_edit(
   document: watershed.Document(a),
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   edit: protocol.BranchEdit,
 ) -> Result(Json, protocol.ProtocolError) {
   case edit {
     protocol.BranchSet(path, value) ->
-      map_result("branchEdit", watershed.tree_set(tree, path, value), fn(_) {
-        json.null()
-      })
+      map_result(
+        "branchEdit",
+        facade_fixture.set_erlang(tree, path, value),
+        fn(_) { json.null() },
+      )
     protocol.BranchClear(path) ->
-      map_result("branchEdit", watershed.tree_clear(tree, path), fn(_) {
+      map_result("branchEdit", facade_fixture.clear_erlang(tree, path), fn(_) {
         json.null()
       })
     protocol.BranchMapSet(path, key, value) ->
       map_result(
         "branchEdit",
-        watershed.tree_map_set(tree, path, key, value),
+        facade_fixture.map_set_erlang(tree, path, key, value),
         fn(_) { json.null() },
       )
     protocol.BranchMapDelete(path, key) ->
       map_result(
         "branchEdit",
-        watershed.tree_map_delete(tree, path, key),
+        facade_fixture.map_delete_erlang(tree, path, key),
         fn(_) { json.null() },
       )
     protocol.BranchArrayInsert(path, index, values) ->
       map_result(
         "branchEdit",
-        watershed.tree_array_insert(tree, path, index, values),
+        facade_fixture.array_insert_erlang(tree, path, index, values),
         fn(_) { json.null() },
       )
     protocol.BranchArrayRemove(path, start, end) ->
       map_result(
         "branchEdit",
-        watershed.tree_array_remove(tree, path, start, end),
+        facade_fixture.array_remove_erlang(tree, path, start, end),
         fn(_) { json.null() },
       )
     protocol.BranchArrayMove(
@@ -1566,7 +1587,7 @@ fn run_branch_edit(
     ) ->
       map_result(
         "branchEdit",
-        watershed.tree_array_move(
+        facade_fixture.array_move_erlang(
           tree,
           source_path,
           source_start,
@@ -1646,21 +1667,21 @@ fn await_submitted_revisions_for_originator(
 
 @target(erlang)
 fn apply_transaction_edit(
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   edit: protocol.TransactionEdit,
 ) -> Result(Nil, protocol.ProtocolError) {
   let outcome = case edit {
     protocol.TransactionSet(path, value) ->
-      watershed.tree_set(tree, path, value)
-    protocol.TransactionClear(path) -> watershed.tree_clear(tree, path)
+      facade_fixture.set_erlang(tree, path, value)
+    protocol.TransactionClear(path) -> facade_fixture.clear_erlang(tree, path)
     protocol.TransactionMapSet(path, key, value) ->
-      watershed.tree_map_set(tree, path, key, value)
+      facade_fixture.map_set_erlang(tree, path, key, value)
     protocol.TransactionMapDelete(path, key) ->
-      watershed.tree_map_delete(tree, path, key)
+      facade_fixture.map_delete_erlang(tree, path, key)
     protocol.TransactionArrayInsert(path, index, values) ->
-      watershed.tree_array_insert(tree, path, index, values)
+      facade_fixture.array_insert_erlang(tree, path, index, values)
     protocol.TransactionArrayRemove(path, start, end) ->
-      watershed.tree_array_remove(tree, path, start, end)
+      facade_fixture.array_remove_erlang(tree, path, start, end)
     protocol.TransactionArrayMove(
       source_path,
       source_start,
@@ -1668,7 +1689,7 @@ fn apply_transaction_edit(
       destination_path,
       destination_gap,
     ) ->
-      watershed.tree_array_move(
+      facade_fixture.array_move_erlang(
         tree,
         source_path,
         source_start,
@@ -1684,7 +1705,7 @@ fn apply_transaction_edit(
 
 @target(erlang)
 fn apply_transaction_scope(
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   scope: protocol.TransactionScope,
 ) -> Result(protocol.TransactionObservation, ScopeFailure) {
   use counted <- result.try(
@@ -1705,7 +1726,7 @@ fn apply_transaction_scope(
     }),
   )
   let #(applied, nested) = counted
-  let observed = case watershed.tree_get(tree, []) {
+  let observed = case facade_fixture.get_erlang(tree, []) {
     Ok(value) -> protocol.encode_read(value)
     Error(_) -> protocol.encode_read(None)
   }
@@ -1734,7 +1755,7 @@ fn apply_transaction_scope(
 
 @target(erlang)
 fn run_transaction_scope(
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   scope: protocol.TransactionScope,
 ) -> Result(protocol.TransactionObservation, protocol.ProtocolError) {
   let constraints = list.map(scope.constraints, watershed.NodeInDocument)
@@ -1754,7 +1775,7 @@ fn run_transaction_scope(
 @target(erlang)
 fn run_transaction(
   document: watershed.Document(a),
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   owner: protocol.TreeOwner,
   events: Dict(
     protocol.TreeOwner,
@@ -1795,7 +1816,7 @@ fn run_transaction(
         Error(_) -> None
       }
   }
-  let final = case watershed.tree_get(tree, []) {
+  let final = case facade_fixture.get_erlang(tree, []) {
     Ok(value) -> protocol.encode_read(value)
     Error(_) -> protocol.encode_read(None)
   }
@@ -1838,7 +1859,7 @@ fn encode_event(event: tree_kernel.TreeEvent) -> Json {
 @target(erlang)
 fn checkpoint(
   document: watershed.Document(a),
-  tree: watershed.SharedTree,
+  tree: facade_fixture.ErlangTree,
   owner: protocol.TreeOwner,
   events: Dict(
     protocol.TreeOwner,
@@ -1860,7 +1881,7 @@ fn checkpoint(
     process.call(handle_store, waiting: 1000, sending: fn(reply) {
       DrainTreeCommits(owner, reply)
     })
-  case watershed.tree_get(tree, []) {
+  case facade_fixture.get_erlang(tree, []) {
     Error(reason) ->
       Ok(protocol.encode_checkpoint(
         protocol.encode_read(None),
@@ -1878,12 +1899,12 @@ fn checkpoint(
         Some(ObjectValue("org.watershed.shared-tree.m2.Root", _)) -> {
           use keys <- result.try(map_result(
             "checkpoint",
-            watershed.tree_map_keys(tree, ["items"]),
+            facade_fixture.map_keys_erlang(tree, ["items"]),
             protocol.encode_map_keys,
           ))
           use entries <- result.try(map_result(
             "checkpoint",
-            watershed.tree_map_entries(tree, ["items"]),
+            facade_fixture.map_entries_erlang(tree, ["items"]),
             protocol.encode_map_entries,
           ))
           Ok([#("keys", keys), #("entries", entries)])
@@ -1903,7 +1924,7 @@ fn checkpoint(
               #("y", ["point", "y"]),
             ]
             |> list.filter_map(fn(entry) {
-              case watershed.tree_get(tree, entry.1) {
+              case facade_fixture.get_erlang(tree, entry.1) {
                 Ok(value) -> Ok(#(entry.0, protocol.encode_read(value)))
                 Error(_) -> Error(Nil)
               }
@@ -1988,9 +2009,13 @@ type OutboundMessage {
 type BranchMessage {
   LookupBranch(
     protocol.TreeOwner,
-    process.Subject(Result(watershed.SharedTree, Nil)),
+    process.Subject(Result(facade_fixture.ErlangTree, Nil)),
   )
-  StoreBranch(protocol.TreeOwner, watershed.SharedTree, process.Subject(Bool))
+  StoreBranch(
+    protocol.TreeOwner,
+    facade_fixture.ErlangTree,
+    process.Subject(Bool),
+  )
   RemoveBranch(protocol.TreeOwner)
 }
 
@@ -2000,9 +2025,9 @@ type ObjectMessage {
   StoreDataStore(String, watershed.DataStore, process.Subject(Bool))
   LookupMap(String, process.Subject(Result(watershed.SharedMap, Nil)))
   StoreMap(String, watershed.SharedMap, process.Subject(Bool))
-  LookupTree(String, process.Subject(Result(watershed.SharedTree, Nil)))
-  StoreTree(String, watershed.SharedTree, process.Subject(Bool))
-  ReplaceTree(String, watershed.SharedTree)
+  LookupTree(String, process.Subject(Result(facade_fixture.ErlangTree, Nil)))
+  StoreTree(String, facade_fixture.ErlangTree, process.Subject(Bool))
+  ReplaceTree(String, facade_fixture.ErlangTree)
 }
 
 @target(erlang)
@@ -2010,7 +2035,7 @@ fn object_store_loop(
   subject: process.Subject(ObjectMessage),
   data_stores: Dict(String, watershed.DataStore),
   maps: Dict(String, watershed.SharedMap),
-  trees: Dict(String, watershed.SharedTree),
+  trees: Dict(String, facade_fixture.ErlangTree),
 ) -> Nil {
   case process.receive_forever(from: subject) {
     LookupDataStore(name, reply) -> {
@@ -2072,7 +2097,7 @@ fn object_store_loop(
 @target(erlang)
 fn branch_store_loop(
   subject: process.Subject(BranchMessage),
-  branches: Dict(protocol.TreeOwner, watershed.SharedTree),
+  branches: Dict(protocol.TreeOwner, facade_fixture.ErlangTree),
 ) -> Nil {
   case process.receive_forever(from: subject) {
     LookupBranch(name, reply) -> {

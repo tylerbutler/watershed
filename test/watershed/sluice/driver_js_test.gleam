@@ -47,6 +47,8 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree/facade_fixture
+@target(javascript)
 import watershed/tree/runtime_fixture
 @target(javascript)
 import watershed/tree/types
@@ -109,15 +111,17 @@ pub fn seeded_shared_tree_clients_converge_test() -> Nil {
   let tree_a =
     watershed.get(root_a, "tree")
     |> expect.to_be_ok()
-    |> watershed.resolve_tree(document_a, _, tree_view.view)
+    |> facade_fixture.resolve_javascript(document_a, _, tree_view.view)
     |> expect.to_be_ok()
   let tree_b =
     watershed.get(root_b, "tree")
     |> expect.to_be_ok()
-    |> watershed.resolve_tree(document_b, _, tree_view.view)
+    |> facade_fixture.resolve_javascript(document_b, _, tree_view.view)
     |> expect.to_be_ok()
 
-  watershed.tree_array_insert(tree_a, [], 2, [types.StringValue("publish")])
+  facade_fixture.array_insert_javascript(tree_a, [], 2, [
+    types.StringValue("publish"),
+  ])
   |> expect.to_equal(Ok(Nil))
   sluice_js.settle(sluice)
 
@@ -126,8 +130,10 @@ pub fn seeded_shared_tree_clients_converge_test() -> Nil {
     types.StringValue("review"),
     types.StringValue("publish"),
   ]
-  watershed.tree_array_values(tree_a, []) |> expect.to_equal(Ok(expected))
-  watershed.tree_array_values(tree_b, []) |> expect.to_equal(Ok(expected))
+  facade_fixture.array_values_javascript(tree_a, [])
+  |> expect.to_equal(Ok(expected))
+  facade_fixture.array_values_javascript(tree_b, [])
+  |> expect.to_equal(Ok(expected))
 
   let document_c = sluice_js.connect_seeded(sluice, "user-c", seed)
   sluice_js.settle(sluice)
@@ -135,9 +141,10 @@ pub fn seeded_shared_tree_clients_converge_test() -> Nil {
   let tree_c =
     watershed.get(root_c, "tree")
     |> expect.to_be_ok()
-    |> watershed.resolve_tree(document_c, _, tree_view.view)
+    |> facade_fixture.resolve_javascript(document_c, _, tree_view.view)
     |> expect.to_be_ok()
-  watershed.tree_array_values(tree_c, []) |> expect.to_equal(Ok(expected))
+  facade_fixture.array_values_javascript(tree_c, [])
+  |> expect.to_equal(Ok(expected))
 }
 
 @target(javascript)

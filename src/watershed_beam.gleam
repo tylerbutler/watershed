@@ -119,7 +119,13 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree/forest
+@target(erlang)
+import watershed/tree/node as tree_node
+@target(erlang)
 import watershed/tree/schema as tree_schema
+@target(erlang)
+import watershed/tree/typed
 @target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
@@ -144,11 +150,19 @@ const call_timeout_milliseconds = 5000
 /// Obtain a token for that ID, then call `connect`. This call does not retry.
 pub fn create_tree_container(
   config: container.CreateConfig,
-  stored: tree_schema.StoredSchema,
-  initial_root: Option(tree_types.TreeValue),
-) -> Result(String, String) {
-  container.create_tree(config, stored, initial_root)
-  |> result.map_error(container.error_to_string)
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(String, typed.Error) {
+  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  container.create_tree(
+    config,
+    tree_schema.view_to_stored(typed.schema_view(definition)),
+    root,
+  )
+  |> result.map_error(fn(error) {
+    typed.AccessFailed(container.error_to_string(error))
+  })
 }
 
 @target(erlang)
@@ -167,12 +181,52 @@ pub opaque type SharedMap {
 }
 
 @target(erlang)
-pub opaque type SharedTree {
+pub opaque type SharedTree(schema, record) {
   SharedTree(
     runtime: Subject(runtime_beam.Msg),
     address: String,
     selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
+    definition: typed.Schema(schema, record),
+  )
+}
+
+@target(erlang)
+pub opaque type TreeNode(schema, record) {
+  TreeNode(
+    runtime: Subject(runtime_beam.Msg),
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    identifier: String,
+    codec: typed.NodeCodec(schema, record),
+  )
+}
+
+@target(erlang)
+pub opaque type TreeArray(item, record) {
+  TreeArray(
+    runtime: Subject(runtime_beam.Msg),
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    identifier: String,
+    codec: typed.NodeCodec(item, record),
+  )
+}
+
+@target(erlang)
+pub opaque type TreeMap(item, record) {
+  TreeMap(
+    runtime: Subject(runtime_beam.Msg),
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    reference: forest.NodeRef,
+    identifier: String,
+    codec: typed.NodeCodec(item, record),
   )
 }
 
@@ -732,36 +786,16 @@ pub fn create_map_in(
 /// Create a detached tree in the bootstrap datastore.
 pub fn create_tree(
   document: Document(root),
-  stored: tree_schema.StoredSchema,
-  initial_root: Option(tree_types.TreeValue),
-  view: tree_schema.ViewSchema,
-) -> Result(SharedTree, String) {
-  runtime_beam.create_tree(document.runtime, stored, initial_root, view)
-  |> result.map(fn(address) {
-    SharedTree(
-      runtime: document.runtime,
-      address: address,
-      selector: tree_types.DocumentCheckout,
-      view: view,
-    )
-  })
-}
-
-@target(erlang)
-/// Create a detached tree in `store`.
-pub fn create_tree_in(
-  document: Document(root),
-  store: DataStore,
-  stored: tree_schema.StoredSchema,
-  initial_root: Option(tree_types.TreeValue),
-  view: tree_schema.ViewSchema,
-) -> Result(SharedTree, String) {
-  use _ <- result.try(require_data_store_runtime(document.runtime, store))
-  runtime_beam.create_tree_in(
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(SharedTree(s, r), typed.Error) {
+  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  let view = typed.schema_view(definition)
+  runtime_beam.create_tree(
     document.runtime,
-    store.id,
-    stored,
-    initial_root,
+    tree_schema.view_to_stored(view),
+    root,
     view,
   )
   |> result.map(fn(address) {
@@ -770,8 +804,57 @@ pub fn create_tree_in(
       address: address,
       selector: tree_types.DocumentCheckout,
       view: view,
+      definition: definition,
     )
   })
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+/// Create a detached tree in `store`.
+pub fn create_tree_in(
+  document: Document(root),
+  store: DataStore,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(SharedTree(s, r), typed.Error) {
+  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  use _ <- result.try(
+    require_data_store_runtime(document.runtime, store)
+    |> result.map_error(typed.AccessFailed),
+  )
+  let view = typed.schema_view(definition)
+  runtime_beam.create_tree_in(
+    document.runtime,
+    store.id,
+    tree_schema.view_to_stored(view),
+    root,
+    view,
+  )
+  |> result.map(fn(address) {
+    SharedTree(
+      runtime: document.runtime,
+      address: address,
+      selector: tree_types.DocumentCheckout,
+      view: view,
+      definition: definition,
+    )
+  })
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+fn prepare_tree_root(
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(Option(tree_types.TreeValue), typed.Error) {
+  use _ <- result.try(require_builder(typed.schema_root(definition), builder))
+  case initial_root {
+    None -> Ok(None)
+    Some(value) -> typed.build(builder, value) |> result.map(Some)
+  }
 }
 
 @target(erlang)
@@ -792,8 +875,9 @@ fn require_data_store_runtime(
 pub fn resolve_tree(
   document: Document(root),
   value: Json,
-  view: tree_schema.ViewSchema,
-) -> Result(SharedTree, String) {
+  definition: typed.Schema(s, r),
+) -> Result(SharedTree(s, r), typed.Error) {
+  let view = typed.schema_view(definition)
   runtime_beam.resolve_tree(document.runtime, value, view)
   |> result.map(fn(address) {
     SharedTree(
@@ -801,8 +885,10 @@ pub fn resolve_tree(
       address: address,
       selector: tree_types.DocumentCheckout,
       view: view,
+      definition: definition,
     )
   })
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
@@ -811,8 +897,9 @@ pub fn resolve_tree(
 pub fn open_tree(
   document: Document(root),
   value: Json,
-  view: tree_schema.ViewSchema,
-) -> Result(SharedTree, String) {
+  definition: typed.Schema(s, r),
+) -> Result(SharedTree(s, r), typed.Error) {
+  let view = typed.schema_view(definition)
   runtime_beam.open_tree(document.runtime, value)
   |> result.map(fn(address) {
     SharedTree(
@@ -820,13 +907,15 @@ pub fn open_tree(
       address: address,
       selector: tree_types.DocumentCheckout,
       view: view,
+      definition: definition,
     )
   })
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
 pub fn tree_compatibility(
-  tree: SharedTree,
+  tree: SharedTree(s, r),
 ) -> Result(tree_schema.Compatibility, String) {
   runtime_beam.tree_compatibility_on(
     tree.runtime,
@@ -837,15 +926,15 @@ pub fn tree_compatibility(
 }
 
 @target(erlang)
-pub fn tree_fork(tree: SharedTree) -> Result(SharedTree, String) {
+pub fn tree_fork(tree: SharedTree(s, r)) -> Result(SharedTree(s, r), String) {
   runtime_beam.tree_fork(tree.runtime, tree.address, tree.selector, tree.view)
   |> result.map(fn(selector) { SharedTree(..tree, selector: selector) })
 }
 
 @target(erlang)
 pub fn tree_rebase_onto(
-  source: SharedTree,
-  target: SharedTree,
+  source: SharedTree(s, r),
+  target: SharedTree(s, r),
 ) -> Result(Nil, String) {
   use _ <- result.try(validate_related_trees(source, target))
   runtime_beam.tree_rebase_onto(
@@ -858,8 +947,8 @@ pub fn tree_rebase_onto(
 
 @target(erlang)
 pub fn tree_merge(
-  target: SharedTree,
-  source: SharedTree,
+  target: SharedTree(s, r),
+  source: SharedTree(s, r),
   dispose_source: Bool,
 ) -> Result(Nil, String) {
   use _ <- result.try(validate_related_trees(source, target))
@@ -873,7 +962,7 @@ pub fn tree_merge(
 }
 
 @target(erlang)
-pub fn tree_branch_status(tree: SharedTree) -> TreeBranchStatus {
+pub fn tree_branch_status(tree: SharedTree(s, r)) -> TreeBranchStatus {
   case
     runtime_beam.tree_branch_status(tree.runtime, tree.address, tree.selector)
   {
@@ -884,14 +973,14 @@ pub fn tree_branch_status(tree: SharedTree) -> TreeBranchStatus {
 }
 
 @target(erlang)
-pub fn tree_dispose_branch(tree: SharedTree) -> Result(Nil, String) {
+pub fn tree_dispose_branch(tree: SharedTree(s, r)) -> Result(Nil, String) {
   runtime_beam.tree_dispose_branch(tree.runtime, tree.address, tree.selector)
 }
 
 @target(erlang)
 fn validate_related_trees(
-  first: SharedTree,
-  second: SharedTree,
+  first: SharedTree(a, b),
+  second: SharedTree(c, d),
 ) -> Result(Nil, String) {
   case first.runtime == second.runtime && first.address == second.address {
     True -> Ok(Nil)
@@ -901,7 +990,7 @@ fn validate_related_trees(
 
 @target(erlang)
 /// Return raw tree history evidence for interoperability diagnostics.
-pub fn tree_history_evidence(tree: SharedTree) -> Result(Json, String) {
+pub fn tree_history_evidence(tree: SharedTree(s, r)) -> Result(Json, String) {
   runtime_beam.tree_history_evidence(tree.runtime, tree.address)
 }
 
@@ -912,7 +1001,7 @@ pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
 }
 
 @target(erlang)
-pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
+pub fn tree_upgrade_schema(tree: SharedTree(s, r)) -> Result(Nil, String) {
   runtime_beam.tree_upgrade_schema_on(
     tree.runtime,
     tree.address,
@@ -923,9 +1012,9 @@ pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
 
 @target(erlang)
 pub fn tree_transaction(
-  tree: SharedTree,
+  tree: SharedTree(s, r),
   constraints: List(TreeTransactionConstraint),
-  callback: fn(SharedTree) -> Result(value, callback_error),
+  callback: fn(SharedTree(s, r)) -> Result(value, callback_error),
 ) -> Result(value, TreeTransactionError(callback_error)) {
   let paths =
     list.map(constraints, fn(constraint) {
@@ -1011,236 +1100,902 @@ pub fn tree_revert(
 }
 
 @target(erlang)
-pub fn tree_handle_of(tree: SharedTree) -> Json {
+pub fn tree_handle_of(tree: SharedTree(s, r)) -> Json {
   handle.encode_handle(tree.address)
 }
 
 @target(erlang)
-/// Read a field from the current tree view.
-/// An absent optional field returns `None`. A null leaf is a value.
-pub fn tree_get(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-) -> Result(Option(tree_types.TreeValue), String) {
-  runtime_beam.tree_read_view_on(
+@internal
+pub fn tree_definition_view(tree: SharedTree(s, r)) -> tree_schema.ViewSchema {
+  tree.view
+}
+
+@target(erlang)
+@internal
+pub fn tree_node_type(node: TreeNode(s, r)) -> String {
+  node.identifier
+}
+
+@target(erlang)
+@internal
+pub fn tree_definition_view_from_node(
+  node: TreeNode(s, r),
+) -> tree_schema.ViewSchema {
+  node.view
+}
+
+@target(erlang)
+pub fn tree_root(
+  tree: SharedTree(s, r),
+) -> Result(Option(TreeNode(s, r)), typed.Error) {
+  runtime_beam.tree_node_reference_view_on(
     tree.runtime,
     tree.address,
     tree.selector,
     tree.view,
-    path,
+    [],
   )
+  |> result.map(fn(reference) {
+    option.map(reference, fn(reference) {
+      TreeNode(
+        tree.runtime,
+        tree.address,
+        tree.selector,
+        tree.view,
+        reference,
+        typed.node_identifier(typed.schema_root(tree.definition)),
+        typed.schema_root(tree.definition),
+      )
+    })
+  })
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_read_root(
+  tree: SharedTree(s, r),
+) -> Result(Option(r), typed.Error) {
+  use value <- result.try(
+    runtime_beam.tree_read_view_on(
+      tree.runtime,
+      tree.address,
+      tree.selector,
+      tree.view,
+      [],
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  case value {
+    None -> Ok(None)
+    Some(value) ->
+      typed.decode_node(typed.schema_root(tree.definition), value)
+      |> result.map(Some)
+  }
+}
+
+@target(erlang)
+pub fn tree_set_root(
+  tree: SharedTree(s, r),
+  builder: typed.Builder(s, input),
+  value: input,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(require_builder(
+    typed.schema_root(tree.definition),
+    builder,
+  ))
+  use built <- result.try(typed.build(builder, value))
+  runtime_beam.tree_edit_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    tree_types.SetField([], built),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_clear_root(tree: SharedTree(s, r)) -> Result(Nil, typed.Error) {
+  use _ <- result.try(case typed.root_is_optional(tree.definition) {
+    True -> Ok(Nil)
+    False -> Error(typed.InvalidDeclaration("root is required"))
+  })
+  runtime_beam.tree_edit_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    tree_types.ClearField([]),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_read(node: TreeNode(s, r)) -> Result(r, typed.Error) {
+  use value <- result.try(read_node_value(node))
+  typed.decode_node(node.codec, value)
+}
+
+@target(erlang)
+pub fn tree_get(
+  node: TreeNode(s, r),
+  field: typed.Field(s, a, typed.Required),
+) -> Result(a, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_field(node.view, node.identifier, field))
+  use value <- result.try(read_node_field(node, typed.field_key(field)))
+  case value {
+    Some(value) -> typed.decode_field(field, value)
+    None -> Error(typed.MissingRequired(typed.field_key(field)))
+  }
+}
+
+@target(erlang)
+pub fn tree_get_optional(
+  node: TreeNode(s, r),
+  field: typed.Field(s, a, typed.Optional),
+) -> Result(Option(a), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_field(node.view, node.identifier, field))
+  use value <- result.try(read_node_field(node, typed.field_key(field)))
+  case value {
+    Some(value) -> typed.decode_field(field, value) |> result.map(Some)
+    None -> Ok(None)
+  }
+}
+
+@target(erlang)
+pub fn tree_set(
+  node: TreeNode(s, r),
+  field: typed.Field(s, a, c),
+  value: a,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_field(node.view, node.identifier, field))
+  use value <- result.try(typed.encode_field(field, value))
+  runtime_beam.tree_node_edit_view_on(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    tree_node.SetField(typed.field_key(field), value),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_clear(
+  node: TreeNode(s, r),
+  field: typed.Field(s, a, typed.Optional),
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_field(node.view, node.identifier, field))
+  runtime_beam.tree_node_edit_view_on(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    tree_node.ClearField(typed.field_key(field)),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_identifier(
+  node: TreeNode(s, r),
+  field: typed.IdentifierField(s),
+) -> Result(String, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_identifier(
+    node.view,
+    node.identifier,
+    field,
+  ))
+  use value <- result.try(read_node_field(node, typed.identifier_key(field)))
+  case value {
+    Some(tree_types.StringValue(value)) -> Ok(value)
+    Some(_) -> Error(typed.DecodeFailed("expected an identifier string"))
+    None -> Error(typed.MissingRequired(typed.identifier_key(field)))
+  }
+}
+
+@target(erlang)
+pub fn tree_child(
+  node: TreeNode(s, r),
+  field: typed.ChildField(s, child, value, c),
+) -> Result(Option(TreeNode(child, value)), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_child(node.view, node.identifier, field))
+  use reference <- result.try(
+    runtime_beam.tree_node_child_view_on(
+      node.runtime,
+      node.address,
+      node.selector,
+      node.view,
+      node.reference,
+      [typed.child_key(field)],
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  case reference {
+    Some(reference) -> {
+      let child =
+        TreeNode(
+          node.runtime,
+          node.address,
+          node.selector,
+          node.view,
+          reference,
+          typed.node_identifier(typed.child_codec(field)),
+          typed.child_codec(field),
+        )
+      use _ <- result.try(validate_node(child))
+      Ok(Some(child))
+    }
+    None ->
+      case typed.child_is_optional(field) {
+        True -> Ok(None)
+        False -> Error(typed.MissingRequired(typed.child_key(field)))
+      }
+  }
+}
+
+@target(erlang)
+pub fn tree_set_child(
+  node: TreeNode(s, r),
+  field: typed.ChildField(s, child, value, c),
+  builder: typed.Builder(child, input),
+  value: input,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_child(node.view, node.identifier, field))
+  use _ <- result.try(require_builder(typed.child_codec(field), builder))
+  use value <- result.try(typed.build(builder, value))
+  runtime_beam.tree_node_edit_view_on(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    tree_node.SetField(typed.child_key(field), value),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_clear_child(
+  node: TreeNode(s, r),
+  field: typed.ChildField(s, child, value, typed.Optional),
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_child(node.view, node.identifier, field))
+  runtime_beam.tree_node_edit_view_on(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    tree_node.ClearField(typed.child_key(field)),
+  )
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
 /// The retained SharedTree summary state for interop diagnostics.
 pub fn tree_retained_snapshot(
-  tree: SharedTree,
+  tree: SharedTree(s, r),
 ) -> Result(runtime_core.TreeRetainedSnapshot, String) {
   runtime_beam.tree_retained_snapshot(tree.runtime, tree.address)
 }
 
 @target(erlang)
-/// Set a field after schema validation. The document must be ready.
-/// An invalid edit does not change the tree.
-pub fn tree_set(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-  value: tree_types.TreeValue,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.SetField(path, value),
+pub fn tree_array(
+  node: TreeNode(s, r),
+  field: typed.ArrayField(s, item, value),
+) -> Result(TreeArray(item, value), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_array(node.view, node.identifier, field))
+  use reference <- result.try(
+    runtime_beam.tree_node_child_view_on(
+      node.runtime,
+      node.address,
+      node.selector,
+      node.view,
+      node.reference,
+      [typed.array_key(field)],
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  case reference {
+    None -> Error(typed.MissingRequired(typed.array_key(field)))
+    Some(reference) -> {
+      let array =
+        TreeArray(
+          node.runtime,
+          node.address,
+          node.selector,
+          node.view,
+          reference,
+          typed.array_identifier(field),
+          typed.array_codec(field),
+        )
+      use _ <- result.try(validate_array(array))
+      Ok(array)
+    }
+  }
 }
 
 @target(erlang)
-/// Clear an optional field. A required field cannot be cleared.
-/// The document must be ready.
-pub fn tree_clear(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.ClearField(path),
-  )
+pub fn tree_as_array(
+  node: TreeNode(s, r),
+  item: typed.NodeCodec(item, value),
+) -> Result(TreeArray(item, value), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  let identifier = node.identifier
+  use _ <- result.try(typed.validate_array_node(node.view, identifier, item))
+  Ok(TreeArray(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    identifier,
+    item,
+  ))
 }
 
 @target(erlang)
-/// Read an entry from the tree map node at `path`.
-/// The key is separate from the path. An absent entry returns `None`.
-/// This operation does not read a standalone SharedMap channel.
+pub fn tree_array_nodes(
+  array: TreeArray(item, value),
+) -> Result(List(TreeNode(item, value)), typed.Error) {
+  use _ <- result.try(validate_array(array))
+  use references <- result.try(
+    runtime_beam.tree_node_array_references_view_on(
+      array.runtime,
+      array.address,
+      array.selector,
+      array.view,
+      array.reference,
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  list.try_map(references, fn(reference) {
+    use value <- result.try(read_reference_value(
+      array.runtime,
+      array.address,
+      array.selector,
+      array.view,
+      reference,
+    ))
+    let node =
+      TreeNode(
+        array.runtime,
+        array.address,
+        array.selector,
+        array.view,
+        reference,
+        typed.value_identifier(value),
+        array.codec,
+      )
+    use _ <- result.try(validate_node(node))
+    Ok(node)
+  })
+}
+
+@target(erlang)
+pub fn tree_array_get(
+  array: TreeArray(item, value),
+  index: Int,
+) -> Result(Option(value), typed.Error) {
+  case index < 0 {
+    True -> Error(typed.AccessFailed("array index is negative"))
+    False -> {
+      use values <- result.try(tree_array_values(array))
+      case list.first(list.drop(values, index)) {
+        Ok(value) -> Ok(Some(value))
+        Error(Nil) -> Ok(None)
+      }
+    }
+  }
+}
+
+@target(erlang)
+pub fn tree_array_values(
+  array: TreeArray(item, value),
+) -> Result(List(value), typed.Error) {
+  use root <- result.try(read_array_value(array))
+  list.try_map(root, fn(value) { typed.decode_node(array.codec, value) })
+}
+
+@target(erlang)
+pub fn tree_array_insert(
+  array: TreeArray(item, value),
+  gap: Int,
+  builder: typed.Builder(item, input),
+  values: List(input),
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_array(array))
+  use _ <- result.try(require_builder(array.codec, builder))
+  use values <- result.try(
+    list.try_map(values, fn(value) { typed.build(builder, value) }),
+  )
+  runtime_beam.tree_node_edit_view_on(
+    array.runtime,
+    array.address,
+    array.selector,
+    array.view,
+    array.reference,
+    tree_node.ArrayInsert(gap, values),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_array_remove(
+  array: TreeArray(item, value),
+  start: Int,
+  end: Int,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_array(array))
+  runtime_beam.tree_node_edit_view_on(
+    array.runtime,
+    array.address,
+    array.selector,
+    array.view,
+    array.reference,
+    tree_node.ArrayRemove(start, end),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_array_move(
+  source: TreeArray(item, value),
+  start: Int,
+  end: Int,
+  destination: TreeArray(item, value),
+  destination_gap: Int,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(require_array_origin(source, destination))
+  use _ <- result.try(validate_array(source))
+  use _ <- result.try(validate_array(destination))
+  runtime_beam.tree_node_edit_view_on(
+    source.runtime,
+    source.address,
+    source.selector,
+    source.view,
+    source.reference,
+    tree_node.ArrayMove(start, end, destination.reference, destination_gap),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_array_remove_node(
+  array: TreeArray(item, value),
+  node: TreeNode(item, value),
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(require_array_node_origin(array, node))
+  use _ <- result.try(validate_array(array))
+  use _ <- result.try(validate_node(node))
+  runtime_beam.tree_node_edit_view_on(
+    array.runtime,
+    array.address,
+    array.selector,
+    array.view,
+    array.reference,
+    tree_node.RemoveNode(node.reference),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_array_move_before(
+  source: TreeArray(item, value),
+  node: TreeNode(item, value),
+  destination: TreeArray(item, value),
+  before: Option(TreeNode(item, value)),
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(require_array_node_origin(source, node))
+  use _ <- result.try(require_array_origin(source, destination))
+  use _ <- result.try(case before {
+    None -> Ok(Nil)
+    Some(before) -> require_array_node_origin(destination, before)
+  })
+  use _ <- result.try(validate_array(source))
+  use _ <- result.try(validate_array(destination))
+  use _ <- result.try(validate_node(node))
+  use before <- result.try(case before {
+    None -> Ok(None)
+    Some(before) -> {
+      use _ <- result.try(validate_node(before))
+      Ok(Some(before.reference))
+    }
+  })
+  runtime_beam.tree_node_edit_view_on(
+    source.runtime,
+    source.address,
+    source.selector,
+    source.view,
+    source.reference,
+    tree_node.MoveNode(node.reference, destination.reference, before),
+  )
+  |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+pub fn tree_map(
+  node: TreeNode(s, r),
+  field: typed.MapField(s, item, value),
+) -> Result(TreeMap(item, value), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  use _ <- result.try(typed.validate_map(node.view, node.identifier, field))
+  use reference <- result.try(
+    runtime_beam.tree_node_child_view_on(
+      node.runtime,
+      node.address,
+      node.selector,
+      node.view,
+      node.reference,
+      [typed.map_key(field)],
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  case reference {
+    None -> Error(typed.MissingRequired(typed.map_key(field)))
+    Some(reference) -> {
+      let map =
+        TreeMap(
+          node.runtime,
+          node.address,
+          node.selector,
+          node.view,
+          reference,
+          typed.map_identifier(field),
+          typed.map_codec(field),
+        )
+      use _ <- result.try(validate_map_node(map))
+      Ok(map)
+    }
+  }
+}
+
+@target(erlang)
+pub fn tree_as_map(
+  node: TreeNode(s, r),
+  item: typed.NodeCodec(item, value),
+) -> Result(TreeMap(item, value), typed.Error) {
+  use _ <- result.try(validate_node(node))
+  let identifier = node.identifier
+  use _ <- result.try(typed.validate_map_node(node.view, identifier, item))
+  Ok(TreeMap(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    identifier,
+    item,
+  ))
+}
+
+@target(erlang)
 pub fn tree_map_get(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
+  map: TreeMap(item, value),
   key: String,
-) -> Result(Option(tree_types.TreeValue), String) {
-  runtime_beam.tree_map_get_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    path,
-    key,
+) -> Result(Option(value), typed.Error) {
+  use _ <- result.try(validate_map_node(map))
+  use value <- result.try(
+    runtime_beam.tree_node_read_view_on(
+      map.runtime,
+      map.address,
+      map.selector,
+      map.view,
+      map.reference,
+      [key],
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  case value {
+    None -> Ok(None)
+    Some(value) -> typed.decode_node(map.codec, value) |> result.map(Some)
+  }
 }
 
 @target(erlang)
-/// Set an entry in the tree map node at `path`.
-/// The document must be ready. An invalid edit does not change the tree.
-pub fn tree_map_set(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
+pub fn tree_map_node(
+  map: TreeMap(item, value),
   key: String,
-  value: tree_types.TreeValue,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.MapSet(path, key, value),
+) -> Result(Option(TreeNode(item, value)), typed.Error) {
+  use _ <- result.try(validate_map_node(map))
+  use reference <- result.try(
+    runtime_beam.tree_node_child_view_on(
+      map.runtime,
+      map.address,
+      map.selector,
+      map.view,
+      map.reference,
+      [key],
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  case reference {
+    None -> Ok(None)
+    Some(reference) -> {
+      use value <- result.try(read_reference_value(
+        map.runtime,
+        map.address,
+        map.selector,
+        map.view,
+        reference,
+      ))
+      let node =
+        TreeNode(
+          map.runtime,
+          map.address,
+          map.selector,
+          map.view,
+          reference,
+          typed.value_identifier(value),
+          map.codec,
+        )
+      use _ <- result.try(validate_node(node))
+      Ok(Some(node))
+    }
+  }
 }
 
 @target(erlang)
-/// Delete an entry from the tree map node at `path`.
-/// An absent entry succeeds. The document must be ready.
-pub fn tree_map_delete(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-  key: String,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.MapDelete(path, key),
+pub fn tree_map_entries(
+  map: TreeMap(item, value),
+) -> Result(List(#(String, value)), typed.Error) {
+  use _ <- result.try(validate_map_node(map))
+  use entries <- result.try(
+    runtime_beam.tree_node_map_entries_view_on(
+      map.runtime,
+      map.address,
+      map.selector,
+      map.view,
+      map.reference,
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  list.try_map(entries, fn(entry) {
+    use value <- result.try(typed.decode_node(map.codec, entry.1))
+    Ok(#(entry.0, value))
+  })
 }
 
 @target(erlang)
-/// Read the keys of the tree map node at `path` in canonical UTF-8 order.
 pub fn tree_map_keys(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-) -> Result(List(String), String) {
-  tree_map_entries(tree, path)
+  map: TreeMap(item, value),
+) -> Result(List(String), typed.Error) {
+  tree_map_entries(map)
   |> result.map(fn(entries) { list.map(entries, fn(entry) { entry.0 }) })
 }
 
 @target(erlang)
-/// Read the entries of the tree map node at `path` in canonical UTF-8 key order.
-pub fn tree_map_entries(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-) -> Result(List(#(String, tree_types.TreeValue)), String) {
-  runtime_beam.tree_map_entries_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    path,
+pub fn tree_map_set(
+  map: TreeMap(item, value),
+  key: String,
+  builder: typed.Builder(item, input),
+  value: input,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_map_node(map))
+  use _ <- result.try(require_builder(map.codec, builder))
+  use value <- result.try(typed.build(builder, value))
+  runtime_beam.tree_node_edit_view_on(
+    map.runtime,
+    map.address,
+    map.selector,
+    map.view,
+    map.reference,
+    tree_node.MapSet(key, value),
   )
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
-/// Read an element from the tree array node at `path`.
-/// An index at or beyond the array length returns `None`.
-pub fn tree_array_get(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-  index: Int,
-) -> Result(Option(tree_types.TreeValue), String) {
-  runtime_beam.tree_array_get_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    path,
-    index,
+pub fn tree_map_delete(
+  map: TreeMap(item, value),
+  key: String,
+) -> Result(Nil, typed.Error) {
+  use _ <- result.try(validate_map_node(map))
+  runtime_beam.tree_node_edit_view_on(
+    map.runtime,
+    map.address,
+    map.selector,
+    map.view,
+    map.reference,
+    tree_node.MapDelete(key),
   )
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
-/// Read the ordered values of the tree array node at `path`.
-pub fn tree_array_values(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-) -> Result(List(tree_types.TreeValue), String) {
-  runtime_beam.tree_array_values_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    path,
+fn read_node_field(
+  node: TreeNode(s, r),
+  key: String,
+) -> Result(Option(tree_types.TreeValue), typed.Error) {
+  runtime_beam.tree_node_read_view_on(
+    node.runtime,
+    node.address,
+    node.selector,
+    node.view,
+    node.reference,
+    [key],
   )
+  |> result.map_error(typed.AccessFailed)
 }
 
 @target(erlang)
-/// Insert values at an array gap.
-pub fn tree_array_insert(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-  index: Int,
-  values: List(tree_types.TreeValue),
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.ArrayInsert(path, index, values),
+fn read_node_value(
+  node: TreeNode(s, r),
+) -> Result(tree_types.TreeValue, typed.Error) {
+  use value <- result.try(
+    runtime_beam.tree_node_read_view_on(
+      node.runtime,
+      node.address,
+      node.selector,
+      node.view,
+      node.reference,
+      [],
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  case value {
+    Some(value) -> Ok(value)
+    None -> Error(typed.AccessFailed("tree node is absent"))
+  }
 }
 
 @target(erlang)
-/// Remove the half-open range `[start, end)`.
-pub fn tree_array_remove(
-  tree: SharedTree,
-  path: tree_types.FieldPath,
-  start: Int,
-  end: Int,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.ArrayRemove(path, start, end),
-  )
+fn validate_node(node: TreeNode(s, r)) -> Result(Nil, typed.Error) {
+  use value <- result.try(read_node_value(node))
+  use _ <- result.try(case typed.value_identifier(value) == node.identifier {
+    True -> Ok(Nil)
+    False -> Error(typed.DecodeFailed("expected node " <> node.identifier))
+  })
+  typed.node_value_matches(node.codec, value)
 }
 
 @target(erlang)
-/// Move a half-open range to a pre-edit destination gap.
-pub fn tree_array_move(
-  tree: SharedTree,
-  source_path: tree_types.FieldPath,
-  source_start: Int,
-  source_end: Int,
-  destination_path: tree_types.FieldPath,
-  destination_gap: Int,
-) -> Result(Nil, String) {
-  runtime_beam.tree_edit_view_on(
-    tree.runtime,
-    tree.address,
-    tree.selector,
-    tree.view,
-    tree_types.ArrayMove(
-      source_path,
-      source_start,
-      source_end,
-      destination_path,
-      destination_gap,
-    ),
+fn read_reference_value(
+  runtime: Subject(runtime_beam.Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  reference: forest.NodeRef,
+) -> Result(tree_types.TreeValue, typed.Error) {
+  use value <- result.try(
+    runtime_beam.tree_node_read_view_on(
+      runtime,
+      address,
+      selector,
+      view,
+      reference,
+      [],
+    )
+    |> result.map_error(typed.AccessFailed),
   )
+  case value {
+    Some(value) -> Ok(value)
+    None -> Error(typed.AccessFailed("tree node is absent"))
+  }
+}
+
+@target(erlang)
+fn read_array_value(
+  array: TreeArray(item, value),
+) -> Result(List(tree_types.TreeValue), typed.Error) {
+  use value <- result.try(
+    runtime_beam.tree_node_read_view_on(
+      array.runtime,
+      array.address,
+      array.selector,
+      array.view,
+      array.reference,
+      [],
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  case value {
+    Some(tree_types.ArrayValue(identifier, values))
+      if identifier == array.identifier
+    -> Ok(values)
+    Some(_) -> Error(typed.DecodeFailed("expected node " <> array.identifier))
+    None -> Error(typed.AccessFailed("tree array is absent"))
+  }
+}
+
+@target(erlang)
+fn validate_array(array: TreeArray(item, value)) -> Result(Nil, typed.Error) {
+  use _ <- result.try(typed.validate_array_node(
+    array.view,
+    array.identifier,
+    array.codec,
+  ))
+  use _ <- result.try(read_array_value(array))
+  Ok(Nil)
+}
+
+@target(erlang)
+fn validate_map_node(map: TreeMap(item, value)) -> Result(Nil, typed.Error) {
+  use _ <- result.try(typed.validate_map_node(
+    map.view,
+    map.identifier,
+    map.codec,
+  ))
+  use value <- result.try(
+    runtime_beam.tree_node_read_view_on(
+      map.runtime,
+      map.address,
+      map.selector,
+      map.view,
+      map.reference,
+      [],
+    )
+    |> result.map_error(typed.AccessFailed),
+  )
+  case value {
+    Some(tree_types.MapValue(identifier, _)) if identifier == map.identifier ->
+      Ok(Nil)
+    Some(_) -> Error(typed.DecodeFailed("expected node " <> map.identifier))
+    None -> Error(typed.AccessFailed("tree map is absent"))
+  }
+}
+
+@target(erlang)
+fn require_builder(
+  codec: typed.NodeCodec(s, r),
+  builder: typed.Builder(s, input),
+) -> Result(Nil, typed.Error) {
+  case
+    list.contains(
+      typed.node_identifiers(codec),
+      typed.builder_identifier(builder),
+    )
+  {
+    True -> Ok(Nil)
+    False ->
+      Error(typed.InvalidDeclaration(
+        "builder does not match " <> typed.node_identifier(codec),
+      ))
+  }
+}
+
+@target(erlang)
+fn require_array_origin(
+  first: TreeArray(a, b),
+  second: TreeArray(c, d),
+) -> Result(Nil, typed.Error) {
+  case
+    first.runtime == second.runtime
+    && first.address == second.address
+    && first.selector == second.selector
+    && first.view == second.view
+  {
+    True -> Ok(Nil)
+    False -> Error(typed.AccessFailed("tree handles have different origins"))
+  }
+}
+
+@target(erlang)
+fn require_array_node_origin(
+  array: TreeArray(a, b),
+  node: TreeNode(c, d),
+) -> Result(Nil, typed.Error) {
+  case
+    array.runtime == node.runtime
+    && array.address == node.address
+    && array.selector == node.selector
+    && array.view == node.view
+  {
+    True -> Ok(Nil)
+    False -> Error(typed.AccessFailed("tree handles have different origins"))
+  }
 }
 
 @target(erlang)
@@ -1584,7 +2339,7 @@ pub fn resolve_map_field(
 pub fn set_tree_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TreeChannel),
-  tree: SharedTree,
+  tree: SharedTree(tree_schema, record),
 ) -> Nil {
   put_channel_field(typed_map, field, tree_handle_of(tree))
 }
@@ -1594,11 +2349,12 @@ pub fn resolve_tree_field(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TreeChannel),
-  view: tree_schema.ViewSchema,
-) -> Result(Option(SharedTree), String) {
-  get_channel_field(document, typed_map, field, fn(document, value) {
-    resolve_tree(document, value, view)
-  })
+  definition: typed.Schema(tree_schema, record),
+) -> Result(Option(SharedTree(tree_schema, record)), typed.Error) {
+  case get(typed_map.map, schema.channel_field_key(field)) {
+    Error(Nil) -> Ok(None)
+    Ok(value) -> resolve_tree(document, value, definition) |> result.map(Some)
+  }
 }
 
 @target(erlang)
@@ -2492,7 +3248,9 @@ fn subscribe_narrowed(
 }
 
 @target(erlang)
-pub fn subscribe_tree(tree: SharedTree) -> Subject(tree_kernel.TreeEvent) {
+pub fn subscribe_tree(
+  tree: SharedTree(s, r),
+) -> Subject(tree_kernel.TreeEvent) {
   let subject = process.new_subject()
   runtime_beam.subscribe_tree_events_on(
     tree.runtime,
@@ -2510,7 +3268,7 @@ pub fn subscribe_tree(tree: SharedTree) -> Subject(tree_kernel.TreeEvent) {
 
 @target(erlang)
 pub fn subscribe_tree_commits(
-  tree: SharedTree,
+  tree: SharedTree(s, r),
   handler: fn(TreeCommitEvent) -> Nil,
 ) -> SubscriptionToken {
   runtime_beam.subscribe_tree_commits_on(
