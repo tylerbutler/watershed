@@ -593,6 +593,7 @@ fn field_allows_all(
   identifiers: List(String),
 ) -> Bool {
   definition.cardinality == cardinality
+  && list.length(definition.allowed_types) == list.length(identifiers)
   && list.all(identifiers, fn(identifier) {
     list.contains(definition.allowed_types, identifier)
   })

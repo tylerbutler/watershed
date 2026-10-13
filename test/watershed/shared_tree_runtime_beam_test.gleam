@@ -504,6 +504,18 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
 
   let before = runtime_beam.connection_observation(actor)
+  let #(mismatched_stored, _) = evolution_schema("v1")
+  facade_fixture.create_in_from_parts_erlang(
+    document,
+    store,
+    mismatched_stored,
+    Some(initial),
+    view,
+  )
+  |> expect.to_be_error()
+  runtime_beam.connection_observation(actor) |> expect.to_equal(before)
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
   let #(_, incompatible) = evolution_schema("v1")
   facade_fixture.create_in_from_parts_erlang(
     document,

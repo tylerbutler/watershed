@@ -263,6 +263,21 @@ pub fn shared_tree_typed_collection_validators_check_member_definitions_test() {
   Nil
 }
 
+pub fn shared_tree_typed_collection_declarations_require_complete_item_set_test() {
+  let raw =
+    "{\"version\":2,\"nodes\":{\"Child\":{\"kind\":{\"object\":{}}},\"Other\":{\"kind\":{\"object\":{}}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"Child\",\"Other\"]}}}},\"Entries\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"Child\",\"Other\"]}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Items\"]}}"
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok
+  let child = typed.node("Child", fn(value) { Ok(value) }) |> expect.to_be_ok
+  typed.validate_array_node(view, "Items", child) |> expect.to_be_error
+  typed.validate_map_node(view, "Entries", child) |> expect.to_be_error
+  let complete = typed.dynamic_union_node(["Other", "Child"]) |> expect.to_be_ok
+  typed.validate_array_node(view, "Items", complete)
+  |> expect.to_equal(Ok(Nil))
+  typed.validate_map_node(view, "Entries", complete)
+  |> expect.to_equal(Ok(Nil))
+  Nil
+}
+
 pub fn shared_tree_typed_identifier_builder_omits_generated_identifier_test() {
   let input = fixture.GeneratedItemInput(text: "Allocated later")
   typed.build(fixture.generated_item_builder(), input)

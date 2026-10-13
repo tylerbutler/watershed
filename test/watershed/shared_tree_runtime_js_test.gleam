@@ -4022,6 +4022,19 @@ pub fn detached_graph_lifecycle_facade_test() {
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
 
   let before = runtime.diagnostics(watershed.runtime_of(document))
+  let #(mismatched_stored, _) = evolution_schema("v1")
+  facade_fixture.create_in_from_parts_javascript(
+    document,
+    store,
+    mismatched_stored,
+    Some(initial),
+    view,
+  )
+  |> expect.to_be_error()
+  runtime.diagnostics(watershed.runtime_of(document))
+  |> expect.to_equal(before)
+  transport_js.get_cell(submissions) |> expect.to_equal([])
+
   let #(_, incompatible) = evolution_schema("v1")
   facade_fixture.create_in_from_parts_javascript(
     document,

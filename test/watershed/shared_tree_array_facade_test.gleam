@@ -109,6 +109,7 @@ fn assert_array_operations(
   remove: fn(List(String), Int, Int) -> Result(Nil, String),
   move: fn(List(String), Int, Int, List(String), Int) -> Result(Nil, String),
 ) -> Nil {
+  insert([], 0, []) |> expect.to_equal(Ok(Nil))
   values([])
   |> expect.to_equal(
     Ok([

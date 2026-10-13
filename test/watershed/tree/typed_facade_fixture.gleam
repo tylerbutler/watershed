@@ -14,7 +14,7 @@ pub const items_type = "org.watershed.typed.Items"
 
 pub const entries_type = "org.watershed.typed.Entries"
 
-const raw_definition = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.typed.Child\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"text\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"org.watershed.typed.Entries\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.typed.Child\"]}}},\"org.watershed.typed.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.typed.Child\"]}}}},\"org.watershed.typed.Root\":{\"kind\":{\"object\":{\"child\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Child\"]},\"entries\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Entries\"]},\"handle\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Items\"]},\"maybeNull\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"nothing\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Root\"]}}"
+const raw_definition = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.typed.Child\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"text\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"org.watershed.typed.Entries\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.typed.Child\"]}}},\"org.watershed.typed.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.typed.Child\"]}}}},\"org.watershed.typed.Root\":{\"kind\":{\"object\":{\"child\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Child\"]},\"entries\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Entries\"]},\"handle\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.handle\"]},\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Items\"]},\"maybeNull\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"nothing\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"optionalChild\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.typed.Child\"]},\"otherItems\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Items\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.typed.Root\"]}}"
 
 pub type Root
 
@@ -39,7 +39,9 @@ pub type RootInput {
     maybe_null: Option(Nil),
     handle: handle.Reference,
     child: ChildInput,
+    optional_child: Option(ChildInput),
     items: List(ChildInput),
+    other_items: List(ChildInput),
     entries: List(#(String, ChildInput)),
   )
 }
@@ -75,9 +77,19 @@ pub fn root_builder() -> typed.Builder(Root, RootInput) {
             #("nothing", types.NullValue),
             #("handle", types.HandleValue(input.handle)),
             #("child", encode_child(input.child)),
+            ..optional("optionalChild", input.optional_child, encode_child)
+          ],
+          [
             #(
               "items",
               types.ArrayValue(items_type, list.map(input.items, encode_child)),
+            ),
+            #(
+              "otherItems",
+              types.ArrayValue(
+                items_type,
+                list.map(input.other_items, encode_child),
+              ),
             ),
             #(
               "entries",
@@ -111,10 +123,12 @@ pub fn initial_root() -> types.TreeValue {
         maybe_null: Some(Nil),
         handle: reference,
         child: ChildInput(Some("child"), "Child"),
+        optional_child: Some(ChildInput(Some("optional"), "Optional")),
         items: [
           ChildInput(Some("first"), "First"),
           ChildInput(Some("second"), "Second"),
         ],
+        other_items: [],
         entries: [#("first", ChildInput(Some("mapped"), "Mapped"))],
       ),
     )
@@ -128,6 +142,15 @@ pub fn child_codec() -> typed.NodeCodec(Child, ChildState) {
       use id <- result.try(required(fields, "id", typed.string()))
       use text <- result.try(required(fields, "text", typed.string()))
       Ok(ChildState(id:, text:))
+    })
+  value
+}
+
+pub fn child_text_codec() -> typed.NodeCodec(Child, String) {
+  let assert Ok(value) =
+    typed.node(child_type, fn(value) {
+      let assert types.ObjectValue(_, fields) = value
+      required(fields, "text", typed.string())
     })
   value
 }
@@ -162,8 +185,29 @@ pub fn child() -> typed.ChildField(Root, Child, ChildState, typed.Required) {
   typed.required_child("child", child_codec())
 }
 
+pub fn optional_child() -> typed.ChildField(
+  Root,
+  Child,
+  ChildState,
+  typed.Optional,
+) {
+  typed.optional_child("optionalChild", child_codec())
+}
+
 pub fn items() -> typed.ArrayField(Root, Child, ChildState) {
   typed.array_field("items", items_type, child_codec())
+}
+
+pub fn items_text() -> typed.ArrayField(Root, Child, String) {
+  typed.array_field("items", items_type, child_text_codec())
+}
+
+pub fn other_items() -> typed.ArrayField(Root, Child, ChildState) {
+  typed.array_field("otherItems", items_type, child_codec())
+}
+
+pub fn other_items_text() -> typed.ArrayField(Root, Child, String) {
+  typed.array_field("otherItems", items_type, child_text_codec())
 }
 
 pub fn entries() -> typed.MapField(Root, Child, ChildState) {

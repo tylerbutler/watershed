@@ -6,6 +6,11 @@ import gleam/result
 import gleam/string
 @target(javascript)
 import watershed
+import watershed/handle
+@target(javascript)
+import watershed/runtime
+@target(erlang)
+import watershed/runtime_beam
 import watershed/tree/schema
 import watershed/tree/typed
 import watershed/tree/types
@@ -55,7 +60,7 @@ pub fn resolve_javascript(
 ) -> Result(watershed.SharedTree(Dynamic, types.TreeValue), String) {
   use definition <- result.try(definition(view))
   watershed.resolve_tree(document, value, definition)
-  |> result.map_error(string.inspect)
+  |> result.map_error(typed_error)
 }
 
 @target(erlang)
@@ -150,55 +155,145 @@ pub fn create_in_erlang(
 @target(javascript)
 pub fn create_from_parts_javascript(
   document: watershed.Document(root),
-  _stored: schema.StoredSchema,
+  stored: schema.StoredSchema,
   initial: Option(types.TreeValue),
   view: schema.ViewSchema,
 ) -> Result(JavascriptTree, String) {
+  use _ <- result.try(
+    schema.can_view(stored, view) |> result.map_error(string.inspect),
+  )
   use definition <- result.try(definition(view))
   use builder <- result.try(root_builder(view, initial))
-  watershed.create_tree(document, definition, builder, initial)
-  |> result.map_error(typed_error)
+  case stored == schema.view_to_stored(view) {
+    True ->
+      watershed.create_tree(document, definition, builder, initial)
+      |> result.map_error(typed_error)
+    False -> {
+      use address <- result.try(runtime.create_tree(
+        watershed.runtime_of(document),
+        stored,
+        initial,
+        view,
+      ))
+      watershed.resolve_tree(
+        document,
+        handle.encode_handle(address),
+        definition,
+      )
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
 @target(javascript)
 pub fn create_in_from_parts_javascript(
   document: watershed.Document(root),
   store: watershed.DataStore,
-  _stored: schema.StoredSchema,
+  stored: schema.StoredSchema,
   initial: Option(types.TreeValue),
   view: schema.ViewSchema,
 ) -> Result(JavascriptTree, String) {
+  use _ <- result.try(
+    schema.can_view(stored, view) |> result.map_error(string.inspect),
+  )
   use definition <- result.try(definition(view))
   use builder <- result.try(root_builder(view, initial))
-  watershed.create_tree_in(document, store, definition, builder, initial)
-  |> result.map_error(typed_error)
+  case stored == schema.view_to_stored(view) {
+    True ->
+      watershed.create_tree_in(document, store, definition, builder, initial)
+      |> result.map_error(typed_error)
+    False -> {
+      use store_id <- result.try(store_id_javascript(store))
+      use address <- result.try(runtime.create_tree_in(
+        watershed.runtime_of(document),
+        store_id,
+        stored,
+        initial,
+        view,
+      ))
+      watershed.resolve_tree(
+        document,
+        handle.encode_handle(address),
+        definition,
+      )
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
 @target(erlang)
 pub fn create_from_parts_erlang(
   document: watershed_beam.Document(root),
-  _stored: schema.StoredSchema,
+  stored: schema.StoredSchema,
   initial: Option(types.TreeValue),
   view: schema.ViewSchema,
 ) -> Result(ErlangTree, String) {
+  use _ <- result.try(
+    schema.can_view(stored, view) |> result.map_error(string.inspect),
+  )
   use definition <- result.try(definition(view))
   use builder <- result.try(root_builder(view, initial))
-  watershed_beam.create_tree(document, definition, builder, initial)
-  |> result.map_error(typed_error)
+  case stored == schema.view_to_stored(view) {
+    True ->
+      watershed_beam.create_tree(document, definition, builder, initial)
+      |> result.map_error(typed_error)
+    False -> {
+      use address <- result.try(runtime_beam.create_tree(
+        watershed_beam.runtime_subject(document),
+        stored,
+        initial,
+        view,
+      ))
+      watershed_beam.resolve_tree(
+        document,
+        handle.encode_handle(address),
+        definition,
+      )
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
 @target(erlang)
 pub fn create_in_from_parts_erlang(
   document: watershed_beam.Document(root),
   store: watershed_beam.DataStore,
-  _stored: schema.StoredSchema,
+  stored: schema.StoredSchema,
   initial: Option(types.TreeValue),
   view: schema.ViewSchema,
 ) -> Result(ErlangTree, String) {
+  use _ <- result.try(
+    schema.can_view(stored, view) |> result.map_error(string.inspect),
+  )
   use definition <- result.try(definition(view))
   use builder <- result.try(root_builder(view, initial))
-  watershed_beam.create_tree_in(document, store, definition, builder, initial)
-  |> result.map_error(typed_error)
+  case stored == schema.view_to_stored(view) {
+    True ->
+      watershed_beam.create_tree_in(
+        document,
+        store,
+        definition,
+        builder,
+        initial,
+      )
+      |> result.map_error(typed_error)
+    False -> {
+      use store_id <- result.try(store_id_erlang(store))
+      use address <- result.try(runtime_beam.create_tree_in(
+        watershed_beam.runtime_subject(document),
+        store_id,
+        stored,
+        initial,
+        view,
+      ))
+      watershed_beam.resolve_tree(
+        document,
+        handle.encode_handle(address),
+        definition,
+      )
+      |> result.map_error(typed_error)
+    }
+  }
 }
 
 @target(javascript)
@@ -241,7 +336,7 @@ pub fn set_javascript(
     Error(Nil) -> {
       use builder <- result.try(builder(value))
       watershed.tree_set_root(tree, builder, value)
-      |> result.map_error(string.inspect)
+      |> result.map_error(typed_error)
     }
     Ok(#(parent_path, key)) -> {
       use parent <- result.try(node_javascript(tree, parent_path))
@@ -260,7 +355,7 @@ pub fn set_erlang(
     Error(Nil) -> {
       use builder <- result.try(builder(value))
       watershed_beam.tree_set_root(tree, builder, value)
-      |> result.map_error(string.inspect)
+      |> result.map_error(typed_error)
     }
     Ok(#(parent_path, key)) -> {
       use parent <- result.try(node_erlang(tree, parent_path))
@@ -354,7 +449,12 @@ pub fn array_values_erlang(tree, path) {
 @target(javascript)
 pub fn array_insert_javascript(tree, path, index, values) {
   use array <- result.try(array_javascript(tree, path))
-  use builder <- result.try(collection_builder(values))
+  use node <- result.try(node_javascript(tree, path))
+  use items <- result.try(array_items(
+    node_identifier_javascript(node),
+    tree_view_javascript(tree),
+  ))
+  use builder <- result.try(collection_builder(values, items))
   watershed.tree_array_insert(array, index, builder, values)
   |> result.map_error(typed_error)
 }
@@ -362,7 +462,12 @@ pub fn array_insert_javascript(tree, path, index, values) {
 @target(erlang)
 pub fn array_insert_erlang(tree, path, index, values) {
   use array <- result.try(array_erlang(tree, path))
-  use builder <- result.try(collection_builder(values))
+  use node <- result.try(node_erlang(tree, path))
+  use items <- result.try(array_items(
+    node_identifier_erlang(node),
+    tree_view_erlang(tree),
+  ))
+  use builder <- result.try(collection_builder(values, items))
   watershed_beam.tree_array_insert(array, index, builder, values)
   |> result.map_error(typed_error)
 }
@@ -511,6 +616,7 @@ pub fn map_entries_erlang(tree, path) {
 
 fn collection_builder(
   values: List(types.TreeValue),
+  declared: List(String),
 ) -> Result(typed.Builder(Dynamic, types.TreeValue), String) {
   case values {
     [first, ..rest] ->
@@ -520,7 +626,36 @@ fn collection_builder(
         True -> builder(first)
         False -> Error("collection values have different node types")
       }
-    [] -> Error("collection insert is empty")
+    [] -> {
+      case declared {
+        [identifier, ..] ->
+          typed.dynamic_builder(identifier) |> result.map_error(typed_error)
+        [] -> Error("collection item declaration is empty")
+      }
+    }
+  }
+}
+
+@target(javascript)
+fn store_id_javascript(store: watershed.DataStore) -> Result(String, String) {
+  use root <- result.try(watershed.data_store_root(store))
+  store_id(watershed.handle_of(root))
+}
+
+@target(erlang)
+fn store_id_erlang(store: watershed_beam.DataStore) -> Result(String, String) {
+  use root <- result.try(watershed_beam.data_store_root(store))
+  store_id(watershed_beam.handle_of(root))
+}
+
+fn store_id(marker: Json) -> Result(String, String) {
+  use reference <- result.try(
+    handle.reference_from_json(marker, "/")
+    |> result.map_error(string.inspect),
+  )
+  case string.split(handle.reference_path(reference), "/") {
+    ["", id, "root"] -> Ok(id)
+    _ -> Error("data store root has an invalid address")
   }
 }
 
