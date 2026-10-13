@@ -86,22 +86,28 @@ pub fn read_root_reads_on_perform_and_dispatches_in_a_microtask_test() -> Promis
   let fixture = fixture(False)
   let sink = transport_js.new_cell([])
   let constructors = transport_js.new_cell(0)
-  run(
+  let pending =
     tree.read_root(fixture.tree, fn(outcome) {
       transport_js.set_cell(
         constructors,
         transport_js.get_cell(constructors) + 1,
       )
       ReadRoot(outcome)
-    }),
-    sink,
-  )
+    })
+  let assert 0 = transport_js.get_cell(constructors)
   let assert Ok(Nil) =
     watershed.tree_set_root(fixture.tree, text_builder(), "latest")
+  run(pending, sink)
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
+  let assert Ok(Nil) =
+    watershed.tree_set_root(fixture.tree, text_builder(), "after-perform")
   use _ <- promise.await(promise.wait(0))
-  let assert [ReadRoot(Ok(Some("initial")))] = messages(sink)
+  let assert [ReadRoot(Ok(Some("latest")))] = messages(sink)
+  let assert 1 = transport_js.get_cell(constructors)
+  use _ <- promise.await(promise.wait(0))
+  let assert [ReadRoot(Ok(Some("latest")))] = messages(sink)
+  let assert 1 = transport_js.get_cell(constructors)
   watershed.close(fixture.document)
   promise.resolve(Nil)
 }
@@ -477,6 +483,7 @@ pub fn transaction_runs_lazily_and_defers_the_typed_result_test() -> Promise(
   let fixture = fixture(False)
   let sink = transport_js.new_cell([])
   let calls = transport_js.new_cell(0)
+  let constructors = transport_js.new_cell(0)
   let pending =
     tree.transaction(
       fixture.tree,
@@ -485,15 +492,29 @@ pub fn transaction_runs_lazily_and_defers_the_typed_result_test() -> Promise(
         transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
         Ok(42)
       },
-      TransactionCompleted,
+      fn(outcome) {
+        transport_js.set_cell(
+          constructors,
+          transport_js.get_cell(constructors) + 1,
+        )
+        TransactionCompleted(outcome)
+      },
     )
 
   let assert 0 = transport_js.get_cell(calls)
+  let assert 0 = transport_js.get_cell(constructors)
   run(pending, sink)
   let assert 1 = transport_js.get_cell(calls)
+  let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
   let assert [TransactionCompleted(Ok(42))] = messages(sink)
+  let assert 1 = transport_js.get_cell(calls)
+  let assert 1 = transport_js.get_cell(constructors)
+  use _ <- promise.await(promise.wait(0))
+  let assert [TransactionCompleted(Ok(42))] = messages(sink)
+  let assert 1 = transport_js.get_cell(calls)
+  let assert 1 = transport_js.get_cell(constructors)
   watershed.close(fixture.document)
   promise.resolve(Nil)
 }
@@ -702,7 +723,12 @@ pub fn create_dev_is_lazy_and_defers_dispatch_test() -> Promise(Nil) {
   run(pending, sink)
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
-  use _ <- promise.await(promise.wait(10))
+  use completed <- promise.await(
+    wait_until(100, fn() {
+      transport_js.get_cell(constructors) == 1 && messages(sink) != []
+    }),
+  )
+  let assert True = completed
   let assert 1 = transport_js.get_cell(calls)
   let assert [Created(Error(typed.AccessFailed(_)))] = messages(sink)
   let assert 1 = transport_js.get_cell(constructors)
@@ -726,6 +752,17 @@ fn run(effect_to_run: Effect(Msg), sink: transport_js.Cell(List(Msg))) -> Nil {
 
 fn messages(sink: transport_js.Cell(List(Msg))) -> List(Msg) {
   transport_js.get_cell(sink) |> list.reverse
+}
+
+fn wait_until(attempts: Int, check: fn() -> Bool) -> Promise(Bool) {
+  case check(), attempts <= 0 {
+    True, _ -> promise.resolve(True)
+    False, True -> promise.resolve(False)
+    False, False -> {
+      use _ <- promise.await(promise.wait(0))
+      wait_until(attempts - 1, check)
+    }
+  }
 }
 
 fn clear_messages(sink: transport_js.Cell(List(Msg))) -> Nil {
