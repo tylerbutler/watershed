@@ -175,6 +175,10 @@ pub fn shared_tree_array_forest_moves_counted_duplicate_objects_by_identity_test
   |> expect.to_equal(Ok(first_reference))
   forest.locate(moved, ["right", "1"])
   |> expect.to_equal(Ok(second_reference))
+  forest.attached_path(moved, first_reference)
+  |> expect.to_equal(Ok(["right", "0"]))
+  forest.attached_path(moved, second_reference)
+  |> expect.to_equal(Ok(["right", "1"]))
   forest.array_values(moved, ["left"]) |> expect.to_equal(Ok([point(0.0)]))
   forest.array_values(moved, ["right"])
   |> expect.to_equal(Ok([first, second]))
@@ -222,6 +226,205 @@ pub fn shared_tree_array_forest_moves_counted_duplicate_objects_by_identity_test
   forest.read_node(changed, first_reference) |> expect.to_equal(Ok(first))
   forest.read_node(changed, second_reference)
   |> expect.to_equal(Ok(point(42.0)))
+}
+
+pub fn shared_tree_array_forest_resolves_same_array_reorder_by_identity_test() {
+  let root = types.ArrayValue(items_type, [point(1.0), point(2.0)])
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  let assert Ok(first) = forest.locate(initial, ["0"])
+  let assert Ok(second) = forest.locate(initial, ["1"])
+  let assert Ok(delta) =
+    forest.delta(
+      forest.DeltaData(
+        ..empty_delta(),
+        fields: root_array_delta([
+          forest.Mark(1, None, Some(atom(10)), []),
+          forest.Mark(1, None, None, []),
+          forest.Mark(1, Some(atom(10)), None, []),
+        ]),
+      ),
+    )
+  let assert Ok(reordered) = forest.apply_delta(initial, delta)
+
+  forest.attached_path(reordered, first) |> expect.to_equal(Ok(["1"]))
+  forest.attached_path(reordered, second) |> expect.to_equal(Ok(["0"]))
+}
+
+pub fn shared_tree_array_forest_resolves_parent_move_by_identity_test() {
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("objectArrays"),
+      Some(array_root([point(1.0)], [])),
+    )
+  let assert Ok(reference) = forest.locate(initial, ["left", "0"])
+  let assert Ok(delta) =
+    forest.delta(
+      forest.DeltaData(..empty_delta(), fields: [
+        #(
+          "rootFieldKey",
+          forest.FieldDelta([
+            forest.Mark(1, None, None, [
+              #(
+                "left",
+                forest.FieldDelta([
+                  forest.Mark(1, None, None, [
+                    #(
+                      "",
+                      forest.FieldDelta([
+                        forest.Mark(1, None, Some(atom(10)), []),
+                      ]),
+                    ),
+                  ]),
+                ]),
+              ),
+              #(
+                "right",
+                forest.FieldDelta([
+                  forest.Mark(1, None, None, [
+                    #(
+                      "",
+                      forest.FieldDelta([
+                        forest.Mark(1, Some(atom(10)), None, []),
+                      ]),
+                    ),
+                  ]),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ]),
+    )
+  let assert Ok(moved) = forest.apply_delta(initial, delta)
+
+  forest.attached_path(moved, reference)
+  |> expect.to_equal(Ok(["right", "0"]))
+}
+
+pub fn shared_tree_array_forest_preserves_map_key_segments_test() {
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #("left", types.ArrayValue(items_type, [])),
+      #("right", types.ArrayValue(items_type, [])),
+      #(
+        "byKey",
+        types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [
+          #("0", point(0.0)),
+          #("💧", point(1.0)),
+          #("", point(2.0)),
+        ]),
+      ),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let assert Ok(state) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("objectArrays"),
+      Some(root),
+    )
+  let assert Ok(numeric) = forest.locate(state, ["byKey", "0"])
+  let assert Ok(unicode) = forest.locate(state, ["byKey", "💧"])
+  let assert Ok(empty) = forest.locate(state, ["byKey", ""])
+
+  forest.attached_path(state, numeric)
+  |> expect.to_equal(Ok(["byKey", "0"]))
+  forest.attached_path(state, unicode)
+  |> expect.to_equal(Ok(["byKey", "💧"]))
+  forest.attached_path(state, empty)
+  |> expect.to_equal(Ok(["byKey", ""]))
+}
+
+pub fn shared_tree_array_forest_rejects_detached_destroyed_and_replaced_nodes_test() {
+  let root = types.ArrayValue(items_type, [point(1.0)])
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  let assert Ok(reference) = forest.locate(initial, ["0"])
+  let assert Ok(detach) =
+    forest.delta(
+      forest.DeltaData(
+        ..empty_delta(),
+        fields: root_array_delta([
+          forest.Mark(1, None, Some(atom(10)), []),
+        ]),
+      ),
+    )
+  let assert Ok(detached) = forest.apply_delta(initial, detach)
+  forest.attached_path(detached, reference)
+  |> expect.to_equal(Error(types.InvalidEdit([], "node is not attached")))
+
+  let assert Ok(destroy) =
+    forest.delta(
+      forest.DeltaData(..empty_delta(), destroy: [
+        forest.Destroy(atom(10), 1),
+      ]),
+    )
+  let assert Ok(destroyed) = forest.apply_delta(detached, destroy)
+  forest.attached_path(destroyed, reference)
+  |> expect.to_equal(
+    Error(types.InvalidEdit([], "node reference is no longer valid")),
+  )
+
+  let assert Ok(insert_replacement) =
+    forest.delta(
+      forest.DeltaData(
+        ..empty_delta(),
+        build: [forest.Build(atom(20), [point(2.0)])],
+        fields: root_array_delta([
+          forest.Mark(1, Some(atom(20)), None, []),
+        ]),
+      ),
+    )
+  let assert Ok(replacement) = forest.apply_delta(detached, insert_replacement)
+  forest.attached_path(replacement, reference)
+  |> expect.to_equal(Error(types.InvalidEdit([], "node is not attached")))
+}
+
+pub fn shared_tree_array_forest_rejects_foreign_view_reference_test() {
+  let root = types.ArrayValue(items_type, [point(1.0)])
+  let assert Ok(first) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  let assert Ok(other_view) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000099")
+  let assert Ok(second) =
+    forest.new(other_view, array_fixture.stored("rootArray"), Some(root))
+  let assert Ok(reference) = forest.locate(first, ["0"])
+
+  forest.attached_path(second, reference)
+  |> expect.to_equal(
+    Error(types.InvalidEdit([], "node reference belongs to another view")),
+  )
+}
+
+pub fn shared_tree_array_forest_lists_direct_array_references_test() {
+  let root = types.ArrayValue(items_type, [point(1.0), point(2.0)])
+  let assert Ok(state) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  let assert Ok(array) = forest.locate(state, [])
+  let assert Ok(first) = forest.locate(state, ["0"])
+  let assert Ok(second) = forest.locate(state, ["1"])
+
+  forest.array_references(state, array)
+  |> expect.to_equal(Ok([first, second]))
+  forest.array_references(state, first)
+  |> expect.to_equal(Error(types.InvalidEdit(["0"], "node is not an array")))
 }
 
 pub fn shared_tree_array_forest_rejects_overlapping_counted_owners_test() {

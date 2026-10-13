@@ -1613,6 +1613,36 @@ pub fn locate(state: Forest, path: FieldPath) -> Result(NodeRef, TreeError) {
   }
 }
 
+/// Return the current path for an attached node reference.
+pub fn attached_path(
+  state: Forest,
+  reference: NodeRef,
+) -> Result(FieldPath, TreeError) {
+  use target <- result.try(reference_id(state, reference))
+  // ponytail: O(n) attached-path lookup. Add a parent index if profiling shows a bottleneck.
+  use path <- result.try(find_attached_path(state, state.root, target, []))
+  case path {
+    Some(path) -> Ok(path)
+    None -> Error(InvalidEdit([], "node is not attached"))
+  }
+}
+
+/// Return the current direct children of an attached array node.
+pub fn array_references(
+  state: Forest,
+  reference: NodeRef,
+) -> Result(List(NodeRef), TreeError) {
+  use id <- result.try(reference_id(state, reference))
+  use path <- result.try(attached_path(state, reference))
+  use node <- result.try(get_node(state, id))
+  case node {
+    Array(_, elements) ->
+      Ok(list.map(elements, fn(id) { NodeRef(state.view_id, id) }))
+    Leaf(_) | Object(_, _) | Map(_, _) ->
+      Error(InvalidEdit(path, "node is not an array"))
+  }
+}
+
 pub fn read_node(state: Forest, node: NodeRef) -> Result(TreeValue, TreeError) {
   use id <- result.try(reference_id(state, node))
   materialize(state, id, set.new()) |> result.map(fn(pair) { pair.0 })
@@ -1626,6 +1656,91 @@ pub fn is_attached(state: Forest, node: NodeRef) -> Result(Bool, TreeError) {
     }),
   )
   Ok(set.contains(visited, id))
+}
+
+fn find_attached_path(
+  state: Forest,
+  children: List(Int),
+  target: Int,
+  path: FieldPath,
+) -> Result(Option(FieldPath), TreeError) {
+  case children {
+    [] -> Ok(None)
+    [id, ..rest] ->
+      case id == target {
+        True -> Ok(Some(path))
+        False -> {
+          use node <- result.try(get_node(state, id))
+          use found <- result.try(find_path_in_node(state, node, target, path))
+          case found {
+            Some(_) -> Ok(found)
+            None -> find_attached_path(state, rest, target, path)
+          }
+        }
+      }
+  }
+}
+
+fn find_path_in_node(
+  state: Forest,
+  node: Node,
+  target: Int,
+  path: FieldPath,
+) -> Result(Option(FieldPath), TreeError) {
+  case node {
+    Leaf(_) -> Ok(None)
+    Object(_, fields) | Map(_, fields) ->
+      find_path_in_fields(state, fields, target, path)
+    Array(_, elements) -> find_path_in_array(state, elements, target, path, 0)
+  }
+}
+
+fn find_path_in_fields(
+  state: Forest,
+  fields: List(#(String, List(Int))),
+  target: Int,
+  path: FieldPath,
+) -> Result(Option(FieldPath), TreeError) {
+  case fields {
+    [] -> Ok(None)
+    [#(key, children), ..rest] -> {
+      use found <- result.try(find_attached_path(
+        state,
+        children,
+        target,
+        list.append(path, [key]),
+      ))
+      case found {
+        Some(_) -> Ok(found)
+        None -> find_path_in_fields(state, rest, target, path)
+      }
+    }
+  }
+}
+
+fn find_path_in_array(
+  state: Forest,
+  elements: List(Int),
+  target: Int,
+  path: FieldPath,
+  index: Int,
+) -> Result(Option(FieldPath), TreeError) {
+  case elements {
+    [] -> Ok(None)
+    [id, ..rest] -> {
+      let child_path = list.append(path, [int.to_string(index)])
+      use found <- result.try(find_attached_path(
+        state,
+        [id],
+        target,
+        child_path,
+      ))
+      case found {
+        Some(_) -> Ok(found)
+        None -> find_path_in_array(state, rest, target, path, index + 1)
+      }
+    }
+  }
 }
 
 fn reference_id(state: Forest, node: NodeRef) -> Result(Int, TreeError) {

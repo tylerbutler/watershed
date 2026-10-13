@@ -169,6 +169,20 @@ pub fn reference_at(
   forest.locate(state.visible, path)
 }
 
+pub fn reference_path(
+  state: TreeState,
+  reference: forest.NodeRef,
+) -> Result(FieldPath, TreeError) {
+  forest.attached_path(state.visible, reference)
+}
+
+pub fn array_references(
+  state: TreeState,
+  reference: forest.NodeRef,
+) -> Result(List(forest.NodeRef), TreeError) {
+  forest.array_references(state.visible, reference)
+}
+
 pub fn resolve_constraint(
   state: TreeState,
   path: FieldPath,
