@@ -1648,11 +1648,9 @@ pub fn tree_read_view_on(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  process.call(
-    runtime,
-    waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeReadView(address, selector, view, path, reply) },
-  )
+  call_runtime(runtime, fn(reply) {
+    TreeReadView(address, selector, view, path, reply)
+  })
 }
 
 @target(erlang)
@@ -1956,11 +1954,9 @@ pub fn tree_edit_view_on(
   view: tree_schema.ViewSchema,
   edit: tree_types.Edit,
 ) -> Result(Nil, String) {
-  process.call(
-    runtime,
-    waiting: connect_timeout_milliseconds,
-    sending: fn(reply) { TreeEditView(address, selector, view, edit, reply) },
-  )
+  call_runtime(runtime, fn(reply) {
+    TreeEditView(address, selector, view, edit, reply)
+  })
 }
 
 @target(erlang)

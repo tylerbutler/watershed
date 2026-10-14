@@ -167,6 +167,13 @@ fn leaf_definition() -> typed.Schema(Text, String) {
   typed.schema(view, text_codec()) |> expect.to_be_ok()
 }
 
+fn optional_leaf_definition() -> typed.Schema(Text, String) {
+  let raw =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok()
+  typed.schema(view, text_codec()) |> expect.to_be_ok()
+}
+
 fn map_definition() -> typed.Schema(Entries, Nil) {
   let raw =
     "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.Map\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Map\"]}}"
@@ -248,6 +255,57 @@ pub fn shared_tree_typed_facade_js_root_array_test() {
   watershed.tree_array_values(array)
   |> expect.to_equal(Ok(["A", "X", "B"]))
   watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_typed_facade_js_closed_root_access_returns_typed_errors_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let tree =
+    watershed.create_tree(
+      document,
+      optional_leaf_definition(),
+      text_builder(),
+      Some("open"),
+    )
+    |> expect.to_be_ok()
+  watershed.close(document)
+  watershed.tree_read_root(tree)
+  |> expect.to_equal(
+    Error(typed.AccessFailed("tree read requires a ready document connection")),
+  )
+  watershed.tree_set_root(tree, text_builder(), "closed")
+  |> expect.to_equal(
+    Error(typed.AccessFailed("tree edit requires a ready document connection")),
+  )
+  watershed.tree_clear_root(tree)
+  |> expect.to_equal(
+    Error(typed.AccessFailed("tree edit requires a ready document connection")),
+  )
 }
 
 @target(javascript)
@@ -738,6 +796,76 @@ pub fn shared_tree_typed_facade_beam_root_array_test() {
   watershed_beam.tree_array_values(array)
   |> expect.to_equal(Ok(["A", "X", "B"]))
   watershed_beam.close(document)
+}
+
+@target(erlang)
+fn closed_beam_optional_leaf_tree() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  let runtime = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(runtime) |> expect.to_equal(Ok(Nil))
+  let tree =
+    watershed_beam.create_tree(
+      document,
+      optional_leaf_definition(),
+      text_builder(),
+      Some("open"),
+    )
+    |> expect.to_be_ok()
+  let owner = process.subject_owner(runtime) |> expect.to_be_ok()
+  let monitor = process.monitor(owner)
+  watershed_beam.close(document)
+  process.new_selector()
+  |> process.select_specific_monitor(monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(monitor)
+  tree
+}
+
+@target(erlang)
+pub fn shared_tree_typed_facade_beam_closed_read_root_returns_typed_error_test() {
+  closed_beam_optional_leaf_tree()
+  |> watershed_beam.tree_read_root
+  |> expect.to_equal(Error(typed.AccessFailed("document runtime is closed")))
+}
+
+@target(erlang)
+pub fn shared_tree_typed_facade_beam_closed_set_root_returns_typed_error_test() {
+  watershed_beam.tree_set_root(
+    closed_beam_optional_leaf_tree(),
+    text_builder(),
+    "closed",
+  )
+  |> expect.to_equal(Error(typed.AccessFailed("document runtime is closed")))
+}
+
+@target(erlang)
+pub fn shared_tree_typed_facade_beam_closed_clear_root_returns_typed_error_test() {
+  closed_beam_optional_leaf_tree()
+  |> watershed_beam.tree_clear_root
+  |> expect.to_equal(Error(typed.AccessFailed("document runtime is closed")))
 }
 
 @target(erlang)
