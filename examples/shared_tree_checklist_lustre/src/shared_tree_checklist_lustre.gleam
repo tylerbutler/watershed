@@ -30,11 +30,13 @@ const default_tenant = "dev-tenant"
 
 const default_secret = "levee-dev-secret-change-in-production"
 
-type Config {
+@internal
+pub type Config {
   Config(base_url: String, socket_url: String, tenant: String, secret: String)
 }
 
-type Phase {
+@internal
+pub type Phase {
   Creating
   Connecting
   Ready
@@ -42,7 +44,8 @@ type Phase {
   Failed(String)
 }
 
-type Model {
+@internal
+pub type Model {
   Model(
     config: Config,
     phase: Phase,
@@ -63,7 +66,8 @@ type Model {
   )
 }
 
-type Msg {
+@internal
+pub type Msg {
   Created(Result(String, typed.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
@@ -110,8 +114,6 @@ type Msg {
   )
   ClearHistoryClicked
   CloseClicked
-  QueueMutation(operation: fn() -> Result(Nil, typed.Error))
-  RunMutation(operation: fn() -> Result(Nil, typed.Error))
   MutationFinished(Result(Nil, typed.Error))
   HistoryFinished(Result(Nil, String))
   BulkFinished(Result(Bool, watershed.TreeTransactionError(typed.Error)))
@@ -210,7 +212,8 @@ fn connect(config: Config, document_id: String) -> Effect(Msg) {
   )
 }
 
-fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
+@internal
+pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case message {
     Created(Ok(document_id)) -> {
       replace_document(document_id)
@@ -318,7 +321,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     AddClicked -> add(Model(..model, draft: ""), id.uuid_v4(), model.draft)
     EditCommitted(item, text) -> mutate(model, fn() { rename_item(item, text) })
     ToggleClicked(item, completed) ->
-      defer_mutation(model, fn() { toggle_item(item, completed) })
+      mutate(model, fn() { toggle_item(item, completed) })
     DeleteClicked(item) ->
       mutate(model, fn() {
         use items <- result.try(current_items(model))
@@ -346,11 +349,6 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     CloseClicked -> close_document(model)
-    QueueMutation(operation) -> #(model, after_paint(RunMutation(operation)))
-    RunMutation(operation) -> #(
-      model,
-      tree.perform(operation, MutationFinished),
-    )
     MutationFinished(outcome) -> {
       let model = finish_pending(model)
       let model = case outcome {
@@ -537,23 +535,6 @@ fn mutate(
     True, Some(_) -> #(
       Model(..model, pending: model.pending + 1),
       tree.perform(operation, MutationFinished),
-    )
-  }
-}
-
-fn defer_mutation(
-  model: Model,
-  operation: fn() -> Result(Nil, typed.Error),
-) -> #(Model, Effect(Msg)) {
-  case can_interact(model), model.tree {
-    False, _ -> #(model, effect.none())
-    True, None -> #(
-      append_error(model, "SharedTree is not ready"),
-      effect.none(),
-    )
-    True, Some(_) -> #(
-      Model(..model, pending: model.pending + 1),
-      after_paint(QueueMutation(operation)),
     )
   }
 }

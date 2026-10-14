@@ -21,6 +21,33 @@ const profile = join(appRoot, "build", "browser-smoke-profile");
 
 const PAGE_MS = 120_000;
 const STEP_MS = 20_000;
+const inboundHarnessScript = `(() => {
+  const NativeWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = new Proxy(NativeWebSocket, {
+    construct(Target, args) {
+      const socket = new Target(...args);
+      let assigned = null;
+      Object.defineProperty(socket, "onmessage", {
+        configurable: true,
+        get() {
+          return assigned;
+        },
+        set(handler) {
+          assigned = handler;
+          socket.addEventListener("message", (event) => {
+            handler?.call(socket, event);
+            const hook = globalThis.__checklistInboundHook;
+            if (hook) {
+              globalThis.__checklistInboundHook = null;
+              hook(event);
+            }
+          });
+        },
+      });
+      return socket;
+    },
+  });
+})();`;
 
 const snapshotExpression = `(() => ({
   status: document.querySelector("[data-runtime-status]")?.dataset.runtimeStatus,
@@ -116,20 +143,21 @@ async function main() {
         "--no-default-browser-check",
         "--remote-debugging-port=0",
         "--user-data-dir=" + profile,
-        origin,
+        "about:blank",
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     chrome.stdout.resume();
 
     browserEndpoint = await devtoolsEndpoint(chrome);
-    const firstTarget = await firstPageTarget(browserEndpoint, origin);
+    const firstTarget = await firstPageTarget(browserEndpoint, "about:blank");
     const report = await withPage(
       firstTarget.webSocketDebuggerUrl,
       PAGE_MS,
       "the first checklist page did not finish",
       async (firstSend) => {
         await firstSend("Runtime.enable");
+        await prepareHarnessPage(firstSend, origin);
         const firstReady = await waitForSnapshot(
           firstSend,
           "the first page to create and open a document",
@@ -139,7 +167,7 @@ async function main() {
         secondContext = await createBrowserContext(browserEndpoint);
         const secondTargetId = await createTarget(
           browserEndpoint,
-          firstReady.url,
+          "about:blank",
           secondContext,
         );
         const secondEndpoint = await targetEndpoint(
@@ -153,6 +181,7 @@ async function main() {
           "the second checklist page did not finish",
           async (secondSend) => {
             await secondSend("Runtime.enable");
+            await prepareHarnessPage(secondSend, firstReady.url);
             const secondReady = await waitForSnapshot(
               secondSend,
               "the second page to open the created document",
@@ -366,11 +395,35 @@ async function main() {
                   JSON.stringify(beforeFinalClear),
             );
 
+            pair = await proveCapturedReorderActions(
+              firstSend,
+              secondSend,
+              pair,
+            );
+            pair = await proveSameIdReplacementRefusals(
+              firstSend,
+              secondSend,
+              pair,
+            );
+
+            await clickGlobalAction(firstSend, "clear-history");
+            await waitForSnapshot(
+              firstSend,
+              "race history to clear without changing replacement records",
+              (value) =>
+                value.status === "ready" &&
+                value.pending === 0 &&
+                value.undo === 0 &&
+                value.redo === 0 &&
+                value.errors.length === 4 &&
+                JSON.stringify(value.items) === JSON.stringify(pair.first.items),
+            );
             await editItem(firstSend, editedId, "retained handle closes cleanly");
-            pair = await waitForPair(
+            pair = await waitForPairAllowingFirstErrors(
               firstSend,
               secondSend,
               "the retained close-history fixture to converge",
+              4,
               (value) =>
                 value.items.find((item) => item.id === editedId)?.text ===
                 "retained handle closes cleanly",
@@ -378,65 +431,14 @@ async function main() {
             await waitForSnapshot(
               firstSend,
               "close to begin with one retained undo handle",
-              (value) => ready(value) && value.undo === 1 && value.redo === 0,
-            );
-
-            await captureItemControl(firstSend, editedId, "edit");
-            await clickAction(secondSend, editedId, "move-up");
-            pair = await waitForPair(
-              firstSend,
-              secondSend,
-              "the peer reorder of the captured target",
-              (value) =>
-                value.items.length === 3 &&
-                value.items[1].id === editedId,
-            );
-            await triggerCapturedEdit(
-              firstSend,
-              "captured target follows peer reorder",
-            );
-            pair = await waitForPair(
-              firstSend,
-              secondSend,
-              "the captured edit to follow physical identity",
-              (value) =>
-                value.items.find((item) => item.id === editedId)?.text ===
-                "captured target follows peer reorder",
-            );
-
-            await captureItemControl(firstSend, planId, "toggle");
-            const beforeRefusal = pair.first.items.filter(
-              (item) => item.id !== planId,
-            );
-            await triggerCapturedAction(firstSend);
-            await clickAction(secondSend, planId, "delete");
-            const refused = await waitForSnapshot(
-              firstSend,
-              "the removed captured target to report a visible refusal",
               (value) =>
                 value.status === "ready" &&
                 value.pending === 0 &&
-                value.errors.length === 1 &&
-                JSON.stringify(value.items) === JSON.stringify(beforeRefusal),
+                value.undo === 1 &&
+                value.redo === 0 &&
+                value.errors.length === 4,
             );
-            const peerAfterRefusal = await waitForSnapshot(
-              secondSend,
-              "the peer removal to remain visible after refusal",
-              (value) =>
-                ready(value) &&
-                JSON.stringify(value.items) === JSON.stringify(beforeRefusal),
-            );
-            assertClean(peerAfterRefusal);
-            if (
-              JSON.stringify(peerAfterRefusal.items) !==
-              JSON.stringify(beforeRefusal)
-            ) {
-              throw new Error(
-                "the removed captured action retargeted visible data:\n" +
-                  JSON.stringify({ refused, peerAfterRefusal }, null, 2),
-              );
-            }
-            const beforeClose = refused.items;
+            const beforeClose = pair.first.items;
 
             await clickGlobalAction(firstSend, "close");
             const closed = await waitForSnapshot(
@@ -447,7 +449,7 @@ async function main() {
                 value.pending === 0 &&
                 value.undo === 0 &&
                 value.redo === 0 &&
-                value.errors.length === 1 &&
+                value.errors.length === 4 &&
                 allControlsDisabled(value.controls),
             );
 
@@ -482,9 +484,9 @@ async function main() {
 
     console.log(
       "PASS: two browser contexts created one native SharedTree document and " +
-        "proved CRUD, captured-target reorder and removal refusal, grouped " +
-        "completion, undo/redo, peer-edit preservation, redo invalidation, " +
-        "clear, close, and reload.",
+        "proved CRUD, all captured-target reorder actions, all removed/same-ID " +
+        "replacement refusals, grouped completion, undo/redo, peer-edit " +
+        "preservation, redo invalidation, clear, close, and reload.",
     );
     console.log(JSON.stringify(report.first, null, 2));
     return 0;
@@ -519,6 +521,128 @@ function assertClean(value) {
   }
 }
 
+async function proveCapturedReorderActions(firstSend, secondSend, pair) {
+  await addItem(firstSend, "captured delete target");
+  pair = await waitForPair(
+    firstSend,
+    secondSend,
+    "the captured-action fixture to converge",
+    (value) => value.items.length === 4,
+  );
+  const [renameId, toggleId, moveId, deleteId] = pair.first.items.map(
+    (item) => item.id,
+  );
+  const actions = [
+    { id: renameId, action: "edit", text: "renamed after peer reorder" },
+    { id: toggleId, action: "toggle" },
+    { id: moveId, action: "move" },
+    { id: deleteId, action: "delete" },
+  ];
+
+  for (const test of actions) {
+    const before = pair.first;
+    const action =
+      test.action === "move"
+        ? await availableMoveAction(firstSend, test.id)
+        : test.action;
+    await captureItemControl(firstSend, test.id, action);
+    const oldOrder = before.items.map((item) => item.id);
+    await armCapturedActionAfterInbound(firstSend, test.text);
+    const peerMove = await availableMoveAction(secondSend, test.id);
+    await clickAction(secondSend, test.id, peerMove);
+    await waitForCapturedInbound(firstSend);
+    await assertCapturedInboundIdentity(firstSend, true);
+    const prior = before.items.find((item) => item.id === test.id);
+    pair = await waitForPair(
+      firstSend,
+      secondSend,
+      "captured " + test.action + " after peer reorder",
+      (value) => {
+        const item = value.items.find((candidate) => candidate.id === test.id);
+        const peerReordered =
+          value.items.map((candidate) => candidate.id).join(",") !==
+          oldOrder.join(",");
+        if (test.action === "edit") {
+          return item?.text === test.text && peerReordered;
+        }
+        if (test.action === "toggle") {
+          return item?.completed === !prior.completed && peerReordered;
+        }
+        if (test.action === "delete") return item === undefined;
+        return (
+          item?.text === prior.text &&
+          item.completed === prior.completed &&
+          peerReordered
+        );
+      },
+    );
+  }
+  return pair;
+}
+
+async function proveSameIdReplacementRefusals(firstSend, secondSend, pair) {
+  const tests = [
+    { action: "edit", text: "stale rename must refuse" },
+    { action: "toggle" },
+    { action: "move" },
+    { action: "delete" },
+  ];
+  const startLength = pair.first.items.length;
+  for (const [index, test] of tests.entries()) {
+    await addItem(secondSend, "stale " + test.action + " target");
+    pair = await waitForPair(
+      firstSend,
+      secondSend,
+      "the stale " + test.action + " target to converge",
+      (value) => value.items.length === startLength + index + 1,
+    );
+    test.id = pair.first.items.find(
+      (item) => item.text === "stale " + test.action + " target",
+    ).id;
+  }
+
+  let expectedErrors = 0;
+  for (const test of tests) {
+    const action =
+      test.action === "move"
+        ? await availableMoveAction(firstSend, test.id)
+        : test.action;
+    await captureItemControl(firstSend, test.id, action);
+    await holdNextAnimationFrame(firstSend);
+    await clickAction(secondSend, test.id, "delete");
+    await waitForHeldAnimationFrame(firstSend);
+    await waitForSnapshot(
+      secondSend,
+      "the stale " + test.action + " target removal",
+      (value) =>
+        ready(value) && value.items.every((item) => item.id !== test.id),
+    );
+
+    const replacementText = "replacement for " + test.action;
+    await armCapturedActionAfterInbound(firstSend, test.text);
+    await addItemWithId(secondSend, test.id, replacementText);
+    await waitForCapturedInbound(firstSend);
+    await releaseHeldAnimationFrame(firstSend);
+    expectedErrors += 1;
+    pair = await waitForPairAllowingFirstErrors(
+      firstSend,
+      secondSend,
+      "the stale " + test.action + " action to refuse the same-ID replacement",
+      expectedErrors,
+      (value) => {
+        const matches = value.items.filter((item) => item.id === test.id);
+        return (
+          matches.length === 1 &&
+          matches[0].text === replacementText &&
+          matches[0].completed === false
+        );
+      },
+    );
+    await assertCapturedInboundIdentity(firstSend, true);
+  }
+  return pair;
+}
+
 async function waitForPair(firstSend, secondSend, label, predicate) {
   const deadline = Date.now() + STEP_MS;
   let first = null;
@@ -548,6 +672,43 @@ async function waitForPair(firstSend, secondSend, label, predicate) {
   );
 }
 
+async function waitForPairAllowingFirstErrors(
+  firstSend,
+  secondSend,
+  label,
+  firstErrorCount,
+  predicate,
+) {
+  const deadline = Date.now() + STEP_MS;
+  let first = null;
+  let second = null;
+  while (Date.now() < deadline) {
+    [first, second] = await Promise.all([
+      snapshot(firstSend),
+      snapshot(secondSend),
+    ]);
+    if (
+      predicate(first) &&
+      predicate(second) &&
+      JSON.stringify(first.items) === JSON.stringify(second.items) &&
+      first.status === "ready" &&
+      second.status === "ready" &&
+      first.pending === 0 &&
+      second.pending === 0 &&
+      first.errors.length === firstErrorCount &&
+      second.errors.length === 0
+    ) {
+      return { first, second };
+    }
+    await sleep(100);
+  }
+  throw new Error(
+    label +
+      " timed out:\n" +
+      JSON.stringify({ first, second }, null, 2),
+  );
+}
+
 async function waitForSnapshot(send, label, predicate) {
   const deadline = Date.now() + STEP_MS;
   let value = null;
@@ -557,6 +718,15 @@ async function waitForSnapshot(send, label, predicate) {
     await sleep(100);
   }
   throw new Error(label + " timed out:\n" + JSON.stringify(value, null, 2));
+}
+
+async function waitForPageValue(send, label, expression) {
+  const deadline = Date.now() + STEP_MS;
+  while (Date.now() < deadline) {
+    if (await evaluate(send, expression)) return;
+    await sleep(25);
+  }
+  throw new Error(label + " timed out");
 }
 
 function snapshot(send) {
@@ -577,6 +747,43 @@ async function addItem(send, text) {
       return { ok: true };
     },
     [text],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function addItemWithId(send, id, text) {
+  const result = await call(
+    send,
+    function (itemId, value) {
+      const input = document.querySelector("[data-new-item]");
+      if (!input) return { ok: false, detail: "the add input is missing" };
+      const cryptoPrototype = Object.getPrototypeOf(globalThis.crypto);
+      const original = cryptoPrototype.randomUUID;
+      let used = false;
+      Object.defineProperty(globalThis.crypto, "randomUUID", {
+        configurable: true,
+        value() {
+          if (!used) {
+            used = true;
+            return itemId;
+          }
+          return original.call(globalThis.crypto);
+        },
+      });
+      try {
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const form = input.closest("form");
+        if (!form) return { ok: false, detail: "the add form is missing" };
+        form.requestSubmit();
+      } finally {
+        delete globalThis.crypto.randomUUID;
+      }
+      return used
+        ? { ok: true }
+        : { ok: false, detail: "the application did not request an item ID" };
+    },
+    [id, text],
   );
   if (!result.ok) throw new Error(result.detail);
 }
@@ -611,7 +818,15 @@ async function captureItemControl(send, id, action) {
         '[data-action="' + actionName + '"]',
       );
       if (!control) return { ok: false, detail: actionName + " is missing" };
-      window.__capturedChecklistControl = control;
+      const eventType =
+        actionName === "edit" || actionName === "toggle" ? "change" : "click";
+      window.__capturedChecklistAction = {
+        itemId,
+        actionName,
+        row,
+        control,
+        eventType,
+      };
       return { ok: true };
     },
     [id, action],
@@ -619,15 +834,40 @@ async function captureItemControl(send, id, action) {
   if (!result.ok) throw new Error(result.detail);
 }
 
-async function triggerCapturedEdit(send, text) {
+async function armCapturedActionAfterInbound(send, text = null) {
   const result = await call(
     send,
     function (value) {
-      const input = window.__capturedChecklistControl;
-      if (!input) return { ok: false, detail: "no item control was captured" };
-      input.value = value;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      const captured = window.__capturedChecklistAction;
+      if (!captured) {
+        return { ok: false, detail: "no item action was captured" };
+      }
+      window.__capturedChecklistInbound = {
+        fired: false,
+        physicalAtDispatch: false,
+      };
+      window.__checklistInboundHook = () => {
+        const currentRow = Array.from(
+          document.querySelectorAll("[data-item-id]"),
+        ).find((candidate) => candidate.dataset.itemId === captured.itemId);
+        const currentControl = currentRow?.querySelector(
+          '[data-action="' + captured.actionName + '"]',
+        );
+        window.__capturedChecklistInbound.physicalAtDispatch =
+          captured.row.isSameNode(currentRow) &&
+          captured.control.isSameNode(currentControl);
+        if (captured.actionName === "edit") {
+          captured.control.value = value;
+          captured.control.dispatchEvent(
+            new Event(captured.eventType, { bubbles: true }),
+          );
+        } else {
+          captured.control.dispatchEvent(
+            new MouseEvent(captured.eventType, { bubbles: true }),
+          );
+        }
+        window.__capturedChecklistInbound.fired = true;
+      };
       return { ok: true };
     },
     [text],
@@ -635,18 +875,105 @@ async function triggerCapturedEdit(send, text) {
   if (!result.ok) throw new Error(result.detail);
 }
 
-async function triggerCapturedAction(send) {
+async function waitForCapturedInbound(send) {
+  await waitForPageValue(
+    send,
+    "the captured action to run after inbound delivery",
+    "window.__capturedChecklistInbound?.fired === true",
+  );
+}
+
+async function assertCapturedInboundIdentity(send, expectedSame) {
+  const result = await call(
+    send,
+    function (same) {
+      const actual =
+        window.__capturedChecklistInbound?.physicalAtDispatch === true;
+      return actual === same
+        ? { ok: true }
+        : {
+            ok: false,
+            detail:
+              "captured DOM identity was " +
+              actual +
+              ", expected " +
+              same,
+          };
+    },
+    [expectedSame],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function holdNextAnimationFrame(send) {
   const result = await call(
     send,
     function () {
-      const control = window.__capturedChecklistControl;
-      if (!control) return { ok: false, detail: "no item control was captured" };
-      control.click();
+      if (window.__checklistOriginalAnimationFrame) {
+        return { ok: false, detail: "an animation frame is already held" };
+      }
+      const original = window.requestAnimationFrame.bind(window);
+      window.__checklistOriginalAnimationFrame = original;
+      window.__checklistHeldAnimationFrame = null;
+      window.requestAnimationFrame = (callback) => {
+        if (window.__checklistHeldAnimationFrame === null) {
+          window.__checklistHeldAnimationFrame = callback;
+          return -1;
+        }
+        return original(callback);
+      };
       return { ok: true };
     },
     [],
   );
   if (!result.ok) throw new Error(result.detail);
+}
+
+async function waitForHeldAnimationFrame(send) {
+  await waitForPageValue(
+    send,
+    "the remote operation to schedule its deferred render",
+    "typeof window.__checklistHeldAnimationFrame === 'function'",
+  );
+}
+
+async function releaseHeldAnimationFrame(send) {
+  const result = await call(
+    send,
+    function () {
+      const original = window.__checklistOriginalAnimationFrame;
+      const callback = window.__checklistHeldAnimationFrame;
+      if (!original || typeof callback !== "function") {
+        return { ok: false, detail: "no animation frame is held" };
+      }
+      window.requestAnimationFrame = original;
+      window.__checklistOriginalAnimationFrame = null;
+      window.__checklistHeldAnimationFrame = null;
+      original(callback);
+      return { ok: true };
+    },
+    [],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function availableMoveAction(send, id) {
+  const result = await call(
+    send,
+    function (itemId) {
+      const row = Array.from(document.querySelectorAll("[data-item-id]")).find(
+        (candidate) => candidate.dataset.itemId === itemId,
+      );
+      const down = row?.querySelector('[data-action="move-down"]');
+      const up = row?.querySelector('[data-action="move-up"]');
+      if (down && !down.disabled) return { ok: true, action: "move-down" };
+      if (up && !up.disabled) return { ok: true, action: "move-up" };
+      return { ok: false, detail: "no move action is available" };
+    },
+    [id],
+  );
+  if (!result.ok) throw new Error(result.detail);
+  return result.action;
 }
 
 async function clickAction(send, id, action) {
@@ -801,6 +1128,14 @@ async function evaluate(send, expression) {
 
 function call(send, fn, args) {
   return evaluate(send, `(${fn.toString()})(...${JSON.stringify(args)})`);
+}
+
+async function prepareHarnessPage(send, url) {
+  await send("Page.enable");
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: inboundHarnessScript,
+  });
+  await send("Page.navigate", { url });
 }
 
 async function browserCommand(browserEndpoint, method, params = {}) {
