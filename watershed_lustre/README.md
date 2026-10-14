@@ -68,8 +68,57 @@ document ripples.
 **Typed** (over a `watershed/schema` `TypedMap`):
 `subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
 
-**SharedTree** (`watershed_lustre/tree`) keeps transactions and undo handles in
-the same effect discipline:
+### SharedTree effects
+
+`watershed_lustre/tree` accepts the same generic
+`watershed.SharedTree(schema, record)` as the core facade. It does not add a
+second tree type or field-level event stream. `perform` takes a thunk, so the
+edit runs only when Lustre performs the effect. The completion message and
+subscription callbacks arrive on a later microtask.
+
+```gleam
+import lustre/effect.{type Effect}
+import watershed
+import watershed/tree/typed
+import watershed/tree/types
+import watershed_lustre/tree
+
+pub type TreeMsg {
+  Saved(Result(Nil, typed.Error))
+  Watching(watershed.SubscriptionToken)
+  Committed(Result(tree.CommitEvent, String))
+  Settled(Result(types.TreeCommitOutcome, String))
+  Disposed(Result(Nil, String))
+}
+
+pub fn save_title(
+  node: watershed.TreeNode(schema, record),
+  field: typed.Field(schema, String, cardinality),
+  value: String,
+) -> Effect(TreeMsg) {
+  tree.perform(
+    fn() { watershed.tree_set(node, field, value) },
+    Saved,
+  )
+}
+
+pub fn watch_history(
+  shared_tree: watershed.SharedTree(schema, record),
+) -> Effect(TreeMsg) {
+  tree.subscribe_commits(
+    shared_tree,
+    Watching,
+    Committed,
+    Settled,
+  )
+}
+
+pub fn release(handle: watershed.TreeRevertible) -> Effect(TreeMsg) {
+  tree.dispose_revertible(handle, Disposed)
+}
+```
+
+The bindings keep transactions and undo handles in the same effect discipline:
 
 - `transaction` runs a synchronous native transaction when the effect is
   performed, then delivers its typed value or callback error in a microtask.
@@ -86,7 +135,9 @@ the same effect discipline:
 - Closing the document disposes runtime-owned handles. It does not persist or
   manage application history.
 
-**Claims writes** — `claim_once(claims, key, value, to_msg:)` and
+### Claims writes
+
+`claim_once(claims, key, value, to_msg:)` and
 `compare_and_set_claim(claims, key, value, to_msg:)` submit a claim and
 deliver its `claims_kernel.ClaimOutcome` (`Accepted` / `Lost` / `Aborted`)
 as a message once the outcome is known, the same deferred-to-microtask way

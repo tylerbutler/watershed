@@ -76,6 +76,33 @@ function recipeCommands(name) {
   return `${result.stdout}${result.stderr}`.trim().split(/\r?\n/);
 }
 
+function markdownSection(markdown, heading) {
+  return markdown.split(`${heading}\n`)[1]?.split("\n### ", 1)[0];
+}
+
+function compileMarkdownSection(path, heading, fixture) {
+  const markdown = readFileSync(resolve(repository, path), "utf8");
+  const section = markdownSection(markdown, heading);
+  assert(section, `${path} lacks the ${heading.slice(4)} section`);
+  const blocks = [...section.matchAll(/```gleam\n([\s\S]*?)```/g)]
+    .map((match) => match[1]);
+  assert(blocks.length > 0, `${path} ${heading.slice(4)} has no Gleam examples`);
+
+  const packageDirectory = resolve(repository, "tools/website-samples");
+  const source = resolve(packageDirectory, "src", fixture);
+  writeFileSync(source, blocks.join("\n"));
+  try {
+    const result = spawnSync("gleam", ["check", "--target", "javascript"], {
+      cwd: packageDirectory,
+      encoding: "utf8",
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  } finally {
+    unlinkSync(source);
+  }
+}
+
 test("native gate selects both complete file suites and HTTP smokes", () => {
   assert.deepEqual(recipeCommands("shared-tree-test"), [
     "gleam test --target erlang -- shared_tree git_storage facade_parity",
@@ -298,25 +325,46 @@ test("BEAM reconnect command restarts the native transport", () => {
 });
 
 test("README local branch examples compile against the public Gleam API", () => {
-  const readme = readFileSync(resolve(repository, "README.md"), "utf8");
-  const section = readme.split("### SharedTree local branches\n")[1]
-    ?.split("\n### ", 1)[0];
-  assert(section, "README lacks the SharedTree local branch section");
-  const blocks = [...section.matchAll(/```gleam\n([\s\S]*?)```/g)]
-    .map((match) => match[1]);
-  assert.equal(blocks.length, 2, "README local branch examples changed");
-
-  const packageDirectory = resolve(repository, "tools/website-samples");
-  const source = resolve(
-    repository,
-    "tools/website-samples/src/readme_local_branch_examples.gleam",
+  compileMarkdownSection(
+    "README.md",
+    "### SharedTree local branches",
+    "readme_local_branch_examples.gleam",
   );
-  writeFileSync(source, blocks.join("\n"));
-  const result = spawnSync("gleam", ["check", "--target", "javascript"], {
-    cwd: packageDirectory,
-    encoding: "utf8",
-  });
-  unlinkSync(source);
-  assert.ifError(result.error);
-  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+});
+
+test("README typed SharedTree examples compile against the public Gleam API", () => {
+  compileMarkdownSection(
+    "README.md",
+    "### Typed SharedTree application API",
+    "readme_typed_shared_tree_examples.gleam",
+  );
+});
+
+test("watershed_lustre SharedTree examples compile against its public API", () => {
+  compileMarkdownSection(
+    "watershed_lustre/README.md",
+    "### SharedTree effects",
+    "readme_lustre_shared_tree_examples.gleam",
+  );
+});
+
+test("application facades expose one typed SharedTree surface", () => {
+  for (const path of ["src/watershed.gleam", "src/watershed_beam.gleam"]) {
+    const source = readFileSync(resolve(repository, path), "utf8");
+    assert.match(source, /pub opaque type SharedTree\(schema, record\)/);
+    assert.match(
+      source,
+      /pub fn tree_get\(\s*node: TreeNode\(s, r\),\s*field: typed\.Field\(s, a, typed\.Required\),/s,
+    );
+    assert.match(
+      source,
+      /pub fn tree_set\(\s*node: TreeNode\(s, r\),\s*field: typed\.Field\(s, a, c\),\s*value: a,/s,
+    );
+    assert.doesNotMatch(source, /pub (?:opaque )?type TypedTree\b/);
+    assert.doesNotMatch(source, /pub fn tree_typed_/);
+    assert.doesNotMatch(
+      source,
+      /pub fn tree_(?:get|set|clear)\(\s*tree: SharedTree[^,]*,\s*path: tree_types\.FieldPath/s,
+    );
+  }
 });

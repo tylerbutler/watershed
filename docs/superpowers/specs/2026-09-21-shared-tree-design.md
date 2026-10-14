@@ -156,8 +156,11 @@ on JavaScript and BEAM through `create_tree_container`. It publishes a complete
 initial summary to pinned Floodgate and returns a server-assigned ID for the
 existing token/connect flow. The layout stays fixed at alias `root` -> `A`,
 map `/A/root`, and tree `/A/_C`; callers supply a checked schema and initial root
-within the existing subset. This fixed creator does not include live channel attachment, broader layouts,
-or crash recovery. See `examples/shared_tree_cli` and the
+within the existing subset. The accepted typed application slice now takes a
+`typed.Schema(schema, record)`, matching builder, and construction input rather
+than exposing stored schemas and `TreeValue` through the facade. This fixed
+creator does not include live channel attachment, broader layouts, or crash
+recovery. See `examples/shared_tree_cli` and the
 `shared-tree-create-interop` gate. Task 16's permanent gates and profile
 documentation are wired, including creation coverage. Its broad regression
 closure remains blocked by Hex API rate limits, and hosted CI has not yet run.
@@ -328,10 +331,23 @@ M7 is still partial. The fixed-layout native creator and the SharedTree Lustre
 checklist cover application-owned local undo/redo, grouped bulk transactions,
 explicit history cleanup, close, and reload. The accepted handle slice adds
 handle-valued leaves, detached SharedMap/SharedTree creation, and attachment
-graphs across the declared secondary datastore on JavaScript and BEAM. Arbitrary
-factories and layouts, blob and cross-container handles, new alias authoring,
-richer typed APIs, production authentication, GC sweep, and crash-recoverable
-pending state remain open.
+graphs across the declared secondary datastore on JavaScript and BEAM.
+
+The accepted typed application slice makes
+`SharedTree(schema, record)` the only application tree API on both targets.
+Applications provide hand-authored declarations, distinct construction inputs
+and decoded record snapshots, then use identity-bound node, array, and map
+handles. The facades no longer expose path-and-`TreeValue` reads or edits, and
+there is no opt-in `TypedTree` or raw conversion API. Static schema tags prevent
+owner, value, and cardinality mistakes; every access still checks the current
+runtime schema. Existing transactions, subscriptions, revertibles, branches,
+Fluid handle values, close, and reload behavior keep their established
+lifecycle.
+
+Arbitrary factories and layouts, blob and cross-container handles, new alias
+authoring, schema generation, production authentication, GC sweep, and
+crash-recoverable pending state remain open. The typed slice adds no per-field
+event stream, persistent node identity, or persisted application history.
 
 The [handles and live attachment slice](2026-10-10-shared-tree-handles-attachment-design.md)
 uses upstream's separation of handle-valued tree data and runtime attachment

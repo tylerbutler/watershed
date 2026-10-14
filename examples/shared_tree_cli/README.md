@@ -65,13 +65,18 @@ browser.
 
 ## API flow
 
-Pass `container.CreateConfig(base_url, tenant, token)`, a checked stored schema,
-and an optional initial root to `create_tree_container`. The JavaScript facade
-returns a promise; the BEAM facade returns a result. Creation starts no
+Pass `container.CreateConfig(base_url, tenant, token)`, the hand-authored
+`typed_schema.definition()`, its matching builder, and an optional
+`NoteInput` to `create_tree_container`. The builder encodes construction data;
+the decoded `Note` record returned by reads is a separate type. The JavaScript
+facade returns a promise; the BEAM facade returns a result. Creation starts no
 WebSocket connection.
 
 After `connect` reports readiness, resolve the bootstrap map with `resolve_root`,
-read its `"tree"` handle, and call `resolve_tree` with the matching view schema.
+read its `"tree"` handle, and call `resolve_tree` with the same typed
+definition. Capture the root with `tree_root`, read its snapshot with
+`tree_read`, and update the required title through the declaration's
+`title()` field.
 This fixed layout uses datastore `A`, map `/A/root`, and tree `/A/_C`. Use
 `resolve_root`, not the map-only native `root` shortcut.
 

@@ -147,31 +147,215 @@ resolution requires an absolute marker. Use
 its source channel's datastore.
 
 After readiness, use `resolve_root(document)`, `get(root, "tree")`, and
-`resolve_tree(document, handle, view)` to reach an existing tree when the
-stored schema already admits the strict view.
-`tree_get(tree, path)` returns `Result(Option(TreeValue), String)`: `None` is
-an absent optional field, not a null leaf. `tree_set` and `tree_clear` check
-the stored schema before changing the optimistic value; required fields cannot
-be cleared. `tree_handle_of` preserves the tree route. Typed-map declarations
-can use `schema.TreeChannel` with `set_tree_field` and
-`resolve_tree_field(document, map, field, view)`. JavaScript's
-`subscribe_tree(tree, handler)` returns a `SubscriptionToken` for `unsubscribe`;
-BEAM's `subscribe_tree(tree)` returns `Subject(TreeEvent)`.
+`resolve_tree(document, handle, definition)` to reach an existing tree.
+`definition` pairs a strict view schema with a hand-authored decoder. The
+facades expose one application tree type, `SharedTree(schema, record)`.
+The earlier path-and-`TreeValue` read and edit calls were removed; this is a
+breaking migration for the experimental API. There is no `TypedTree` wrapper
+or raw application escape.
 
-To inspect or upgrade an incompatible view, use `open_tree` first:
+### Typed SharedTree application API
+
+The schema tag, decoded record, and construction input serve different jobs.
+The tag prevents a field from one schema being used with another. The record is
+an immutable snapshot. The input tells a builder what to insert and can omit an
+Identifier that the runtime owns. This declaration reads the generated `id`
+but never accepts it in `CardInput`:
 
 ```gleam
-let assert Ok(candidate) = watershed.open_tree(document, handle, next_view)
-let assert Ok(status) = watershed.tree_compatibility(candidate)
+import gleam/json.{type Json}
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
+import watershed
+import watershed/container
+import watershed/tree/schema
+import watershed/tree/typed
+import watershed/tree/types
 
-case status.can_view {
-  True -> Nil
-  False -> {
-    let assert Ok(Nil) = watershed.tree_upgrade_schema(candidate)
+const card_type = "example.Card"
+const card_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"example.Card\":{\"kind\":{\"object\":{\"deletedAt\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]},\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"status\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"example.Card\"]}}"
+
+pub type CardSchema
+
+pub type Card {
+  Card(
+    id: String,
+    title: String,
+    note: Option(String),
+    status: Nil,
+    deleted_at: Option(Nil),
+  )
+}
+
+pub type CardInput {
+  CardInput(title: String, note: Option(String))
+}
+
+pub fn title() -> typed.Field(CardSchema, String, typed.Required) {
+  typed.required("title", typed.string())
+}
+
+pub fn note() -> typed.Field(CardSchema, String, typed.Optional) {
+  typed.optional("note", typed.string())
+}
+
+pub fn card_builder() -> typed.Builder(CardSchema, CardInput) {
+  let assert Ok(value) =
+    typed.builder(card_type, fn(input: CardInput) {
+      let note = case input.note {
+        None -> []
+        Some(value) -> [#("note", types.StringValue(value))]
+      }
+      Ok(types.ObjectValue(card_type, [
+        #("title", types.StringValue(input.title)),
+        #("status", types.NullValue),
+        ..note
+      ]))
+    })
+  value
+}
+
+pub fn card_definition() -> typed.Schema(CardSchema, Card) {
+  let assert Ok(view) = schema.view_from_string(card_schema)
+  let assert Ok(codec) =
+    typed.node(card_type, fn(value) {
+      let assert types.ObjectValue(_, fields) = value
+      use id <- result.try(required(fields, "id", typed.string()))
+      use title <- result.try(required(fields, "title", typed.string()))
+      use note <- result.try(optional(fields, "note", typed.string()))
+      use status <- result.try(required(fields, "status", typed.null()))
+      use deleted_at <- result.try(optional(fields, "deletedAt", typed.null()))
+      Ok(Card(id:, title:, note:, status:, deleted_at:))
+    })
+  let assert Ok(value) = typed.schema(view, codec)
+  value
+}
+
+fn required(
+  fields: List(#(String, types.TreeValue)),
+  key: String,
+  codec: typed.Codec(value),
+) -> Result(value, typed.Error) {
+  case list.key_find(fields, key) {
+    Ok(value) -> typed.decode(codec, value)
+    Error(Nil) -> Error(typed.MissingRequired(key))
   }
 }
 
-let assert Ok(tree) = watershed.resolve_tree(document, handle, next_view)
+fn optional(
+  fields: List(#(String, types.TreeValue)),
+  key: String,
+  codec: typed.Codec(value),
+) -> Result(Option(value), typed.Error) {
+  case list.key_find(fields, key) {
+    Ok(value) -> typed.decode(codec, value) |> result.map(Some)
+    Error(Nil) -> Ok(None)
+  }
+}
+```
+
+Creation validates the declaration and builder before it allocates a document.
+Resolution checks the current stored schema. Reads and edits repeat those
+runtime checks because a remote schema change can invalidate a handle even
+though its Gleam tags still match:
+
+```gleam
+pub fn create(config: container.CreateConfig) {
+  watershed.create_tree_container(
+    config,
+    card_definition(),
+    card_builder(),
+    Some(CardInput("Draft", None)),
+  )
+}
+
+pub fn resolve(
+  document: watershed.Document(root),
+  handle: Json,
+) -> Result(watershed.SharedTree(CardSchema, Card), typed.Error) {
+  watershed.resolve_tree(document, handle, card_definition())
+}
+
+pub fn read_and_rename(
+  tree: watershed.SharedTree(CardSchema, Card),
+) -> Result(Card, typed.Error) {
+  use root <- result.try(watershed.tree_root(tree))
+  case root {
+    None -> Error(typed.MissingRequired("$root"))
+    Some(root) -> {
+      use old_title <- result.try(watershed.tree_get(root, title()))
+      use _note <- result.try(watershed.tree_get_optional(root, note()))
+      use _ <- result.try(
+        watershed.tree_set(root, title(), old_title <> " reviewed"),
+      )
+      watershed.tree_read(root)
+    }
+  }
+}
+
+pub fn watch(
+  tree: watershed.SharedTree(CardSchema, Card),
+) -> watershed.SubscriptionToken {
+  watershed.subscribe_tree(tree, fn(_event) { Nil })
+}
+
+pub fn watch_history(
+  tree: watershed.SharedTree(CardSchema, Card),
+) -> watershed.SubscriptionToken {
+  watershed.subscribe_tree_commits(tree, fn(_event) { Nil })
+}
+```
+
+`tree_read` and `tree_read_root` return record snapshots. `TreeNode`,
+`TreeArray`, and `TreeMap` are live handles to native forest identities. A
+captured node follows that identity through moves and refuses edits after
+removal or replacement; an equal record or repeated application ID does not
+retarget it. Index-based array operations use the current sequence when the
+call runs. Use node-based remove and move operations when an action must stay
+bound to the captured item.
+
+A Fluid handle value names a channel or datastore route. It is data stored in
+the tree, not a `TreeNode`, and it retains its source datastore context.
+Closing the document invalidates live tree handles. Reload creates a new
+runtime, so resolve the tree again and capture fresh nodes; committed data
+reloads, but node and revertible handles do not.
+
+Missing optional fields decode as `None`. A present null leaf decodes as
+`Nil`, so `Some(Nil)` differs from absence. A missing required field reports
+`MissingRequired`. Schema incompatibility, removed nodes, disposed branches,
+and closed runtimes return errors without changing visible state.
+
+Subscriptions remain tree-level. This typed API adds no per-field event
+promise. Existing change subscriptions, commit subscriptions, settlement
+callbacks, transactions, branches, and application-owned history all take the
+same `SharedTree(schema, record)`.
+
+To inspect or upgrade an incompatible stored schema, use `open_tree` with the
+next typed definition. Reads and edits remain unavailable until compatibility
+permits them:
+
+```gleam
+pub fn open_or_upgrade(
+  document: watershed.Document(root),
+  handle: Json,
+  next_definition: typed.Schema(schema, record),
+) -> Result(watershed.SharedTree(schema, record), typed.Error) {
+  use candidate <- result.try(
+    watershed.open_tree(document, handle, next_definition),
+  )
+  use status <- result.try(
+    watershed.tree_compatibility(candidate)
+    |> result.map_error(typed.AccessFailed),
+  )
+  use _ <- result.try(case status.can_view {
+    True -> Ok(Nil)
+    False ->
+      watershed.tree_upgrade_schema(candidate)
+      |> result.map_error(typed.AccessFailed)
+  })
+  watershed.resolve_tree(document, handle, next_definition)
+}
 ```
 
 `can_view`, `can_upgrade`, and `is_equivalent` answer different questions.
@@ -213,18 +397,21 @@ uses the ordinary read and edit functions, and its `Result` decides whether the
 scope commits or aborts:
 
 ```gleam
+import gleam/option.{None, Some}
+import gleam/result
 import watershed
-import watershed/tree/types
+import watershed/tree/typed
 
 pub fn commit_title(
-  tree: watershed.SharedTree,
-) -> Result(Nil, watershed.TreeTransactionError(String)) {
+  tree: watershed.SharedTree(schema, record),
+  title: typed.Field(schema, String, cardinality),
+) -> Result(Nil, watershed.TreeTransactionError(typed.Error)) {
   watershed.tree_transaction(tree, [], fn(transaction_tree) {
-    watershed.tree_set(
-      transaction_tree,
-      ["title"],
-      types.StringValue("committed"),
-    )
+    use root <- result.try(watershed.tree_root(transaction_tree))
+    case root {
+      Some(root) -> watershed.tree_set(root, title, "committed")
+      None -> Error(typed.MissingRequired("$root"))
+    }
   })
 }
 ```
@@ -235,23 +422,21 @@ composition, and transport failures use `TransactionFailed(String)`:
 ```gleam
 import gleam/result
 import watershed
-import watershed/tree/types
+import watershed/tree/typed
 
 pub type DraftAbort {
-  EditFailed(String)
+  EditFailed(typed.Error)
   InvalidTitle
 }
 
 pub fn abort_draft(
-  tree: watershed.SharedTree,
+  tree: watershed.SharedTree(schema, record),
+  title: typed.Field(schema, String, cardinality),
 ) -> Result(Nil, watershed.TreeTransactionError(DraftAbort)) {
   watershed.tree_transaction(tree, [], fn(transaction_tree) {
+    let assert Ok(Some(root)) = watershed.tree_root(transaction_tree)
     use _ <- result.try(
-      watershed.tree_set(
-        transaction_tree,
-        ["title"],
-        types.StringValue("temporary"),
-      )
+      watershed.tree_set(root, title, "temporary")
       |> result.map_error(EditFailed),
     )
     Error(InvalidTitle)
@@ -264,20 +449,18 @@ in the document:
 
 ```gleam
 import watershed
-import watershed/tree/types
+import watershed/tree/typed
 
 pub fn update_while_item_exists(
-  tree: watershed.SharedTree,
-) -> Result(Nil, watershed.TreeTransactionError(String)) {
+  tree: watershed.SharedTree(schema, record),
+  title: typed.Field(schema, String, cardinality),
+) -> Result(Nil, watershed.TreeTransactionError(typed.Error)) {
   watershed.tree_transaction(
     tree,
     [watershed.NodeInDocument(["items", "0"])],
     fn(transaction_tree) {
-      watershed.tree_set(
-        transaction_tree,
-        ["title"],
-        types.StringValue("item still exists"),
-      )
+      let assert Ok(Some(root)) = watershed.tree_root(transaction_tree)
+      watershed.tree_set(root, title, "item still exists")
     },
   )
 }
@@ -351,7 +534,7 @@ pub fn new_undo_state() -> UndoState {
 }
 
 pub fn subscribe_undo(
-  tree: watershed.SharedTree,
+  tree: watershed.SharedTree(schema, record),
   dispatch: fn(UndoMessage) -> Nil,
   report_error: fn(String) -> Nil,
 ) -> watershed.SubscriptionToken {
@@ -471,27 +654,53 @@ Identifier, transaction, subscription, and revertible APIs. A fork does not
 submit tree operations until it is merged.
 
 ```gleam
+import gleam/option.{None, Some}
 import gleam/result
 import watershed
-import watershed/tree/types
+import watershed/tree/typed
+
+pub type DraftError {
+  TreeError(typed.Error)
+  BranchError(String)
+}
+
+fn draft_root(
+  tree: watershed.SharedTree(schema, record),
+) -> Result(watershed.TreeNode(schema, record), DraftError) {
+  use root <- result.try(
+    watershed.tree_root(tree)
+    |> result.map_error(TreeError),
+  )
+  case root {
+    Some(root) -> Ok(root)
+    None -> Error(TreeError(typed.MissingRequired("$root")))
+  }
+}
 
 pub fn publish_draft(
-  main: watershed.SharedTree,
-) -> Result(Nil, String) {
-  use draft <- result.try(watershed.tree_fork(main))
-  case
-    watershed.tree_set(
-      draft,
-      ["title"],
-      types.StringValue("reviewed draft"),
+  main: watershed.SharedTree(schema, record),
+  title: typed.Field(schema, String, cardinality),
+) -> Result(Nil, DraftError) {
+  use draft <- result.try(
+    watershed.tree_fork(main)
+    |> result.map_error(BranchError),
+  )
+  let outcome = {
+    use root <- result.try(draft_root(draft))
+    use _ <- result.try(
+      watershed.tree_set(root, title, "reviewed draft")
+      |> result.map_error(TreeError),
     )
-    |> result.try(fn(_) { watershed.tree_rebase_onto(draft, main) })
-    |> result.try(fn(_) { watershed.tree_merge(main, draft, True) })
-  {
+    use _ <- result.try(
+      watershed.tree_rebase_onto(draft, main)
+      |> result.map_error(BranchError),
+    )
+    watershed.tree_merge(main, draft, True)
+    |> result.map_error(BranchError)
+  }
+  case outcome {
     Ok(Nil) -> Ok(Nil)
     Error(error) -> {
-      // Merge with disposal can already have disposed the source. Keep the
-      // workflow error and make cleanup best-effort.
       let _ = watershed.tree_dispose_branch(draft)
       Error(error)
     }
@@ -504,28 +713,35 @@ must keep the source checkout for more edits or another merge:
 
 ```gleam
 pub fn publish_in_stages(
-  main: watershed.SharedTree,
-) -> Result(Nil, String) {
-  use draft <- result.try(watershed.tree_fork(main))
-  case
-    watershed.tree_map_set(
-      draft,
-      ["settings"],
-      "theme",
-      types.StringValue("night"),
+  main: watershed.SharedTree(schema, record),
+  title: typed.Field(schema, String, cardinality),
+) -> Result(Nil, DraftError) {
+  use draft <- result.try(
+    watershed.tree_fork(main)
+    |> result.map_error(BranchError),
+  )
+  let outcome = {
+    use root <- result.try(draft_root(draft))
+    use _ <- result.try(
+      watershed.tree_set(root, title, "night")
+      |> result.map_error(TreeError),
     )
-    |> result.try(fn(_) { watershed.tree_merge(main, draft, False) })
-    |> result.try(fn(_) {
-      watershed.tree_map_set(
-        draft,
-        ["settings"],
-        "density",
-        types.StringValue("compact"),
-      )
-    })
-    |> result.try(fn(_) { watershed.tree_rebase_onto(draft, main) })
-    |> result.try(fn(_) { watershed.tree_merge(main, draft, True) })
-  {
+    use _ <- result.try(
+      watershed.tree_merge(main, draft, False)
+      |> result.map_error(BranchError),
+    )
+    use _ <- result.try(
+      watershed.tree_set(root, title, "compact")
+      |> result.map_error(TreeError),
+    )
+    use _ <- result.try(
+      watershed.tree_rebase_onto(draft, main)
+      |> result.map_error(BranchError),
+    )
+    watershed.tree_merge(main, draft, True)
+    |> result.map_error(BranchError)
+  }
+  case outcome {
     Ok(Nil) -> Ok(Nil)
     Error(error) -> {
       let _ = watershed.tree_dispose_branch(draft)
@@ -597,11 +813,13 @@ establish SharedTree operation or persistence compatibility.
 A ready, writable service document can grow beyond its bootstrap layout.
 `create_data_store(document)` creates a detached datastore, and
 `data_store_root(store)` returns its entry-point map. Use
-`create_map_in(document, store)` and `create_tree_in(document, store, stored,
-initial_root, view)` to add detached channels there. `create_tree` adds a
-detached tree to the bootstrap datastore. The JavaScript and BEAM facades expose
-the same calls with matching `Result` return types. Both also expose
-`resolve_tree(document, value, view)` and `open_tree(document, value, view)`,
+`create_map_in(document, store)` and
+`create_tree_in(document, store, definition, builder, initial_input)` to add
+detached channels there. `create_tree` adds a detached tree to the bootstrap
+datastore. The JavaScript and BEAM facades expose the same calls with matching
+`Result` return types. Both also expose
+`resolve_tree(document, value, definition)` and
+`open_tree(document, value, definition)`,
 `tree_handle_of(tree)`, and the immutable
 `tree_revertible_revision(revertible)` accessor.
 
@@ -658,8 +876,8 @@ undo/redo, handle-valued leaves, and runtime-local branch support are limited as
 described above.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
-container reconfiguration, richer SharedTree Lustre bindings, and disk recovery
-of pending edits are not.
+container reconfiguration, automatic application history management, and disk
+recovery of pending edits are not.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -668,19 +886,22 @@ remove the regression requirement for existing DDS APIs and behavior.
 ### Create a SharedTree container
 
 `watershed.create_tree_container` returns a
-`Promise(Result(String, String))`; `watershed_beam.create_tree_container`
-returns `Result(String, String)`. Pass a
-`container.CreateConfig(base_url, tenant, token)`, a checked `StoredSchema`,
-and an `Option(TreeValue)` initial root. Use `None` only with an optional root
-schema. You can supply your own namespace and fields within the supported
-fixed-schema object profile.
+`Promise(Result(String, typed.Error))`;
+`watershed_beam.create_tree_container` returns
+`Result(String, typed.Error)`. Pass a
+`container.CreateConfig(base_url, tenant, token)`, a checked
+`typed.Schema(schema, record)`, its matching `typed.Builder(schema, input)`,
+and an optional input. Use `None` only with an optional root schema. The
+builder encodes construction data; callers do not pass `TreeValue` through the
+application facade.
 
 Creation sends one authenticated POST to the pinned Floodgate service and
 returns its assigned document ID. It does not start a WebSocket connection or
 document runtime. Obtain
 a document-scoped token for that ID, call the existing `connect`, then follow
-`resolve_root` -> `get(root, "tree")` -> `resolve_tree`. Keep the returned ID if
-token acquisition or opening fails; retry opening that document, not creation.
+`resolve_root` -> `get(root, "tree")` ->
+`resolve_tree(document, handle, definition)`. Keep the returned ID if token
+acquisition or opening fails; retry opening that document, not creation.
 If the creation response is lost or invalid, the service may have created a
 document. Watershed reports that uncertainty and does not retry the POST.
 

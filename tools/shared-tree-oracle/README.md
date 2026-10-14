@@ -525,7 +525,9 @@ relay.
 creates a fresh upstream document for each schedule. The upstream summarizer
 publishes an acknowledged bootstrap summary before the native client loads it.
 The native path is `connect` → `resolve_root` → `get(root, "tree")` →
-`resolve_tree(document, handle, view)`; it does not guess a channel address.
+`resolve_tree(document, handle, definition)`; it does not guess a channel
+address. The long-lived test clients use the public typed declaration and
+facade, then translate their JSON-lines commands at the test boundary.
 Its JSON-lines protocol has integer `requestId`, `command`, and tagged tree
 values (`string`, `number`, `boolean`, `null`, or an ordered `object` with
 `schemaId` and field pairs). It supports `read`, `set`, `clear`, `subscribe`,
