@@ -4,6 +4,7 @@ import shared_tree_cli/schema as note
 import startest
 import startest/expect
 import watershed/tree/schema
+import watershed/tree/typed
 import watershed/tree/types
 
 pub fn main() -> Nil {
@@ -11,7 +12,17 @@ pub fn main() -> Nil {
 }
 
 pub fn initial_tree_matches_view_test() -> Nil {
-  schema.validate_root_field(note.stored(), Some(note.initial()))
+  let initial = note.initial()
+  let assert Ok(encoded) = typed.build(note.builder(), initial)
+  encoded
+  |> expect.to_equal(
+    types.ObjectValue("shared_tree_cli.Note", [
+      #("title", types.StringValue("Created without an SDK seed")),
+    ]),
+  )
+  typed.decode_node(note.decoder(), encoded)
+  |> expect.to_equal(Ok(note.Note("Created without an SDK seed", None)))
+  schema.validate_root_field(note.stored(), Some(encoded))
   |> expect.to_equal(Ok(Nil))
   schema.can_view(note.stored(), note.view()) |> expect.to_equal(Ok(Nil))
 }
@@ -21,8 +32,16 @@ pub fn optional_note_can_be_absent_test() -> Nil {
   |> expect.to_equal(Ok(Nil))
 }
 
+pub fn title_descriptor_matches_schema_test() -> Nil {
+  typed.field_key(note.title()) |> expect.to_equal("title")
+  typed.encode_field(note.title(), "Edited")
+  |> expect.to_equal(Ok(types.StringValue("Edited")))
+}
+
 pub fn incompatible_root_is_rejected_test() -> Nil {
   schema.validate_root(note.stored(), types.StringValue("not an object"))
+  |> expect.to_be_error()
+  typed.decode_node(note.decoder(), types.StringValue("not an object"))
   |> expect.to_be_error()
   Nil
 }

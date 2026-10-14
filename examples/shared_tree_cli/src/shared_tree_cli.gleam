@@ -13,7 +13,7 @@ import shared_tree_cli/schema
 @target(javascript)
 import watershed as client
 import watershed/container
-import watershed/tree/types
+import watershed/tree/typed
 @target(erlang)
 import watershed_beam as client
 
@@ -114,11 +114,15 @@ fn run(command: Command, config: Config) -> Result(Nil, String) {
   case command {
     Create -> {
       let token = token(config, "")
-      use id <- result.try(client.create_tree_container(
-        container.CreateConfig(base_url(config), config.tenant, token),
-        schema.stored(),
-        Some(schema.initial()),
-      ))
+      use id <- result.try(
+        client.create_tree_container(
+          container.CreateConfig(base_url(config), config.tenant, token),
+          schema.definition(),
+          schema.builder(),
+          Some(schema.initial()),
+        )
+        |> result.map_error(typed_error),
+      )
       io.println("document: " <> id)
       open(config, id, None)
     }
@@ -132,11 +136,15 @@ fn run(command: Command, config: Config) -> Promise(Result(Nil, String)) {
   case command {
     Create -> {
       use token <- promise.await(token(config, ""))
-      use id <- promise.try_await(client.create_tree_container(
-        container.CreateConfig(base_url(config), config.tenant, token),
-        schema.stored(),
-        Some(schema.initial()),
-      ))
+      use id <- promise.try_await(
+        client.create_tree_container(
+          container.CreateConfig(base_url(config), config.tenant, token),
+          schema.definition(),
+          schema.builder(),
+          Some(schema.initial()),
+        )
+        |> promise.map(result.map_error(_, typed_error)),
+      )
       io.println("document: " <> id)
       open(config, id, None)
     }
@@ -232,23 +240,56 @@ fn open(
 fn edit(
   document: client.Document(root),
   title: Option(String),
-) -> Result(client.SharedTree, String) {
+) -> Result(client.SharedTree(schema.NoteSchema, schema.Note), String) {
   use root <- result.try(client.resolve_root(document))
   use handle <- result.try(
     client.get(root, "tree") |> result.replace_error("tree handle is absent"),
   )
-  use tree <- result.try(client.resolve_tree(document, handle, schema.view()))
+  use tree <- result.try(
+    client.resolve_tree(document, handle, schema.definition())
+    |> result.map_error(typed_error),
+  )
   use _ <- result.try(case title {
     None -> Ok(Nil)
-    Some(title) -> client.tree_set(tree, ["title"], types.StringValue(title))
+    Some(title) -> {
+      use root <- result.try(required_root(tree))
+      client.tree_set(root, schema.title(), title)
+      |> result.map_error(typed_error)
+    }
   })
   Ok(tree)
 }
 
-fn print_tree(tree: client.SharedTree) -> Result(Nil, String) {
-  use root <- result.try(client.tree_get(tree, []))
-  io.println(string.inspect(root))
+fn print_tree(
+  tree: client.SharedTree(schema.NoteSchema, schema.Note),
+) -> Result(Nil, String) {
+  use root <- result.try(
+    client.tree_read_root(tree) |> result.map_error(typed_error),
+  )
+  use root <- result.try(root |> option.to_result("tree root is absent"))
+  use value <- result.try(
+    typed.build(schema.builder(), root) |> result.map_error(typed_error),
+  )
+  io.println(string.inspect(value))
   Ok(Nil)
+}
+
+fn required_root(
+  tree: client.SharedTree(schema.NoteSchema, schema.Note),
+) -> Result(client.TreeNode(schema.NoteSchema, schema.Note), String) {
+  use root <- result.try(
+    client.tree_root(tree) |> result.map_error(typed_error),
+  )
+  root |> option.to_result("tree root is absent")
+}
+
+fn typed_error(error: typed.Error) -> String {
+  case error {
+    typed.AccessFailed(reason)
+    | typed.DecodeFailed(reason)
+    | typed.InvalidDeclaration(reason) -> reason
+    typed.MissingRequired(field) -> "required field " <> field <> " is absent"
+  }
 }
 
 @target(erlang)
