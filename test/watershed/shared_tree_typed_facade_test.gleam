@@ -26,6 +26,12 @@ const items_type = "org.watershed.shared-tree.m3.Items"
 
 const map_type = "org.watershed.shared-tree.m3.Map"
 
+const heterogeneous_items_type = "org.watershed.shared-tree.reload.Items"
+
+const heterogeneous_point_type = "org.watershed.shared-tree.reload.Point"
+
+const forbidden_type = "org.watershed.shared-tree.reload.Forbidden"
+
 pub type Items
 
 pub type Text
@@ -53,6 +59,77 @@ fn object_input() -> runtime_core.BootstrapSeedInput {
     typed_facade_fixture.stored(),
     typed_facade_fixture.view(),
     typed_facade_fixture.initial_root(),
+  )
+  |> expect.to_be_ok()
+}
+
+fn heterogeneous_input() -> runtime_core.BootstrapSeedInput {
+  let raw =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.reload.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.reload.Items\",\"org.watershed.shared-tree.reload.Point\"]}}}},\"org.watershed.shared-tree.reload.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.reload.Items\"]}}"
+  let stored = tree_schema.stored_from_string(raw) |> expect.to_be_ok()
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok()
+  runtime_fixture.routed_tree_seed_input(
+    stored,
+    view,
+    types.ArrayValue(heterogeneous_items_type, [
+      heterogeneous_point("existing"),
+    ]),
+  )
+  |> expect.to_be_ok()
+}
+
+fn heterogeneous_point(label: String) -> types.TreeValue {
+  types.ObjectValue(heterogeneous_point_type, [
+    #("label", types.StringValue(label)),
+  ])
+}
+
+fn heterogeneous_values() -> List(types.TreeValue) {
+  [
+    heterogeneous_point("one"),
+    heterogeneous_point("two"),
+    heterogeneous_point("three"),
+    heterogeneous_point("four"),
+    types.ArrayValue(heterogeneous_items_type, [
+      heterogeneous_point("nested"),
+    ]),
+  ]
+}
+
+fn heterogeneous_codec() -> typed.NodeCodec(Items, types.TreeValue) {
+  typed.dynamic_union_node([
+    heterogeneous_point_type,
+    heterogeneous_items_type,
+  ])
+  |> expect.to_be_ok()
+}
+
+fn heterogeneous_definition(
+  view: tree_schema.ViewSchema,
+) -> typed.Schema(Items, types.TreeValue) {
+  let codec =
+    typed.dynamic_node(heterogeneous_items_type)
+    |> expect.to_be_ok()
+  typed.schema(view, codec) |> expect.to_be_ok()
+}
+
+fn heterogeneous_builder() -> typed.Builder(Items, types.TreeValue) {
+  typed.dynamic_union_builder([
+    heterogeneous_point_type,
+    heterogeneous_items_type,
+  ])
+  |> expect.to_be_ok()
+}
+
+fn forbidden_builder() -> typed.Builder(Items, types.TreeValue) {
+  typed.dynamic_union_builder([heterogeneous_point_type, forbidden_type])
+  |> expect.to_be_ok()
+}
+
+fn wrong_output_builder() -> typed.Builder(Items, types.TreeValue) {
+  typed.checked_builder(
+    [heterogeneous_point_type, heterogeneous_items_type],
+    fn(_) { Ok(types.ObjectValue(forbidden_type, [])) },
   )
   |> expect.to_be_ok()
 }
@@ -174,10 +251,11 @@ pub fn shared_tree_typed_facade_js_root_array_test() {
 }
 
 @target(javascript)
-pub fn shared_tree_typed_facade_js_object_test() {
-  let input = object_input()
+pub fn shared_tree_typed_facade_js_heterogeneous_array_builder_test() {
+  let input = heterogeneous_input()
   let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
   let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
   let document =
     watershed.connect_via_seed(
       tenant: "default",
@@ -187,7 +265,101 @@ pub fn shared_tree_typed_facade_js_object_test() {
       transport: runtime.Transport(connect: fn(handlers) {
         transport_js.set_cell(callbacks, Some(handlers))
         runtime.TransportHandle(
-          push: fn(_, _) { Nil },
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(
+      document,
+      marker,
+      heterogeneous_definition(view.view),
+    )
+    |> expect.to_be_ok()
+  let root = watershed.tree_root(tree) |> expect.to_be_ok() |> expect.to_be_some
+  let array =
+    watershed.tree_as_array(root, heterogeneous_codec()) |> expect.to_be_ok()
+
+  watershed.tree_array_insert(
+    array,
+    1,
+    heterogeneous_builder(),
+    heterogeneous_values(),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_array_values(array)
+  |> expect.to_equal(
+    Ok([heterogeneous_point("existing"), ..heterogeneous_values()]),
+  )
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
+
+  let unchanged = watershed.tree_array_values(array) |> expect.to_be_ok()
+  watershed.tree_array_insert(array, 0, forbidden_builder(), [
+    heterogeneous_point("blocked"),
+  ])
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> heterogeneous_point_type,
+    )),
+  )
+  watershed.tree_array_insert(array, 0, wrong_output_builder(), [
+    heterogeneous_point("blocked"),
+  ])
+  |> expect.to_equal(
+    Error(typed.DecodeFailed("expected node " <> heterogeneous_point_type)),
+  )
+  watershed.tree_array_values(array) |> expect.to_equal(Ok(unchanged))
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_typed_facade_js_object_test() {
+  let input = object_input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
           close: fn() { Nil },
           drop: fn() { Nil },
           hold: fn() { Nil },
@@ -207,6 +379,48 @@ pub fn shared_tree_typed_facade_js_object_test() {
     watershed.resolve_tree(document, marker, typed_facade_fixture.definition())
     |> expect.to_be_ok()
   let node = watershed.tree_root(tree) |> expect.to_be_ok() |> expect.to_be_some
+  let before_root = watershed.tree_read(node) |> expect.to_be_ok()
+  let before_submissions = transport_js.get_cell(submissions)
+  let root_mismatch =
+    typed.dynamic_union_builder([
+      typed_facade_fixture.root_type,
+      typed_facade_fixture.child_type,
+    ])
+    |> expect.to_be_ok()
+  watershed.create_tree(
+    document,
+    typed_facade_fixture.definition(),
+    root_mismatch,
+    Some(typed_facade_fixture.initial_root()),
+  )
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> typed_facade_fixture.root_type,
+    )),
+  )
+  watershed.tree_read(node) |> expect.to_equal(Ok(before_root))
+  transport_js.get_cell(submissions) |> expect.to_equal(before_submissions)
+  let child_mismatch =
+    typed.dynamic_union_builder([
+      typed_facade_fixture.child_type,
+      typed_facade_fixture.root_type,
+    ])
+    |> expect.to_be_ok()
+  watershed.tree_set_child(
+    node,
+    typed_facade_fixture.child(),
+    child_mismatch,
+    types.ObjectValue(typed_facade_fixture.child_type, [
+      #("text", types.StringValue("blocked")),
+    ]),
+  )
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> typed_facade_fixture.child_type,
+    )),
+  )
+  watershed.tree_read(node) |> expect.to_equal(Ok(before_root))
+  transport_js.get_cell(submissions) |> expect.to_equal(before_submissions)
   watershed.tree_get(node, typed_facade_fixture.title())
   |> expect.to_equal(Ok("Title"))
   watershed.tree_get_optional(node, typed_facade_fixture.note())
@@ -527,10 +741,11 @@ pub fn shared_tree_typed_facade_beam_root_array_test() {
 }
 
 @target(erlang)
-pub fn shared_tree_typed_facade_beam_object_test() {
-  let input = object_input()
+pub fn shared_tree_typed_facade_beam_heterogeneous_array_builder_test() {
+  let input = heterogeneous_input()
   let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
   let connections = process.new_subject()
+  let submissions = process.new_subject()
   let document =
     watershed_beam.connect_via_seed(
       tenant: "default",
@@ -545,7 +760,98 @@ pub fn shared_tree_typed_facade_beam_object_test() {
   let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
   callbacks.on_ready(
     runtime_beam.TransportHandle(
-      push: fn(_, _) { Ok(Nil) },
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  runtime_beam.await_ready(watershed_beam.runtime_subject(document))
+  |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(
+      document,
+      marker,
+      heterogeneous_definition(view.view),
+    )
+    |> expect.to_be_ok()
+  let root =
+    watershed_beam.tree_root(tree)
+    |> expect.to_be_ok()
+    |> expect.to_be_some
+  let array =
+    watershed_beam.tree_as_array(root, heterogeneous_codec())
+    |> expect.to_be_ok()
+
+  watershed_beam.tree_array_insert(
+    array,
+    1,
+    heterogeneous_builder(),
+    heterogeneous_values(),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_array_values(array)
+  |> expect.to_equal(
+    Ok([heterogeneous_point("existing"), ..heterogeneous_values()]),
+  )
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+
+  let unchanged = watershed_beam.tree_array_values(array) |> expect.to_be_ok()
+  watershed_beam.tree_array_insert(array, 0, forbidden_builder(), [
+    heterogeneous_point("blocked"),
+  ])
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> heterogeneous_point_type,
+    )),
+  )
+  watershed_beam.tree_array_insert(array, 0, wrong_output_builder(), [
+    heterogeneous_point("blocked"),
+  ])
+  |> expect.to_equal(
+    Error(typed.DecodeFailed("expected node " <> heterogeneous_point_type)),
+  )
+  watershed_beam.tree_array_values(array) |> expect.to_equal(Ok(unchanged))
+  process.receive(submissions, 10) |> expect.to_equal(Error(Nil))
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_typed_facade_beam_object_test() {
+  let input = object_input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
       close: fn() { Nil },
       drop: fn() { Nil },
     ),
@@ -566,6 +872,47 @@ pub fn shared_tree_typed_facade_beam_object_test() {
     watershed_beam.tree_root(tree)
     |> expect.to_be_ok()
     |> expect.to_be_some
+  let before_root = watershed_beam.tree_read(node) |> expect.to_be_ok()
+  let root_mismatch =
+    typed.dynamic_union_builder([
+      typed_facade_fixture.root_type,
+      typed_facade_fixture.child_type,
+    ])
+    |> expect.to_be_ok()
+  watershed_beam.create_tree(
+    document,
+    typed_facade_fixture.definition(),
+    root_mismatch,
+    Some(typed_facade_fixture.initial_root()),
+  )
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> typed_facade_fixture.root_type,
+    )),
+  )
+  watershed_beam.tree_read(node) |> expect.to_equal(Ok(before_root))
+  process.receive(submissions, 10) |> expect.to_equal(Error(Nil))
+  let child_mismatch =
+    typed.dynamic_union_builder([
+      typed_facade_fixture.child_type,
+      typed_facade_fixture.root_type,
+    ])
+    |> expect.to_be_ok()
+  watershed_beam.tree_set_child(
+    node,
+    typed_facade_fixture.child(),
+    child_mismatch,
+    types.ObjectValue(typed_facade_fixture.child_type, [
+      #("text", types.StringValue("blocked")),
+    ]),
+  )
+  |> expect.to_equal(
+    Error(typed.InvalidDeclaration(
+      "builder does not match " <> typed_facade_fixture.child_type,
+    )),
+  )
+  watershed_beam.tree_read(node) |> expect.to_equal(Ok(before_root))
+  process.receive(submissions, 10) |> expect.to_equal(Error(Nil))
   watershed_beam.tree_get(node, typed_facade_fixture.title())
   |> expect.to_equal(Ok("Title"))
   watershed_beam.tree_get_optional(node, typed_facade_fixture.note())

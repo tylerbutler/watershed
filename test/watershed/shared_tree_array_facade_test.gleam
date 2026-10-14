@@ -28,6 +28,10 @@ import watershed_beam
 
 const items_type = "org.watershed.shared-tree.m3.Items"
 
+const heterogeneous_items_type = "org.watershed.shared-tree.reload.Items"
+
+const heterogeneous_point_type = "org.watershed.shared-tree.reload.Point"
+
 fn input() -> runtime_core.BootstrapSeedInput {
   runtime_fixture.routed_array_seed_input(
     "rootArray",
@@ -38,6 +42,39 @@ fn input() -> runtime_core.BootstrapSeedInput {
     ]),
   )
   |> expect.to_be_ok()
+}
+
+fn heterogeneous_input() -> runtime_core.BootstrapSeedInput {
+  let raw =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.reload.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.reload.Items\",\"org.watershed.shared-tree.reload.Point\"]}}}},\"org.watershed.shared-tree.reload.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.reload.Items\"]}}"
+  let stored = tree_schema.stored_from_string(raw) |> expect.to_be_ok()
+  let view = tree_schema.view_from_string(raw) |> expect.to_be_ok()
+  runtime_fixture.routed_tree_seed_input(
+    stored,
+    view,
+    types.ArrayValue(heterogeneous_items_type, [
+      heterogeneous_point("existing"),
+    ]),
+  )
+  |> expect.to_be_ok()
+}
+
+fn heterogeneous_point(label: String) -> types.TreeValue {
+  types.ObjectValue(heterogeneous_point_type, [
+    #("label", types.StringValue(label)),
+  ])
+}
+
+fn heterogeneous_values() -> List(types.TreeValue) {
+  [
+    heterogeneous_point("one"),
+    heterogeneous_point("two"),
+    heterogeneous_point("three"),
+    heterogeneous_point("four"),
+    types.ArrayValue(heterogeneous_items_type, [
+      heterogeneous_point("nested"),
+    ]),
+  ]
 }
 
 fn connected(client: String) -> json.Json {
@@ -193,6 +230,93 @@ pub fn shared_tree_array_facade_js_operations_test() {
       )
     },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_array_facade_js_inserts_heterogeneous_batch_test() {
+  let input = heterogeneous_input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    facade_fixture.resolve_javascript(document, marker, view.view)
+    |> expect.to_be_ok()
+  let runtime = watershed.runtime_of(document)
+  let array_reference =
+    runtime.tree_node_reference_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      [],
+    )
+    |> expect.to_be_ok()
+    |> expect.to_be_some()
+  let before =
+    runtime.tree_node_array_references_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      array_reference,
+    )
+    |> expect.to_be_ok()
+
+  facade_fixture.array_insert_javascript(tree, [], 1, heterogeneous_values())
+  |> expect.to_equal(Ok(Nil))
+
+  facade_fixture.array_values_javascript(tree, [])
+  |> expect.to_equal(
+    Ok([heterogeneous_point("existing"), ..heterogeneous_values()]),
+  )
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
+  let after =
+    runtime.tree_node_array_references_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      array_reference,
+    )
+    |> expect.to_be_ok()
+  list.take(after, 1) |> expect.to_equal(before)
+  after |> list.length |> expect.to_equal(6)
   watershed.close(document)
 }
 
@@ -540,6 +664,89 @@ pub fn shared_tree_array_facade_beam_operations_test() {
     },
   )
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_array_facade_beam_inserts_heterogeneous_batch_test() {
+  let input = heterogeneous_input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  let runtime = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(runtime) |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    facade_fixture.resolve_erlang(document, marker, view.view)
+    |> expect.to_be_ok()
+  let array_reference =
+    runtime_beam.tree_node_reference_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      [],
+    )
+    |> expect.to_be_ok()
+    |> expect.to_be_some()
+  let before =
+    runtime_beam.tree_node_array_references_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      array_reference,
+    )
+    |> expect.to_be_ok()
+
+  facade_fixture.array_insert_erlang(tree, [], 1, heterogeneous_values())
+  |> expect.to_equal(Ok(Nil))
+
+  facade_fixture.array_values_erlang(tree, [])
+  |> expect.to_equal(
+    Ok([heterogeneous_point("existing"), ..heterogeneous_values()]),
+  )
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(submissions, 10) |> expect.to_equal(Error(Nil))
+  let after =
+    runtime_beam.tree_node_array_references_view_on(
+      runtime,
+      "A/_C",
+      types.DocumentCheckout,
+      view.view,
+      array_reference,
+    )
+    |> expect.to_be_ok()
+  list.take(after, 1) |> expect.to_equal(before)
+  after |> list.length |> expect.to_equal(6)
+  process.send(runtime, runtime_beam.Shutdown)
 }
 
 @target(erlang)

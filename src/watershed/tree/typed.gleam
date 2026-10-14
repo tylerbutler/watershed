@@ -54,6 +54,7 @@ pub opaque type NodeCodec(schema, record) {
 pub opaque type Builder(schema, input) {
   Builder(
     identifier: String,
+    identifiers: List(String),
     encode: fn(input) -> Result(types.TreeValue, Error),
   )
 }
@@ -185,8 +186,30 @@ pub fn builder(
   encode: fn(input) -> Result(types.TreeValue, Error),
 ) -> Result(Builder(schema, input), Error) {
   case valid_identifier(identifier) {
-    True -> Ok(Builder(identifier, encode))
+    True -> Ok(Builder(identifier, [identifier], encode))
     False -> Error(InvalidDeclaration("builder identifier is empty or padded"))
+  }
+}
+
+@internal
+pub fn checked_builder(
+  identifiers: List(String),
+  encode: fn(input) -> Result(types.TreeValue, Error),
+) -> Result(Builder(schema, input), Error) {
+  case identifiers {
+    [identifier, ..rest] ->
+      case
+        valid_identifier(identifier)
+        && list.all(rest, valid_identifier)
+        && list.length(list.unique(identifiers)) == list.length(identifiers)
+      {
+        True -> Ok(Builder(identifier, identifiers, encode))
+        False ->
+          Error(InvalidDeclaration(
+            "builder identifiers are invalid or repeated",
+          ))
+      }
+    [] -> Error(InvalidDeclaration("builder identifiers are empty"))
   }
 }
 
@@ -195,7 +218,7 @@ pub fn build(
   value: input,
 ) -> Result(types.TreeValue, Error) {
   use encoded <- result.try(builder.encode(value))
-  case node_value_identifier(encoded) == builder.identifier {
+  case list.contains(builder.identifiers, node_value_identifier(encoded)) {
     True -> Ok(encoded)
     False -> Error(DecodeFailed("expected node " <> builder.identifier))
   }
@@ -290,6 +313,11 @@ pub fn decode_node(
 
 pub fn builder_identifier(builder: Builder(s, input)) -> String {
   builder.identifier
+}
+
+@internal
+pub fn builder_identifiers(builder: Builder(s, input)) -> List(String) {
+  builder.identifiers
 }
 
 pub fn field_key(field: Field(s, a, c)) -> String {
@@ -443,6 +471,13 @@ pub fn dynamic_builder(
   identifier: String,
 ) -> Result(Builder(s, types.TreeValue), Error) {
   builder(identifier, fn(value) { Ok(value) })
+}
+
+@internal
+pub fn dynamic_union_builder(
+  identifiers: List(String),
+) -> Result(Builder(s, types.TreeValue), Error) {
+  checked_builder(identifiers, fn(value) { Ok(value) })
 }
 
 @internal

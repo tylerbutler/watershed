@@ -615,25 +615,10 @@ pub fn map_entries_erlang(tree, path) {
 }
 
 fn collection_builder(
-  values: List(types.TreeValue),
+  _values: List(types.TreeValue),
   declared: List(String),
 ) -> Result(typed.Builder(Dynamic, types.TreeValue), String) {
-  case values {
-    [first, ..rest] ->
-      case
-        list.all(rest, fn(value) { identifier(value) == identifier(first) })
-      {
-        True -> builder(first)
-        False -> Error("collection values have different node types")
-      }
-    [] -> {
-      case declared {
-        [identifier, ..] ->
-          typed.dynamic_builder(identifier) |> result.map_error(typed_error)
-        [] -> Error("collection item declaration is empty")
-      }
-    }
-  }
+  typed.dynamic_union_builder(declared) |> result.map_error(typed_error)
 }
 
 @target(javascript)

@@ -219,6 +219,33 @@ pub fn shared_tree_typed_declaration_identifiers_must_be_visible_test() {
   Nil
 }
 
+pub fn shared_tree_typed_checked_builder_validates_identifier_set_test() {
+  let singleton =
+    typed.builder("Point", fn(value) { Ok(value) })
+    |> expect.to_be_ok
+  typed.builder_identifiers(singleton) |> expect.to_equal(["Point"])
+  typed.checked_builder([], fn(value) { Ok(value) }) |> expect.to_be_error
+  typed.checked_builder(["Point", "Point"], fn(value) { Ok(value) })
+  |> expect.to_be_error
+  typed.checked_builder(["Point", " "], fn(value) { Ok(value) })
+  |> expect.to_be_error
+  let builder =
+    typed.checked_builder(["Point", "Items"], fn(value) { Ok(value) })
+    |> expect.to_be_ok
+  typed.builder_identifiers(builder)
+  |> expect.to_equal(["Point", "Items"])
+}
+
+pub fn shared_tree_typed_checked_builder_rejects_undeclared_output_test() {
+  let builder =
+    typed.checked_builder(["Point", "Items"], fn(_) {
+      Ok(types.ObjectValue("Other", []))
+    })
+    |> expect.to_be_ok
+  typed.build(builder, Nil)
+  |> expect.to_equal(Error(typed.DecodeFailed("expected node Point")))
+}
+
 pub fn shared_tree_typed_schema_checks_root_identifier_test() {
   typed.schema(fixture.view(), fixture.checklist_codec()) |> expect.to_be_ok
   typed.schema(fixture.view(), fixture.item_codec())

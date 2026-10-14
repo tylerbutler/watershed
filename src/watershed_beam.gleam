@@ -1953,10 +1953,9 @@ fn require_builder(
   builder: typed.Builder(s, input),
 ) -> Result(Nil, typed.Error) {
   case
-    list.contains(
-      typed.node_identifiers(codec),
-      typed.builder_identifier(builder),
-    )
+    list.all(typed.builder_identifiers(builder), fn(identifier) {
+      list.contains(typed.node_identifiers(codec), identifier)
+    })
   {
     True -> Ok(Nil)
     False ->
