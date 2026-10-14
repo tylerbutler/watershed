@@ -22,10 +22,74 @@ const profile = join(appRoot, "build", "browser-smoke-profile");
 const PAGE_MS = 120_000;
 const STEP_MS = 20_000;
 const inboundHarnessScript = `(() => {
+  function canonical(value) {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.keys(value).sort().map((key) => [key, canonical(value[key])]),
+      );
+    }
+    return value;
+  }
+
+  function frame(data) {
+    if (typeof data !== "string") return null;
+    try {
+      const decoded = JSON.parse(data);
+      return Array.isArray(decoded) && decoded.length >= 5
+        ? { event: decoded[3], payload: decoded[4] }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function operationSignature(data) {
+    const decoded = frame(data);
+    if (!decoded) return null;
+    let operations;
+    if (decoded.event === "submitOp") {
+      if (
+        typeof decoded.payload?.clientId !== "string" ||
+        !Array.isArray(decoded.payload.messageBatches)
+      ) {
+        return null;
+      }
+      operations = decoded.payload.messageBatches.flat().map((operation) => ({
+        clientId: decoded.payload.clientId,
+        clientSequenceNumber: operation.clientSequenceNumber,
+        type: operation.type,
+        contents: operation.contents,
+        metadata: operation.metadata ?? null,
+      }));
+    } else if (decoded.event === "op" && Array.isArray(decoded.payload)) {
+      operations = decoded.payload.map((operation) => ({
+        clientId: operation.clientId,
+        clientSequenceNumber: operation.clientSequenceNumber,
+        type: operation.type,
+        contents: operation.contents,
+        metadata: operation.metadata ?? null,
+      }));
+    } else {
+      return null;
+    }
+    return JSON.stringify(canonical(operations));
+  }
+  globalThis.__checklistOperationSignature = operationSignature;
+
   const NativeWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = new Proxy(NativeWebSocket, {
     construct(Target, args) {
       const socket = new Target(...args);
+      const nativeSend = socket.send.bind(socket);
+      socket.send = (data) => {
+        const capture = globalThis.__checklistNextSubmittedOperation;
+        const signature = operationSignature(data);
+        if (capture && capture.signature === null && signature !== null) {
+          capture.signature = signature;
+        }
+        return nativeSend(data);
+      };
       let assigned = null;
       Object.defineProperty(socket, "onmessage", {
         configurable: true,
@@ -34,12 +98,18 @@ const inboundHarnessScript = `(() => {
         },
         set(handler) {
           assigned = handler;
-          socket.addEventListener("message", (event) => {
+          const deliver = (event) => {
             handler?.call(socket, event);
-            const hook = globalThis.__checklistInboundHook;
-            if (hook) {
-              globalThis.__checklistInboundHook = null;
-              hook(event);
+            const gate = globalThis.__checklistInboundGate;
+            if (gate) gate.observe(event.data);
+          };
+          globalThis.__checklistInboundDeliver = deliver;
+          socket.addEventListener("message", (event) => {
+            const gate = globalThis.__checklistInboundGate;
+            if (gate && gate.targetSignature === null) {
+              gate.queued.push(event);
+            } else {
+              deliver(event);
             }
           });
         },
@@ -548,10 +618,17 @@ async function proveCapturedReorderActions(firstSend, secondSend, pair) {
     await captureItemControl(firstSend, test.id, action);
     const oldOrder = before.items.map((item) => item.id);
     await armCapturedActionAfterInbound(firstSend, test.text);
+    await dispatchUnrelatedInbound(firstSend);
+    await assertCapturedActionPending(firstSend);
+    await armNextSubmittedOperation(secondSend);
     const peerMove = await availableMoveAction(secondSend, test.id);
     await clickAction(secondSend, test.id, peerMove);
+    await correlateCapturedAction(
+      firstSend,
+      await waitForSubmittedOperation(secondSend),
+    );
     await waitForCapturedInbound(firstSend);
-    await assertCapturedInboundIdentity(firstSend, true);
+    await assertCapturedInboundBoundary(firstSend);
     const prior = before.items.find((item) => item.id === test.id);
     pair = await waitForPair(
       firstSend,
@@ -620,7 +697,14 @@ async function proveSameIdReplacementRefusals(firstSend, secondSend, pair) {
 
     const replacementText = "replacement for " + test.action;
     await armCapturedActionAfterInbound(firstSend, test.text);
+    await dispatchUnrelatedInbound(firstSend);
+    await assertCapturedActionPending(firstSend);
+    await armNextSubmittedOperation(secondSend);
     await addItemWithId(secondSend, test.id, replacementText);
+    await correlateCapturedAction(
+      firstSend,
+      await waitForSubmittedOperation(secondSend),
+    );
     await waitForCapturedInbound(firstSend);
     await releaseHeldAnimationFrame(firstSend);
     expectedErrors += 1;
@@ -638,7 +722,7 @@ async function proveSameIdReplacementRefusals(firstSend, secondSend, pair) {
         );
       },
     );
-    await assertCapturedInboundIdentity(firstSend, true);
+    await assertCapturedInboundBoundary(firstSend);
   }
   return pair;
 }
@@ -824,6 +908,9 @@ async function captureItemControl(send, id, action) {
         itemId,
         actionName,
         row,
+        rowIndex: Array.from(
+          document.querySelectorAll("[data-item-id]"),
+        ).indexOf(row),
         control,
         eventType,
       };
@@ -844,29 +931,52 @@ async function armCapturedActionAfterInbound(send, text = null) {
       }
       window.__capturedChecklistInbound = {
         fired: false,
+        matched: false,
         physicalAtDispatch: false,
+        locationAtDispatch: false,
       };
-      window.__checklistInboundHook = () => {
-        const currentRow = Array.from(
-          document.querySelectorAll("[data-item-id]"),
-        ).find((candidate) => candidate.dataset.itemId === captured.itemId);
-        const currentControl = currentRow?.querySelector(
-          '[data-action="' + captured.actionName + '"]',
-        );
-        window.__capturedChecklistInbound.physicalAtDispatch =
-          captured.row.isSameNode(currentRow) &&
-          captured.control.isSameNode(currentControl);
-        if (captured.actionName === "edit") {
-          captured.control.value = value;
-          captured.control.dispatchEvent(
-            new Event(captured.eventType, { bubbles: true }),
+      window.__checklistInboundGate = {
+        targetSignature: null,
+        observedSignature: null,
+        queued: [],
+        observe(data) {
+          const signature = window.__checklistOperationSignature(data);
+          if (
+            signature === null ||
+            this.targetSignature === null ||
+            signature !== this.targetSignature
+          ) {
+            return;
+          }
+          this.observedSignature = signature;
+          window.__capturedChecklistInbound.matched = true;
+          const rows = Array.from(
+            document.querySelectorAll("[data-item-id]"),
           );
-        } else {
-          captured.control.dispatchEvent(
-            new MouseEvent(captured.eventType, { bubbles: true }),
+          const currentRow = rows.find(
+            (candidate) => candidate.dataset.itemId === captured.itemId,
           );
-        }
-        window.__capturedChecklistInbound.fired = true;
+          const currentControl = currentRow?.querySelector(
+            '[data-action="' + captured.actionName + '"]',
+          );
+          window.__capturedChecklistInbound.physicalAtDispatch =
+            captured.row.isSameNode(currentRow) &&
+            captured.control.isSameNode(currentControl);
+          window.__capturedChecklistInbound.locationAtDispatch =
+            rows.indexOf(captured.row) === captured.rowIndex;
+          if (captured.actionName === "edit") {
+            captured.control.value = value;
+            captured.control.dispatchEvent(
+              new Event(captured.eventType, { bubbles: true }),
+            );
+          } else {
+            captured.control.dispatchEvent(
+              new MouseEvent(captured.eventType, { bubbles: true }),
+            );
+          }
+          window.__capturedChecklistInbound.fired = true;
+          window.__checklistInboundGate = null;
+        },
       };
       return { ok: true };
     },
@@ -883,24 +993,109 @@ async function waitForCapturedInbound(send) {
   );
 }
 
-async function assertCapturedInboundIdentity(send, expectedSame) {
+async function armNextSubmittedOperation(send) {
   const result = await call(
     send,
-    function (same) {
-      const actual =
-        window.__capturedChecklistInbound?.physicalAtDispatch === true;
-      return actual === same
+    function () {
+      window.__checklistNextSubmittedOperation = { signature: null };
+      return { ok: true };
+    },
+    [],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function waitForSubmittedOperation(send) {
+  await waitForPageValue(
+    send,
+    "the peer to submit the intended operation batch",
+    "window.__checklistNextSubmittedOperation?.signature !== null",
+  );
+  return call(
+    send,
+    function () {
+      const capture = window.__checklistNextSubmittedOperation;
+      window.__checklistNextSubmittedOperation = null;
+      return capture.signature;
+    },
+    [],
+  );
+}
+
+async function correlateCapturedAction(send, signature) {
+  const result = await call(
+    send,
+    function (expected) {
+      const gate = window.__checklistInboundGate;
+      const deliver = window.__checklistInboundDeliver;
+      if (!gate || typeof deliver !== "function") {
+        return { ok: false, detail: "the inbound operation gate is missing" };
+      }
+      if (typeof expected !== "string" || expected.length === 0) {
+        return {
+          ok: false,
+          detail: "the submitted operation signature is missing",
+        };
+      }
+      gate.targetSignature = expected;
+      const queued = gate.queued.splice(0);
+      for (const event of queued) deliver(event);
+      return { ok: true };
+    },
+    [signature],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function dispatchUnrelatedInbound(send) {
+  await call(
+    send,
+    function () {
+      const gate = window.__checklistInboundGate;
+      if (gate) gate.observe("unrelated");
+      else {
+        window.__checklistInboundHook?.(
+          new MessageEvent("message", { data: "unrelated" }),
+        );
+      }
+    },
+    [],
+  );
+}
+
+async function assertCapturedActionPending(send) {
+  const result = await call(
+    send,
+    function () {
+      return window.__capturedChecklistInbound?.fired === false
+        ? { ok: true }
+        : { ok: false, detail: "an unrelated inbound frame ran the action" };
+    },
+    [],
+  );
+  if (!result.ok) throw new Error(result.detail);
+}
+
+async function assertCapturedInboundBoundary(send) {
+  const result = await call(
+    send,
+    function () {
+      const boundary = window.__capturedChecklistInbound;
+      return (
+        boundary?.matched === true &&
+        boundary.physicalAtDispatch === true &&
+        boundary.locationAtDispatch === true
+      )
         ? { ok: true }
         : {
             ok: false,
             detail:
-              "captured DOM identity was " +
-              actual +
-              ", expected " +
-              same,
+              "captured action boundary was not the exact sequenced batch " +
+              "with the original physical target at its captured location: " +
+              JSON.stringify(boundary),
           };
     },
-    [expectedSame],
+    [],
   );
   if (!result.ok) throw new Error(result.detail);
 }
