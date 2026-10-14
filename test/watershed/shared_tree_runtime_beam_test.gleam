@@ -13,6 +13,8 @@ import gleam/option.{None, Some}
 @target(erlang)
 import gleam/result
 @target(erlang)
+import gleam/string
+@target(erlang)
 import signet/types as token
 @target(erlang)
 import spillway/message
@@ -4629,6 +4631,123 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   watershed_beam.tree_merge(tree, other_tree, False) |> expect.to_be_error()
   process.send(other_actor, runtime_beam.Shutdown)
   process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn routed_beam_facade_refusals_preserve_native_diagnostics_and_state_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks_subject = process.new_subject()
+  let submissions = process.new_subject()
+  let assert Ok(document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "submitOp" -> process.send(submissions, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let actor = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let assert Ok(root) = watershed_beam.resolve_root(document)
+  let assert [view] = input.tree_views
+  let assert Ok(marker) = watershed_beam.get(root, "tree")
+  let assert Ok(tree) =
+    facade_fixture.resolve_erlang(document, marker, view.view)
+  let events = watershed_beam.subscribe_tree(tree)
+  let before = watershed_beam.tree_read_root(tree) |> expect.to_be_ok()
+  let operations_since_summary =
+    watershed_beam.operations_since_summary(document)
+
+  assert_refusal_terms(facade_fixture.clear_erlang(tree, ["title"]), [
+    "title",
+    "required field",
+  ])
+  assert_refusal_terms(
+    facade_fixture.set_erlang(tree, ["title"], tree_types.NumberValue(7.0)),
+    ["title", "leaf.number"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_erlang(tree, ["note"], tree_types.NullValue),
+    ["note", "leaf.null"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_erlang(
+      tree,
+      ["notAField"],
+      tree_types.StringValue("invalid"),
+    ),
+    ["notAField", "unknown field"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_erlang(
+      tree,
+      ["point"],
+      tree_types.ObjectValue("org.watershed.shared-tree.m1.NotPoint", [
+        #("x", tree_types.NumberValue(1.0)),
+        #("y", tree_types.NumberValue(2.0)),
+      ]),
+    ),
+    ["NotPoint", "unknown node schema"],
+  )
+
+  watershed_beam.tree_read_root(tree) |> expect.to_equal(Ok(before))
+  watershed_beam.operations_since_summary(document)
+  |> expect.to_equal(operations_since_summary)
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  facade_fixture.set_erlang(
+    tree,
+    ["title"],
+    tree_types.StringValue("continued"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+fn assert_refusal_terms(
+  outcome: Result(Nil, String),
+  terms: List(String),
+) -> Nil {
+  let assert Error(error) = outcome
+  list.each(terms, fn(term) {
+    string.contains(error, term) |> expect.to_be_true()
+  })
 }
 
 @target(erlang)

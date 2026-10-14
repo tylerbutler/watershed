@@ -1135,6 +1135,7 @@ fn set_object_or_map_javascript(
   let owner = node_identifier_javascript(node)
   case schema.node_schema(stored, owner) {
     Ok(schema.Object(_)) -> {
+      use _ <- result.try(validate_object_assignment(stored, owner, key, value))
       use field <- result.try(
         schema.field_schema(stored, owner, key)
         |> result.map_error(string.inspect),
@@ -1216,6 +1217,7 @@ fn set_object_or_map_erlang(
   let owner = node_identifier_erlang(node)
   case schema.node_schema(stored, owner) {
     Ok(schema.Object(_)) -> {
+      use _ <- result.try(validate_object_assignment(stored, owner, key, value))
       use field <- result.try(
         schema.field_schema(stored, owner, key)
         |> result.map_error(string.inspect),
@@ -1296,6 +1298,10 @@ fn clear_on_javascript(
   let owner = node_identifier_javascript(node)
   case schema.node_schema(stored, owner) {
     Ok(schema.Object(_)) -> {
+      use _ <- result.try(
+        schema.validate_field(stored, owner, key, None)
+        |> result.map_error(string.inspect),
+      )
       use field <- result.try(
         schema.field_schema(stored, owner, key)
         |> result.map_error(string.inspect),
@@ -1344,6 +1350,10 @@ fn clear_on_erlang(
   let owner = node_identifier_erlang(node)
   case schema.node_schema(stored, owner) {
     Ok(schema.Object(_)) -> {
+      use _ <- result.try(
+        schema.validate_field(stored, owner, key, None)
+        |> result.map_error(string.inspect),
+      )
       use field <- result.try(
         schema.field_schema(stored, owner, key)
         |> result.map_error(string.inspect),
@@ -1384,6 +1394,20 @@ fn clear_on_erlang(
     Ok(_) -> Error("node does not have a clearable field: " <> key)
     Error(error) -> Error(string.inspect(error))
   }
+}
+
+fn validate_object_assignment(
+  stored: schema.StoredSchema,
+  owner: String,
+  key: String,
+  value: types.TreeValue,
+) -> Result(Nil, String) {
+  use _ <- result.try(
+    schema.node_schema(stored, identifier(value))
+    |> result.map_error(string.inspect),
+  )
+  schema.validate_field(stored, owner, key, Some(value))
+  |> result.map_error(string.inspect)
 }
 
 fn is_leaf(

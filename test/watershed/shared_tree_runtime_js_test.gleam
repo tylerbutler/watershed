@@ -2432,6 +2432,130 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
 }
 
 @target(javascript)
+pub fn routed_facade_refusals_preserve_native_diagnostics_and_state_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let assert Ok(root) = watershed.resolve_root(document)
+  let assert [view] = input.tree_views
+  let assert Ok(marker) = watershed.get(root, "tree")
+  let assert Ok(tree) =
+    facade_fixture.resolve_javascript(document, marker, view.view)
+  let events = transport_js.new_cell([])
+  let subscription =
+    watershed.subscribe_tree(tree, fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let before = watershed.tree_read_root(tree) |> expect.to_be_ok()
+  let operations_since_summary = watershed.operations_since_summary(document)
+
+  assert_refusal_terms(facade_fixture.clear_javascript(tree, ["title"]), [
+    "title",
+    "required field",
+  ])
+  assert_refusal_terms(
+    facade_fixture.set_javascript(tree, ["title"], tree_types.NumberValue(7.0)),
+    ["title", "leaf.number"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_javascript(tree, ["note"], tree_types.NullValue),
+    ["note", "leaf.null"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_javascript(
+      tree,
+      ["notAField"],
+      tree_types.StringValue("invalid"),
+    ),
+    ["notAField", "unknown field"],
+  )
+  assert_refusal_terms(
+    facade_fixture.set_javascript(
+      tree,
+      ["point"],
+      tree_types.ObjectValue("org.watershed.shared-tree.m1.NotPoint", [
+        #("x", tree_types.NumberValue(1.0)),
+        #("y", tree_types.NumberValue(2.0)),
+      ]),
+    ),
+    ["NotPoint", "unknown node schema"],
+  )
+
+  watershed.tree_read_root(tree) |> expect.to_equal(Ok(before))
+  watershed.operations_since_summary(document)
+  |> expect.to_equal(operations_since_summary)
+  transport_js.get_cell(events) |> expect.to_equal([])
+  transport_js.get_cell(submissions) |> expect.to_equal(0)
+
+  facade_fixture.set_javascript(
+    tree,
+    ["title"],
+    tree_types.StringValue("continued"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(events)
+  |> expect.to_equal([tree_kernel.TreeChanged(True)])
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
+  watershed.unsubscribe(subscription)
+  watershed.close(document)
+}
+
+@target(javascript)
+fn assert_refusal_terms(
+  outcome: Result(Nil, String),
+  terms: List(String),
+) -> Nil {
+  let assert Error(error) = outcome
+  list.each(terms, fn(term) {
+    string.contains(error, term) |> expect.to_be_true()
+  })
+}
+
+@target(javascript)
 pub fn inline_tree_echo_preserves_one_local_invalidation_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
