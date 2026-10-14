@@ -12,10 +12,11 @@
 
 **Status:** Approved for implementation on 2026-10-13. The user authorized
 commits to `main` as each bounded task passed its required review and gates.
-Tasks 1-6 and the refusal-diagnostic compatibility fix are accepted through
-`39040d6e`; Task 7 documents and validates that frozen source. The user
-authorized the Task 7 documentation commit on `main`. This authorization
-excludes pushes, hosted workflows, releases, and scope outside this plan.
+All seven tasks and final review are complete. The serial acceptance gates
+passed on `39040d6e`; final review found one closed-actor root-access bug,
+fixed and verified in `90739e50`. The implementation range is
+`87ce132e..90739e50`. This authorization excludes pushes, hosted workflows,
+releases, and scope outside this plan.
 
 **Baseline:** `87ce132e858d90c07c1e0f31a1cae0f5a9a3ef7d`. The accepted implementation underneath it is `c0fff951e128776c3f670d22f017482dc24d00c4`.
 
@@ -902,9 +903,8 @@ Replace the existing creation/open/read/transaction signatures; do not add typed
 
 Task 7 completed against source frozen at `39040d6e`; the accepted
 implementation range is `87ce132e..39040d6e`. Documentation and gate changes
-introduced no
-runtime algorithm, dependency, pin, fixture-byte, website design, or public API
-change.
+introduced no runtime algorithm, dependency, pin, fixture-byte, website design,
+or public API change.
 
 Fresh passing evidence:
 
@@ -944,14 +944,44 @@ Fresh passing evidence:
   service process was stopped, port 4000 was closed, and its owned data was
   removed.
 
-Complete logs are under
-`.superpowers/sdd/2026-10-13-shared-tree-typed-api/artifacts/task-7-final-*`.
+The Copilot session artifacts retain the complete logs at
+`files/typed-shared-tree/artifacts/task-7-final-*` after workspace cleanup.
 The profile remains Fluid 3.1.0 at
 `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` with Floodgate
 `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`. Broader M7 remains partial. No
 push, hosted workflow, release, dependency, pin, schema, runtime, fixture, or
-generated-byte change was made. Final controller review remains pending after
-the documentation commit.
+generated-byte change was made during Task 7.
+
+### Final review and closure
+
+The whole-range review of `87ce132e..65bbf353` found one material issue:
+BEAM root read, set, and optional clear operations used an unmonitored actor
+call and could panic after close. Commit `90739e50` routes the two shared
+root request boundaries through the existing monitored `call_runtime`.
+Each operation still sends one request; root snapshots still read one
+selected state. The scoped fix review found no remaining material issue.
+
+The new BEAM regressions first reproduced all three `Noproc` panics after
+waiting for the real actor to terminate. They now return typed access errors.
+Fresh verification on `90739e50` passed the closed-root regressions on both
+targets, all ten typed facade tests, 210 runtime tests, 24 node tests,
+`just shared-tree-test` (1,223 BEAM and 1,194 JavaScript), `just build`,
+`just test` (2,783 BEAM and 3,032 JavaScript core tests), and `just lint`.
+These are post-review covering checks; the upstream service gate results
+above describe the frozen `39040d6e` run, not a later rerun.
+
+Two execution decisions preserve the approved contract:
+
+- Leaf-root codecs support canonical leaf identifiers rather than rejecting
+  leaf-root schemas. If that interpretation is wrong, the leaf declarations
+  need a compatibility change.
+- Internal checked builder metadata supports the heterogeneous identifier
+  sets already permitted by the profile. A mixed insert remains one native
+  commit, and public constructor signatures stay unchanged. If that choice
+  is wrong, builder internals need rework.
+
+Final review is complete. Broader M7 remains partial; no push, hosted workflow,
+or release occurred.
 
 ## 5. Requirement-to-task coverage
 
