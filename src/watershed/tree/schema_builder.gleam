@@ -788,9 +788,21 @@ fn collect_definition(
               ))
             _ ->
               case dict.get(graph.visits, identifier) {
-                Ok(Visiting) | Ok(Visited) ->
-                  check_definition(graph, identifier, node)
-                Error(Nil) -> collect_definition(graph, concrete)
+                Ok(Visiting) -> check_finite_definition(graph, concrete)
+                Ok(Visited) | Error(Nil) -> {
+                  let graph =
+                    Graph(
+                      ..graph,
+                      visits: dict.insert(graph.visits, identifier, Visiting),
+                    )
+                  use graph <- result.try(collect_definition(graph, concrete))
+                  Ok(
+                    Graph(
+                      ..graph,
+                      visits: dict.insert(graph.visits, identifier, Visited),
+                    ),
+                  )
+                }
               }
           }
         _, _ ->
@@ -802,11 +814,21 @@ fn collect_definition(
     }
     Concrete(identifier, node, children) -> {
       use graph <- result.try(check_definition(graph, identifier, node))
-      let graph =
-        Graph(..graph, visits: dict.insert(graph.visits, identifier, Visiting))
       // Check each finite declaration. Only deferred edges expand the graph.
-      use graph <- result.try(collect_definitions(children, graph))
-      Ok(Graph(..graph, visits: dict.insert(graph.visits, identifier, Visited)))
+      collect_definitions(children, graph)
+    }
+  }
+}
+
+fn check_finite_definition(
+  graph: Graph,
+  definition: Definition,
+) -> Result(Graph, TreeError) {
+  case definition {
+    Deferred(_, _) -> Ok(graph)
+    Concrete(identifier, node, children) -> {
+      use graph <- result.try(check_definition(graph, identifier, node))
+      list.try_fold(children, graph, check_finite_definition)
     }
   }
 }

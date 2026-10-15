@@ -203,16 +203,26 @@ pub fn typed_recursive_repeated_container_conflicts_test() {
       builder.required("child", child, fn(_) { Nil }),
     )
   }
-  let parent =
-    builder.object2(
-      f,
-      "Parent",
-      fn(_, _) { Nil },
-      builder.required("first", wrap(empty), fn(_) { Nil }),
-      builder.required("second", wrap(nonempty), fn(_) { Nil }),
-    )
-  let assert Error(_) = parent |> builder.root |> builder.compile
-  Nil
+  let lazy_empty = builder.lazy(f, "Wrapper", fn() { wrap(empty) })
+  let lazy_nonempty = builder.lazy(f, "Wrapper", fn() { wrap(nonempty) })
+  [
+    #(wrap(empty), wrap(nonempty)),
+    #(wrap(empty), lazy_nonempty),
+    #(lazy_empty, wrap(nonempty)),
+    #(lazy_empty, lazy_nonempty),
+  ]
+  |> list.each(fn(pair) {
+    let parent =
+      builder.object2(
+        f,
+        "Parent",
+        fn(_, _) { Nil },
+        builder.required("first", pair.0, fn(_) { Nil }),
+        builder.required("second", pair.1, fn(_) { Nil }),
+      )
+    let assert Error(_) = parent |> builder.root |> builder.compile
+    Nil
+  })
 }
 
 fn required_cycle() -> builder.Node(Nil) {
