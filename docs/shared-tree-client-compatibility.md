@@ -17,18 +17,27 @@ an unassessed row is not a compatibility promise.
 | --- | --- |
 | Fluid packages | `3.1.0`, including `@fluidframework/tree`, `fluid-framework`, and `@fluidframework/routerlicious-driver` |
 | Upstream source | [`c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`][upstream] |
-| Watershed implementation | `3a28cb62b685022238d2cfa331ddfa4c5bdbebec` |
-| Profile | [`test/fixtures/shared_tree/profile.json`][profile], SHA-256 `29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de` |
-| Recorded service evidence | Floodgate `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`; local acceptance, not a hosted release |
+| Watershed compression implementation baseline | `75ecdceb` |
+| Legacy profile | [`test/fixtures/shared_tree/profile.json`][profile], SHA-256 `29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de` |
+| Compression extension | [`compression-profile.json`][compression-profile], SHA-256 `1c14161270e64cae5ea429a5c3bf69dac0653624d7b0ad4ad4df4ddea026ce7c`; corpus SHA-256 `d03edfd3fb97e39cde8934e703b44033d07cf40ad81c9e96ba5bb3fd14cb228d` |
+| Recorded compression evidence | Run `a97eb0f7-bc49-4df4-a5e3-b270c355d4c3`, 12/12 local cells; Floodgate `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`; no hosted compression run claimed |
 
 The upstream peer must use compatible named schema identities, container
-factories/layouts, and the [oracle's runtime settings][service]. Runtime ID
-compression and grouped batches are enabled. Operation compression is disabled
-with `minimumBatchSizeInBytes: Infinity`, preventing compressed/chunked
-operations. The driver disables discovery, long-polling downgrade, and
-whole-summary upload, and enables RestLess. Interactive upstream clients disable
-automatic summarization; the dedicated upstream summarizer publishes on demand.
-Native automatic summary policy skips tree documents.
+factories/layouts, and the [oracle's runtime settings][service]. The frozen
+legacy profile still disables runtime operation compression with
+`minimumBatchSizeInBytes: Infinity`. The separate compression extension accepts
+inbound Fluid 3.1.0 LZ4 singleton and grouped messages, per-sender chunked LZ4
+messages, empty final chunks, and `/.chunks` prefix continuation at the pinned
+defaults of 614400-byte compression and 204800-byte chunks. Native submissions
+remain uncompressed. The driver and server scope are unchanged: discovery,
+long-polling downgrade, and whole-summary upload stay disabled, RestLess stays
+enabled, and the evidence uses the same pinned Floodgate.
+
+The extension caps packed, reassembled, and decoded payloads at 16 MiB; caps
+all buffered partial streams at 16 MiB; and permits at most 64 streams and 128
+chunks per stream. It rejects unmarked packed contents, algorithms other than
+LZ4, legacy multi-message compressed arrays, nested compression, and missing
+partial prefixes. These boundaries do not claim older historical Fluid forms.
 
 Tree-side incremental encoding must also stay disabled. The pinned upstream
 [default incremental policy][up-incremental] returns false; opting into
@@ -165,16 +174,16 @@ be confused with rejection of every document authored using that option.
 | --- | --- | --- | --- | --- | --- |
 | R01 | Selected tree/container codecs and package versions (internal contract) | Implemented within pin | Implemented within pin | N/O/L [profile][profile], [codec gate][codec-gate], [core gate][core-gate] | Blocker for unsupported semantic formats/versions. There is no compatibility promise for Fluid 2.x, later 3.x, arbitrary codec overrides, or old Watershed development encodings. |
 | R02 | Runtime ID compressor, allocation order, Identifier strings (internal contract) | Implemented within slice | Implemented within slice | N/O/L [ID tests][id-tests], [Identifier cases][identifier-evidence] | Finalize allocation ranges on sequenced delivery; use receiver compressor identity order, not UUID sorting. Contextual message compression and stored summary compressor state are supported; `Tree.shortId`/indexes are separate local APIs. |
-| R03 | Grouped batches versus compressed/chunked operations (internal contract) | Partial | Partial | N/O/L for grouping; I/N [container codec][container-codec] for refusal | Blocker: operation compression is refused; chunked operations are excluded. Disable upstream operation compression/chunking. This does not disable runtime ID compression or supported schema-aware FieldBatch compression. |
+| R03 | Grouped batches versus compressed/chunked operations (internal contract) | Implemented within extension | Implemented within extension | N/O/L [compression profile][compression-profile], [compression gate][compression-gate] | Inbound Fluid 3.1.0 plain singleton/grouped, LZ4 singleton/grouped, per-sender chunked LZ4, empty-final-chunk, and partial-prefix continuation are supported within the published limits. Native outbound remains plain. Unmarked packed contents, non-LZ4, legacy multi-message arrays, nested compression, and missing prefixes are refused. |
 | R04 | Nonincremental FieldBatch V2 versus incremental chunks (alpha/internal) | Partial | Partial | N/O/L [field-batch codec][field-batch], [codec gate][codec-gate] | Blocker when a peer/summary uses incremental chunk shapes: the native decoder explicitly rejects discriminator `e`. Nonincremental uncompressed/schema-aware forms are supported. `TreeCompressionStrategy.Compressed` alone is not the unsupported runtime-op compression of R03. |
 | R05 | Bootstrap routing, factories, initial and attached layouts (alpha/internal) | Partial | Partial | N/O/L [document runtime][document], [layout gate][layout-gate] | Default and declared map/tree graphs are supported. Blocker for required unsupported channel types/layout contracts. Some metadata/layouts may decode, but this is not arbitrary factory execution or an unrestricted Fluid application loader. |
 | R06 | Same-container map/tree handle leaves and attachment graphs (public/internal) | Implemented within slice | Implemented within slice | N/O/L [handle implementation][handles], [lifecycle gate][lifecycle-gate] | Supported relative/source-context binding, escaped routes, cycles, cross-datastore references, retained routes, transactions/branches, reconnect, and reload. Detached targets attach through the runtime before the referring edit. |
 | R07 | Blob, external/cross-container, pending-payload handles (public/internal) | Unsupported | Unsupported | I/N/O [handles][handles], [lifecycle cases][lifecycle-evidence] | Blocker when content requires a non-channel or external target. Ordinary supported handle leaves are not excluded; neither are summary-level blob/tree references, which are a different concept. |
 | R08 | Native creation and datastore alias publication (alpha/internal) | Implemented within slice | Implemented within slice | N/O/L [creation gate][creation-gate], [alias gate][alias-gate] | Native creators produce loadable documents; aliases settle on their own acknowledgements and survive reconnect/reload. JS alias claims return a promise; BEAM waits for a Result and has a bounded call timeout, not cancellation of accepted claims. Production token-service integration is not proved by development credentials. |
-| R09 | Summary load, full writing, previous-summary references (internal contract) | Partial | Partial | N/O/L for full load/write/tail; N [summary resolution][summary-tests] | Native full summaries are supported. Generic codecs resolve prior-summary tree/blob handles when the previous summary is supplied; this is not proof that every incremental upstream summary loads through ordinary storage bootstrap. No incremental writer or automatic native tree summarizer. |
+| R09 | Summary load, full writing, previous-summary references (internal contract) | Partial | Partial | N/O/L for full load/write/tail and `/.chunks`; N [summary resolution][summary-tests], [compression gate][compression-gate] | Native full summaries and validated partial chunk prefixes are supported; fresh readers continue the retained stream before editing. Generic codecs resolve prior-summary tree/blob handles when the previous summary is supplied, but ordinary storage bootstrap of every upstream reference form remains unproved. No incremental writer or automatic native tree summarizer. |
 | R10 | Retained history, detached content, GC metadata and sweep (internal contract) | Partial | Partial | N/O/L [document tests][document-tests], [lifecycle gate][lifecycle-gate] | GC metadata/routes are preserved and updated; native GC sweep is excluded. Native retained handles/undo/branches constrain reclamation. Do not enable destructive upstream sweep and assume interoperability has been established. |
-| R11 | Catch-up, reconnection, duplicate acknowledgement, resubmission (internal contract) | Implemented within slice | Implemented within slice | N/O/L [client gate][client-gate], [core gate][core-gate] | Pending tree state/compressor remain live; replay and session barriers precede resubmission. Missing/corrupt history or authorization refusal produces an explicit failure/suspension, not a writable partial tree. |
-| R12 | Explicit pending-tree restart checkpoints (native lifecycle) | Implemented within slice | Implemented within slice | N/L [recovery gate][recovery-gate], [recovery tests][recovery-tests] | Application-stored JSON supports target-switch/process-kill recovery, accepted prefixes, later accepted edits, and continued allocation. No automatic journal, mixed-DDS pending recovery, detached graph persistence, or restoration of subscriptions/branches/undo handles. Pending attachment/alias work must settle before capture. |
+| R11 | Catch-up, reconnection, duplicate acknowledgement, resubmission (internal contract) | Implemented within slice | Implemented within slice | N/O/L [client gate][client-gate], [core gate][core-gate], [compression gate][compression-gate] | Pending tree state/compressor remain live; replay and session barriers precede resubmission. Physical chunk sequence advances independently from logical batch application, and reconnect/history catch-up retains complete per-sender prefixes. Missing prefixes, corrupt history, or authorization refusal produce an explicit failure/suspension, not a writable partial tree. |
+| R12 | Explicit pending-tree restart checkpoints (native lifecycle) | Implemented within slice | Implemented within slice | N/L [recovery gate][recovery-gate], [recovery tests][recovery-tests], [compression gate][compression-gate] | Application-stored JSON supports target-switch/process-kill recovery, accepted native prefixes, retained peer chunk prefixes, later accepted edits, and continued allocation. The compression matrix kills the writer and restores each checkpoint on the opposite target before consuming the tail and settling the original pending edit. No automatic journal, mixed-DDS pending recovery, detached graph persistence, or restoration of subscriptions/branches/undo handles. Pending attachment/alias work must settle before capture. |
 | R13 | Offline edits and portable local application history (lifecycle) | Unsupported | Unsupported | I/N [facades][js], [recovery documentation][readme-recovery] | Operational: new tree edits require readiness; reconnect retaining existing edits is not offline authoring. No persisted/shared undo stack or portable branch/revertible handles. |
 | R14 | Capacity, throughput, bounded memory, safe reclamation (implementation) | Unassessed guarantees | Unassessed guarantees | I [limits][readme-limits], [M8 scope][roadmap] | Operational: no published capacity/throughput/bounded-memory guarantee. Existing schedules are not capacity measurements. Measure realistic workloads and retained-state lifetimes before setting limits. |
 
@@ -262,16 +271,25 @@ feature-array labels. Absence from an exclusion array is not support.
 This is an implementation/proof backlog, not a promise to implement every
 upstream API. Priorities reflect client collaboration impact, not estimates.
 
+The [runtime compression/chunking slice](superpowers/plans/2026-10-14-shared-tree-compression.md)
+is implemented and locally accepted. Its separate extension profile leaves the
+legacy profile frozen and removes ordinary default size-triggered inbound
+compression from the blocker list. R04 remains unchanged: opt-in incremental
+FieldBatch chunks are still excluded and are not runtime operation compression.
+
 | Priority | Rows | Trigger / current restriction | Required implementation or proof |
 | --- | --- | --- | --- |
-| 1 | R03-R04 | Peer emits compressed/chunked ops or incremental FieldBatch chunks. Keep the profile's compression/encoding restrictions. | Native decode/apply/summary/reconnect support for each format, both targets, followed by real upstream/native writer-reader matrices. Treat the two compression layers separately. |
-| 1 | R05, R07, H09 | Application requires undeclared layouts/channels, blob/external targets, or shared branches. Stay with declared map/tree graphs and local branches. | Define each loading/routing/persistence contract, then prove peer creation, attachment, editing, summary, fresh load, and continuation; do not just relax validation. |
-| 1 | S03, S09-S10 | A required typed view uses a union root, richer schema policy, or array evolution. Use supported single-root strict views and object/map upgrades. | Public typed union declarations where needed; schema/data concurrency and reload matrices for each policy/field kind. Separate view access from raw persisted-data consumption. |
-| 2 | S06, A08-A09, D01-D04 | Common record/domain/convenience APIs are absent from dedicated service scenarios. No unqualified claim for their output. | Start with generated upstream schemas and actual commits. Reuse map/array/transaction prior art, but add targeted upstream-author/native-reader and reverse-author/fresh-reader proof before advertising compatibility. |
-| 2 | R09-R10, R14 | Incremental persistence, sweep, or long-lived retained-state workloads. Use full summaries, no sweep, and no published capacity guarantee. | Prove ordinary storage-bootstrap reference resolution; implement incremental writing/safe reclamation separately; measure retained forests/history and live handle workloads. |
-| 2 | R01 | A collaborator upgrades packages or changes codec write settings. Pin Fluid 3.1.0. | Explicit additional-version/configuration matrices and format validation; metadata version floors alone do not establish support. |
-| 3 | H02-H03, H05, H07-H08 | Applications require richer transactions/history/branch-schema APIs. Use the synchronous/local supported slice. | Determine actual peer wire requirements before classifying blockers; design native APIs and add semantic/lifetime/reconnect proof for the selected extension. |
-| 3 | A02-A07, A10-A13, R12-R13 | Missing local observation, traversal, indexes, builders/import/export, generated declarations, or durability conveniences. | Add only requested native ergonomics; broaden persistence with explicit ownership/lifetime boundaries. Do not require JS/TS syntax parity to preserve collaboration. |
+| 1 | R09 | A normal upstream snapshot uses prior-summary tree/blob references. Existing generic resolver tests are not ordinary storage-bootstrap proof. | Upstream-author/native-load/fresh-reader continuation through actual storage. Fix consumption independently of incremental native writing; retain declared-layout limits. |
+| 2 | S03, S06, A08-A09, D01-D04 | Common typed union/record access or JSON/domain-helper outputs lack native access or dedicated proof. | Public typed union/record access where needed; actual upstream commits and bidirectional author/read/reload scenarios. Do not assume a local API omission means persisted-data rejection. |
+| 3 | S09-S10 | A consumer needs array evolution or a richer schema policy. Use strict object/map upgrades meanwhile. | Array schema/data races and reload matrices first; choose additional policies by consumer need. |
+| 4; measure now | R04, R09-R10, R14 | Opt-in incremental FieldBatch chunks, incremental writing, or retained-state scale. Keep the current encoding/full-summary/no-sweep boundaries. | Baseline realistic workloads now; schedule each codec/persistence/reclamation change from measured need and prove retained handle/history safety. R04 is not bundled with default runtime compression. |
+| 5; demand-driven | A02-A07, A10-A13, R12-R13 | Missing native observation/traversal/index/builder/import/export or generated declarations and broader durability. | Add requested ergonomics behind the ordinary-client gaps; broaden persistence with explicit ownership/lifetimes. Preserve the implemented typed API and explicit pending-tree checkpoint slice. |
+| Demand-driven | R05, R07, H02-H03, H05, H07-H09 | An application actually needs undeclared factories/layouts, exotic handles, shared branches, or richer transaction/history behavior. | Define each selected loading/wire/lifetime contract and prove it; these can be blockers for that application without outranking ordinary supported-client traffic by default. |
+| Demand-driven | R01 | A collaborator upgrades packages or changes codec write settings. Pin Fluid 3.1.0. | Explicit additional-version/configuration matrices and format validation; metadata version floors alone do not establish support. |
+
+Production authentication remains a release prerequisite (R08), not a deferred
+optional API. None of this ordering expands current support, reopens accepted
+M7 work, or changes the frozen profile's labels.
 
 ## Upstream coverage appendix
 
@@ -390,6 +408,7 @@ This report interprets the existing contract; it does not silently amend
 Keep historical acceptance records intact and identify the profile they prove.
 
 [profile]: ../test/fixtures/shared_tree/profile.json
+[compression-profile]: ../test/fixtures/shared_tree/compression-profile.json
 [service]: ../tools/shared-tree-oracle/service.mjs
 [roadmap]: superpowers/plans/2026-09-21-shared-tree.md
 [acceptance]: superpowers/plans/2026-09-21-shared-tree.md#m7-supported-profile-acceptance--2026-10-14
@@ -430,6 +449,7 @@ Keep historical acceptance records intact and identify the profile they prove.
 [lifecycle-gate]: ../tools/shared-tree-oracle/lifecycle-interop.mjs
 [alias-gate]: ../tools/shared-tree-oracle/alias-interop.mjs
 [recovery-gate]: ../tools/shared-tree-oracle/recovery-interop.mjs
+[compression-gate]: ../tools/shared-tree-oracle/compression-interop.mjs
 [native-workflow]: ../.github/workflows/shared-tree.yml
 [service-workflow]: ../.github/workflows/shared-tree-interop.yml
 [readme-recovery]: ../README.md#recover-pending-tree-edits

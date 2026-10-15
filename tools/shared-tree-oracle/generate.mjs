@@ -8400,9 +8400,15 @@ async function files(directory, prefix = "") {
   return paths.sort();
 }
 
-export async function compareDirectories(generated, committed) {
+export async function compareDirectories(
+  generated,
+  committed,
+  { ignoredCommittedPaths = new Set() } = {},
+) {
   const expected = await files(generated);
-  assert.deepEqual(await files(committed), expected, "Corpus files differ");
+  const actual = (await files(committed))
+    .filter((path) => !ignoredCommittedPaths.has(path));
+  assert.deepEqual(actual, expected, "Corpus files differ");
   for (const path of expected) {
     const [first, second] = await Promise.all([
       readFile(join(generated, path)), readFile(join(committed, path)),
@@ -8697,9 +8703,15 @@ export async function generate({ check = false } = {}) {
     applyNativeTransactionHistoryExpected(cases);
     await writeCorpus(artifacts, cases, await read(join(source, "source-smoke.json")));
     if (check) {
-      await compareDirectories(artifacts, fixtures);
+      await compareDirectories(artifacts, fixtures, {
+        ignoredCommittedPaths: new Set([
+          "compression-profile.json",
+          "compression.json",
+        ]),
+      });
     } else {
       const allowed = new Set(["profile.json", "manifest.json",
+        "compression-profile.json", "compression.json",
         ...requiredCases.map(([id]) => `cases/${id}.json`)]);
       for (const path of await files(fixtures)) {
         assert(allowed.has(path), `Refusing to replace unexpected fixture file: ${path}`);

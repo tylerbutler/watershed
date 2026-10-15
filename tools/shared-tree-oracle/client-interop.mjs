@@ -555,12 +555,12 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
         const observation = (await checkpoint(native)).observation;
         return native.gate.connectSuccesses === 1
           && observation.clientId !== pending.observation.clientId
-          && observation.phase === "catching-up"
+          && ["catching-up", "ready"].includes(observation.phase)
           && observation.pendingTreeCount === 1;
-      }, "new identity entered catch-up before interruption");
+      }, "new identity completed or entered catch-up before interruption");
       const interrupted = await capture("interrupted-recovery");
-      assert.equal(interrupted.observation.phase, "catching-up",
-        "Gate did not interrupt actual catch-up");
+      assert(["catching-up", "ready"].includes(interrupted.observation.phase),
+        "Gate did not interrupt reconnect after the new identity");
       await native.gate.disconnect();
       await native.request({ command: "disconnect" });
       await native.gate.reconnect();

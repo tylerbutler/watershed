@@ -125,6 +125,26 @@ test("lifecycle acceptance runs the complete owned-service profile", () => {
   ]);
 });
 
+test("compression acceptance runs both native targets, corpus check, and live gate", () => {
+  assert.deepEqual(recipeCommands("shared-tree-compression-interop"), [
+    "gleam test --target erlang -- shared_tree_compression shared_tree_runtime shared_tree_document_summary shared_tree_document_recovery",
+    "gleam test --target javascript -- shared_tree_compression shared_tree_runtime shared_tree_document_summary shared_tree_document_recovery",
+    "node tools/shared-tree-oracle/compression.mjs check",
+    "node tools/shared-tree-oracle/compression-interop.mjs interop --local-floodgate",
+  ]);
+});
+
+test("oracle compression script runs the owned live gate", () => {
+  const packageJson = JSON.parse(readFileSync(
+    resolve(repository, "tools/shared-tree-oracle/package.json"),
+    "utf8",
+  ));
+  assert.equal(
+    packageJson.scripts["compression:interop"],
+    "node compression-interop.mjs interop --local-floodgate",
+  );
+});
+
 test("layout acceptance checks native creation before the owned-service matrix", () => {
   assert.deepEqual(recipeCommands("shared-tree-layout-interop"), [
     "gleam test --target erlang -- shared_tree_creation git_storage facade_parity",
@@ -296,6 +316,7 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.match(interopWorkflow, /run: just shared-tree-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-lifecycle-interop/);
+  assert.match(interopWorkflow, /run: just shared-tree-compression-interop/);
   const sourcePrepare = interopWorkflow.indexOf(
     "run: npm --prefix tools/shared-tree-oracle run source:prepare",
   );
@@ -319,6 +340,7 @@ test("hosted erlang gates install the configured rebar tool", () => {
   );
   assert.match(interopWorkflow, /uses: actions\/upload-artifact@v4/);
   assert.match(interopWorkflow, /tools\/shared-tree-oracle\/\.output\/lifecycle\//);
+  assert.match(interopWorkflow, /tools\/shared-tree-oracle\/\.output\/compression\//);
 });
 
 test("BEAM reconnect command restarts the native transport", () => {

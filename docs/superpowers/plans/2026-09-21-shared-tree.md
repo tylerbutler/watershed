@@ -30,6 +30,25 @@ client collaboration blockers from local API differences and missing proof.
 Milestone completion below applies to the published supported profile, not
 unrestricted SharedTree parity; dated acceptance records remain historical.
 
+**Next sequence (2026-10-15):** Close ordinary client-consumption gaps before
+adding more native ergonomics or treating all remaining work as M8. The
+[runtime operation compression/chunking slice](2026-10-14-shared-tree-compression.md),
+with its [focused design](../specs/2026-10-14-shared-tree-compression-design.md),
+is implemented and locally accepted. It supports bounded inbound Fluid 3.1.0
+LZ4/chunk traffic, partial-stream summaries, and checkpoint/reconnect
+continuation; native writes remain uncompressed.
+
+Next, prioritize ordinary upstream snapshot/reference consumption through
+storage bootstrap, common typed union/record access and targeted
+JSON/domain-helper proof, then array schema evolution and selected schema
+policies. Begin representative measurements alongside compatibility work, but
+schedule incremental FieldBatch encoding, incremental writing, and reclamation
+from measured need. Generated schema declarations and broader automatic
+durability follow those ordinary collaboration gaps. Shared branches,
+arbitrary factories, exotic handles, and additional versions remain
+demand-driven. Production authentication is a shipping requirement, not an
+optional feature to defer past a production release.
+
 The initial reconciliation compared the implementation at `dad2b680` with the
 eight SharedTree plans, committed profile/corpus, recipes, and workflow
 definitions. The M5 continuation started at `8194fbc5` and ran the local gates
@@ -55,7 +74,8 @@ the local acceptance boundaries; the excluded extensions remain future work.
 | M5: transactions and undo/redo | Implemented and published; local release accepted. M6 Task 11 closes the earlier full-build/standalone-browser prerequisite under the unchanged registry policy. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; fresh combined release evidence below. |
 | M6: branching | Approved runtime-local slice complete, published and locally release-accepted through Task 11. | [Local branching](2026-10-05-shared-tree-local-branching.md). Shared/persisted branches remain excluded and require a separate profile/version decision. |
 | M7: application/container lifecycle | Complete for the published profile, with local acceptance. Includes default and declared-layout native creation, Lustre history/checklist, same-container handle graphs, the typed SharedTree API, pending-tree crash/restart recovery, and acknowledged native alias claims. | [Lustre consumer](2026-10-09-shared-tree-lustre.md), [handles and live attachment](2026-10-10-shared-tree-handles-attachment.md), [typed application API](2026-10-13-shared-tree-typed-api.md), and the M7 acceptance record below. Arbitrary factories/layouts, production authentication, automatic journaling, and mixed-DDS recovery remain excluded extensions. |
-| M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
+| Runtime compression extension | Implemented and locally accepted for bounded inbound Fluid 3.1.0 LZ4/chunk traffic. | [Compression plan](2026-10-14-shared-tree-compression.md); native outbound, historical compressed forms, non-LZ4 algorithms, incremental FieldBatch, and broader snapshot compatibility remain excluded. |
+| M8: scale and supported versions | Implementation deferred; baseline measurements can start now. | Safe reclamation, incremental summaries, and additional upstream versions need separate scope and proof. Opt-in incremental FieldBatch encoding remains separate from the accepted runtime-operation compression extension. |
 
 The [handles and live attachment plan](2026-10-10-shared-tree-handles-attachment.md)
 completed Tasks 1-9 with local acceptance on 2026-10-13. Native JavaScript and
@@ -88,9 +108,36 @@ runners per target. Current service recipes use 300 seeded schedules, or
 7,500 for the deep run. `.github/workflows/shared-tree.yml` runs the native
 checks automatically; `.github/workflows/shared-tree-interop.yml` runs legacy,
 creation, declared-layout, handle-lifecycle, recovery, and alias service
-acceptance only on manual dispatch.
+acceptance plus the compression extension only on manual dispatch.
 Workflow existence is not fresh execution evidence. The browser checklist is
 a separate manual recipe, not the website browser workflow.
+
+### Runtime compression extension acceptance — 2026-10-15
+
+The accepted implementation baseline is `75ecdceb`. Fresh local run
+`a97eb0f7-bc49-4df4-a5e3-b270c355d4c3` passed all 12 default-setting cells
+without skips across JavaScript and BEAM. The run binds compression profile
+SHA-256
+`1c14161270e64cae5ea429a5c3bf69dac0653624d7b0ad4ad4df4ddea026ce7c`,
+corpus SHA-256
+`d03edfd3fb97e39cde8934e703b44033d07cf40ad81c9e96ba5bb3fd14cb228d`,
+probe SHA-256
+`9c25674c5dcc06ff9b6fc8049560d1b633fcbce6e29512b02de799df580277c0`,
+Fluid source `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`, Spillway
+`25f515cf67027e4b2db2344c3abb2141056e45fc`, Floodgate
+`0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, and the unchanged legacy profile
+SHA-256
+`29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de`.
+No hosted compression run was dispatched or claimed.
+
+The extension accepts pinned inbound LZ4 singleton/grouped messages,
+per-sender chunked LZ4, empty final chunks, and validated `/.chunks` prefix
+continuation within the published 16 MiB, 64-stream, and 128-chunk limits.
+History, reconnect, summary continuation, and opposite-target checkpoint
+restore preserve physical prefixes before logical batch application. Native
+outbound stays uncompressed. R04 incremental FieldBatch support, non-LZ4 and
+historical packed forms, arbitrary factories, broader snapshot bootstrap, and
+server changes remain outside the accepted boundary.
 
 ### M7 scope reconciliation and array-move verification — 2026-10-14
 
@@ -2699,25 +2746,27 @@ Keep the original specification's milestone numbering, but use this roadmap
 and each feature plan's dated reconciliation for implementation status. Each
 new scope needs its own approved design and interoperability proof.
 
-| Remaining area | Prerequisite | Required work or proof |
+| Remaining area, in scheduling order | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| Full pinned client-surface gaps | [Client compatibility matrix](../../shared-tree-client-compatibility.md) | Use its prioritized gaps and per-capability proof requirements; do not infer API coverage from completed milestone labels alone. |
-| Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
-| Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
-| Future container lifecycle extensions | Accepted default/declared-layout creation, live attachment, and native alias claims | Arbitrary factories/layouts, blob/cross-container handles, and production authentication need separate contracts and upstream/native loading proof. |
-| Generated schema ergonomics | Accepted hand-authored typed SharedTree API | Optional schema-to-Gleam generation without adding another tree API or changing kernel/bootstrap contracts. |
-| Broader pending-state durability | Explicit application-stored pending-tree checkpoints with dual-target service proof for intervening reconnects, partial acceptance, historical rebases, and later accepted edits, described above | Automatic journaling, mixed-DDS pending edits, and detached graph persistence. |
-| M8 scale and incremental summaries | Representative object/map/array/transaction/undo workloads | Measured operation costs, safe reclamation with live handles, incremental persistence, and cross-version compatibility. |
+| 1. Ordinary upstream snapshot consumption | Accepted chunk-aware persistence; existing reference resolver | Prove actual storage bootstrap of upstream tree/blob summary references, fresh native load and continuation. Fix consumption gaps without requiring an incremental native writer or claiming arbitrary container loading. |
+| 2. Common schema access and domain proof | Accepted typed API and stored object/map/array codecs | Public typed unions and record access where needed; targeted upstream/native JSON and domain-helper author/read/reload scenarios. Distinguish missing local APIs from incompatible persisted content. |
+| 3. Array schema evolution and selected policies | Published M3/M4 contracts and preceding ordinary-client boundaries | Separate array-evolution schema/data races and reload matrices; add richer schema policies only for an identified consumer. |
+| 4. Measurement-led scale and persistence | Representative object/map/array/transaction/undo workloads; measurements may start now | Measure retained forests/history and live handles, then schedule safe reclamation, incremental writing and opt-in incremental FieldBatch chunks independently. Do not bundle these with runtime-op compression. |
+| 5. Generated schema ergonomics and broader durability | Accepted hand-authored typed API and explicit pending-tree checkpoint contract | Optional schema-to-Gleam generation, automatic journaling, mixed-DDS pending edits and detached graph persistence, each with separate ownership/lifecycle proof. |
+| Demand-driven extensions | [Client compatibility matrix](../../shared-tree-client-compatibility.md) and an identified application requirement | Shared branches need a version/profile decision; arbitrary factories/layouts, blob/cross-container handles and additional versions each need their own contract and interoperability proof. |
+| Production release prerequisite | Accepted development-service lifecycle | Production authentication and token refresh need explicit ownership and proof before shipping; this sequencing does not waive that requirement. |
 
 ### Current parallel opportunities
 
 Do not schedule M2-M4 implementation lanes again. Their original parallel
-staging is historical. The remaining work can split as follows:
+staging is historical. The compression ingress/core/persistence/recovery slice
+is complete. Broader work can proceed from that accepted boundary:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| Additional consumers | Additional consumers or schema generation beyond the accepted typed API and Lustre history/checklist slices. | Consume the single typed SharedTree API; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
-| New-scope design/oracle work | Array schema evolution, broader pending-state durability, arbitrary factories/layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
+| Compatibility integration | Execute ordinary snapshot consumption, then common schema proof. | Keep one owner for any follow-on bootstrap/history changes; do not reopen compression as a substitute for snapshot work. |
+| Measurements | Baseline representative retained-state and operation costs using existing consumers. | Read/measure current behavior; coordinate any instrumentation that touches core/history. Measurements do not authorize reclamation or incremental codecs. |
+| Consumers and later-scope design | Consumer feedback, schema-access/domain scenarios, and design/oracle research for later rows. | Use the single typed API; no overlapping bootstrap/history changes. Generated declarations and broad durability remain behind the higher-priority ordinary-client gaps. |
 
 Future container lifecycle extensions can overlap the consumer lane after their
 contracts stabilize, but it needs one owner for attach, alias, bootstrap, and

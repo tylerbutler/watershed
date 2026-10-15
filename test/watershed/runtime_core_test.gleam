@@ -41,6 +41,7 @@ import watershed/text_kernel
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/fluid_document
+import watershed/wire/fluid_inbound
 import watershed/wire/op as wire_op
 import watershed/wire/summary_blob
 
@@ -1125,8 +1126,11 @@ pub fn undecodable_operation_contents_are_fatal_test() -> Nil {
       message_type: "op",
       contents: json_to_dynamic(json.object([#("bogus", json.bool(True))])),
     )
-  let assert Error(runtime_core.ContainerOperationFailed(_)) =
-    runtime_core.handle_sequenced(core, garbage)
+  let assert Error(runtime_core.InboundFailed(
+    Some(_),
+    2,
+    fluid_inbound.ContainerFailure(_),
+  )) = runtime_core.handle_sequenced(core, garbage)
   Nil
 }
 

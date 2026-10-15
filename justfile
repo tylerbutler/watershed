@@ -234,6 +234,13 @@ shared-tree-test:
 shared-tree-interop:
     node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
 
+# Inbound runtime compression, chunking, persistence, and live collaboration.
+shared-tree-compression-interop:
+    gleam test --target erlang -- shared_tree_compression shared_tree_runtime shared_tree_document_summary shared_tree_document_recovery
+    gleam test --target javascript -- shared_tree_compression shared_tree_runtime shared_tree_document_summary shared_tree_document_recovery
+    node tools/shared-tree-oracle/compression.mjs check
+    node tools/shared-tree-oracle/compression-interop.mjs interop --local-floodgate
+
 # Manual deep run; keep it out of the pull-request gate.
 shared-tree-interop-deep:
     node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42

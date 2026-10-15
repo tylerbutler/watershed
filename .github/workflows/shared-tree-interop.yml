@@ -31,6 +31,8 @@ jobs:
       - run: npm --prefix tools/shared-tree-oracle run source:capture
       - name: SharedTree complete Node acceptance
         run: npm --prefix tools/shared-tree-oracle test
+      - name: SharedTree runtime compression acceptance
+        run: just shared-tree-compression-interop
       - name: SharedTree three-client acceptance
         run: just shared-tree-interop
       - name: Supported SharedTree creation acceptance
@@ -57,3 +59,4 @@ jobs:
             tools/shared-tree-oracle/.output/lifecycle/
             tools/shared-tree-oracle/.output/recovery/
             tools/shared-tree-oracle/.output/aliases/
+            tools/shared-tree-oracle/.output/compression/

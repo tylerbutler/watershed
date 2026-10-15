@@ -1078,13 +1078,27 @@ selection. It does not run the live service suite. The manual workflow performs
 the same source and native preparation, captures the genuine pinned source
 artifact, then runs the complete serialized Node inventory. It owns isolated
 pinned Floodgate runs for the legacy matrices, native creation, declared
-layouts, handle lifecycle, checkpoint recovery, and aliases.
+layouts, handle lifecycle, checkpoint recovery, aliases, and inbound runtime
+compression.
+
+The compression extension accepts the pinned Fluid 3.1.0 client's inbound LZ4
+singleton and grouped batches, per-sender chunked LZ4 messages, empty final
+chunks, and retained `/.chunks` prefixes. Packed/reassembled and decoded data
+are each limited to 16 MiB; retained prefixes are limited to 16 MiB total, 64
+open streams, and 128 chunks per stream. Native submissions stay uncompressed.
+Other algorithms, unmarked packed contents, legacy multi-message compressed
+arrays, nested compression, missing prefixes, and incremental FieldBatch
+chunks remain excluded. The separate extension profile is
+`1c14161270e64cae5ea429a5c3bf69dac0653624d7b0ad4ad4df4ddea026ce7c`;
+the legacy profile remains frozen at
+`29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de`.
 
 | Command | Checks |
 | --- | --- |
 | `just shared-tree-test` | Both native suites, storage/facade coverage, and HTTP/bootstrap/creation smokes. |
 | `npm --prefix tools/shared-tree-oracle test` | The unrestricted Oracle, report-validator, recipe, and real-service inventory, serialized because service files share one owned Erlang shipment. |
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
+| `just shared-tree-compression-interop` | Both focused native compression suites, deterministic extension-corpus verification, and 12 default-setting live cells across JavaScript and BEAM. |
 | `just shared-tree-interop` | The existing object/map/array/schema/Identifier service profile and its 300 seeded schedules. |
 | `just shared-tree-create-interop` | Object, array, and Identifier creation by JavaScript and BEAM, each loaded by fresh JavaScript, BEAM, and upstream readers: eighteen cells. |
 | `just shared-tree-layout-interop` | Declared initial graphs: twelve creator/checkpoint/reader cells with continued array moves. |
@@ -1095,7 +1109,9 @@ layouts, handle lifecycle, checkpoint recovery, and aliases.
 
 See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,
 evidence artifacts, and failure replay. These checks prove the declared profile;
-they do not expand the compatibility claim.
+they do not expand the compatibility claim. The latest accepted compression run
+is local run `a97eb0f7-bc49-4df4-a5e3-b270c355d4c3` with 12/12 cells and no
+skips. No hosted compression execution is claimed.
 
 ## Data structures
 

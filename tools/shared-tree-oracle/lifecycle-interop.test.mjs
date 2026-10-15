@@ -1361,7 +1361,7 @@ test("real reload matrix covers every fresh continuing reader cell", {
           operations[0].sequenceNumber = 8;
           operations[1].sequenceNumber = 9;
         }
-      }, /acknowledgement.*sequence|delivery.*sequence/i));
+      }, /acknowledgement.*sequence|delivery.*sequence|sequence.*delivery/i));
     await t.test("rejects server sequences swapped between distinct messages", () =>
       rejectMutation("swapped server sequences", (changed, artifact) => {
         for (const cell of cells(

@@ -76,6 +76,7 @@ npm --prefix tools/shared-tree-oracle run runtime:interop
 npm --prefix tools/shared-tree-oracle run summary:interop
 npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
 npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
+just shared-tree-compression-interop
 just shared-tree-interop
 just shared-tree-lifecycle-interop
 just shared-tree-recovery-interop
@@ -463,8 +464,9 @@ not claim that the complete Node service inventory runs in native CI.
 `SharedTree interoperability` job prepares and verifies source, builds both
 native targets, creates the genuine `.output/source/source-smoke.json` capture,
 runs the unrestricted Node inventory with file concurrency one, then runs
-`just shared-tree-interop`, `just shared-tree-create-interop`, and
-`just shared-tree-lifecycle-interop`.
+the compression, legacy, creation, declared-layout, lifecycle, recovery, and
+alias recipes. The compression step uses the separate extension profile; it
+does not change the legacy service settings.
 
 Administrators can require the native check in branch protection or a ruleset.
 The workflow files do not configure that policy. Both workflows fail on missing
@@ -478,6 +480,7 @@ check.
 | `just shared-tree-test` | Native suites and HTTP smokes on both targets. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle/report/recipe tests. |
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
+| `just shared-tree-compression-interop` | Focused native suites on both targets, extension-corpus check, and twelve default-setting live cells. |
 | `just shared-tree-interop` | Real-service object, map, array, schema-evolution, and Identifier matrices plus 300 seeded schedules. |
 | `just shared-tree-create-interop` | Eighteen object, array, and Identifier native-creator/fresh-reader cells with continued editing. |
 | `just shared-tree-layout-interop` | Twelve declared-layout creator/checkpoint/reader cells with continued secondary-tree moves. |
@@ -486,9 +489,9 @@ check.
 | `just shared-tree-alias-interop` | Sixteen alias publication, conflict, retry, and reconnect cells. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
-The service job uploads `.output/interop/`, `.output/creation/`,
-`.output/layouts/`, `.output/lifecycle/`, `.output/recovery/`, and
-`.output/aliases/` on success or failure as
+The service job uploads `.output/compression/`, `.output/interop/`,
+`.output/creation/`, `.output/layouts/`, `.output/lifecycle/`,
+`.output/recovery/`, and `.output/aliases/` on success or failure as
 `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden `.output`
 directory but excludes source checkouts, service databases, and other output
 directories. Each runner verifies its own current-run artifacts; an older
@@ -497,6 +500,41 @@ fails the command. The reports establish separate claims: M1's nine
 object-summary cells, M2's nine map-summary cells, Identifier's nine
 writer/reader cells, native creation's eighteen creator/reader cells, and the
 handle lifecycle profile's seven sections and 27 reload cells.
+
+### Runtime compression acceptance
+
+```sh
+just shared-tree-compression-interop
+```
+
+This non-skipping gate verifies the generated compression corpus, then starts
+its own pinned Floodgate and runs six cases on each native target:
+default-threshold compressed traffic, genuinely chunked traffic, HTTP history
+catch-up, reconnect with pending native work, native-summary continuation, and
+opposite-target restart from a partial peer stream. Raw request/response,
+physical sequence, prefix, summary, checkpoint, process, tree-hash, and
+settlement evidence stays under `.output/compression/<run-id>/`.
+
+The accepted local run is `a97eb0f7-bc49-4df4-a5e3-b270c355d4c3`: 12/12
+cells passed with no skips. It binds compression profile SHA-256
+`1c14161270e64cae5ea429a5c3bf69dac0653624d7b0ad4ad4df4ddea026ce7c`,
+corpus SHA-256
+`d03edfd3fb97e39cde8934e703b44033d07cf40ad81c9e96ba5bb3fd14cb228d`,
+probe SHA-256
+`9c25674c5dcc06ff9b6fc8049560d1b633fcbce6e29512b02de799df580277c0`,
+Fluid source `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`, Spillway
+`25f515cf67027e4b2db2344c3abb2141056e45fc`, and Floodgate
+`0eb493fc46d1bb9baf1151a6ccdde93544e057e7`. This is local evidence; no
+hosted compression run is claimed.
+
+Native outbound operations remain uncompressed. The extension accepts only
+the pinned inbound LZ4 singleton/grouped and per-sender chunk forms, including
+empty final chunks and validated `/.chunks` prefixes. Packed/reassembled and
+decoded data are each limited to 16 MiB; partial streams are limited to 16 MiB
+total, 64 senders, and 128 chunks each. Unmarked packed contents, non-LZ4
+algorithms, legacy multi-message compressed arrays, nested compression,
+missing prefixes, incremental FieldBatch chunks, and broader snapshot loading
+remain outside this profile.
 
 ### Handle lifecycle acceptance
 
@@ -894,11 +932,14 @@ upload are disabled. RestLess is enabled. The delta URL must be
 the server-assigned document ID. The superficially similar
 `/documents/{tenantId}/{documentId}/deltas` route breaks that rewrite.
 
-Runtime ID compression and grouped batches are enabled. Wire compression is
-disabled through its supported infinite threshold, which also prevents chunked
-ops. JSON records that threshold as the string `"Infinity"`, not `null`.
-Interactive clients disable automatic summarization; the dedicated summarizer
-uses `disableHeuristics` and publishes on demand.
+Runtime ID compression and grouped batches are enabled. The frozen legacy
+profile disables wire compression through its supported infinite threshold,
+which also prevents chunked ops; JSON records that threshold as the string
+`"Infinity"`, not `null`. The separate inbound compression extension uses the
+pinned defaults: LZ4 at 614400 bytes and 204800-byte chunks. It does not change
+the server, driver, legacy profile, or native outbound behavior. Interactive
+clients disable automatic summarization; the dedicated summarizer uses
+`disableHeuristics` and publishes on demand.
 
 The actual summary contains runtime format 1, document schema 1, ID compressor
 format 2, and GC metadata version 3. GC sweep is disabled, but GC metadata cannot
