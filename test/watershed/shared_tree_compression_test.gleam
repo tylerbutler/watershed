@@ -5,13 +5,14 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import spillway/types.{SequencedDocumentMessage}
+import spillway/types.{type SequencedDocumentMessage, SequencedDocumentMessage}
 import startest/expect
 
 import watershed/tree/compression_fixture
 import watershed/wire
 import watershed/wire/fluid_container.{
-  ChannelOperation, ContainerMessage, DecodedBatch, IdAllocation, Route,
+  type DecodedBatch, ChannelOperation, ContainerMessage, DecodedBatch,
+  IdAllocation, Route,
 }
 import watershed/wire/fluid_inbound
 import watershed/wire/lz4
@@ -76,6 +77,19 @@ fn plain_operation(sequence: Int) -> wire.SequencedEnvelope {
   )
 }
 
+fn compressed_operation(packed: String) -> wire.SequencedEnvelope {
+  let source = plain_operation(1)
+  wire.SequencedEnvelope(
+    SequencedDocumentMessage(
+      ..source.message,
+      contents: dynamic_json(
+        "{\"packedContents\":" <> json.to_string(json.string(packed)) <> "}",
+      ),
+    ),
+    Some("lz4"),
+  )
+}
+
 fn chunk_from(
   source: wire.SequencedEnvelope,
   id: Int,
@@ -133,6 +147,123 @@ fn split_compressed(
       True,
     ),
   )
+}
+
+fn normalize_all(
+  state: fluid_inbound.State,
+  envelopes: List(wire.SequencedEnvelope),
+  completions: List(#(SequencedDocumentMessage, DecodedBatch)),
+) -> #(fluid_inbound.State, List(#(SequencedDocumentMessage, DecodedBatch))) {
+  case envelopes {
+    [] -> #(state, list.reverse(completions))
+    [envelope, ..rest] -> {
+      case fluid_inbound.step(state, envelope) {
+        Error(error) -> {
+          let reason = "normalization failed: " <> string.inspect(error)
+          panic as reason
+        }
+        Ok(fluid_inbound.Step(next, payload)) ->
+          case payload {
+            fluid_inbound.Complete(representative, batch) ->
+              normalize_all(next, rest, [
+                #(representative, batch),
+                ..completions
+              ])
+            _ -> normalize_all(next, rest, completions)
+          }
+      }
+    }
+  }
+}
+
+fn json_options_equal(
+  left: option.Option(json.Json),
+  right: option.Option(json.Json),
+) -> Bool {
+  case left, right {
+    None, None -> True
+    Some(left), Some(right) -> json.to_string(left) == json.to_string(right)
+    _, _ -> False
+  }
+}
+
+fn expect_captured_completion(
+  id: String,
+  envelopes: List(wire.SequencedEnvelope),
+  initial: fluid_inbound.State,
+) -> fluid_inbound.State {
+  let compression_fixture.ExpectedCase(expected_grouped, expected) = case
+    compression_fixture.expected(id)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as error
+  }
+  let #(state, completions) = normalize_all(initial, envelopes, [])
+  let #(representative, DecodedBatch(actual_grouped, outer_metadata, actual)) = case
+    completions
+  {
+    [completion] -> completion
+    _ -> panic as "captured stream did not produce exactly one completion"
+  }
+  actual_grouped |> expect.to_equal(expected_grouped)
+  list.length(actual) |> expect.to_equal(list.length(expected))
+  list.zip(actual, expected)
+  |> list.index_map(fn(pair, index) { #(pair, index) })
+  |> list.each(fn(entry) {
+    let #(
+      #(
+        ContainerMessage(kind, actual_index, actual_metadata),
+        compression_fixture.ExpectedMessage(
+          expected_contents,
+          expected_metadata,
+          expected_sequence,
+          _,
+          expected_reference,
+          expected_timestamp,
+        ),
+      ),
+      index,
+    ) = entry
+    actual_index |> expect.to_equal(index)
+    let assert Ok(actual_contents) = fluid_container.encode(kind)
+    wire.json_semantically_equal(actual_contents, expected_contents)
+    |> expect.to_be_true()
+    json_options_equal(actual_metadata, expected_metadata)
+    |> expect.to_be_true()
+    representative.sequence_number |> expect.to_equal(expected_sequence)
+    representative.reference_sequence_number
+    |> expect.to_equal(expected_reference)
+    representative.timestamp |> expect.to_equal(expected_timestamp)
+  })
+  let assert [_, ..] = envelopes
+  let assert Ok(final) = list.last(envelopes)
+  representative.sequence_number
+  |> expect.to_equal(final.message.sequence_number)
+  representative.client_sequence_number
+  |> expect.to_equal(final.message.client_sequence_number)
+  representative.reference_sequence_number
+  |> expect.to_equal(final.message.reference_sequence_number)
+  representative.timestamp |> expect.to_equal(final.message.timestamp)
+  case representative.metadata, outer_metadata {
+    None, None -> Nil
+    Some(representative_metadata), Some(batch_metadata) ->
+      wire.dynamic_to_json(representative_metadata)
+      |> json.to_string
+      |> expect.to_equal(json.to_string(batch_metadata))
+    _, _ -> panic as "representative and batch metadata differ"
+  }
+  let assert Ok(reencoded) =
+    fluid_container.encode_batch(DecodedBatch(
+      actual_grouped,
+      outer_metadata,
+      actual,
+    ))
+  wire.json_semantically_equal(
+    reencoded,
+    wire.dynamic_to_json(representative.contents),
+  )
+  |> expect.to_be_true()
+  state
 }
 
 pub fn sequenced_envelope_preserves_physical_fields_test() -> Nil {
@@ -245,6 +376,67 @@ pub fn shared_tree_compression_prefix_has_no_batch_test() -> Nil {
   |> expect.to_equal(1)
 }
 
+pub fn shared_tree_compression_completes_real_default_chunk_stream_test() -> Nil {
+  let assert Ok(envelopes) =
+    compression_fixture.envelopes("default-chunked-group")
+  let final_state =
+    expect_captured_completion(
+      "default-chunked-group",
+      envelopes,
+      fluid_inbound.new(fluid_inbound.default_limits()),
+    )
+  fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
+
+  let assert Ok(final) = list.last(envelopes)
+  let assert Ok(original_metadata) =
+    decode.run(
+      final.message.contents,
+      decode.at(["contents", "originalMetadata"], wire.json_value_decoder()),
+    )
+  let assert Ok(compression_fixture.ExpectedCase(_, [_, _, _, _])) =
+    compression_fixture.expected("default-chunked-group")
+  original_metadata
+  |> json.to_string
+  |> expect.to_equal("{\"groupedOpCount\":4}")
+}
+
+pub fn shared_tree_compression_completes_real_default_unchunked_streams_test() -> Nil {
+  ["default-compressed-singleton", "default-compressed-group"]
+  |> list.each(fn(id) {
+    let assert Ok(envelopes) = compression_fixture.envelopes(id)
+    let final_state =
+      expect_captured_completion(
+        id,
+        envelopes,
+        fluid_inbound.new(fluid_inbound.default_limits()),
+      )
+    fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
+  })
+}
+
+pub fn shared_tree_compression_resumes_real_upstream_prefix_and_tail_test() -> Nil {
+  let id = "partial-summary-prefix-tail"
+  let assert Ok(envelopes) = compression_fixture.envelopes(id)
+  let #(summary, prefix_length, tail_length) = case
+    compression_fixture.summary_prefix(id)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as error
+  }
+  let #(prefix, tail) = list.split(envelopes, prefix_length)
+  list.length(tail) |> expect.to_equal(tail_length)
+
+  let #(prefix_state, prefix_completions) =
+    normalize_all(fluid_inbound.new(fluid_inbound.default_limits()), prefix, [])
+  prefix_completions |> expect.to_equal([])
+  fluid_inbound.partial_chunks(prefix_state) |> expect.to_equal(summary)
+
+  let assert Ok(restored) =
+    fluid_inbound.restore(fluid_inbound.default_limits(), summary)
+  let final_state = expect_captured_completion(id, tail, restored)
+  fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
+}
+
 pub fn shared_tree_compression_completes_profile_batch_test() -> Nil {
   let assert Ok([compressed]) =
     compression_fixture.envelopes("id-allocation-before-tree-use")
@@ -263,7 +455,7 @@ pub fn shared_tree_compression_completes_profile_batch_test() -> Nil {
       ContainerMessage(IdAllocation(_), 0, _),
       ContainerMessage(
         ChannelOperation(
-          Route("compression-tree-store", "compression-tree"),
+          Route("compression-tree-store", "compression-tree-tree"),
           payload,
         ),
         1,
@@ -279,7 +471,7 @@ pub fn shared_tree_compression_completes_profile_batch_test() -> Nil {
   json.to_string(metadata)
   |> expect.to_equal(json.to_string(wire.dynamic_to_json(source_metadata)))
   json.to_string(payload)
-  |> string.contains("\"allocation-before-tree-use\"")
+  |> string.contains("\"compression-baseline\"")
   |> expect.to_be_true()
   let assert Ok(reencoded) = fluid_container.encode_batch(batch)
   wire.json_semantically_equal(
@@ -289,7 +481,7 @@ pub fn shared_tree_compression_completes_profile_batch_test() -> Nil {
   |> expect.to_be_true()
 }
 
-pub fn shared_tree_compression_reassembles_once_with_final_context_test() -> Nil {
+pub fn shared_tree_compression_synthetic_reassembly_keeps_final_context_test() -> Nil {
   let assert Ok([compressed]) =
     compression_fixture.envelopes("id-allocation-before-tree-use")
   let #(first, final) = split_compressed(compressed)
@@ -373,7 +565,7 @@ pub fn shared_tree_compression_restore_enforces_exact_limits_test() -> Nil {
   |> expect.to_equal(Error(fluid_inbound.LimitExceeded("open chunk streams")))
 }
 
-pub fn shared_tree_compression_restored_prefix_learns_total_from_tail_test() -> Nil {
+pub fn shared_tree_compression_synthetic_restored_prefix_learns_total_test() -> Nil {
   let assert Ok([compressed]) =
     compression_fixture.envelopes("id-allocation-before-tree-use")
   let packed = json.to_string(wire.dynamic_to_json(compressed.message.contents))
@@ -500,6 +692,71 @@ pub fn shared_tree_compression_rejects_profile_exclusions_test() -> Nil {
       "packed contents require a compression marker",
     )),
   )
+}
+
+pub fn shared_tree_compression_rejects_grouped_runtime_envelope_compression_test() -> Nil {
+  [
+    // grouped outer
+    "BCJNGEBw35UAAADxG1t7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb21wcmVzc2lvbiI6Imx6NBQA1G50ZW50cyI6W3siY28NAAVDAAA0AFlvbmVudCwAUHsiYWRkSwBLIjoiQRoAA3wAJm9wGAAoIjoxADxyb29OAIx2YWx1ZSI6MaQA8AthcHBsaWNhdGlvbi1kYXRhIn19fX19fV19XQAAAAA=",
+    // grouped item
+    "BCJNGEBw35UAAAD5KFt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3siY29tcHJlc3Npb24iOiJsejQhAAVDAAAnAFtvbmVudB8AMGFkZD4ASyI6IkEaAAN8ACZvcBgARiI6eyIxADxyb29OAIB2YWx1ZSI6MaQACJcA8AthcHBsaWNhdGlvbi1kYXRhIn19fX19fV19XQAAAAA=",
+    // runtime message
+    "BCJNGEBw35QAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPwMaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9fX19JQCQbHo0In19XX1dAAAAAA==",
+    // component datastore wrapper
+    "BCJNGEBw35QAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPwLaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9fX0kAKBsejQifX19XX1dAAAAAA==",
+    // datastore channel wrapper
+    "BCJNGEBw35QAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPwKaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9fSMAsGx6NCJ9fX19XX1dAAAAAA==",
+    // channel operation wrapper
+    "BCJNGEBw35QAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPwJaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9IgDAbHo0In19fX19XX1dAAAAAA==",
+  ]
+  |> list.each(fn(packed) {
+    fluid_inbound.step(
+      fluid_inbound.new(fluid_inbound.default_limits()),
+      compressed_operation(packed),
+    )
+    |> expect.to_equal(
+      Error(fluid_inbound.InvalidPackedPayload(
+        "nested compression is not supported",
+      )),
+    )
+  })
+}
+
+pub fn shared_tree_compression_rejects_malformed_grouped_runtime_marker_test() -> Nil {
+  fluid_inbound.step(
+    fluid_inbound.new(fluid_inbound.default_limits()),
+    compressed_operation(
+      "BCJNGEBw35MAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPsMaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9fX19JQCAMTIzfX1dfV0AAAAA",
+    ),
+  )
+  |> expect.to_equal(
+    Error(fluid_inbound.InvalidPackedPayload(
+      "invalid nested compression marker",
+    )),
+  )
+}
+
+pub fn shared_tree_compression_keeps_dds_compression_fields_opaque_test() -> Nil {
+  let assert Ok(fluid_inbound.Step(
+    _,
+    fluid_inbound.Complete(
+      _,
+      DecodedBatch(
+        True,
+        None,
+        [ContainerMessage(ChannelOperation(Route("A", "root"), payload), 0, _)],
+      ),
+    ),
+  )) =
+    fluid_inbound.step(
+      fluid_inbound.new(fluid_inbound.default_limits()),
+      compressed_operation(
+        "BCJNGEBw340AAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgADaAAmb3AYACgiOjEAPHJvb04AgHZhbHVlIjoxkAAgbXBZAPARaW9uIjoiYXBwbGljYXRpb24tZGF0YSJ9fX19fX1dfV0AAAAA",
+      ),
+    )
+  json.to_string(payload)
+  |> string.contains("\"compression\":\"application-data\"")
+  |> expect.to_be_true()
 }
 
 pub fn shared_tree_compression_preserves_plain_and_empty_group_forms_test() -> Nil {

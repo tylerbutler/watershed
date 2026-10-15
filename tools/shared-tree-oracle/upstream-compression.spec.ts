@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -54,6 +55,21 @@ function deterministicBytes(length: number, seed = 0x6d2b79f5): Uint8Array {
 
 function base64(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString("base64");
+}
+
+function canonical(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonical);
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+				.map(([key, item]) => [key, canonical(item)]),
+		);
+	}
+	return value;
+}
+
+function digestJson(value: unknown): string {
+	return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 
 function runtimeMessage(id: string, value: unknown): OutboundBatchMessage {
@@ -148,7 +164,7 @@ function processMessages(messages: ISequencedDocumentMessage[], initial: [string
 	}
 	return {
 		results,
-		partials: [...remote.partialMessages.entries()],
+		partials: structuredClone([...remote.partialMessages.entries()]),
 	};
 }
 
@@ -445,6 +461,85 @@ describe("Watershed compression source capture", () => {
 			operation: unknown;
 			dataStoreAddress: string;
 			channelAddress: string;
+			treeState: {
+				kind: string;
+				completeness: string;
+				workloads: {
+					id: string;
+					context: {
+						kind: string;
+						completeness: string;
+						provenance: string;
+						sessionId: string;
+						dataStoreAddress: string;
+						channelAddress: string;
+						summary: unknown;
+						compressor: string;
+						initializationMessages: ISequencedDocumentMessage[];
+					};
+					messages: ISequencedDocumentMessage[];
+				}[];
+			};
+		};
+		const workload = (id: string) => {
+			const selected = treeInput.treeState.workloads.find((item) => item.id === id);
+			assert(selected !== undefined, `Missing SharedTree workload ${id}`);
+			const input = batch(selected.messages.map((message) => {
+				const contents = message.contents as {
+					type?: ContainerMessageType;
+					contents?: unknown;
+					changeset?: unknown;
+				} | null;
+				if (contents?.type === ContainerMessageType.IdAllocation) {
+					return outboundRuntimeMessage(ContainerMessageType.IdAllocation, contents.contents);
+				}
+				assert(Array.isArray(contents?.changeset), `${id}: expected a SharedTree operation`);
+				return outboundRuntimeMessage(ContainerMessageType.FluidDataStoreOp, {
+					address: selected.context.dataStoreAddress,
+					contents: {
+						type: "op",
+						content: {
+							address: selected.context.channelAddress,
+							contents,
+						},
+					},
+				});
+			}));
+			return {
+				input,
+				context: {
+					workloadId: id,
+					statePath: `probe.treeState.workloads.${id}.context`,
+					kind: selected.context.kind,
+					completeness: selected.context.completeness,
+				},
+			};
+		};
+		const publishedTreeState = {
+			kind: treeInput.treeState.kind,
+			completeness: treeInput.treeState.completeness,
+			workloads: treeInput.treeState.workloads.map((item) => {
+				const operations = item.messages
+					.map((message, index, messages) => ({
+						contents: message.contents as {
+							type?: ContainerMessageType;
+							changeset?: unknown;
+						} | null,
+						previous: messages[index - 1]?.contents as {
+							type?: ContainerMessageType;
+						} | null | undefined,
+					}))
+					.filter(({ contents }) => Array.isArray(contents?.changeset))
+					.map(({ contents, previous }) => ({
+						sha256: digestJson(contents),
+						hasAllocationPrelude: previous?.type === ContainerMessageType.IdAllocation,
+					}));
+				return {
+					id: item.id,
+					context: item.context,
+					operations,
+				};
+			}),
 		};
 
 		const plainSingletonInput = batch([runtimeMessage("plain", "singleton")]);
@@ -452,17 +547,18 @@ describe("Watershed compression source capture", () => {
 			runtimeMessage("plain-group-a", 1),
 			runtimeMessage("plain-group-b", 2),
 		]);
-		const singletonInput = batch([
-			runtimeMessage("compressed-singleton", "x".repeat(minimumBatchSizeInBytes + 32)),
-		]);
-		const groupedInput = batch([
-			runtimeMessage("compressed-group-a", "a".repeat(320_000)),
-			runtimeMessage("compressed-group-b", "b".repeat(320_000)),
-		]);
-		const chunkInput = batch([
-			runtimeMessage("chunk-a", base64(deterministicBytes(280_000, 1))),
-			runtimeMessage("chunk-b", base64(deterministicBytes(280_000, 2))),
-		]);
+		const compressible = workload("compression-tree");
+		const chunkWorkload = workload("compression-tree-chunked");
+		const singletonMessage = compressible.input.messages.find((message) => {
+			const runtime = JSON.parse(message.contents ?? "null") as {
+				type?: ContainerMessageType;
+			};
+			return runtime.type === ContainerMessageType.FluidDataStoreOp;
+		});
+		assert(singletonMessage !== undefined, "Missing singleton SharedTree edit");
+		const singletonInput = batch([singletonMessage]);
+		const groupedInput = compressible.input;
+		const chunkInput = chunkWorkload.input;
 		const compressedSingleton = compressBatch(group(singletonInput));
 		const compressedGroup = compressBatch(group(groupedInput));
 		const compressedChunk = compressBatch(group(chunkInput));
@@ -478,16 +574,36 @@ describe("Watershed compression source capture", () => {
 			1024,
 		);
 
+		const singletonCase = captureCase(
+			"default-compressed-singleton",
+			singletonInput,
+			compressedSingleton.messages,
+		);
+		singletonCase.treeContext = {
+			...compressible.context,
+			sourceOperationIndexes: [0],
+			requiredPrelude: "source workload allocation immediately before operation 0",
+		};
+		const groupCase = captureCase(
+			"default-compressed-group",
+			groupedInput,
+			compressedGroup.messages,
+		);
+		groupCase.treeContext = {
+			...compressible.context,
+			sourceOperationIndexes: [0, 1],
+		};
+		const chunkCase = captureCase("default-chunked-group", chunkInput, chunked);
+		chunkCase.treeContext = {
+			...chunkWorkload.context,
+			sourceOperationIndexes: [0, 1],
+		};
 		const cases: JsonRecord[] = [
 			captureCase("plain-singleton", plainSingletonInput, plainSingletonInput.messages),
 			captureCase("plain-group", plainGroupInput, group(plainGroupInput).messages),
-			captureCase(
-				"default-compressed-singleton",
-				singletonInput,
-				compressedSingleton.messages,
-			),
-			captureCase("default-compressed-group", groupedInput, compressedGroup.messages),
-			captureCase("default-chunked-group", chunkInput, chunked),
+			singletonCase,
+			groupCase,
+			chunkCase,
 		];
 
 		const senderA = physical(smallChunks, "sender-a", 1);
@@ -555,23 +671,29 @@ describe("Watershed compression source capture", () => {
 			compressBatch(group(handleInput)).messages,
 		));
 
-		const prefixLength = Math.max(1, smallChunks.length - 1);
-		const prefix = physical(smallChunks.slice(0, prefixLength), "summary-sender", 200);
+		const prefixLength = chunked.length - 1;
+		const prefix = physical(chunked.slice(0, prefixLength), "summary-sender", 200);
 		const tail = physical(
-			smallChunks.slice(prefixLength),
+			chunked.slice(prefixLength),
 			"summary-sender",
 			200 + prefixLength,
 		);
 		const prefixResult = processMessages(prefix);
-		const resumed = processMessages(tail, prefixResult.partials);
+		const initialSummary = structuredClone(prefixResult.partials);
+		const partialSummary = structuredClone(prefixResult.partials);
+		const resumed = processMessages(tail, structuredClone(partialSummary));
 		cases.push({
 			id: "partial-summary-prefix-tail",
 			messages: [...prefix, ...tail].map(simplifyMessage),
 			expected: resumed.results,
-			measurements: measurements(smallChunkInput, smallChunks),
-			initialSummary: prefixResult.partials,
-			partialSummary: prefixResult.partials,
+			measurements: measurements(chunkInput, chunked),
+			initialSummary,
+			partialSummary,
 			delivery: { prefixLength, tailLength: tail.length },
+			treeContext: {
+				...chunkWorkload.context,
+				sourceOperationIndexes: [0, 1],
+			},
 		});
 
 		const firstCompressed = physical(smallCompressedChunk.messages)[0];
@@ -688,6 +810,10 @@ describe("Watershed compression source capture", () => {
 			sequenceNumber: 10,
 			schemaRefSeq: (activation.postActivationSummary as IDocumentSchema).refSeq,
 		};
+		postActivationOperation.treeContext = {
+			...compressible.context,
+			sourceOperationIndexes: [0, 1],
+		};
 		cases.push(postActivationOperation);
 
 		const frames = [
@@ -726,6 +852,7 @@ describe("Watershed compression source capture", () => {
 						[chunksBlobName]: prefixResult.partials,
 					},
 				},
+				treeState: publishedTreeState,
 				schemaActivation: activation,
 			},
 			defaults: {

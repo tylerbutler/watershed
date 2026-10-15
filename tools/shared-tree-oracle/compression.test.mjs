@@ -179,3 +179,43 @@ test("generated profile records both owned probe identities", () => {
   assert.equal(profile.probe.treePath, capture.probe.treePath);
   assert.equal(profile.probe.treeSha256, capture.probe.treeDigest);
 });
+
+test("default producer cases require routed SharedTree operations and state context", () => {
+  const changed = structuredClone(capture);
+  const target = changed.cases.find(({ id }) => id === "default-chunked-group");
+  target.expected[0].messages.find(({ type }) => type === "component").contents = {
+    address: "A",
+    contents: { id: "synthetic", value: "not a datastore operation" },
+  };
+  assert.throws(
+    () => validateCompressionCapture(changed),
+    /default-chunked-group|sharedtree|route|datastore|context/i,
+  );
+
+  const missingContext = structuredClone(capture);
+  delete missingContext.probe.treeState;
+  assert.throws(
+    () => validateCompressionCapture(missingContext),
+    /tree state|sharedtree|context/i,
+  );
+});
+
+test("partial summary is bound to the recorded prefix and next tail chunk", () => {
+  const completePrefix = structuredClone(capture);
+  const target = completePrefix.cases.find(
+    ({ id }) => id === "partial-summary-prefix-tail",
+  );
+  target.delivery.prefixLength -= 1;
+  assert.throws(
+    () => validateCompressionCapture(completePrefix),
+    /partial-summary-prefix-tail|prefix/i,
+  );
+
+  const wrongTail = structuredClone(capture);
+  wrongTail.cases.find(({ id }) => id === "partial-summary-prefix-tail")
+    .messages.at(-1).contents.contents.chunkId = 1;
+  assert.throws(
+    () => validateCompressionCapture(wrongTail),
+    /partial-summary-prefix-tail|tail|next chunk/i,
+  );
+});

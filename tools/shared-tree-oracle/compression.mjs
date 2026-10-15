@@ -96,6 +96,13 @@ const runtimeMessageCases = requiredCases.filter((id) => ![
   "future-schema-reference",
   "invalid-schema-reference",
 ].includes(id));
+const routedTreeCases = [
+  "default-compressed-singleton",
+  "default-compressed-group",
+  "default-chunked-group",
+  "partial-summary-prefix-tail",
+  "post-activation-compressed-operation",
+];
 
 function fail(message) {
   throw new Error(`Invalid compression capture: ${message}`);
@@ -284,6 +291,49 @@ function observedChunkCount(entry) {
   }).length;
 }
 
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sharedTreeOperation(message, name, context) {
+  if (message.type !== "component") return undefined;
+  const component = object(message.contents, `${name}.contents`);
+  if (component.address !== context.dataStoreAddress) {
+    fail(`${name} does not use its captured SharedTree datastore route`);
+  }
+  const datastore = object(component.contents, `${name}.contents.contents`);
+  if (datastore.type !== "op") fail(`${name} must contain a datastore operation`);
+  const channel = object(datastore.content, `${name}.contents.contents.content`);
+  if (channel.address !== context.channelAddress) {
+    fail(`${name} does not use its captured SharedTree channel route`);
+  }
+  const operation = object(channel.contents, `${name} SharedTree operation`);
+  if (!Array.isArray(operation.changeset) || operation.changeset.length === 0
+    || operation.version !== 7
+    || typeof operation.originatorId !== "string") {
+    fail(`${name} must contain a real version-7 SharedTree edit`);
+  }
+  return operation;
+}
+
+function chunkedPackedEnvelope(entry) {
+  const messages = array(entry.messages, `${entry.id}.messages`);
+  let serialized = "";
+  let total;
+  messages.forEach((message, index) => {
+    const chunk = object(
+      object(message.contents, `${entry.id} message ${index} contents`).contents,
+      `${entry.id} message ${index} chunk`,
+    );
+    if (chunk.chunkId !== index + 1) fail(`${entry.id} chunk IDs must be consecutive`);
+    total ??= chunk.totalChunks;
+    if (chunk.totalChunks !== total) fail(`${entry.id} chunk total changed`);
+    serialized += chunk.contents;
+  });
+  if (total !== messages.length) fail(`${entry.id} chunk total does not match its stream`);
+  return object(JSON.parse(serialized), `${entry.id} reassembled packed envelope`);
+}
+
 export function validateCompressionCapture(value) {
   const capture = object(value, "capture");
   if (capture.formatVersion !== 1) fail("formatVersion must be 1");
@@ -344,6 +394,47 @@ export function validateCompressionCapture(value) {
       `schema activation ${field} proposal`,
       integerReference,
     );
+  }
+  const treeState = object(probe.treeState, "SharedTree tree state");
+  if (treeState.kind !== "source-produced-shared-tree-channel-state"
+    || treeState.completeness !== "channel-summary-contexts-not-full-container-snapshots") {
+    fail("SharedTree tree state must be honestly labeled channel context");
+  }
+  const treeWorkloads = uniqueById(
+    array(treeState.workloads, "SharedTree tree state workloads"),
+    "SharedTree tree state workloads",
+  );
+  for (const [id, workload] of treeWorkloads) {
+    const context = object(workload.context, `${id} SharedTree context`);
+    if (context.kind !== "shared-tree-channel-summary-context"
+      || context.completeness !== "channel-summary-and-id-compressor-not-container-snapshot") {
+      fail(`${id} SharedTree context must not claim to be a full container snapshot`);
+    }
+    string(context.provenance, `${id} SharedTree context provenance`);
+    string(context.sessionId, `${id} SharedTree context sessionId`);
+    string(context.dataStoreAddress, `${id} SharedTree context datastore`);
+    string(context.channelAddress, `${id} SharedTree context channel`);
+    object(context.summary, `${id} SharedTree context summary`);
+    string(context.compressor, `${id} SharedTree context compressor`);
+    const initialization = array(
+      context.initializationMessages,
+      `${id} SharedTree initialization messages`,
+    );
+    if (initialization.length === 0) {
+      fail(`${id} SharedTree context must include source-produced initialization`);
+    }
+    const operations = array(workload.operations, `${id} SharedTree workload operations`);
+    if (operations.length === 0) fail(`${id} SharedTree workload has no operations`);
+    operations.forEach((operation, index) => {
+      const evidence = object(operation, `${id} SharedTree operation ${index}`);
+      if (!/^[0-9a-f]{64}$/.test(evidence.sha256)) {
+        fail(`${id} SharedTree operation ${index} has no source digest`);
+      }
+      boolean(
+        evidence.hasAllocationPrelude,
+        `${id} SharedTree operation ${index} allocation prelude`,
+      );
+    });
   }
 
   const defaults = object(capture.defaults, "defaults");
@@ -476,19 +567,112 @@ export function validateCompressionCapture(value) {
     || cases.get("default-chunked-group").measurements.sourceBytes <= 614400) {
     fail("default compression cases must cross the captured threshold");
   }
+  const defaultChunks = cases.get("default-chunked-group");
+  const chunkEnvelope = chunkedPackedEnvelope(defaultChunks);
+  const chunkFrame = string(
+    chunkEnvelope.packedContents,
+    "default-chunked-group reassembled packed contents",
+  );
+  if (Buffer.from(chunkFrame, "base64").byteLength <= defaults.chunkSizeInBytes) {
+    fail("default-chunked-group compressed frame must cross the actual chunk threshold");
+  }
+  for (const id of routedTreeCases) {
+    const entry = cases.get(id);
+    const caseContext = object(entry.treeContext, `${id} tree context`);
+    const workloadId = string(caseContext.workloadId, `${id} tree context workloadId`);
+    const workload = treeWorkloads.get(workloadId);
+    if (workload === undefined) fail(`${id} references a missing SharedTree workload`);
+    const context = object(workload.context, `${id} SharedTree context`);
+    if (caseContext.kind !== context.kind
+      || caseContext.completeness !== context.completeness
+      || caseContext.statePath !== `probe.treeState.workloads.${workloadId}.context`) {
+      fail(`${id} tree context does not match its source-produced SharedTree state`);
+    }
+    const sourceOperationIndexes = array(
+      caseContext.sourceOperationIndexes,
+      `${id} source operation indexes`,
+    );
+    sourceOperationIndexes.forEach((index, position) => {
+      integer(index, `${id} source operation index ${position}`);
+    });
+    if (id === "default-compressed-singleton") {
+      string(caseContext.requiredPrelude, `${id} required prelude`);
+      const firstOperation = object(
+        array(workload.operations, `${id} source operations`)[0],
+        `${id} source operation 0`,
+      );
+      if (firstOperation.hasAllocationPrelude !== true) {
+        fail(`${id} must identify its source-produced ID allocation prelude`);
+      }
+    }
+    const normalized = entry.expected.flatMap((result) =>
+      array(result.messages, `${id} expected messages`));
+    const operations = normalized
+      .map((message, index) =>
+        sharedTreeOperation(message, `${id} expected message ${index}`, context))
+      .filter((operation) => operation !== undefined);
+    if (operations.length === 0) fail(`${id} has no routed SharedTree edits`);
+    const sourceOperations = array(workload.operations, `${id} source workload`)
+      .filter((_, index) => sourceOperationIndexes.includes(index));
+    if (operations.length !== sourceOperationIndexes.length
+      || operations.length !== sourceOperations.length
+      || !operations.every((operation, index) => {
+        const evidence = object(sourceOperations[index], `${id} source operation ${index}`);
+        return digest(JSON.stringify(canonical(operation))) === evidence.sha256;
+      })) {
+      fail(`${id} normalized SharedTree edits differ from the source-produced workload`);
+    }
+  }
   const partial = cases.get("partial-summary-prefix-tail");
-  chunkSummary(
+  const initialSummary = chunkSummary(
     partial.initialSummary,
     "partial-summary-prefix-tail initial summary",
     limits.maxStreams,
     limits.maxChunks,
   );
-  chunkSummary(
+  const partialSummary = chunkSummary(
     partial.partialSummary,
     "partial-summary-prefix-tail partial summary",
     limits.maxStreams,
     limits.maxChunks,
   );
+  const delivery = object(partial.delivery, "partial-summary-prefix-tail delivery");
+  const prefixLength = integer(
+    delivery.prefixLength,
+    "partial-summary-prefix-tail prefixLength",
+  );
+  const tailLength = integer(
+    delivery.tailLength,
+    "partial-summary-prefix-tail tailLength",
+  );
+  const partialMessages = array(partial.messages, "partial-summary-prefix-tail messages");
+  if (prefixLength < 1 || tailLength < 1
+    || partialMessages.length !== prefixLength + tailLength) {
+    fail("partial-summary-prefix-tail delivery lengths do not match its messages");
+  }
+  const prefixPieces = partialMessages.slice(0, prefixLength).map((message, index) =>
+    object(
+      object(message.contents, `partial-summary-prefix-tail prefix ${index}`).contents,
+      `partial-summary-prefix-tail prefix chunk ${index}`,
+    ).contents);
+  const sender = partialMessages[0].clientId;
+  const expectedSummary = [[sender, prefixPieces]];
+  if (!sameJson(initialSummary, expectedSummary)
+    || !sameJson(partialSummary, expectedSummary)
+    || !sameJson(rootBlobs[".chunks"], expectedSummary)) {
+    fail("partial-summary-prefix-tail summaries do not match the captured prefix");
+  }
+  const nextChunk = object(
+    object(
+      partialMessages[prefixLength].contents,
+      "partial-summary-prefix-tail next message",
+    ).contents,
+    "partial-summary-prefix-tail next chunk",
+  );
+  if (nextChunk.chunkId !== prefixLength + 1
+    || nextChunk.totalChunks !== partialMessages.length) {
+    fail("partial-summary-prefix-tail tail does not start with the next chunk");
+  }
   documentSchema(
     cases.get("native-format-without-compression-lz4").initialSummary,
     "native-format-without-compression-lz4 initial summary",

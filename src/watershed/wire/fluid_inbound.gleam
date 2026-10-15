@@ -485,25 +485,90 @@ fn packed_presence_decoder() -> decode.Decoder(Bool) {
 }
 
 fn has_nested_compression(contents: Dynamic) -> Result(Bool, Nil) {
-  case decode.run(contents, nested_compression_decoder()) {
-    Ok(Some(_)) -> Ok(True)
-    Error(_) -> Error(Nil)
-    Ok(None) ->
-      case decode.run(contents, message_type_decoder()) {
-        Ok("component") ->
-          case
-            decode.run(
-              contents,
-              decode.at(["contents"], nested_compression_decoder()),
-            )
-          {
-            Ok(Some(_)) -> Ok(True)
-            Ok(None) -> Ok(False)
-            Error(_) -> Error(Nil)
-          }
-        Ok(_) -> Ok(False)
-        Error(_) -> Error(Nil)
+  use marker <- result.try(nested_compression(contents))
+  case marker {
+    Some(_) -> Ok(True)
+    None -> {
+      use message_type <- result.try(
+        decode.run(contents, message_type_decoder())
+        |> result.replace_error(Nil),
+      )
+      case message_type {
+        "groupedBatch" -> grouped_has_nested_compression(contents)
+        "component" -> component_has_nested_compression(contents)
+        _ -> Ok(False)
       }
+    }
+  }
+}
+
+fn nested_compression(contents: Dynamic) -> Result(Option(String), Nil) {
+  decode.run(contents, nested_compression_decoder())
+  |> result.replace_error(Nil)
+}
+
+fn grouped_has_nested_compression(contents: Dynamic) -> Result(Bool, Nil) {
+  use items <- result.try(
+    decode.run(contents, decode.at(["contents"], decode.list(decode.dynamic)))
+    |> result.replace_error(Nil),
+  )
+  list.try_fold(items, False, fn(found, item) {
+    case found {
+      True -> Ok(True)
+      False -> {
+        use marker <- result.try(nested_compression(item))
+        case marker {
+          Some(_) -> Ok(True)
+          None -> {
+            use message <- result.try(
+              decode.run(item, decode.at(["contents"], decode.dynamic))
+              |> result.replace_error(Nil),
+            )
+            has_nested_compression(message)
+          }
+        }
+      }
+    }
+  })
+}
+
+fn component_has_nested_compression(contents: Dynamic) -> Result(Bool, Nil) {
+  use component <- result.try(
+    decode.run(contents, decode.at(["contents"], decode.dynamic))
+    |> result.replace_error(Nil),
+  )
+  use marker <- result.try(nested_compression(component))
+  case marker {
+    Some(_) -> Ok(True)
+    None -> {
+      use datastore <- result.try(
+        decode.run(component, decode.at(["contents"], decode.dynamic))
+        |> result.replace_error(Nil),
+      )
+      use marker <- result.try(nested_compression(datastore))
+      case marker {
+        Some(_) -> Ok(True)
+        None -> datastore_has_nested_compression(datastore)
+      }
+    }
+  }
+}
+
+fn datastore_has_nested_compression(contents: Dynamic) -> Result(Bool, Nil) {
+  use message_type <- result.try(
+    decode.run(contents, message_type_decoder())
+    |> result.replace_error(Nil),
+  )
+  case message_type {
+    "op" -> {
+      use channel <- result.try(
+        decode.run(contents, decode.at(["content"], decode.dynamic))
+        |> result.replace_error(Nil),
+      )
+      use marker <- result.try(nested_compression(channel))
+      Ok(marker != None)
+    }
+    _ -> Ok(False)
   }
 }
 

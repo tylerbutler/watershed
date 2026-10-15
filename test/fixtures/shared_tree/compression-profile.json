@@ -1,7 +1,7 @@
 {
   "corpus": {
     "path": "compression.json",
-    "sha256": "248ed5c72fc97113bfdfd3b2fe107f846bbe2e40d431bc5cfd3324f23618802a"
+    "sha256": "4f3979fc360c4121056c849eeb68e9389aa7a4c50d6578e81b75a0c0cbf1c184"
   },
   "defaults": {
     "chunkSizeInBytes": 204800,
@@ -36,9 +36,9 @@
   "name": "Fluid 3.1.0 SharedTree inbound compression extension",
   "probe": {
     "path": "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
-    "sha256": "c0d97e73b56f157edf22e4b154fcf4ce188f476db8c109c23ffdc2c570af26c7",
+    "sha256": "773fbc02336b4be62e90d310f21eab0ffc9c194b7527ec4892215c96e79ca159",
     "treePath": "packages/dds/tree/src/test/watershedCompressionTree.spec.ts",
-    "treeSha256": "9398f496ad1bdcaca91498e9c4d50a46e2008706faa5e1950e7b904ce14ff053"
+    "treeSha256": "a784f2125e5ef65b53244244115d3b2111743c9dedda67fddee1a8c5afe08c09"
   },
   "supportedForms": [
     "plain singleton runtime message",
