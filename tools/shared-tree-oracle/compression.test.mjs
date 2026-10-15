@@ -106,6 +106,31 @@ test("case messages and expected outputs require object shapes", () => {
   assert.throws(() => validateCompressionCapture(changed), /plain-singleton.*expected/i);
 });
 
+test("raw sequenced messages require their captured fields", () => {
+  const changed = structuredClone(capture);
+  changed.cases.find(({ id }) => id === "plain-singleton").messages[0] = {};
+  assert.throws(() => validateCompressionCapture(changed), /plain-singleton.*message/i);
+});
+
+test("normalized runtime results require their captured fields", () => {
+  const changed = structuredClone(capture);
+  changed.cases.find(({ id }) => id === "plain-singleton").expected[0] = {};
+  assert.throws(() => validateCompressionCapture(changed), /plain-singleton.*expected/i);
+});
+
+test("bootstrap chunk observations require valid sender tuples", () => {
+  const changed = structuredClone(capture);
+  changed.probe.bootstrapSnapshot.rootBlobs[".chunks"] = [null];
+  assert.throws(() => validateCompressionCapture(changed), /bootstrap.*chunks/i);
+});
+
+test("post-activation continuation requires integer sequencing", () => {
+  const changed = structuredClone(capture);
+  delete changed.cases.find(({ id }) => id === "post-activation-compressed-operation")
+    .messages[0].sequenceNumber;
+  assert.throws(() => validateCompressionCapture(changed), /post-activation.*sequence/i);
+});
+
 test("frame vectors must contain valid LZ4 bytes", () => {
   const changed = structuredClone(capture);
   changed.frames.find(({ id }) => id === "utf8").compressedBase64 = "AA==";

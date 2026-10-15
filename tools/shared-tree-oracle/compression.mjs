@@ -89,6 +89,13 @@ const directCompressedCases = [
   "handle-valued-edits",
   "post-activation-compressed-operation",
 ];
+const runtimeMessageCases = requiredCases.filter((id) => ![
+  "native-format-without-compression-lz4",
+  "schema-activation",
+  "stale-competing-proposals",
+  "future-schema-reference",
+  "invalid-schema-reference",
+].includes(id));
 
 function fail(message) {
   throw new Error(`Invalid compression capture: ${message}`);
@@ -114,6 +121,79 @@ function integer(value, name) {
 function string(value, name) {
   if (typeof value !== "string" || value.length === 0) fail(`${name} must be a string`);
   return value;
+}
+
+function boolean(value, name) {
+  if (typeof value !== "boolean") fail(`${name} must be a boolean`);
+  return value;
+}
+
+function sequencedMessage(value, name) {
+  const message = object(value, name);
+  string(message.clientId, `${name}.clientId`);
+  for (const field of [
+    "clientSequenceNumber",
+    "minimumSequenceNumber",
+    "referenceSequenceNumber",
+    "sequenceNumber",
+    "timestamp",
+  ]) {
+    integer(message[field], `${name}.${field}`);
+  }
+  string(message.type, `${name}.type`);
+  object(message.contents, `${name}.contents`);
+  if (message.metadata !== undefined) object(message.metadata, `${name}.metadata`);
+  if (message.compression !== undefined) string(message.compression, `${name}.compression`);
+  return message;
+}
+
+function normalizedRuntimeResult(value, name) {
+  const result = object(value, name);
+  if (result.type !== "fullBatch") fail(`${name}.type must be fullBatch`);
+  boolean(result.groupedBatch, `${name}.groupedBatch`);
+  array(result.messages, `${name}.messages`).forEach((message, index) =>
+    sequencedMessage(message, `${name}.messages[${index}]`));
+  return result;
+}
+
+function documentSchema(value, name, integerReference = true) {
+  const schema = object(value, name);
+  integer(schema.version, `${name}.version`);
+  if (integerReference) {
+    integer(schema.refSeq, `${name}.refSeq`);
+  } else if (typeof schema.refSeq !== "number" || !Number.isFinite(schema.refSeq)) {
+    fail(`${name}.refSeq must be a number`);
+  }
+  const info = object(schema.info, `${name}.info`);
+  string(info.minVersionForCollab, `${name}.info.minVersionForCollab`);
+  const runtime = object(schema.runtime, `${name}.runtime`);
+  boolean(runtime.explicitSchemaControl, `${name}.runtime.explicitSchemaControl`);
+  for (const field of ["compressionLz4", "opGroupingEnabled"]) {
+    if (runtime[field] !== undefined) boolean(runtime[field], `${name}.runtime.${field}`);
+  }
+  return schema;
+}
+
+function chunkSummary(value, name, maxStreams = 64, maxChunks = 128) {
+  const entries = array(value, name);
+  if (entries.length === 0 || entries.length > maxStreams) {
+    fail(`${name} must contain between 1 and ${maxStreams} streams`);
+  }
+  const senders = new Set();
+  entries.forEach((value, index) => {
+    const entry = array(value, `${name}[${index}]`);
+    if (entry.length !== 2) fail(`${name}[${index}] must be a sender and chunk-prefix tuple`);
+    const sender = string(entry[0], `${name}[${index}] sender`);
+    if (senders.has(sender)) fail(`${name} has duplicate sender ${sender}`);
+    senders.add(sender);
+    const prefixes = array(entry[1], `${name}[${index}] chunk prefixes`);
+    if (prefixes.length === 0 || prefixes.length > maxChunks) {
+      fail(`${name}[${index}] must contain between 1 and ${maxChunks} chunk prefixes`);
+    }
+    prefixes.forEach((prefix, chunkIndex) =>
+      string(prefix, `${name}[${index}] chunk prefix ${chunkIndex}`));
+  });
+  return entries;
 }
 
 function uniqueById(values, name) {
@@ -233,10 +313,8 @@ export function validateCompressionCapture(value) {
     fail("bootstrap snapshot must contain /.metadata and /.chunks observations");
   }
   const metadataBlob = object(rootBlobs[".metadata"], "bootstrap metadata blob");
-  object(metadataBlob.documentSchema, "bootstrap metadata document schema");
-  if (!Array.isArray(rootBlobs[".chunks"]) || rootBlobs[".chunks"].length === 0) {
-    fail("bootstrap chunks blob must contain a partial stream observation");
-  }
+  documentSchema(metadataBlob.documentSchema, "bootstrap metadata document schema");
+  chunkSummary(rootBlobs[".chunks"], "bootstrap chunks blob");
   const activation = object(probe.schemaActivation, "schema activation");
   if (activation.accepted !== true
     || activation.proposal === undefined
@@ -245,6 +323,27 @@ export function validateCompressionCapture(value) {
     || activation.staleCompetingProposals.length !== 2
     || activation.staleArrayResult !== false) {
     fail("schema activation and ordered CAS observations are incomplete");
+  }
+  documentSchema(activation.initialSchema, "schema activation initial schema");
+  documentSchema(activation.proposal, "schema activation proposal");
+  documentSchema(activation.postActivationSummary, "schema activation summary");
+  documentSchema(activation.staleSummary, "schema activation stale summary");
+  activation.staleCompetingProposals.forEach((schema, index) =>
+    documentSchema(schema, `schema activation stale proposal ${index}`));
+  const callbacks = array(activation.callbacks, "schema activation callbacks");
+  if (callbacks.length !== 1) fail("schema activation must record one callback");
+  documentSchema(callbacks[0], "schema activation callback");
+  for (const [field, integerReference] of [
+    ["futureReference", true],
+    ["invalidReference", false],
+  ]) {
+    const observation = object(activation[field], `schema activation ${field}`);
+    string(observation.error, `schema activation ${field} error`);
+    documentSchema(
+      observation.proposal,
+      `schema activation ${field} proposal`,
+      integerReference,
+    );
   }
 
   const defaults = object(capture.defaults, "defaults");
@@ -321,6 +420,29 @@ export function validateCompressionCapture(value) {
       fail(`${id} measured chunk count ${measurements.chunkCount} does not match ${actualChunks}`);
     }
   }
+  for (const id of runtimeMessageCases) {
+    const entry = cases.get(id);
+    entry.messages.forEach((message, index) => {
+      const sequenced = sequencedMessage(message, `${id} message ${index}`);
+      const contents = sequenced.contents;
+      if (contents.type === "chunkedOp") {
+        const chunk = object(contents.contents, `${id} message ${index} chunk`);
+        const chunkId = integer(chunk.chunkId, `${id} message ${index} chunkId`);
+        const totalChunks = integer(
+          chunk.totalChunks,
+          `${id} message ${index} totalChunks`,
+        );
+        if (chunkId < 1 || totalChunks < chunkId || totalChunks > limits.maxChunks) {
+          fail(`${id} message ${index} has invalid chunk limits`);
+        }
+        if (typeof chunk.contents !== "string") {
+          fail(`${id} message ${index} chunk contents must be a string`);
+        }
+      }
+    });
+    entry.expected.forEach((result, index) =>
+      normalizedRuntimeResult(result, `${id} expected result ${index}`));
+  }
   for (const id of nonemptyCases) {
     const entry = cases.get(id);
     if (entry.messages.length === 0 || entry.expected.length === 0) {
@@ -354,9 +476,49 @@ export function validateCompressionCapture(value) {
     || cases.get("default-chunked-group").measurements.sourceBytes <= 614400) {
     fail("default compression cases must cross the captured threshold");
   }
-  if (!Array.isArray(cases.get("partial-summary-prefix-tail").partialSummary)
-    || cases.get("partial-summary-prefix-tail").partialSummary.length === 0) {
-    fail("partial-summary-prefix-tail must carry a real partial summary");
+  const partial = cases.get("partial-summary-prefix-tail");
+  chunkSummary(
+    partial.initialSummary,
+    "partial-summary-prefix-tail initial summary",
+    limits.maxStreams,
+    limits.maxChunks,
+  );
+  chunkSummary(
+    partial.partialSummary,
+    "partial-summary-prefix-tail partial summary",
+    limits.maxStreams,
+    limits.maxChunks,
+  );
+  documentSchema(
+    cases.get("native-format-without-compression-lz4").initialSummary,
+    "native-format-without-compression-lz4 initial summary",
+  );
+  const schemaActivationCase = cases.get("schema-activation");
+  const schemaActivationMessage = object(
+    schemaActivationCase.messages[0],
+    "schema-activation message",
+  );
+  if (schemaActivationMessage.type !== "schema") {
+    fail("schema-activation message type must be schema");
+  }
+  integer(schemaActivationMessage.sequenceNumber, "schema-activation message sequenceNumber");
+  array(schemaActivationMessage.contents, "schema-activation message contents")
+    .forEach((schema, index) =>
+      documentSchema(schema, `schema-activation proposal ${index}`));
+  documentSchema(schemaActivationCase.expected[0], "schema-activation expected result");
+  const staleCase = cases.get("stale-competing-proposals");
+  staleCase.messages.forEach((schema, index) =>
+    documentSchema(schema, `stale-competing-proposals message ${index}`));
+  const staleResult = object(
+    staleCase.expected[0],
+    "stale-competing-proposals expected result",
+  );
+  boolean(staleResult.accepted, "stale-competing-proposals accepted result");
+  documentSchema(staleResult.summary, "stale-competing-proposals summary");
+  for (const id of ["future-schema-reference", "invalid-schema-reference"]) {
+    const message = object(cases.get(id).messages[0], `${id} message`);
+    string(message.error, `${id} error`);
+    documentSchema(message.proposal, `${id} proposal`, id !== "invalid-schema-reference");
   }
   const allocationMessages = cases.get("id-allocation-before-tree-use").expected
     .flatMap((result) => array(result.messages, "allocation expected messages"));
@@ -392,6 +554,13 @@ export function validateCompressionCapture(value) {
   const schemaMessage = object(schemaCase.messages[0], "schema activation message");
   const schemaSummary = object(schemaCase.expected[0], "schema activation result");
   const operationMessage = object(operationCase.messages[0], "post-activation message");
+  integer(association.sequenceNumber, "post-activation association sequenceNumber");
+  integer(association.schemaRefSeq, "post-activation association schemaRefSeq");
+  integer(operationMessage.sequenceNumber, "post-activation message sequenceNumber");
+  integer(
+    operationMessage.referenceSequenceNumber,
+    "post-activation message referenceSequenceNumber",
+  );
   if (association.caseId !== schemaCase.id
     || association.sequenceNumber !== schemaMessage.sequenceNumber
     || association.schemaRefSeq !== schemaSummary.refSeq
