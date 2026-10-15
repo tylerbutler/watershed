@@ -1,0 +1,427 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "observations": [
+    {
+      "id": "string-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.fluidframework.leaf.string"
+          ]
+        }
+      }
+    },
+    {
+      "id": "number-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.number": {
+            "kind": {
+              "leaf": 0
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.fluidframework.leaf.number"
+          ]
+        }
+      }
+    },
+    {
+      "id": "boolean-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.boolean": {
+            "kind": {
+              "leaf": 2
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.fluidframework.leaf.boolean"
+          ]
+        }
+      }
+    },
+    {
+      "id": "null-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.null": {
+            "kind": {
+              "leaf": 4
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.fluidframework.leaf.null"
+          ]
+        }
+      }
+    },
+    {
+      "id": "handle-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.handle": {
+            "kind": {
+              "leaf": 3
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.fluidframework.leaf.handle"
+          ]
+        }
+      }
+    },
+    {
+      "id": "optional-string-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Optional",
+          "types": [
+            "com.fluidframework.leaf.string"
+          ]
+        }
+      }
+    },
+    {
+      "id": "string-array",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Words": {
+            "kind": {
+              "object": {
+                "": {
+                  "kind": "Sequence",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Words"
+          ]
+        }
+      }
+    },
+    {
+      "id": "number-map",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Numbers": {
+            "kind": {
+              "map": {
+                "kind": "Optional",
+                "types": [
+                  "com.fluidframework.leaf.number"
+                ]
+              }
+            }
+          },
+          "com.fluidframework.leaf.number": {
+            "kind": {
+              "leaf": 0
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Numbers"
+          ]
+        }
+      }
+    },
+    {
+      "id": "card",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Card": {
+            "kind": {
+              "object": {
+                "owner": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "title": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Card"
+          ]
+        }
+      }
+    },
+    {
+      "id": "empty-object",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Empty": {
+            "kind": {
+              "object": {}
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Empty"
+          ]
+        }
+      }
+    },
+    {
+      "id": "nested",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Card": {
+            "kind": {
+              "object": {
+                "owner": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "title": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.authoring.Cards": {
+            "kind": {
+              "object": {
+                "": {
+                  "kind": "Sequence",
+                  "types": [
+                    "com.example.authoring.Card"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.authoring.Groups": {
+            "kind": {
+              "map": {
+                "kind": "Optional",
+                "types": [
+                  "com.example.authoring.Cards"
+                ]
+              }
+            }
+          },
+          "com.example.authoring.Nested": {
+            "kind": {
+              "object": {
+                "groups": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.authoring.Groups"
+                  ]
+                },
+                "words": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.authoring.Words"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.authoring.Words": {
+            "kind": {
+              "object": {
+                "": {
+                  "kind": "Sequence",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Nested"
+          ]
+        }
+      }
+    },
+    {
+      "id": "repeated-child",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.Card": {
+            "kind": {
+              "object": {
+                "owner": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "title": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.authoring.Repeated": {
+            "kind": {
+              "object": {
+                "left": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.authoring.Card"
+                  ]
+                },
+                "right": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.authoring.Card"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.Repeated"
+          ]
+        }
+      }
+    },
+    {
+      "id": "cross-factory",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.authoring.CrossFactory": {
+            "kind": {
+              "object": {
+                "foreign": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.other.Foreign"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.other.Foreign": {
+            "kind": {
+              "object": {
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.authoring.CrossFactory"
+          ]
+        }
+      }
+    }
+  ]
+}

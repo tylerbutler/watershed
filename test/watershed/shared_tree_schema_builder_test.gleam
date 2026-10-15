@@ -1,12 +1,177 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
+import simplifile
 import startest/expect
+import watershed/canonical_json
 import watershed/handle
+import watershed/json_ot
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
+
+type Nested {
+  Nested(groups: dict.Dict(String, List(Card)), words: List(String))
+}
+
+type Repeated {
+  Repeated(left: Card, right: Card)
+}
+
+type Foreign {
+  Foreign(label: String)
+}
+
+type CrossFactory {
+  CrossFactory(foreign: Foreign)
+}
+
+fn compiled_schema(node: builder.Node(a)) -> schema.StoredSchema {
+  let assert Ok(compiled) = node |> builder.root |> builder.compile
+  builder.stored(compiled)
+}
+
+fn authoring_schemas() -> List(#(String, schema.StoredSchema)) {
+  let f = builder.factory("com.example.authoring")
+  let card =
+    builder.object2(
+      f,
+      "Card",
+      Card,
+      builder.required("title", builder.string(), fn(v: Card) { v.title }),
+      builder.optional("owner", builder.string(), fn(v: Card) { v.owner }),
+    )
+  let words = builder.array(f, "Words", builder.string())
+  let foreign =
+    builder.object1(
+      builder.factory("com.example.other"),
+      "Foreign",
+      Foreign,
+      builder.required("label", builder.string(), fn(v: Foreign) { v.label }),
+    )
+  let assert Ok(optional) =
+    builder.string() |> builder.optional_root |> builder.compile
+  [
+    #("string-root", compiled_schema(builder.string())),
+    #("number-root", compiled_schema(builder.number())),
+    #("boolean-root", compiled_schema(builder.boolean())),
+    #("null-root", compiled_schema(builder.null())),
+    #("handle-root", compiled_schema(builder.handle())),
+    #("optional-string-root", builder.stored(optional)),
+    #("string-array", compiled_schema(words)),
+    #(
+      "number-map",
+      compiled_schema(builder.map(f, "Numbers", builder.number())),
+    ),
+    #("card", compiled_schema(card)),
+    #("empty-object", compiled_schema(builder.object0(f, "Empty"))),
+    #(
+      "nested",
+      compiled_schema(builder.object2(
+        f,
+        "Nested",
+        Nested,
+        builder.required(
+          "groups",
+          builder.map(f, "Groups", builder.array(f, "Cards", card)),
+          fn(v: Nested) { v.groups },
+        ),
+        builder.required("words", words, fn(v: Nested) { v.words }),
+      )),
+    ),
+    #(
+      "repeated-child",
+      compiled_schema(builder.object2(
+        f,
+        "Repeated",
+        Repeated,
+        builder.required("left", card, fn(v: Repeated) { v.left }),
+        builder.required("right", card, fn(v: Repeated) { v.right }),
+      )),
+    ),
+    #(
+      "cross-factory",
+      compiled_schema(builder.object1(
+        f,
+        "CrossFactory",
+        CrossFactory,
+        builder.required("foreign", foreign, fn(v: CrossFactory) { v.foreign }),
+      )),
+    ),
+  ]
+}
+
+fn normalized_schema(value: schema.StoredSchema) -> String {
+  let assert Ok(value) =
+    json.parse(json.to_string(schema.stored_to_json(value)), json_ot.decoder())
+  canonical_json.to_string(value)
+}
+
+pub fn shared_tree_schema_builder_pinned_authoring_test() -> Nil {
+  let observation = {
+    use id <- decode.field("id", decode.string)
+    use value <- decode.field("schema", json_ot.decoder())
+    decode.success(#(id, value))
+  }
+  let reference = {
+    use package <- decode.field("package", decode.string)
+    use version <- decode.field("version", decode.string)
+    use commit <- decode.field("commit", decode.string)
+    decode.success(#(package, version, commit))
+  }
+  let envelope = {
+    use version <- decode.field("formatVersion", decode.int)
+    use reference <- decode.field("reference", reference)
+    use observations <- decode.field("observations", decode.list(observation))
+    decode.success(#(version, reference, observations))
+  }
+  let assert Ok(raw) =
+    simplifile.read("test/fixtures/shared_tree/schema-authoring.json")
+  let assert Ok(#(version, reference, observations)) = json.parse(raw, envelope)
+  version |> expect.to_equal(1)
+  reference
+  |> expect.to_equal(#(
+    "@fluidframework/tree",
+    "3.1.0",
+    "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+  ))
+  let native = authoring_schemas()
+  list.map(observations, fn(row) { row.0 })
+  |> list.sort(string.compare)
+  |> expect.to_equal(
+    native |> list.map(fn(row) { row.0 }) |> list.sort(string.compare),
+  )
+  list.each(observations, fn(row) {
+    let assert Ok(expected) = schema.stored_from_json(json_ot.to_json(row.1))
+    let assert Ok(actual) = list.key_find(native, row.0)
+    schema.allows_superset(actual, expected) |> expect.to_equal(Ok(True))
+    schema.allows_superset(expected, actual) |> expect.to_equal(Ok(True))
+    normalized_schema(actual) |> expect.to_equal(normalized_schema(expected))
+  })
+}
+
+pub fn shared_tree_schema_builder_comparator_rejects_changed_elements_test() -> Nil {
+  let f = builder.factory("com.example.authoring")
+  normalized_schema(
+    compiled_schema(builder.array(f, "Words", builder.string())),
+  )
+  |> expect.to_not_equal(
+    normalized_schema(
+      compiled_schema(builder.array(f, "Words", builder.number())),
+    ),
+  )
+  normalized_schema(
+    compiled_schema(builder.map(f, "Numbers", builder.number())),
+  )
+  |> expect.to_not_equal(
+    normalized_schema(
+      compiled_schema(builder.map(f, "Numbers", builder.string())),
+    ),
+  )
+}
 
 type Card {
   Card(title: String, owner: Option(String))

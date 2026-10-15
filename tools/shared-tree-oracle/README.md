@@ -1586,3 +1586,28 @@ Directly applying the corresponding occupied two-way detached rename cycle to
 the pinned forest visitor is refused (`0x7cf`). Both outcomes are recorded; the
 oracle does not replace that refusal with a test-written scratch-register
 algorithm.
+# Typed schema authoring capture
+
+The schema-evolution source batch also writes `schema-authoring.json`. Its 13
+independent `SchemaFactory` declarations cover leaves, optional roots, named
+collections, records, shared children, nesting, and cross-factory composition.
+The native schema-builder tests check the reference pins, exact case set,
+two-way compatibility, and normalized persisted schemas.
+
+```sh
+npm --prefix tools/shared-tree-oracle run source:verify
+node --input-type=module -e 'import { runSource } from "./tools/shared-tree-oracle/source.mjs"; await runSource("tools/shared-tree-oracle/.output/schema-authoring", { corpus: true });'
+cp tools/shared-tree-oracle/.output/schema-authoring/schema-authoring.json test/fixtures/shared_tree/schema-authoring.json
+gleam test --target erlang -- shared_tree_schema_builder
+gleam test --target javascript -- shared_tree_schema_builder
+```
+
+Repeat the capture and compare it with the committed fixture:
+
+```sh
+cmp test/fixtures/shared_tree/schema-authoring.json tools/shared-tree-oracle/.output/schema-authoring/schema-authoring.json
+```
+
+Use `runSource` with `corpus: true`; the smoke publication command does not
+publish this file. If prerequisites are missing, restore the pinned packages
+and use `source:prepare` before capturing.
