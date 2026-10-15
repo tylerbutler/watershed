@@ -175,7 +175,7 @@ fn call_runtime(
 @target(erlang)
 import spillway/nack.{type Nack}
 @target(erlang)
-import spillway/types.{type SequencedDocumentMessage, WriteMode}
+import spillway/types.{WriteMode}
 
 @target(erlang)
 import watershed/channel.{
@@ -1241,7 +1241,7 @@ type State {
     pending_summary: Option(PendingSummary),
     active_tree_transaction: Option(ActiveTreeTransaction),
     pending_reconnect: Option(message.ConnectedMessage),
-    deferred_operations: List(List(SequencedDocumentMessage)),
+    deferred_operations: List(List(wire.SequencedEnvelope)),
     /// Hold an attachment for the next actor command.
     /// A synchronous tree edit can join the same transport batch.
     pending_outbound: List(wire.OutboundOperation),
@@ -6041,10 +6041,12 @@ fn handle_inbound(
         require(
           json.parse(
             json.to_string(payload),
-            socket.connected_message_decoder(),
+            socket.connection_envelope_decoder(),
           ),
           "connect_document_success payload",
         )
+      let connection = connected
+      let connected = connection.handshake
       // Record what this connection negotiated before anything acts on it, and
       // on both paths — a reconnect may land on a different node with a
       // different answer.
@@ -6058,11 +6060,11 @@ fn handle_inbound(
         Connecting(_) -> {
           case state.seed, connected.summary_context {
             Some(_), _ | None, None ->
-              finish_initial_connection(state, connected, None)
+              finish_initial_connection(state, connection, None)
             None, Some(context) ->
               case fetch_summary(state, context) {
                 Ok(summary) ->
-                  finish_initial_connection(state, connected, Some(summary))
+                  finish_initial_connection(state, connection, Some(summary))
                 Error(reason) ->
                   actor.continue(fail(state, "summary load failed: " <> reason))
               }
@@ -6284,7 +6286,7 @@ fn drain_deferred_operations(state: State) -> #(State, Result(Nil, String)) {
 @target(erlang)
 fn do_drain_deferred_operations(
   state: State,
-  deliveries: List(List(SequencedDocumentMessage)),
+  deliveries: List(List(wire.SequencedEnvelope)),
 ) -> #(State, Result(Nil, String)) {
   case deliveries {
     [] -> #(state, Ok(Nil))
@@ -6299,7 +6301,7 @@ fn do_drain_deferred_operations(
 @target(erlang)
 fn handle_operation_delivery(
   state: State,
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
 ) -> #(State, Result(Nil, String)) {
   case state.phase {
     Ready(core, resubmit_at) ->
@@ -6369,19 +6371,20 @@ fn handle_operation_delivery(
 @target(erlang)
 fn finish_initial_connection(
   state: State,
-  connected: message.ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
   summary: Option(fluid_document.DocumentSummary),
 ) -> actor.Next(State, Msg) {
   let bootstrapped = case state.seed {
     Some(seed) ->
       case runtime_core.prepare_seed(seed, fn() { id.uuid_v4() }) {
-        Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
+        Ok(seed) -> runtime_core.bootstrap_seeded_enveloped(connection, seed)
         Error(error) -> Error(error)
       }
     None ->
       case summary {
-        Some(summary) -> runtime_core.bootstrap_document(connected, summary)
-        None -> runtime_core.bootstrap(connected, summary: None)
+        Some(summary) ->
+          runtime_core.bootstrap_document_enveloped(connection, summary)
+        None -> runtime_core.bootstrap_enveloped(connection, summary: None)
       }
   }
   case bootstrapped {
@@ -6436,10 +6439,10 @@ fn settle_reconnect_state(
 }
 
 @target(erlang)
-fn operation_message(payload: Json) -> List(SequencedDocumentMessage) {
+fn operation_message(payload: Json) -> List(wire.SequencedEnvelope) {
   let message =
     require(
-      json.parse(json.to_string(payload), socket.operation_message_decoder()),
+      json.parse(json.to_string(payload), socket.operation_envelopes_decoder()),
       "op payload",
     )
   message.ops
@@ -6448,7 +6451,7 @@ fn operation_message(payload: Json) -> List(SequencedDocumentMessage) {
 @target(erlang)
 fn apply_operations(
   core: runtime_core.Core,
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
 ) -> Result(
   #(
     runtime_core.Core,
@@ -6466,7 +6469,7 @@ fn apply_operations(
 @target(erlang)
 fn do_apply_operations(
   core: runtime_core.Core,
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   runtime_events: List(List(runtime_core.RuntimeEvent)),
@@ -6494,7 +6497,7 @@ fn do_apply_operations(
         released,
       ))
     [operation, ..rest] ->
-      case runtime_core.handle_sequenced(core, operation) {
+      case runtime_core.handle_envelope(core, operation) {
         Ok(#(core, ingested)) ->
           do_apply_operations(
             core,
@@ -7584,7 +7587,7 @@ fn complete_bootstrap(
         |> result.map_error(fn(reason) { "history catch-up failed: " <> reason }),
       )
       case
-        runtime_core.resume_bootstrap(
+        runtime_core.resume_bootstrap_envelopes(
           core,
           checkpoint: checkpoint,
           deltas: deltas,
@@ -7603,11 +7606,11 @@ fn fetch_missing_deltas(
   state: State,
   from: Int,
   to: Int,
-) -> Result(List(SequencedDocumentMessage), String) {
+) -> Result(List(wire.SequencedEnvelope), String) {
   case state.connect_message.token {
     None -> Error("history catch-up requires an auth token")
     Some(token) ->
-      git_storage.fetch_deltas(
+      git_storage.fetch_enveloped_deltas(
         base_url: http_base_url(state),
         tenant: state.connect_message.tenant_id,
         token: token,

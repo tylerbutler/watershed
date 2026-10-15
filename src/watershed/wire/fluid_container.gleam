@@ -61,6 +61,7 @@ pub fn route_from_path(path: String) -> Result(Route, ContainerError) {
 pub type MessageKind {
   ChannelOperation(route: Route, contents: Json)
   IdAllocation(range: fluid_ids.CreationRange)
+  RuntimeSchemaChange(contents: Json)
   DatastoreAttach(data_store_id: String, contents: Json)
   DatastoreAlias(data_store_id: String, alias: String)
   ChannelAttach(route: Route, channel_type: String, snapshot: Json)
@@ -199,6 +200,13 @@ pub fn encode(message: MessageKind) -> Result(Json, ContainerError) {
         ]),
       )
     }
+    RuntimeSchemaChange(contents) ->
+      Ok(
+        json.object([
+          #("type", json.string("schema")),
+          #("contents", contents),
+        ]),
+      )
     DatastoreAttach(data_store_id, contents) -> {
       use #(id, _, _) <- result.try(decode_attach(contents, "datastore attach"))
       use _ <- result.try(case id == data_store_id {
@@ -474,6 +482,10 @@ fn message_decoder(
           MalformedMessage(location, "invalid creation range")
         }),
       )
+    }
+    "schema" -> {
+      use contents <- decode.field("contents", wire.json_value_decoder())
+      decode.success(Ok(RuntimeSchemaChange(contents)))
     }
     "attach" -> {
       use contents <- decode.field("contents", wire.json_value_decoder())

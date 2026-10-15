@@ -2,6 +2,7 @@ import gleam/bit_array
 import gleam/io
 import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import watershed/git_storage
 import watershed/wire/fluid_summary
 
@@ -175,6 +176,16 @@ pub fn main() -> Nil {
   let assert Ok(base_url) = envoy.get("WATERSHED_TREE_STORAGE_URL")
   let assert Ok(tenant) = envoy.get("WATERSHED_TREE_STORAGE_TENANT")
   let assert Ok(token) = envoy.get("WATERSHED_TREE_STORAGE_TOKEN")
+  let assert Ok([compressed]) =
+    git_storage.fetch_enveloped_deltas(
+      base_url,
+      tenant,
+      token,
+      "compressed",
+      0,
+      1,
+    )
+  let assert Some("lz4") = compressed.compression
   let assert Ok(fetched) =
     git_storage.fetch_hierarchy(base_url, tenant, token, "success-commit")
   let assert True = fetched == expected_tree()
@@ -249,6 +260,16 @@ pub fn main() -> Promise(Nil) {
   let assert Ok(base_url) = javascript_envoy.get("WATERSHED_TREE_STORAGE_URL")
   let assert Ok(tenant) = javascript_envoy.get("WATERSHED_TREE_STORAGE_TENANT")
   let assert Ok(token) = javascript_envoy.get("WATERSHED_TREE_STORAGE_TOKEN")
+  use compressed_result <- promise.await(git_storage.fetch_enveloped_deltas(
+    base_url,
+    tenant,
+    token,
+    "compressed",
+    0,
+    1,
+  ))
+  let assert Ok([compressed]) = compressed_result
+  let assert Some("lz4") = compressed.compression
   use fetched_result <- promise.await(git_storage.fetch_hierarchy(
     base_url,
     tenant,

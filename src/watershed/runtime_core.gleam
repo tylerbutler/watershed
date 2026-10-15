@@ -24,7 +24,7 @@ import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 
-import spillway/message.{type ConnectedMessage}
+import spillway/message.{type ConnectedMessage, ConnectedMessage}
 import spillway/types.{type SequencedDocumentMessage}
 
 import watershed/channel.{
@@ -73,9 +73,9 @@ import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/fluid_document
+import watershed/wire/fluid_inbound
 import watershed/wire/fluid_summary
 import watershed/wire/op as wire_op
-import watershed/wire/socket
 import watershed/wire/summary as wire_summary
 import watershed/wire/summary_blob.{type SummaryBlob}
 
@@ -125,8 +125,9 @@ pub type Core {
     prepared_attachments: List(fluid_container.MessageKind),
     next_client_sequence_number: Int,
     last_seen_sequence_number: Int,
+    inbound: fluid_inbound.State,
     in_flight: List(InFlight),
-    out_of_order: List(SequencedDocumentMessage),
+    out_of_order: List(wire.SequencedEnvelope),
     reconnect_barrier: Option(ReconnectBarrier),
     recovery_replay: Option(RecoveryReplay),
     /// The connected roster, as the integer ids that the kernels use to
@@ -282,6 +283,11 @@ pub type InFlight {
 
 pub type CoreError {
   ContainerOperationFailed(error: fluid_container.ContainerError)
+  InboundFailed(
+    client_id: Option(String),
+    sequence_number: Int,
+    error: fluid_inbound.Error,
+  )
   ChannelBoundaryFailed(error: channel.ChannelError)
   BadBootstrapSeed(detail: String)
   AckMismatch(detail: String)
@@ -746,6 +752,13 @@ pub fn bootstrap(
   connected: ConnectedMessage,
   summary summary: Option(Summary),
 ) -> Result(Bootstrapped, CoreError) {
+  bootstrap_enveloped(lift_connection(connected), summary)
+}
+
+pub fn bootstrap_enveloped(
+  connected: wire.ConnectionEnvelope,
+  summary summary: Option(Summary),
+) -> Result(Bootstrapped, CoreError) {
   let Summary(
     sequence_number: last_seen,
     channels: seeded,
@@ -792,21 +805,29 @@ pub fn bootstrap(
       ),
     ),
   )
-  bootstrap_seeded(connected, seed)
+  bootstrap_seeded_enveloped(connected, seed)
 }
 
 pub fn bootstrap_seeded(
   connected: ConnectedMessage,
   seed: BootstrapSeed,
 ) -> Result(Bootstrapped, CoreError) {
+  bootstrap_seeded_enveloped(lift_connection(connected), seed)
+}
+
+pub fn bootstrap_seeded_enveloped(
+  connected: wire.ConnectionEnvelope,
+  seed: BootstrapSeed,
+) -> Result(Bootstrapped, CoreError) {
   bootstrap_seeded_with_persistence(connected, seed, None)
 }
 
 fn bootstrap_seeded_with_persistence(
-  connected: ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
   seed: BootstrapSeed,
   persistence: Option(fluid_document.DocumentSummary),
 ) -> Result(Bootstrapped, CoreError) {
+  let connected = connection.handshake
   let BootstrapSeed(input, summary_view_id) = seed
   use entries <- result.try(
     list.try_map(input.channels, fn(entry) {
@@ -827,7 +848,7 @@ fn bootstrap_seeded_with_persistence(
     summary_view_id,
   ))
   start_core(
-    connected,
+    connection,
     input.sequence_number,
     input.members,
     channels,
@@ -853,8 +874,24 @@ pub fn bootstrap_document(
   connected: ConnectedMessage,
   summary: fluid_document.DocumentSummary,
 ) -> Result(Bootstrapped, CoreError) {
+  bootstrap_document_enveloped(lift_connection(connected), summary)
+}
+
+pub fn bootstrap_document_enveloped(
+  connected: wire.ConnectionEnvelope,
+  summary: fluid_document.DocumentSummary,
+) -> Result(Bootstrapped, CoreError) {
   use seed <- result.try(document_seed(summary))
   bootstrap_seeded_with_persistence(connected, seed, Some(summary))
+}
+
+fn lift_connection(connected: ConnectedMessage) -> wire.ConnectionEnvelope {
+  wire.ConnectionEnvelope(
+    handshake: ConnectedMessage(..connected, initial_messages: []),
+    initial_messages: list.map(connected.initial_messages, fn(message) {
+      wire.SequencedEnvelope(message, None)
+    }),
+  )
 }
 
 /// Build the checked seed used by document-summary bootstrap.
@@ -910,7 +947,7 @@ pub fn document_seed(
 }
 
 fn start_core(
-  connected: ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
   last_seen: Int,
   seed_members: List(Int),
   channels: Dict(String, ChannelState),
@@ -920,6 +957,7 @@ fn start_core(
   minimum_sequence_number: Int,
   persistence: Option(fluid_document.DocumentSummary),
 ) -> Result(Bootstrapped, CoreError) {
+  let connected = connection.handshake
   let core =
     Core(
       client_id: connected.client_id,
@@ -948,6 +986,10 @@ fn start_core(
         Some(context) -> Some(context.handle)
         None -> None
       },
+      inbound: case persistence {
+        Some(summary) -> fluid_document.inbound_state(summary)
+        None -> fluid_inbound.new(fluid_inbound.default_limits())
+      },
       in_flight: [],
       out_of_order: [],
       reconnect_barrier: None,
@@ -966,13 +1008,33 @@ fn start_core(
       owed: dict.new(),
     )
 
-  use core <- result.try(replay(core, connected.initial_messages))
+  use core <- result.try(case persistence {
+    None -> advance_tree_positions(core, last_seen)
+    Some(_) -> Ok(core)
+  })
+  use core <- result.try(case persistence {
+    None -> sync_tree_checkouts(core)
+    Some(_) -> Ok(core)
+  })
+  use core <- result.try(replay_envelopes(core, connection.initial_messages))
   let checkpoint =
     option.unwrap(
       connected.checkpoint_sequence_number,
       core.last_seen_sequence_number,
     )
-  Ok(settle_bootstrap(core, checkpoint))
+  case persistence, settle_bootstrap(core, checkpoint) {
+    _, MissingPrefix(core, checkpoint, from, to) ->
+      Ok(MissingPrefix(core, checkpoint, from, to))
+    None, Complete(core) -> {
+      use core <- result.try(advance_tree_positions(
+        core,
+        core.last_seen_sequence_number,
+      ))
+      use core <- result.try(sync_tree_checkouts(core))
+      Ok(Complete(core))
+    }
+    Some(_), complete -> Ok(complete)
+  }
 }
 
 fn initial_tree_checkouts(
@@ -1121,8 +1183,20 @@ pub fn resume_bootstrap(
   checkpoint checkpoint: Int,
   deltas deltas: List(SequencedDocumentMessage),
 ) -> Result(Bootstrapped, CoreError) {
+  resume_bootstrap_envelopes(
+    core,
+    checkpoint,
+    list.map(deltas, fn(message) { wire.SequencedEnvelope(message, None) }),
+  )
+}
+
+pub fn resume_bootstrap_envelopes(
+  core: Core,
+  checkpoint checkpoint: Int,
+  deltas deltas: List(wire.SequencedEnvelope),
+) -> Result(Bootstrapped, CoreError) {
   let before = core.last_seen_sequence_number
-  use core <- result.try(replay(core, deltas))
+  use core <- result.try(replay_envelopes(core, deltas))
   case core.out_of_order != [] && core.last_seen_sequence_number == before {
     True ->
       Error(HistoryGap(
@@ -1134,23 +1208,13 @@ pub fn resume_bootstrap(
   }
 }
 
-/// Fold the historical messages into the core, with `ingest` at `Replaying` for
-/// the length of the fold.
-///
-/// The position moves here, and not across a whole bootstrap, because
-/// `Replaying` turns off the safety protections. The reconnect path reaches
-/// `Ready` by a route that never passes through `settle_bootstrap`. A position
-/// that a hand-off had to reset would thus stay at `Replaying` on that route,
-/// and it would disable `quorum_of` for the rest of the session. To move the
-/// position around the fold only makes that fault impossible: nothing outside
-/// a replay can observe `Replaying`.
-fn replay(
+fn replay_envelopes(
   core: Core,
-  messages: List(SequencedDocumentMessage),
+  messages: List(wire.SequencedEnvelope),
 ) -> Result(Core, CoreError) {
   use core <- result.map(
-    list.try_fold(messages, Core(..core, ingest: Replaying), fn(core, msg) {
-      handle_sequenced(core, msg)
+    list.try_fold(messages, Core(..core, ingest: Replaying), fn(core, envelope) {
+      handle_envelope(core, envelope)
       |> result.map(fn(outcome) { outcome.0 })
     }),
   )
@@ -1198,7 +1262,7 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
         core: core,
         checkpoint: checkpoint,
         from: core.last_seen_sequence_number,
-        to: head.sequence_number - 1,
+        to: head.message.sequence_number - 1,
       )
   }
 }
@@ -2605,7 +2669,15 @@ pub fn handle_sequenced(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(#(Core, Ingested), CoreError) {
+  handle_envelope(core, wire.SequencedEnvelope(msg, None))
+}
+
+pub fn handle_envelope(
+  core: Core,
+  envelope: wire.SequencedEnvelope,
+) -> Result(#(Core, Ingested), CoreError) {
   use _ <- result.try(require_no_tree_transaction(core, "remote operation"))
+  let msg = envelope.message
   let next = core.last_seen_sequence_number + 1
   case msg.sequence_number {
     sequence_number if sequence_number < next ->
@@ -2616,13 +2688,13 @@ pub fn handle_sequenced(
         _ -> None
       }
       let core =
-        Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
+        Core(..core, out_of_order: buffer_insert(core.out_of_order, envelope))
       Ok(#(core, Ingested([], [], [], request, [])))
     }
     _ -> {
       use #(core, events, resolutions, runtime_events) <- result.try(apply_one(
         core,
-        msg,
+        envelope,
       ))
       use #(core, drained, drained_resolutions, drained_runtime_events) <- result.try(
         drain_buffer(core),
@@ -2802,7 +2874,7 @@ fn pending_submission(
 
 fn apply_one(
   core: Core,
-  msg: SequencedDocumentMessage,
+  envelope: wire.SequencedEnvelope,
 ) -> Result(
   #(
     Core,
@@ -2813,7 +2885,7 @@ fn apply_one(
   CoreError,
 ) {
   case core.recovery_replay {
-    None -> apply_one_state(core, msg)
+    None -> apply_one_state(core, envelope)
     Some(RecoveryReplay(sequenced, authoring_points)) -> {
       use
         #(
@@ -2824,7 +2896,7 @@ fn apply_one(
         )
       <- result.try(apply_one_state(
         Core(..sequenced, reconnect_barrier: core.reconnect_barrier),
-        msg,
+        envelope,
       ))
       case core.in_flight == [] {
         True ->
@@ -2836,7 +2908,7 @@ fn apply_one(
           ))
         False -> {
           use #(core, events, resolutions, runtime_events) <- result.try(
-            apply_one_state(core, msg),
+            apply_one_state(core, envelope),
           )
           case core.in_flight == [] {
             True ->
@@ -2876,7 +2948,7 @@ fn apply_one(
 
 fn apply_one_state(
   core: Core,
-  msg: SequencedDocumentMessage,
+  envelope: wire.SequencedEnvelope,
 ) -> Result(
   #(
     Core,
@@ -2886,6 +2958,7 @@ fn apply_one_state(
   ),
   CoreError,
 ) {
+  let msg = envelope.message
   let before = core
   use _ <- result.try(
     case
@@ -2896,39 +2969,66 @@ fn apply_one_state(
       False -> Error(HistoryGap("minimum sequence number regresses"))
     },
   )
-  let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
-  use _ <- result.try(case core.persistence {
-    Some(summary) ->
-      fluid_document.check_batch(summary, msg)
-      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
-    None -> Ok(Nil)
-  })
-  use #(core, events, resolutions, runtime_events) <- result.try(
-    case msg.message_type {
-      "op" -> handle_operation(core, msg)
-      "join" -> without_runtime_events(handle_join(core, msg))
-      "leave" -> without_runtime_events(handle_leave(core, msg))
-      "summarize" ->
-        Ok(
-          #(core, [], [], [
-            SummaryProposalSequenced(
-              msg.client_id,
-              msg.client_sequence_number,
-              msg.sequence_number,
-            ),
-          ]),
-        )
-      "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
-      "noop" | "noClient" -> Ok(#(core, [], [], []))
-      _ -> Error(BadOperationContents(msg.sequence_number))
-    },
+  use normalized <- result.try(
+    fluid_inbound.step(core.inbound, envelope)
+    |> result.map_error(fn(error) {
+      InboundFailed(msg.client_id, msg.sequence_number, error)
+    }),
   )
+  let fluid_inbound.Step(inbound, payload) = normalized
+  let core =
+    Core(
+      ..core,
+      last_seen_sequence_number: msg.sequence_number,
+      inbound: inbound,
+    )
+  use _ <- result.try(case core.persistence, payload {
+    Some(summary), fluid_inbound.Complete(representative, _) ->
+      fluid_document.check_batch(summary, representative)
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+    _, _ -> Ok(Nil)
+  })
+  use #(core, events, resolutions, runtime_events) <- result.try(case payload {
+    fluid_inbound.Incomplete -> Ok(#(core, [], [], []))
+    fluid_inbound.Complete(representative, batch) ->
+      handle_operation(core, representative, batch)
+    fluid_inbound.NonOperation ->
+      case msg.message_type {
+        "join" -> without_runtime_events(handle_join(core, msg))
+        "leave" -> without_runtime_events(handle_leave(core, msg))
+        "summarize" ->
+          Ok(
+            #(core, [], [], [
+              SummaryProposalSequenced(
+                msg.client_id,
+                msg.client_sequence_number,
+                msg.sequence_number,
+              ),
+            ]),
+          )
+        "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
+        "noop" | "noClient" -> Ok(#(core, [], [], []))
+        _ -> Error(BadOperationContents(msg.sequence_number))
+      }
+  })
+  let core = case msg.message_type, system_payload(msg.data, decode.string) {
+    "leave", Ok(client_id) ->
+      Core(
+        ..core,
+        inbound: fluid_inbound.remove_client(core.inbound, client_id),
+      )
+    _, _ -> core
+  }
   use core <- result.try(advance_tree_positions(core, msg.sequence_number))
   use core <- result.try(sync_tree_checkouts(core))
-  use tree_events <- result.try(tree_change_events(before, core))
+  use tree_events <- result.try(case payload {
+    fluid_inbound.Complete(_, _) -> tree_change_events(before, core)
+    _ -> Ok([])
+  })
+  let normalized = fluid_inbound.Step(core.inbound, payload)
   use persistence <- result.try(case core.persistence {
     Some(summary) ->
-      fluid_document.advance(summary, msg)
+      fluid_document.advance_inbound(summary, envelope, normalized)
       |> result.map(Some)
       |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
     None -> Ok(None)
@@ -3202,10 +3302,11 @@ fn drain_buffer(
   CoreError,
 ) {
   case core.out_of_order {
-    [head, ..rest] if head.sequence_number <= core.last_seen_sequence_number ->
-      drain_buffer(Core(..core, out_of_order: rest))
     [head, ..rest]
-      if head.sequence_number == core.last_seen_sequence_number + 1
+      if head.message.sequence_number <= core.last_seen_sequence_number
+    -> drain_buffer(Core(..core, out_of_order: rest))
+    [head, ..rest]
+      if head.message.sequence_number == core.last_seen_sequence_number + 1
     -> {
       use #(core, events, resolutions, runtime_events) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
@@ -3226,16 +3327,21 @@ fn drain_buffer(
 }
 
 fn buffer_insert(
-  buffer: List(SequencedDocumentMessage),
-  msg: SequencedDocumentMessage,
-) -> List(SequencedDocumentMessage) {
+  buffer: List(wire.SequencedEnvelope),
+  envelope: wire.SequencedEnvelope,
+) -> List(wire.SequencedEnvelope) {
   case buffer {
-    [] -> [msg]
+    [] -> [envelope]
     [head, ..rest] ->
-      case int.compare(msg.sequence_number, head.sequence_number) {
-        order.Lt -> [msg, ..buffer]
+      case
+        int.compare(
+          envelope.message.sequence_number,
+          head.message.sequence_number,
+        )
+      {
+        order.Lt -> [envelope, ..buffer]
         order.Eq -> buffer
-        order.Gt -> [head, ..buffer_insert(rest, msg)]
+        order.Gt -> [head, ..buffer_insert(rest, envelope)]
       }
   }
 }
@@ -3243,6 +3349,7 @@ fn buffer_insert(
 fn handle_operation(
   core: Core,
   msg: SequencedDocumentMessage,
+  batch: fluid_container.DecodedBatch,
 ) -> Result(
   #(
     Core,
@@ -3252,30 +3359,6 @@ fn handle_operation(
   ),
   CoreError,
 ) {
-  use contents <- result.try(
-    socket.container_contents(msg.contents)
-    |> result.map_error(fn(detail) {
-      ContainerOperationFailed(fluid_container.MalformedMessage(
-        "contents",
-        detail,
-      ))
-    }),
-  )
-  use metadata <- result.try(case msg.metadata {
-    None -> Ok(None)
-    Some(raw) ->
-      decode.run(raw, wire.json_value_decoder())
-      |> result.map(Some)
-      |> result.map_error(fn(_) { BadOperationContents(msg.sequence_number) })
-  })
-  use batch <- result.try(
-    fluid_container.decode(contents, metadata)
-    |> result.map_error(ContainerOperationFailed),
-  )
-  use _ <- result.try(
-    fluid_container.validate_profile_batch(batch)
-    |> result.map_error(ContainerOperationFailed),
-  )
   use actual_id <- result.try(case batch.metadata {
     None -> Ok(None)
     Some(value) ->
@@ -3611,6 +3694,14 @@ fn handle_operation(
               )
               Ok(#(Core(..core, compressor: Some(compressor)), [], []))
             }
+            fluid_container.RuntimeSchemaChange(_) ->
+              case core.persistence {
+                Some(_) -> Ok(#(core, [], []))
+                None ->
+                  Error(BadBootstrapSeed(
+                    "runtime schema changes require persisted document metadata",
+                  ))
+              }
           },
         )
         let ordinals = case message.kind {

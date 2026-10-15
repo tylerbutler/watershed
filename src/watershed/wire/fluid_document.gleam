@@ -26,11 +26,11 @@ import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_inbound
 import watershed/wire/fluid_summary.{
   type SummaryEntry, type SummaryError, SummaryBlob, SummaryTree,
 }
 import watershed/wire/op as wire_op
-import watershed/wire/socket
 import watershed/wire/summary as summary_message
 import watershed/wire/summary_blob as inspection
 
@@ -188,6 +188,7 @@ pub fn initial_tree_with_layout(
       None,
       0,
       [],
+      fluid_inbound.new(fluid_inbound.default_limits()),
     )
   use summary <- result.try(apply_initial_layout(summary, layout))
   use gc <- result.try(refresh_gc(summary))
@@ -742,6 +743,7 @@ pub fn native(
       None,
       sequence_number,
       [],
+      fluid_inbound.new(fluid_inbound.default_limits()),
     )
   use gc <- result.try(refresh_gc(summary))
   Ok(DocumentSummary(..summary, gc:))
@@ -785,6 +787,7 @@ pub opaque type DocumentSummary {
     recent_batches: Option(Json),
     last_acknowledged_summary: Int,
     intervening_gc_edges: List(#(String, String)),
+    inbound: fluid_inbound.State,
   )
 }
 
@@ -915,6 +918,24 @@ pub fn decode(
     Error(fluid_summary.MissingEntry(_)) -> Ok(None)
     Error(error) -> Error(error)
   })
+  use inbound <- result.try(case find(resolved, [".chunks"]) {
+    Ok(_) -> {
+      use value <- result.try(json_blob(resolved, [".chunks"], "/"))
+      use partials <- result.try(
+        json.parse(json.to_string(value), chunks_decoder())
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry("/.chunks", "invalid chunk streams")
+        }),
+      )
+      fluid_inbound.restore(fluid_inbound.default_limits(), partials)
+      |> result.map_error(fn(error) {
+        fluid_summary.MalformedEntry("/.chunks", string.inspect(error))
+      })
+    }
+    Error(fluid_summary.MissingEntry(_)) ->
+      Ok(fluid_inbound.new(fluid_inbound.default_limits()))
+    Error(error) -> Error(error)
+  })
   use stores <- result.try(required(resolved, [".channels"]))
   use stores <- result.try(tree_entries(stores, "/.channels"))
   use datastores <- result.try(
@@ -951,25 +972,38 @@ pub fn decode(
     "/.channels/" <> root_store,
     "root datastore has no map",
   ))
-  Ok(
-    DocumentSummary(
-      sequence_number,
-      minimum_sequence_number,
-      metadata,
-      members,
-      ids,
-      proposals,
-      values,
-      aliases,
-      datastores,
-      compressor,
-      view_id,
-      gc,
-      recent_batches,
-      sequence_number,
-      [],
-    ),
-  )
+  Ok(DocumentSummary(
+    sequence_number,
+    minimum_sequence_number,
+    metadata,
+    members,
+    ids,
+    proposals,
+    values,
+    aliases,
+    datastores,
+    compressor,
+    view_id,
+    gc,
+    recent_batches,
+    sequence_number,
+    [],
+    inbound,
+  ))
+}
+
+fn chunks_decoder() -> decode.Decoder(List(#(String, List(String)))) {
+  decode.list({
+    use pair <- decode.then(decode.list(decode.dynamic))
+    case pair {
+      [_, _] -> {
+        use sender <- decode.field(0, decode.string)
+        use pieces <- decode.field(1, decode.list(decode.string))
+        decode.success(#(sender, pieces))
+      }
+      _ -> decode.failure(#("", []), "sender and chunk pieces")
+    }
+  })
 }
 
 fn application_root(tree: SummaryEntry) -> Result(SummaryEntry, SummaryError) {
@@ -1248,6 +1282,7 @@ pub fn encode(summary: DocumentSummary) -> Result(SummaryEntry, SummaryError) {
     recent_batches,
     _last_acknowledged_summary,
     _intervening_gc_edges,
+    inbound,
   ) = summary
   use compressor_entry <- result.try(case compressor {
     Some(compressor) ->
@@ -1339,6 +1374,7 @@ pub fn encode(summary: DocumentSummary) -> Result(SummaryEntry, SummaryError) {
       ))
     }),
   )
+  let chunks = fluid_inbound.partial_chunks(inbound)
   let application_entries = [
     #(".metadata", json_entry(metadata)),
     #(
@@ -1353,10 +1389,34 @@ pub fn encode(summary: DocumentSummary) -> Result(SummaryEntry, SummaryError) {
     ),
     #(".channels", SummaryTree(stores)),
     #("gc", SummaryTree([#("__gc_root", json_entry(gc))])),
-    ..list.append(compressor_entry, case recent_batches {
-      Some(batches) -> [#(".recentBatchInfo", json_entry(batches))]
-      None -> []
-    })
+    ..list.append(
+      compressor_entry,
+      list.append(
+        case recent_batches {
+          Some(batches) -> [#(".recentBatchInfo", json_entry(batches))]
+          None -> []
+        },
+        case chunks {
+          [] -> []
+          _ -> [
+            #(
+              ".chunks",
+              json_entry(
+                json.array(chunks, fn(entry) {
+                  json.array(
+                    [
+                      json.string(entry.0),
+                      json.array(entry.1, json.string),
+                    ],
+                    fn(value) { value },
+                  )
+                }),
+              ),
+            ),
+          ]
+        },
+      ),
+    )
   ]
   Ok(
     SummaryTree([
@@ -1429,6 +1489,10 @@ pub fn members(summary: DocumentSummary) -> List(Int) {
   list.map(summary.member_ids, member_int)
 }
 
+pub fn inbound_state(summary: DocumentSummary) -> fluid_inbound.State {
+  summary.inbound
+}
+
 fn member_int(id: String) -> Int {
   case string.starts_with(id, "native:") {
     True ->
@@ -1444,6 +1508,22 @@ pub fn advance(
   summary: DocumentSummary,
   message: SequencedDocumentMessage,
 ) -> Result(DocumentSummary, SummaryError) {
+  use normalized <- result.try(
+    fluid_inbound.step(summary.inbound, wire.SequencedEnvelope(message, None))
+    |> result.map_error(fn(error) {
+      fluid_summary.MalformedEntry("/.chunks", string.inspect(error))
+    }),
+  )
+  advance_inbound(summary, wire.SequencedEnvelope(message, None), normalized)
+}
+
+pub fn advance_inbound(
+  summary: DocumentSummary,
+  physical: wire.SequencedEnvelope,
+  normalized: fluid_inbound.Step,
+) -> Result(DocumentSummary, SummaryError) {
+  let message = physical.message
+  let fluid_inbound.Step(inbound, payload) = normalized
   use _ <- result.try(require(
     message.sequence_number == summary.sequence_number + 1
       && message.minimum_sequence_number >= summary.minimum_sequence_number
@@ -1451,7 +1531,11 @@ pub fn advance(
     "/.protocol/attributes",
     "invalid sequenced message watermark",
   ))
-  use _ <- result.try(check_batch(summary, message))
+  use _ <- result.try(case payload {
+    fluid_inbound.Complete(representative, _) ->
+      check_batch(summary, representative)
+    _ -> Ok(Nil)
+  })
   use #(protocol_members, member_ids) <- result.try(advance_members(
     summary.protocol_members,
     summary.member_ids,
@@ -1495,13 +1579,22 @@ pub fn advance(
     }
     _ -> Ok(summary.last_acknowledged_summary)
   })
-  use batches <- result.try(advance_batches(summary.recent_batches, message))
-  use #(gc, intervening_gc_edges) <- result.try(advance_gc_references(
-    summary.gc,
-    summary.intervening_gc_edges,
-    message,
-  ))
-  Ok(
+  use batches <- result.try(case payload {
+    fluid_inbound.Complete(representative, _) ->
+      advance_batches(summary.recent_batches, representative)
+    _ -> Ok(summary.recent_batches)
+  })
+  use #(gc, intervening_gc_edges) <- result.try(case payload {
+    fluid_inbound.Complete(representative, batch) ->
+      advance_gc_references(
+        summary.gc,
+        summary.intervening_gc_edges,
+        representative,
+        batch,
+      )
+    _ -> Ok(#(summary.gc, summary.intervening_gc_edges))
+  })
+  let advanced =
     DocumentSummary(
       ..summary,
       sequence_number: message.sequence_number,
@@ -1513,8 +1606,20 @@ pub fn advance(
       last_acknowledged_summary:,
       gc:,
       intervening_gc_edges:,
-    ),
-  )
+      inbound:,
+    )
+  use advanced <- result.try(case payload {
+    fluid_inbound.Complete(_, batch) ->
+      list.try_fold(batch.messages, advanced, fn(summary, item) {
+        case item.kind {
+          fluid_container.RuntimeSchemaChange(contents) ->
+            apply_runtime_schema(summary, contents, message.sequence_number)
+          _ -> Ok(summary)
+        }
+      })
+    _ -> Ok(advanced)
+  })
+  Ok(advanced)
 }
 
 pub fn capture(
@@ -1920,6 +2025,178 @@ fn metadata_fields(metadata: Json) -> Result(Dict(String, Json), SummaryError) {
   })
 }
 
+pub fn apply_runtime_schema(
+  summary: DocumentSummary,
+  contents: Json,
+  sequence_number: Int,
+) -> Result(DocumentSummary, SummaryError) {
+  let proposals = case
+    json.parse(json.to_string(contents), decode.list(wire.json_value_decoder()))
+  {
+    Ok(proposals) -> proposals
+    Error(_) -> [contents]
+  }
+  list.try_fold(proposals, summary, fn(summary, proposal) {
+    apply_runtime_schema_proposal(summary, proposal, sequence_number)
+  })
+}
+
+fn apply_runtime_schema_proposal(
+  summary: DocumentSummary,
+  proposal: Json,
+  sequence_number: Int,
+) -> Result(DocumentSummary, SummaryError) {
+  use version <- result.try(integer(
+    proposal,
+    ["version"],
+    "/.metadata/documentSchema",
+  ))
+  use reference <- result.try(integer(
+    proposal,
+    ["refSeq"],
+    "/.metadata/documentSchema",
+  ))
+  use minimum_version <- result.try(text(
+    proposal,
+    ["info", "minVersionForCollab"],
+    "/.metadata/documentSchema/info",
+  ))
+  use runtime <- result.try(
+    json.parse(
+      json.to_string(proposal),
+      decode.at(
+        ["runtime"],
+        decode.dict(decode.string, wire.json_value_decoder()),
+      ),
+    )
+    |> result.map_error(fn(_) {
+      fluid_summary.MalformedEntry(
+        "/.metadata/documentSchema/runtime",
+        "invalid runtime features",
+      )
+    }),
+  )
+  use current <- result.try(
+    json.parse(
+      json.to_string(summary.metadata),
+      decode.at(["documentSchema"], wire.json_value_decoder()),
+    )
+    |> result.map_error(fn(_) {
+      fluid_summary.MalformedEntry(
+        "/.metadata/documentSchema",
+        "missing document schema",
+      )
+    }),
+  )
+  use current_reference <- result.try(integer(
+    current,
+    ["refSeq"],
+    "/.metadata/documentSchema",
+  ))
+  case reference < current_reference {
+    True -> Ok(summary)
+    False -> {
+      use _ <- result.try(require(
+        reference == current_reference && reference <= sequence_number,
+        "/.metadata/documentSchema/refSeq",
+        "incorrect schema reference sequence",
+      ))
+      use _ <- result.try(require(
+        version == 1,
+        "/.metadata/documentSchema/version",
+        "unsupported document schema version",
+      ))
+      use _ <- result.try(require(
+        minimum_version == "2.0.0",
+        "/.metadata/documentSchema/info",
+        "unsupported compatibility information",
+      ))
+      use _ <- result.try(validate_runtime_schema_features(runtime))
+      use current_runtime <- result.try(
+        json.parse(
+          json.to_string(current),
+          decode.at(
+            ["runtime"],
+            decode.dict(decode.string, wire.json_value_decoder()),
+          ),
+        )
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/.metadata/documentSchema/runtime",
+            "invalid stored runtime features",
+          )
+        }),
+      )
+      let runtime =
+        current_runtime
+        |> dict.insert("explicitSchemaControl", json.bool(True))
+        |> dict.insert("compressionLz4", json.bool(True))
+        |> dict.insert("opGroupingEnabled", json.bool(True))
+      let schema =
+        json.object([
+          #("version", json.int(1)),
+          #("refSeq", json.int(sequence_number)),
+          #(
+            "info",
+            json.object([
+              #("minVersionForCollab", json.string(minimum_version)),
+            ]),
+          ),
+          #("runtime", json.object(dict.to_list(runtime))),
+        ])
+      use metadata <- result.try(replace_member(
+        summary.metadata,
+        "documentSchema",
+        schema,
+        "/.metadata",
+      ))
+      Ok(DocumentSummary(..summary, metadata:))
+    }
+  }
+}
+
+fn validate_runtime_schema_features(
+  runtime: Dict(String, Json),
+) -> Result(Nil, SummaryError) {
+  use _ <- result.try(
+    list.try_each(dict.keys(runtime), fn(name) {
+      require(
+        name == "compressionLz4"
+          || name == "explicitSchemaControl"
+          || name == "opGroupingEnabled",
+        "/.metadata/documentSchema/runtime",
+        "unsupported runtime feature: " <> name,
+      )
+    }),
+  )
+  list.try_each(
+    ["compressionLz4", "explicitSchemaControl", "opGroupingEnabled"],
+    fn(name) {
+      use value <- result.try(
+        dict.get(runtime, name)
+        |> result.replace_error(fluid_summary.MalformedEntry(
+          "/.metadata/documentSchema/runtime",
+          "missing runtime feature: " <> name,
+        )),
+      )
+      use enabled <- result.try(
+        json.parse(json.to_string(value), decode.bool)
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/.metadata/documentSchema/runtime",
+            "invalid runtime feature value: " <> name,
+          )
+        }),
+      )
+      require(
+        enabled,
+        "/.metadata/documentSchema/runtime",
+        "unsupported runtime feature value: " <> name,
+      )
+    },
+  )
+}
+
 fn validate_last_message(metadata: Json) -> Result(Nil, SummaryError) {
   use fields <- result.try(metadata_fields(metadata))
   case dict.get(fields, "lastMessage") {
@@ -1964,22 +2241,10 @@ fn advance_gc_references(
   gc: Json,
   intervening: List(#(String, String)),
   message: SequencedDocumentMessage,
+  batch: fluid_container.DecodedBatch,
 ) -> Result(#(Json, List(#(String, String))), SummaryError) {
   case message.message_type {
     "op" -> {
-      let metadata = option.map(message.metadata, wire.dynamic_to_json)
-      use contents <- result.try(
-        socket.container_contents(message.contents)
-        |> result.map_error(fn(error) {
-          fluid_summary.MalformedEntry("/gc/__gc_root", error)
-        }),
-      )
-      use batch <- result.try(
-        fluid_container.decode(contents, metadata)
-        |> result.map_error(fn(error) {
-          fluid_summary.MalformedEntry("/gc/__gc_root", string.inspect(error))
-        }),
-      )
       use edges <- result.try(
         list.try_map(batch.messages, fn(item) {
           case item.kind {
@@ -2033,6 +2298,7 @@ fn advance_gc_references(
               Ok(list.map(references, fn(target) { #(source, target) }))
             }
             fluid_container.IdAllocation(_)
+            | fluid_container.RuntimeSchemaChange(_)
             | fluid_container.DatastoreAlias(_, _) -> Ok([])
           }
         }),

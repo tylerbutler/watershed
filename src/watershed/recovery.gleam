@@ -354,6 +354,7 @@ pub fn restore(
       prepared_attachments: [],
       next_client_sequence_number: next_csn,
       last_seen_sequence_number: sequence_number,
+      inbound: fluid_document.inbound_state(summary),
       in_flight: in_flight,
       out_of_order: [],
       reconnect_barrier: None,

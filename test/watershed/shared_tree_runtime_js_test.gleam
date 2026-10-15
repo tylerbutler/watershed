@@ -47,6 +47,8 @@ import watershed/summary_policy
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree/compression_fixture
+@target(javascript)
 import watershed/tree/facade_fixture
 @target(javascript)
 import watershed/tree/fixtures
@@ -62,6 +64,8 @@ import watershed/tree/types as tree_types
 import watershed/tree/undo_acceptance
 @target(javascript)
 import watershed/tree_kernel
+@target(javascript)
+import watershed/wire
 @target(javascript)
 import watershed/wire/fluid_container
 @target(javascript)
@@ -935,6 +939,82 @@ fn run_bootstrap_tree(
 @target(javascript)
 pub fn check_bootstrap_tree_close() -> Promise(Nil) {
   run_bootstrap_tree(bootstrap_tree_fixture)
+}
+
+@target(javascript)
+pub fn shared_tree_runtime_compressed_initial_transport_test() {
+  let assert Ok(#(source, envelopes)) =
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  let assert Some(summary) = source.persistence
+  let assert Ok(seed) = runtime_core.document_seed(summary)
+  let callbacks = transport_js.new_cell(None)
+  let ready = transport_js.new_cell(None)
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://compressed.invalid",
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(outcome) { transport_js.set_cell(ready, Some(outcome)) },
+    )
+  let assert Some(handlers) = transport_js.get_cell(callbacks)
+  handlers.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "compression-reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 204,
+      initial_clients: ["compression-reader", "writer-a"],
+      initial_messages: list.map(envelopes, sequenced_envelope_frame),
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  transport_js.get_cell(ready) |> expect.to_equal(Some(Ok(Nil)))
+  runtime.diagnostics(owner).last_seen_sequence_number
+  |> expect.to_equal(Some(204))
+  runtime.close(owner)
+}
+
+@target(javascript)
+fn sequenced_envelope_frame(
+  envelope: wire.SequencedEnvelope,
+) -> frame.Sequenced {
+  let message = envelope.message
+  let assert Ok(contents) =
+    decode.run(message.contents, wire.json_value_decoder())
+  let metadata = case message.metadata {
+    None -> None
+    Some(value) -> {
+      let assert Ok(value) = decode.run(value, wire.json_value_decoder())
+      Some(value)
+    }
+  }
+  frame.Sequenced(
+    client_id: message.client_id,
+    sequence_number: message.sequence_number,
+    minimum_sequence_number: message.minimum_sequence_number,
+    client_sequence_number: message.client_sequence_number,
+    reference_sequence_number: message.reference_sequence_number,
+    operation_type: message.message_type,
+    contents:,
+    metadata:,
+    timestamp: message.timestamp,
+    data: message.data,
+    compression: envelope.compression,
+  )
 }
 
 @target(javascript)

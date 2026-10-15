@@ -48,11 +48,10 @@ import gleam/uri
 
 @target(javascript)
 import spillway/message.{
-  type ConnectMessage, type ConnectedMessage, type SignalMessage,
-  type SummaryContext,
+  type ConnectMessage, type SignalMessage, type SummaryContext,
 }
 @target(javascript)
-import spillway/types.{type SequencedDocumentMessage, WriteMode}
+import spillway/types.{WriteMode}
 
 @target(javascript)
 import spillway/nack.{type Nack}
@@ -359,7 +358,7 @@ type State {
 @target(javascript)
 type Bootstrap {
   Bootstrap(
-    batches: List(List(SequencedDocumentMessage)),
+    batches: List(List(wire.SequencedEnvelope)),
     operation_count: Int,
     payload_bytes: Int,
     draining: Bool,
@@ -4699,9 +4698,10 @@ fn on_event(cell: Cell(State), event: String, payload: String) -> Nil {
 
 @target(javascript)
 fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
-  case json.parse(payload, socket.connected_message_decoder()) {
+  case json.parse(payload, socket.connection_envelope_decoder()) {
     Error(_) -> fail(cell, "malformed connect_document_success payload")
-    Ok(connected) -> {
+    Ok(connection) -> {
+      let connected = connection.handshake
       // Record what this connection negotiated before anything acts on it, and
       // on both paths — a reconnect may land on a different node with a
       // different answer.
@@ -4715,7 +4715,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
       )
       let state = cell_get(cell)
       case state.phase {
-        Connecting -> begin_bootstrap(cell, connected)
+        Connecting -> begin_bootstrap(cell, connection)
         Reconnecting(core) -> {
           case runtime_core.adopt_reconnect(core, connected) {
             Error(error) ->
@@ -4757,7 +4757,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
         }
         Ready(_, _) ->
           case state.bootstrap {
-            Some(_) -> begin_bootstrap(cell, connected)
+            Some(_) -> begin_bootstrap(cell, connection)
             None -> Nil
           }
         Failed(_) | SuspendedPendingTree(_, _) -> Nil
@@ -4786,7 +4786,7 @@ fn decode_document(
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
-  connected: ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
   context: SummaryContext,
   generation: Int,
 ) -> Nil {
@@ -4812,7 +4812,7 @@ fn load_summary_then_bootstrap(
               case decode_document(tree) {
                 Error(error) -> fail(cell, "summary decode failed: " <> error)
                 Ok(summary) ->
-                  finish_bootstrap(cell, connected, Some(summary), generation)
+                  finish_bootstrap(cell, connection, Some(summary), generation)
               }
           }
         })
@@ -4825,7 +4825,7 @@ fn load_summary_then_bootstrap(
 /// Bootstrap the core, from a summary if one exists, and then run `on_ready`.
 fn finish_bootstrap(
   cell: Cell(State),
-  connected: ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
   summary: Option(fluid_document.DocumentSummary),
   generation: Int,
 ) -> Nil {
@@ -4833,13 +4833,14 @@ fn finish_bootstrap(
   let bootstrapped = case cell_get(cell).seed {
     Some(seed) ->
       case runtime_core.prepare_seed(seed, fn() { id.uuid_v4() }) {
-        Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
+        Ok(seed) -> runtime_core.bootstrap_seeded_enveloped(connection, seed)
         Error(error) -> Error(error)
       }
     None ->
       case summary {
-        Some(summary) -> runtime_core.bootstrap_document(connected, summary)
-        None -> runtime_core.bootstrap(connected, summary: None)
+        Some(summary) ->
+          runtime_core.bootstrap_document_enveloped(connection, summary)
+        None -> runtime_core.bootstrap_enveloped(connection, summary: None)
       }
   }
   case bootstrapped {
@@ -4871,7 +4872,7 @@ fn continue_bootstrap(
         None -> fail(cell, "history catch-up requires an auth token")
         Some(token) -> {
           let _ =
-            git_storage.fetch_deltas(
+            git_storage.fetch_enveloped_deltas(
               base_url: state.http_base_url,
               tenant: state.connect_message.tenant_id,
               token: token,
@@ -4890,7 +4891,7 @@ fn continue_bootstrap(
                   )
                 Ok(deltas) ->
                   case
-                    runtime_core.resume_bootstrap(
+                    runtime_core.resume_bootstrap_envelopes(
                       core,
                       checkpoint: checkpoint,
                       deltas: deltas,
@@ -4910,7 +4911,11 @@ fn continue_bootstrap(
 }
 
 @target(javascript)
-fn begin_bootstrap(cell: Cell(State), connected: ConnectedMessage) -> Nil {
+fn begin_bootstrap(
+  cell: Cell(State),
+  connection: wire.ConnectionEnvelope,
+) -> Nil {
+  let connected = connection.handshake
   let state = cell_get(cell)
   let generation = state.bootstrap_generation + 1
   let state =
@@ -4923,9 +4928,9 @@ fn begin_bootstrap(cell: Cell(State), connected: ConnectedMessage) -> Nil {
   cell_set(cell, state)
   case state.seed, connected.summary_context {
     Some(_), _ | None, None ->
-      finish_bootstrap(cell, connected, None, generation)
+      finish_bootstrap(cell, connection, None, generation)
     None, Some(context) ->
-      load_summary_then_bootstrap(cell, state, connected, context, generation)
+      load_summary_then_bootstrap(cell, state, connection, context, generation)
   }
 }
 
@@ -4972,7 +4977,7 @@ fn buffer_bootstrap(
   case bytes > 16 * 1024 * 1024 {
     True -> fail(cell, "bootstrap payload byte limit exceeded")
     False ->
-      case json.parse(payload, socket.operation_message_decoder()) {
+      case json.parse(payload, socket.operation_envelopes_decoder()) {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) -> {
           let count = bootstrap.operation_count + list.length(message.ops)
@@ -5067,7 +5072,7 @@ fn on_operation(cell: Cell(State), payload: String) -> Nil {
     None ->
       case state.phase {
         Ready(_, _) ->
-          case json.parse(payload, socket.operation_message_decoder()) {
+          case json.parse(payload, socket.operation_envelopes_decoder()) {
             Error(_) -> fail(cell, "malformed op payload")
             Ok(message) -> apply_received_operations(cell, message.ops)
           }
@@ -5080,7 +5085,7 @@ fn on_operation(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 fn apply_received_operations(
   cell: Cell(State),
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
 ) -> Nil {
   let state = cell_get(cell)
   case state.phase {
@@ -5246,7 +5251,7 @@ fn reconnect_deadline(cell: Cell(State), client_id: String) -> Nil {
 @target(javascript)
 fn apply_operations(
   core: runtime_core.Core,
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
 ) -> Result(
   #(
     runtime_core.Core,
@@ -5264,7 +5269,7 @@ fn apply_operations(
 @target(javascript)
 fn do_apply_operations(
   core: runtime_core.Core,
-  operations: List(SequencedDocumentMessage),
+  operations: List(wire.SequencedEnvelope),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   runtime_events: List(List(runtime_core.RuntimeEvent)),
@@ -5292,7 +5297,7 @@ fn do_apply_operations(
         released,
       ))
     [operation, ..rest] ->
-      case runtime_core.handle_sequenced(core, operation) {
+      case runtime_core.handle_envelope(core, operation) {
         Ok(#(core, ingested)) ->
           do_apply_operations(
             core,

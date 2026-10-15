@@ -532,6 +532,7 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
   case core_error {
     runtime_core.AckMismatch(_) -> True
     runtime_core.BadOperationContents(_)
+    | runtime_core.InboundFailed(..)
     | runtime_core.HistoryGap(_)
     | runtime_core.UnknownChannel(..)
     | runtime_core.DuplicateAttach(..)
@@ -3549,6 +3550,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
       Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))
@@ -3584,6 +3586,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
       Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))
@@ -3832,6 +3835,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     )) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))
@@ -3858,6 +3862,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     Error(runtime_core.WrongChannelType(..)) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))
@@ -3883,6 +3888,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     Error(runtime_core.WrongChannelType(..)) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))
@@ -3913,6 +3919,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     )) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.InboundFailed(..))
     | Error(runtime_core.BadOperationContents(_))
     | Error(runtime_core.HistoryGap(_))
     | Error(runtime_core.UnknownChannel(..))

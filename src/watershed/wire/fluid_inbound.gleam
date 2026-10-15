@@ -13,6 +13,7 @@ import spillway/types.{type SequencedDocumentMessage, SequencedDocumentMessage}
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/lz4
+import watershed/wire/socket
 
 pub opaque type State {
   State(limits: Limits, streams: Dict(String, Partial), buffered_bytes: Int)
@@ -297,7 +298,7 @@ fn step_complete(
   contents: Dynamic,
 ) -> Result(Step, Error) {
   use json_contents <- result.try(
-    decode.run(contents, wire.json_value_decoder())
+    socket.container_contents(contents)
     |> result.map_error(fn(_) {
       InvalidPackedPayload("operation contents are not JSON")
     }),

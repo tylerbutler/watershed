@@ -16,6 +16,13 @@ const summaryTail = JSON.parse(await readFile(
   "utf8",
 ));
 const capturedSnapshot = summaryTail.input.replayInput.snapshotAtS;
+const compressionCorpus = JSON.parse(await readFile(
+  resolve(repo, "test/fixtures/shared_tree/compression.json"),
+  "utf8",
+));
+const compressedDelta = compressionCorpus.cases.find(
+  ({ id }) => id === "default-compressed-singleton",
+).messages;
 
 function json(response, status, value) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -203,6 +210,15 @@ const server = createServer(async (request, response) => {
     state.requests.push({ method: request.method, path: url.pathname });
     const prefix = `/repos/${tenant}/git`;
 
+    if (
+      request.method === "GET"
+      && url.pathname === `/deltas/${tenant}/compressed`
+    ) {
+      assert.equal(url.searchParams.get("from"), "0");
+      assert.equal(url.searchParams.get("to"), "1");
+      return json(response, 200, { value: compressedDelta });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith(`${prefix}/commits/`)) {
       const commit = decodeURIComponent(url.pathname.slice(`${prefix}/commits/`.length));
       if (commit === "missing-commit") return json(response, 404, { error: "missing" });
@@ -296,7 +312,9 @@ function assertRun() {
   assert.equal(state.treeCount, 4 + captured.treeNodes);
   assert.equal(state.failedTree, true);
   for (const request of state.requests) {
-    if (request.path.includes("/git/commits/")) {
+    if (request.path.includes("/deltas/")) {
+      assert.equal(request.method, "GET");
+    } else if (request.path.includes("/git/commits/")) {
       assert.equal(request.method, "GET", "probe sent a commit publication request");
     } else if (
       request.path.endsWith("/git/trees")

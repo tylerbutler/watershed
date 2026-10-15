@@ -13,7 +13,7 @@ import watershed/wire
 import watershed/wire/fluid_container.{
   type ContainerMessage, type DecodedBatch, type MessageKind, type Route,
   ChannelAttach, ChannelOperation, ContainerMessage, DatastoreAlias,
-  DatastoreAttach, DecodedBatch, IdAllocation, Route,
+  DatastoreAttach, DecodedBatch, IdAllocation, Route, RuntimeSchemaChange,
 }
 
 const map_channel_type = "https://graph.microsoft.com/types/map"
@@ -510,6 +510,11 @@ fn kind_json(kind: MessageKind) -> Json {
         #("range", range),
       ])
     }
+    RuntimeSchemaChange(contents) ->
+      json.object([
+        #("kind", json.string("runtimeSchemaChange")),
+        #("contents", contents),
+      ])
     DatastoreAttach(data_store_id, contents) ->
       json.object([
         #("kind", json.string("datastoreAttach")),

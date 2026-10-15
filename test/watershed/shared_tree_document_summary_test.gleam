@@ -411,6 +411,55 @@ pub fn shared_tree_document_summary_refuses_malformed_last_message_timestamp_tes
   Nil
 }
 
+pub fn shared_tree_document_summary_applies_compression_schema_cas_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let proposal = runtime_schema_proposal(reference, [])
+  let assert Ok(activated) =
+    fluid_document.apply_runtime_schema(summary, proposal, reference + 5)
+  let schema = document_schema(activated)
+  json.parse(json.to_string(schema), decode.at(["refSeq"], decode.int))
+  |> expect.to_equal(Ok(reference + 5))
+  list.each(
+    ["compressionLz4", "explicitSchemaControl", "opGroupingEnabled"],
+    fn(feature) {
+      json.parse(
+        json.to_string(schema),
+        decode.at(["runtime", feature], decode.bool),
+      )
+      |> expect.to_equal(Ok(True))
+    },
+  )
+}
+
+pub fn shared_tree_document_summary_schema_cas_rejects_invalid_proposals_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  fluid_document.apply_runtime_schema(
+    summary,
+    runtime_schema_proposal(reference - 1, []),
+    reference + 5,
+  )
+  |> expect.to_equal(Ok(summary))
+  fluid_document.apply_runtime_schema(
+    summary,
+    runtime_schema_proposal(reference + 1, []),
+    reference + 5,
+  )
+  |> expect.to_be_error()
+  fluid_document.apply_runtime_schema(
+    summary,
+    runtime_schema_proposal(reference, [#("futureFeature", json.bool(True))]),
+    reference + 5,
+  )
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn shared_tree_document_summary_requires_gc_after_initial_snapshot_test() {
   let assert Ok(session) =
     fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
@@ -839,6 +888,37 @@ fn retained_publication(id: String) -> fluid_document.DocumentSummary {
     fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
   let assert Ok(summary) = fluid_document.decode(hierarchy, None, session, view)
   summary
+}
+
+fn document_schema(summary: fluid_document.DocumentSummary) -> json.Json {
+  let assert Ok(fluid_summary.SummaryTree(entries)) =
+    fluid_document.encode(summary)
+  let assert Ok(fluid_summary.SummaryBlob(bytes)) =
+    list.key_find(entries, ".metadata")
+  let assert Ok(raw) = bit_array.to_string(bytes)
+  let assert Ok(schema) =
+    json.parse(raw, decode.at(["documentSchema"], wire.json_value_decoder()))
+  schema
+}
+
+fn runtime_schema_proposal(
+  reference: Int,
+  extra: List(#(String, json.Json)),
+) -> json.Json {
+  json.object([
+    #("version", json.int(1)),
+    #("refSeq", json.int(reference)),
+    #("info", json.object([#("minVersionForCollab", json.string("2.0.0"))])),
+    #(
+      "runtime",
+      json.object([
+        #("compressionLz4", json.bool(True)),
+        #("explicitSchemaControl", json.bool(True)),
+        #("opGroupingEnabled", json.bool(True)),
+        ..extra
+      ]),
+    ),
+  ])
 }
 
 fn gc_timestamp(

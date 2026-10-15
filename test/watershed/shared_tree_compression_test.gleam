@@ -8,12 +8,16 @@ import gleam/string
 import spillway/types.{type SequencedDocumentMessage, SequencedDocumentMessage}
 import startest/expect
 
+import watershed/fluid_ids
+import watershed/runtime_core
 import watershed/tree/compression_fixture
+import watershed/tree/runtime_fixture
 import watershed/wire
 import watershed/wire/fluid_container.{
   type DecodedBatch, ChannelOperation, ContainerMessage, DecodedBatch,
   IdAllocation, Route,
 }
+import watershed/wire/fluid_document
 import watershed/wire/fluid_inbound
 import watershed/wire/lz4
 import watershed/wire/socket
@@ -374,6 +378,143 @@ pub fn shared_tree_compression_prefix_has_no_batch_test() -> Nil {
   fluid_inbound.partial_chunks(state)
   |> list.length
   |> expect.to_equal(1)
+}
+
+pub fn shared_tree_compression_partial_advances_only_position_test() -> Nil {
+  let #(before, messages) = case
+    compression_fixture.core_case("default-chunked-group")
+  {
+    Ok(value) -> value
+    Error(error) -> panic as error
+  }
+  let assert [first, ..] = messages
+  let assert Ok(#(after, ingested)) =
+    runtime_core.handle_envelope(before, first)
+  after.last_seen_sequence_number
+  |> expect.to_equal(first.message.sequence_number)
+  ingested.events |> expect.to_equal([])
+  ingested.resolutions |> expect.to_equal([])
+  after.in_flight |> expect.to_equal(before.in_flight)
+}
+
+pub fn shared_tree_compression_complete_applies_once_test() -> Nil {
+  let #(before, envelopes) =
+    unwrap_core_case(compression_fixture.core_case(
+      "partial-summary-prefix-tail",
+    ))
+  let #(after, completions) =
+    list.fold(envelopes, #(before, 0), fn(state, envelope) {
+      let #(core, ingested) =
+        unwrap_ingested(runtime_core.handle_envelope(state.0, envelope))
+      #(
+        core,
+        state.1
+          + case ingested.events {
+          [] -> 0
+          _ -> 1
+        },
+      )
+    })
+  after.last_seen_sequence_number |> expect.to_equal(204)
+  fluid_inbound.partial_chunks(after.inbound) |> expect.to_equal([])
+  completions |> expect.to_equal(1)
+  let assert Ok(final) = list.last(envelopes)
+  runtime_core.handle_envelope(after, final)
+  |> expect.to_equal(Ok(#(after, runtime_core.Ingested([], [], [], None, []))))
+}
+
+pub fn shared_tree_compression_summary_restores_partial_stream_test() -> Nil {
+  let #(before, envelopes) =
+    unwrap_core_case(compression_fixture.core_case(
+      "partial-summary-prefix-tail",
+    ))
+  let assert [first, ..rest] = envelopes
+  let assert Ok(#(partial, _)) = runtime_core.handle_envelope(before, first)
+  let assert Ok(summary) = runtime_core.capture_summary(partial)
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let assert Ok(session) =
+    fluid_ids.session_id("a0000000-0000-4000-8000-00000000000a")
+  let assert Ok(restored) =
+    fluid_document.decode(
+      encoded,
+      None,
+      session,
+      fluid_document.view_id(summary),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "reloaded",
+        [],
+        partial.last_seen_sequence_number,
+      ),
+      restored,
+    )
+  let final =
+    list.fold(rest, core, fn(core, envelope) {
+      let #(core, _) =
+        unwrap_ingested(runtime_core.handle_envelope(core, envelope))
+      core
+    })
+  final.last_seen_sequence_number |> expect.to_equal(204)
+  fluid_inbound.partial_chunks(final.inbound) |> expect.to_equal([])
+}
+
+pub fn shared_tree_compression_out_of_order_final_chunk_applies_once_test() -> Nil {
+  let #(before, envelopes) =
+    unwrap_core_case(compression_fixture.core_case(
+      "partial-summary-prefix-tail",
+    ))
+  let assert [first, second, third, fourth, final] = envelopes
+  let #(buffered, first_delivery) =
+    unwrap_ingested(runtime_core.handle_envelope(before, final))
+  buffered.last_seen_sequence_number
+  |> expect.to_equal(before.last_seen_sequence_number)
+  first_delivery.events |> expect.to_equal([])
+  let #(deduplicated, _) =
+    unwrap_ingested(runtime_core.handle_envelope(buffered, final))
+  deduplicated |> expect.to_equal(buffered)
+  let #(completed, completions) =
+    list.fold(
+      [first, second, third, fourth],
+      #(deduplicated, 0),
+      fn(state, envelope) {
+        let #(core, ingested) =
+          unwrap_ingested(runtime_core.handle_envelope(state.0, envelope))
+        #(
+          core,
+          state.1
+            + case ingested.events {
+            [] -> 0
+            _ -> 1
+          },
+        )
+      },
+    )
+  completed.last_seen_sequence_number |> expect.to_equal(204)
+  fluid_inbound.partial_chunks(completed.inbound) |> expect.to_equal([])
+  completions |> expect.to_equal(1)
+}
+
+fn unwrap_ingested(
+  result: Result(
+    #(runtime_core.Core, runtime_core.Ingested),
+    runtime_core.CoreError,
+  ),
+) -> #(runtime_core.Core, runtime_core.Ingested) {
+  case result {
+    Ok(value) -> value
+    Error(error) -> panic as string.inspect(error)
+  }
+}
+
+fn unwrap_core_case(
+  result: Result(#(runtime_core.Core, List(wire.SequencedEnvelope)), String),
+) -> #(runtime_core.Core, List(wire.SequencedEnvelope)) {
+  case result {
+    Ok(value) -> value
+    Error(error) -> panic as error
+  }
 }
 
 pub fn shared_tree_compression_completes_real_default_chunk_stream_test() -> Nil {

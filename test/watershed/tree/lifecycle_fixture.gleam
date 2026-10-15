@@ -6127,6 +6127,7 @@ fn receiver_serialization(
 fn message_label(message: fluid_container.MessageKind) -> String {
   case message {
     fluid_container.IdAllocation(_) -> "id-allocation"
+    fluid_container.RuntimeSchemaChange(_) -> "runtime-schema"
     fluid_container.DatastoreAttach(id, _) -> "datastore-attach:" <> id
     fluid_container.ChannelOperation(route, _) ->
       "component:" <> route.data_store_id <> "/" <> route.channel_id
