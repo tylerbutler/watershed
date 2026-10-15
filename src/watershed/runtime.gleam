@@ -3344,6 +3344,12 @@ pub fn live_request(
     True -> Error(tree_live.ClosedRuntime)
     False -> Ok(Nil)
   })
+  use _ <- result.try(case writes {
+    True ->
+      require_no_tree_delivery(state, address)
+      |> result.map_error(tree_live.RuntimeFailure)
+    False -> Ok(Nil)
+  })
   use core <- result.try(case state.phase {
     Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       Ok(core)
@@ -3361,7 +3367,7 @@ pub fn live_request(
     Ready(_, None), None -> True
     _, _ -> False
   }
-  use _ <- result.try(case tree_live.writes(request) && !writable {
+  use _ <- result.try(case writes && !writable {
     True ->
       Error(tree_live.RuntimeFailure(
         "Typed tree edit requires a ready document connection",
@@ -6090,6 +6096,23 @@ fn fan_out_tree_commit(
   local: Bool,
   revertible: Bool,
 ) -> Nil {
+  case local {
+    True -> Nil
+    False -> {
+      let state = cell_get(cell)
+      cell_set(
+        cell,
+        State(
+          ..state,
+          tree_commit_deliveries: dict.insert(
+            state.tree_commit_deliveries,
+            #(address, selector, revision),
+            AwaitingTreeCommitDelivery,
+          ),
+        ),
+      )
+    }
+  }
   let active = transport_js.new_cell(True)
   let acquired = transport_js.new_cell(False)
   let get_revertible = case local && revertible {

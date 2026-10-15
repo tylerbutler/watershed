@@ -1201,6 +1201,7 @@ type ActiveTreeCommitDelivery {
     selector: tree_types.CheckoutSelector,
     revision: fluid_ids.StableId,
     acquired: Bool,
+    worker: process.Pid,
     monitor: process.Monitor,
     remaining_events: List(runtime_core.ScopedTreeEvent),
   )
@@ -3191,9 +3192,12 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | TreeBranchStatus(_, _, _) -> handle_message(state, msg)
         SubscribeLiveTree(_, _, _, _, _, _) -> handle_message(state, msg)
         LiveTreeRequest(_, _, _, request, reply) ->
-          case tree_live.writes(request) {
-            False -> handle_message(state, msg)
-            True -> {
+          case
+            tree_live.writes(request),
+            process.subject_owner(reply) == Ok(active.worker)
+          {
+            False, _ -> handle_message(state, msg)
+            True, True -> {
               process.send(
                 reply,
                 Error(tree_live.RuntimeFailure(
@@ -3202,6 +3206,13 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
               )
               actor.continue(state)
             }
+            True, False ->
+              actor.continue(
+                State(..state, deferred_messages: [
+                  msg,
+                  ..state.deferred_messages
+                ]),
+              )
           }
         ForkTree(_, _, _, reply) -> {
           process.send(
@@ -7446,18 +7457,24 @@ fn transaction_tree_access(
   address: String,
   reply: Subject(a),
 ) -> Result(Nil, String) {
-  case state.active_tree_transaction {
-    Some(active) if active.address == address -> {
-      use caller <- result.try(
-        process.subject_owner(reply)
-        |> result.map_error(fn(_) { "tree transaction caller is unavailable" }),
-      )
-      case caller == active.caller {
-        True -> Ok(Nil)
-        False -> Error("tree transaction uses another caller")
+  case state.active_tree_transaction, phase_core(state.phase) {
+    Some(active), Some(core) if active.address == address ->
+      case core.active_tree_transaction {
+        None -> Ok(Nil)
+        Some(_) -> {
+          use caller <- result.try(
+            process.subject_owner(reply)
+            |> result.map_error(fn(_) {
+              "tree transaction caller is unavailable"
+            }),
+          )
+          case caller == active.caller {
+            True -> Ok(Nil)
+            False -> Error("tree transaction uses another caller")
+          }
+        }
       }
-    }
-    Some(_) | None -> Ok(Nil)
+    _, _ -> Ok(Nil)
   }
 }
 
@@ -8273,6 +8290,7 @@ fn start_tree_commit_delivery(
           selector,
           revision,
           False,
+          delivery,
           process.monitor(delivery),
           remaining_events,
         )),

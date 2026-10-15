@@ -309,10 +309,11 @@ reattach on undo; references do not keep repair data alive.
 `observe` and `observe_node` re-read typed snapshots after native commits.
 Their callbacks receive `Result` values, including removal and schema errors,
 not a promise of Fluid's exact per-node event counts. `unsubscribe` cancels
-one observation; `dispose(view)` cancels that view's observations and releases
-its anchors without closing the native tree. Both cleanup operations are
-idempotent. Closed views, disposed checkouts, runtime shutdown, incompatible
-schemas, and foreign references return structured `LiveError` values from
+one observation. Callbacks can read committed state and cancel observations,
+but cannot submit reentrant edits. `dispose(view)` cancels that view's
+observations and releases its anchors without closing the native tree. Both
+cleanup operations are idempotent. Closed views, disposed checkouts, runtime
+shutdown, incompatible schemas, and foreign references return structured `LiveError` values from
 `watershed/tree/live_types`.
 
 ## Fluid mapping and scope

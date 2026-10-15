@@ -1,12 +1,12 @@
 @target(erlang)
 import gleam/erlang/process
-@target(javascript)
 import gleam/json
 @target(javascript)
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 @target(javascript)
 import watershed as facade
+import watershed/fluid_ids
 @target(javascript)
 import watershed/runtime
 @target(erlang)
@@ -25,7 +25,7 @@ import watershed_beam as facade
 
 pub type NativeRoot
 
-fn definition(
+pub fn definition(
   compiled: builder.Compiled(a),
 ) -> typed.Schema(NativeRoot, types.TreeValue) {
   let assert [identifier, ..] =
@@ -81,6 +81,15 @@ fn seed(
   compiled: builder.Compiled(a),
   initial: a,
 ) -> runtime_core.BootstrapSeed {
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(seed_input(compiled, initial))
+  seed
+}
+
+fn seed_input(
+  compiled: builder.Compiled(a),
+  initial: a,
+) -> runtime_core.BootstrapSeedInput {
   let assert Ok(Some(value)) = builder.encode(compiled, initial)
   let assert Ok(input) =
     runtime_fixture.routed_tree_seed_input(
@@ -88,8 +97,43 @@ fn seed(
       builder.view(compiled),
       value,
     )
-  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
-  seed
+  input
+}
+
+pub fn remote_edit(
+  compiled: builder.Compiled(a),
+  initial: a,
+  edit: types.Edit,
+) -> frame.Sequenced {
+  let input = seed_input(compiled, initial)
+  let assert Some(compressor) = input.compressor
+  let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
+  let assert Ok(session) =
+    fluid_ids.session_id("50000000-0000-4000-8000-000000000005")
+  let assert Ok(compressor) = fluid_ids.deserialize(serialized, session)
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, compressor: Some(compressor)),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected("typed-peer", [], 0),
+      seed,
+    )
+  let assert Ok(#(_, _, [operation])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [edit])
+  frame.Sequenced(
+    client_id: Some("typed-peer"),
+    sequence_number: 1,
+    minimum_sequence_number: 0,
+    client_sequence_number: operation.client_sequence_number,
+    reference_sequence_number: operation.reference_sequence_number,
+    operation_type: operation.operation_type,
+    contents: operation.contents,
+    metadata: operation.metadata,
+    timestamp: 0,
+    data: None,
+  )
 }
 
 fn connected() {
@@ -141,11 +185,23 @@ fn receive_values(subject: process.Subject(a), count: Int) -> List(a) {
   }
 }
 
-@target(javascript)
 pub fn tree(
   compiled: builder.Compiled(a),
   initial: a,
 ) -> #(facade.Document(Nil), facade.SharedTree(NativeRoot, types.TreeValue)) {
+  let #(document, tree, _) = tree_with_operations(compiled, initial)
+  #(document, tree)
+}
+
+@target(javascript)
+pub fn tree_with_operations(
+  compiled: builder.Compiled(a),
+  initial: a,
+) -> #(
+  facade.Document(Nil),
+  facade.SharedTree(NativeRoot, types.TreeValue),
+  fn(List(frame.Sequenced)) -> Nil,
+) {
   let callbacks = transport_js.new_cell(option.None)
   let document =
     facade.connect_via_seed(
@@ -171,14 +227,23 @@ pub fn tree(
   let assert Ok(marker) = facade.get(root, "tree")
   let assert Ok(tree) =
     facade.resolve_tree(document, marker, definition(compiled))
-  #(document, tree)
+  #(document, tree, fn(operations) {
+    callbacks.on_event(
+      "op",
+      frame.encode_operation_event(operations) |> json.to_string,
+    )
+  })
 }
 
 @target(erlang)
-pub fn tree(
+pub fn tree_with_operations(
   compiled: builder.Compiled(a),
   initial: a,
-) -> #(facade.Document(Nil), facade.SharedTree(NativeRoot, types.TreeValue)) {
+) -> #(
+  facade.Document(Nil),
+  facade.SharedTree(NativeRoot, types.TreeValue),
+  fn(List(frame.Sequenced)) -> Nil,
+) {
   let connections = process.new_subject()
   let assert Ok(document) =
     facade.connect_via_seed(
@@ -205,5 +270,7 @@ pub fn tree(
   let assert Ok(marker) = facade.get(root, "tree")
   let assert Ok(tree) =
     facade.resolve_tree(document, marker, definition(compiled))
-  #(document, tree)
+  #(document, tree, fn(operations) {
+    callbacks.on_event("op", frame.encode_operation_event(operations))
+  })
 }

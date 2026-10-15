@@ -1,7 +1,12 @@
 import gleam/dict
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
+import spillway/types as document
 import startest/expect
+import watershed/channel
+import watershed/fluid_ids
 import watershed/runtime_core as core
 import watershed/tree/branch
 import watershed/tree/identifier_fixture
@@ -11,6 +16,7 @@ import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
 import watershed/tree_kernel
+import watershed/wire
 import watershed/wire/fluid_container
 
 const address = "A/_C"
@@ -20,6 +26,13 @@ fn initial() -> core.Core {
 }
 
 fn initial_for(client_id: String) -> core.Core {
+  initial_in_session(client_id, None)
+}
+
+fn initial_in_session(
+  client_id: String,
+  session_id: Option(String),
+) -> core.Core {
   let assert Ok(input) =
     runtime_fixture.routed_tree_seed_input(
       identifier_fixture.full_stored(),
@@ -34,6 +47,16 @@ fn initial_for(client_id: String) -> core.Core {
         [],
       ),
     )
+  let input = case session_id {
+    None -> input
+    Some(session_id) -> {
+      let assert Some(compressor) = input.compressor
+      let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
+      let assert Ok(session) = fluid_ids.session_id(session_id)
+      let assert Ok(compressor) = fluid_ids.deserialize(serialized, session)
+      core.BootstrapSeedInput(..input, compressor: Some(compressor))
+    }
+  }
   let assert [datastore] = input.datastores
   let assert [tree_view] = input.tree_views
   let assert Ok(tree_channel) =
@@ -62,11 +85,19 @@ fn request(
   core: core.Core,
   request: live.Request,
 ) -> #(core.Core, live.Response) {
+  request_on(core, types.DocumentCheckout, request)
+}
+
+fn request_on(
+  core: core.Core,
+  selector: types.CheckoutSelector,
+  request: live.Request,
+) -> #(core.Core, live.Response) {
   let assert Ok(#(core, response, _, _)) =
     core.live_request(
       core,
       address,
-      types.DocumentCheckout,
+      selector,
       identifier_fixture.full_view(),
       request,
     )
@@ -82,6 +113,14 @@ fn proof(parent: String, key: String) -> live.FieldProof {
 fn acquire_b(
   core: core.Core,
 ) -> #(core.Core, live.ViewToken, live.AnchorToken, live.AnchorToken) {
+  acquire_b_on(core, types.DocumentCheckout)
+}
+
+fn acquire_b_on(
+  core: core.Core,
+  selector: types.CheckoutSelector,
+) -> #(core.Core, live.ViewToken, live.AnchorToken, live.AnchorToken) {
+  let request = fn(core, request) { request_on(core, selector, request) }
   let assert #(core, live.Bound(view)) =
     request(core, live.Bind(identifier_fixture.full_view()))
   let assert #(core, live.Acquired(Some(root))) =
@@ -500,4 +539,276 @@ pub fn live_core_nested_abort_only_invalidates_discarded_preview_test() {
   state |> expect.to_equal(live.ReferenceState(live.Attached))
   let #(_, state) = request(core, live.Status(inner.anchor))
   state |> expect.to_equal(live.ReferenceState(live.Invalidated))
+}
+
+fn sequenced(
+  sender: core.Core,
+  outbound: wire.OutboundOperation,
+  sequence_number: Int,
+) -> document.SequencedDocumentMessage {
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) -> {
+      let assert Ok(value) = json.parse(json.to_string(value), decode.dynamic)
+      Some(value)
+    }
+  }
+  document.SequencedDocumentMessage(
+    client_id: Some(sender.client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents: contents,
+    metadata: metadata,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+pub fn live_core_saved_reference_survives_reconciliation_and_reconnect_test() {
+  let reader = initial()
+  let reader = core.Core(..reader, live_namespace: Some("reader-runtime"))
+  let #(reader, _, _, saved) = acquire_b(reader)
+  let writer =
+    initial_in_session("peer", Some("50000000-0000-4000-8000-000000000005"))
+  let assert Ok(#(reader, _, [local])) =
+    core.submit_tree_edits(reader, address, [
+      types.SetField(["left", "0", "label"], types.StringValue("local-A")),
+    ])
+  let assert Ok(#(writer, _, [remote])) =
+    core.submit_tree_edits(writer, address, [
+      types.ArrayInsert(["left"], 0, [
+        identifier_fixture.point("new", "inserted"),
+      ]),
+    ])
+  let remote = sequenced(writer, remote, 1)
+  let assert Ok(#(reader, _)) = core.handle_sequenced(reader, remote)
+  let assert Ok(#(reader, _)) =
+    core.handle_sequenced(reader, sequenced(reader, local, 2))
+  let assert Ok(reader) =
+    core.adopt_reconnect(
+      reader,
+      runtime_fixture.connected("reconnected-reader", [], 2),
+    )
+  let reader = core.go_live(reader)
+  let assert #(reader, live.Done) =
+    request(
+      reader,
+      live.PropertySet(
+        saved,
+        proof(identifier_fixture.point_type, "label"),
+        Some(types.StringValue("saved-B")),
+      ),
+    )
+  core.tree_array_values(reader, address, ["left"])
+  |> expect.to_equal(
+    Ok([
+      identifier_fixture.point("new", "inserted"),
+      identifier_fixture.point("duplicate", "local-A"),
+      identifier_fixture.point("duplicate", "saved-B"),
+    ]),
+  )
+  let #(_, status) = request(reader, live.Status(saved))
+  status |> expect.to_equal(live.ReferenceState(live.Attached))
+}
+
+pub fn live_core_rebase_merge_preserve_saved_checkout_references_test() {
+  let #(core, _, _, document_b) = acquire_b(initial())
+  let assert Ok(#(core, branch_id)) =
+    core.fork_tree(
+      core,
+      address,
+      types.DocumentCheckout,
+      identifier_fixture.full_view(),
+    )
+  let selector = types.LocalCheckout(branch_id)
+  let #(core, branch_view, _, branch_b) = acquire_b_on(core, selector)
+  let assert Ok(#(core, _, _)) =
+    core.submit_tree_edits_on(core, address, selector, [
+      types.SetField(["left", "1", "label"], types.StringValue("branch-B")),
+    ])
+  let #(_, before) = request(core, live.Read(document_b))
+  before
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "B"))),
+  )
+  let assert Ok(#(core, _, _)) =
+    core.submit_tree_edits(core, address, [
+      types.ArrayInsert(["left"], 0, [
+        identifier_fixture.point("new", "inserted"),
+      ]),
+    ])
+  let assert Ok(#(core, _)) =
+    core.rebase_tree_onto(core, address, selector, types.DocumentCheckout)
+  let #(core, response) = request_on(core, selector, live.Read(branch_b))
+  response
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "branch-B"))),
+  )
+  let assert Ok(#(core, _, _)) =
+    core.merge_tree(core, address, types.DocumentCheckout, selector, False)
+  let #(core, response) = request(core, live.Read(document_b))
+  response
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "branch-B"))),
+  )
+  let assert #(core, live.Done) =
+    request_on(
+      core,
+      selector,
+      live.PropertySet(
+        branch_b,
+        proof(identifier_fixture.point_type, "label"),
+        Some(types.StringValue("retained-B")),
+      ),
+    )
+  let assert Ok(#(core, _, _)) =
+    core.merge_tree(core, address, types.DocumentCheckout, selector, True)
+  let #(_, response) = request(core, live.Read(document_b))
+  response
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "retained-B"))),
+  )
+  dict.has_key(core.live_views, branch_view) |> expect.to_equal(False)
+  core.live_request(
+    core,
+    address,
+    selector,
+    identifier_fixture.full_view(),
+    live.Read(branch_b),
+  )
+  |> expect.to_equal(Error(live.DisposedCheckout))
+}
+
+pub fn live_core_remove_undo_reattaches_the_original_anchor_test() {
+  let #(core, _, left, saved) = acquire_b(initial())
+  let #(core, events, _) =
+    core.submit_tree_edits(core, address, [
+      types.ArrayRemove(["left"], 1, 2),
+    ])
+    |> expect.to_be_ok
+  let revision =
+    list.find_map(events, fn(event) {
+      case event.1 {
+        channel.TreeCommitApplied(revision, types.DefaultCommit, True, True) ->
+          Ok(revision)
+        _ -> Error(Nil)
+      }
+    })
+    |> expect.to_be_ok
+  let #(core, undo) =
+    core.retain_tree_revertible_on(
+      core,
+      address,
+      types.DocumentCheckout,
+      revision,
+      types.DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let #(core, status) = request(core, live.Status(saved))
+  status |> expect.to_equal(live.ReferenceState(live.Removed))
+  let #(core, _, _) =
+    core.revert_tree_on(core, address, types.DocumentCheckout, undo)
+    |> expect.to_be_ok
+  let assert #(core, live.Acquired(Some(reattached))) =
+    request(core, live.ArrayAcquire(left, 1))
+  reattached.anchor |> expect.to_equal(saved)
+  let #(_, response) = request(core, live.Read(saved))
+  response
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "B"))),
+  )
+}
+
+pub fn live_core_anchors_do_not_pin_detached_repair_data_test() {
+  let #(core, _, left, saved) = acquire_b(initial())
+  let #(core, _, outbounds) =
+    core.submit_tree_edits(core, address, [
+      types.ArrayRemove(["left"], 1, 2),
+    ])
+    |> expect.to_be_ok
+  let assert [removed] = outbounds
+  let #(core, _) =
+    core.handle_sequenced(core, sequenced(core, removed, 1))
+    |> expect.to_be_ok
+  let #(core, status) = request(core, live.Status(saved))
+  status |> expect.to_equal(live.ReferenceState(live.Removed))
+  let #(core, _, outbounds) =
+    core.submit_tree_edits(core, address, [
+      types.SetField(["child", "label"], types.StringValue("later")),
+    ])
+    |> expect.to_be_ok
+  let assert [later] = outbounds
+  let #(core, _) =
+    core.handle_sequenced(core, sequenced(core, later, 2))
+    |> expect.to_be_ok
+  let #(core, _, outbounds) =
+    core.submit_tree_edits(core, address, [
+      types.SetField(["child", "label"], types.StringValue("pruning")),
+    ])
+    |> expect.to_be_ok
+  let assert [pruning] = outbounds
+  let pruning =
+    document.SequencedDocumentMessage(
+      ..sequenced(core, pruning, 3),
+      minimum_sequence_number: 2,
+    )
+  let #(core, _) = core.handle_sequenced(core, pruning) |> expect.to_be_ok
+  let #(core, status) = request(core, live.Status(saved))
+  status |> expect.to_equal(live.ReferenceState(live.Deleted))
+  let assert #(core, live.Done) =
+    request(
+      core,
+      live.ArrayInsert(left, 1, [
+        identifier_fixture.point("duplicate", "B"),
+      ]),
+    )
+  let assert #(core, live.Acquired(Some(replacement))) =
+    request(core, live.ArrayAcquire(left, 1))
+  replacement.anchor |> expect.to_not_equal(saved)
+  let #(_, status) = request(core, live.Status(saved))
+  status |> expect.to_equal(live.ReferenceState(live.Deleted))
+}
+
+pub fn live_core_outer_abort_invalidates_committed_inner_preview_test() {
+  let #(core, _, left, existing) = acquire_b(initial())
+  let assert Ok(core) =
+    core.begin_tree_transaction(
+      core,
+      address,
+      identifier_fixture.full_view(),
+      [],
+    )
+  let assert Ok(core) =
+    core.begin_tree_transaction(
+      core,
+      address,
+      identifier_fixture.full_view(),
+      [],
+    )
+  let assert #(core, live.Done) =
+    request(
+      core,
+      live.ArrayInsert(left, 2, [identifier_fixture.point("inner", "inner")]),
+    )
+  let assert #(core, live.Acquired(Some(preview))) =
+    request(core, live.ArrayAcquire(left, 2))
+  let assert Ok(#(core, _, [])) = core.commit_tree_transaction(core, address)
+  let #(core, status) = request(core, live.Status(preview.anchor))
+  status |> expect.to_equal(live.ReferenceState(live.Attached))
+  let assert Ok(#(core, _)) = core.abort_tree_transaction(core, address)
+  let #(core, status) = request(core, live.Status(preview.anchor))
+  status |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  let #(_, response) = request(core, live.Read(existing))
+  response
+  |> expect.to_equal(
+    live.Snapshot(Some(identifier_fixture.point("duplicate", "B"))),
+  )
 }
