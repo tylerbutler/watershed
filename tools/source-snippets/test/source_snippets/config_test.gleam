@@ -13,6 +13,14 @@ import source_snippets/config.{
 // Valid config
 // ---------------------------------------------------------------------------
 
+pub fn decode_typescript_react_source_extension_test() {
+  let assert Ok(config) =
+    decode_config(
+      "{\"version\":1,\"sourceRoot\":\"..\",\"markerRoots\":[\"src\"],\"extensions\":[\".tsx\"],\"snippets\":[{\"id\":\"react-observe\",\"sourcePath\":\"src/app.tsx\",\"language\":\"typescript\",\"markers\":[\"react-observe\"]}]}",
+    )
+  config.extensions |> should.equal([".tsx"])
+}
+
 pub fn decode_minimal_valid_config_test() {
   let json =
     "{

@@ -1,0 +1,19 @@
+{
+  "name": "shared_tree_item_counter_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Fluid SharedTree item-counter example in Gleam and Lustre",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_item_counter_lustre/shared_tree_item_counter_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_item_counter_lustre.mjs",
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.14"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  },
+  "packageManager": "pnpm@11.13.1"
+}

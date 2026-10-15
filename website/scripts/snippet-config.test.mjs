@@ -249,7 +249,7 @@ for (const extension of config.extensions) {
 
     it(`git reports the tracked ${extension} sources`, () => {
       assert.ok(
-        tracked.length > 10,
+        tracked.length > 0,
         `only ${tracked.length} tracked ${extension} files — the scan is not finding the repository`,
       );
     });
@@ -370,7 +370,7 @@ describe("every tracked source is scanned or excluded on purpose", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Inventory by area — the 106-id two-way check, broken down
+// Inventory by area — the two-way check, broken down
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("inventory counts by area", () => {
@@ -398,8 +398,12 @@ describe("inventory counts by area", () => {
     assert.equal(count("mv-register-"), 3);
   });
 
-  it("total: 106 snippets", () => {
-    assert.equal(ids.length, 106);
+  it("native SharedTree item-counter comparison: 11 snippets", () => {
+    assert.equal(count("item-counter-"), 11);
+  });
+
+  it("total: 117 snippets", () => {
+    assert.equal(ids.length, 117);
   });
 });
 

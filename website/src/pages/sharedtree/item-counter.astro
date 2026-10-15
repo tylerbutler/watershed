@@ -1,0 +1,240 @@
+---
+import Ecosystem from "../../components/Ecosystem.astro";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import Sheet from "../../layouts/Sheet.astro";
+import { itemCounterRows, upstreamCommit } from "../../data/sharedtree-item-counter";
+
+const watershedSource =
+  "https://github.com/tylerbutler/watershed/tree/main/examples/shared_tree_item_counter_lustre";
+const fluidSource =
+  `https://github.com/microsoft/FluidExamples/tree/${upstreamCommit}/item-counter`;
+---
+
+<Sheet
+  title="watershed — Fluid SharedTree item-counter, side by side"
+  description="The Fluid website's string-array example, rebuilt with native SharedTree and Lustre. Compare real TypeScript and Gleam source for schemas, container setup, subscriptions, and edits."
+>
+  <header class="comparison-hero">
+    <div>
+      <p class="back-link"><a href="/sharedtree">Back to the SharedTree comparison</a></p>
+      <h1>One array.<br /><em>Two ways to work it.</em></h1>
+      <p class="lede">
+        Insert an entry. Remove the first. Watch the count change in another
+        tab. The Fluid website's{" "}
+        <a href="https://fluidframework.com/docs/start/examples">simple SharedTree example</a>{" "}
+        is small enough to put the whole idea on the table. Here's the same
+        behavior in watershed, with the source beside it.
+      </p>
+      <div class="source-links">
+        <a href={watershedSource}>Run the Gleam example</a>
+        <a href={fluidSource}>Open the original Fluid example</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    <div class="g-block introduction">
+      <h2>Native tree against native tree.</h2>
+      <p>
+        Both implementations store an array of strings and display its length.
+        Both insert an empty string at the start and leave an empty array alone
+        on Remove. The Fluid app uses React; this port uses Lustre. The UI
+        frameworks differ, but the shared data and actions don't.
+      </p>
+      <p>
+        This page compares watershed's <strong>native SharedTree API</strong>.
+        The <a href="/sharedtree">typed-map comparison</a> follows a different
+        design: a graph of channels with a decode boundary. If you'd rather
+        see a native tree running in the page, try the{" "}
+        <a href="/sharedtree/checklist">live checklist</a>.
+      </p>
+      <p class="provenance">
+        Fluid source is an MIT-licensed snapshot from{" "}
+        <a href={fluidSource}>commit <code>{upstreamCommit.slice(0, 12)}</code></a>.
+        The linked upstream package requests Fluid <code>^3.1.0</code>; that
+        isn't a claim that watershed implements that entire SDK release.
+        Both columns are extracted from checked-in source, not retyped for
+        this page.
+      </p>
+      <nav aria-label="Comparison sections">
+        {itemCounterRows.map(row => <a href={`#${row.id}`}>{row.id === "lifecycle" ? "Create and open" : row.id === "observe" ? "Read and subscribe" : row.id === "schema" ? "Schema" : "Edits"}</a>)}
+      </nav>
+    </div>
+
+    {itemCounterRows.map(row => (
+      <section class="g-block comparison-row" id={row.id} data-comparison-row={row.id} aria-labelledby={`${row.id}-title`}>
+        <h2 id={`${row.id}-title`}>{row.title}</h2>
+        <p>{row.explanation}</p>
+        <div class="comparison-pair">
+          <div class="comparison-column" data-comparison-column="fluid">
+            <h3>Fluid · TypeScript</h3>
+            {row.fluid.map(snippet => <SnippetBlock snippet={snippet} />)}
+          </div>
+          <div class="comparison-column" data-comparison-column="watershed">
+            <h3>watershed · Gleam</h3>
+            {row.watershed.map(snippet => <SnippetBlock snippet={snippet} />)}
+          </div>
+        </div>
+      </section>
+    ))}
+
+    <section class="g-block limits" aria-labelledby="limits-title">
+      <h2 id="limits-title">The same task isn't the same container.</h2>
+      <p>
+        Fluid's detached create, initialize, and attach sequence isn't a
+        one-for-one match for watershed's create-with-schema, connect, and
+        resolve-tree flow. The Gleam example uses its own schema namespace
+        and the native Floodgate container layout. These apps aren't presented
+        as opening each other's documents.
+      </p>
+      <p>
+        And despite the name, this isn't a numeric counter DDS. The displayed
+        number is the array's length. Two concurrent removals can target the
+        same entry, so two Remove clicks don't promise a global decrement of
+        two. What survives is decided by the array's merge rules.
+      </p>
+      <p>
+        The complete example includes setup, decoding, error handling, and
+        subscription cleanup that would distract from some of these excerpts.
+        It uses development-only browser token minting. Production
+        authentication belongs on a backend, not in a shipped tenant secret.
+      </p>
+    </section>
+
+    <section class="g-block run-guide" aria-labelledby="run-title">
+      <h2 id="run-title">Put it in two tabs.</h2>
+      <p>
+        Start Floodgate with <code>just integration-up</code>. In{" "}
+        <code>examples/shared_tree_item_counter_lustre</code>, run{" "}
+        <code>pnpm install</code>, <code>pnpm run build</code>, then{" "}
+        <code>pnpm run serve</code>. Open <code>http://127.0.0.1:8080</code>,
+        wait for a <code>document</code> parameter, and copy the full URL into
+        another tab.
+      </p>
+      <p>
+        Insert in either tab. Remove at zero. Reload after an edit reaches the
+        other tab. The{" "}
+        <a href={watershedSource}>README and complete Gleam source</a>{" "}
+        explain the development profile and browser gate. To run the Fluid
+        version, follow the{" "}
+        <a href={fluidSource}>original project's instructions</a>.
+      </p>
+    </section>
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<style>
+  .comparison-hero {
+    padding: clamp(3rem, 7vw, 6rem) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .comparison-hero > div {
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .back-link {
+    margin-bottom: var(--space-xl);
+    font-size: var(--text-sm);
+  }
+
+  h1 {
+    max-width: 20ch;
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    color: var(--overprint-deep);
+    font-style: normal;
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    max-width: 60ch;
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+  }
+
+  a {
+    color: var(--waterline);
+    text-underline-offset: 0.15em;
+  }
+
+  a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .source-links,
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md) var(--space-xl);
+    margin-top: var(--space-xl);
+  }
+
+  .doc-body {
+    max-width: 76rem;
+  }
+
+  .provenance {
+    font-size: var(--text-sm);
+  }
+
+  .comparison-row {
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--hairline);
+    scroll-margin-top: var(--space-xl);
+  }
+
+  .comparison-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-xl);
+  }
+
+  .comparison-column {
+    min-width: 0;
+  }
+
+  .comparison-column h3 {
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 1rem;
+  }
+
+  .comparison-column :global(.g-file) {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .comparison-column :global(.g-code pre:focus-visible) {
+    outline: 2px solid var(--overprint);
+    outline-offset: 3px;
+  }
+
+  .run-guide {
+    margin-bottom: var(--space-2xl);
+  }
+
+  @media (max-width: 60rem) {
+    .comparison-pair {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-lg);
+    }
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(2rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+    }
+  }
+</style>

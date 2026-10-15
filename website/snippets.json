@@ -10,7 +10,9 @@
   ],
   "extensions": [
     ".gleam",
-    ".mjs"
+    ".mjs",
+    ".ts",
+    ".tsx"
   ],
   "excludeDirs": [
     "build",
@@ -19,6 +21,73 @@
     "node_modules"
   ],
   "snippets": [
+    {
+      "id": "item-counter-fluid-schema",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/schema.ts",
+      "language": "typescript",
+      "markers": ["item-counter-fluid-schema-head", "item-counter-fluid-edits", "item-counter-fluid-schema-tail"],
+      "separator": "\n"
+    },
+    {
+      "id": "item-counter-fluid-edits",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/schema.ts",
+      "language": "typescript",
+      "markers": ["item-counter-fluid-edits"]
+    },
+    {
+      "id": "item-counter-fluid-container",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/infra/fluid.ts",
+      "language": "typescript",
+      "markers": ["item-counter-fluid-container-schema", "item-counter-fluid-container"]
+    },
+    {
+      "id": "item-counter-fluid-view",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/index.tsx",
+      "language": "typescript",
+      "markers": ["item-counter-fluid-view", "item-counter-fluid-attach"]
+    },
+    {
+      "id": "item-counter-fluid-observe",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/react_app.tsx",
+      "language": "typescript",
+      "markers": ["item-counter-fluid-observe"]
+    },
+    {
+      "id": "item-counter-watershed-schema",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre/schema.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-definition", "item-counter-watershed-schema"]
+    },
+    {
+      "id": "item-counter-watershed-edits",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre/counter.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-edits"]
+    },
+    {
+      "id": "item-counter-watershed-apply",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-apply"]
+    },
+    {
+      "id": "item-counter-watershed-create",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-create"]
+    },
+    {
+      "id": "item-counter-watershed-open",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-open"]
+    },
+    {
+      "id": "item-counter-watershed-observe",
+      "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre.gleam",
+      "language": "gleam",
+      "markers": ["item-counter-watershed-observe"]
+    },
     {
       "id": "mv-register-sequenced",
       "sourcePath": "tools/website-samples/src/website_samples/mv_register_sample.gleam",

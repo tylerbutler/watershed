@@ -98,7 +98,9 @@ had good output keeps it.
 
 - `sourceRoot` — path relative to the configuration file.
 - `markerRoots` — directories relative to `sourceRoot` to scan for markers.
-- `extensions` — file extensions to scan (e.g. `".gleam"`, `".mjs"`).
+- `extensions` — file extensions to scan: `".gleam"`, `".mjs"`, `".js"`,
+  `".ts"`, or `".tsx"`. TypeScript and TSX files are extracted as source text;
+  the generator does not compile them.
 - `excludeDirs` — directory *names* the scan skips at any depth. Optional;
   defaults to none. An entry with a path separator is rejected, because the
   scan compares each entry against a single directory name.

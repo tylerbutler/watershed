@@ -76,6 +76,16 @@ export const examples: Example[] = [
       "Held buttons in several tabs add every clap without a lost update, and no server ever sees one.",
   },
   {
+    id: "shared_tree_item_counter_lustre",
+    name: "SharedTree item counter",
+    group: "foundation",
+    summary:
+      "The Fluid website's string-array example, rebuilt with native SharedTree and Lustre.",
+    structures: ["SharedTree"],
+    payoff:
+      "Insert and remove array entries in two tabs, then compare the source with the original Fluid implementation.",
+  },
+  {
     id: "grocery_triptych_lustre",
     name: "Grocery triptych",
     group: "conflicts",

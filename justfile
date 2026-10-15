@@ -242,6 +242,10 @@ shared-tree-checklist:
     cd examples/shared_tree_checklist_lustre && corepack pnpm run build
     node examples/shared_tree_checklist_lustre/smoke/browser.mjs
 
+shared-tree-item-counter:
+    cd examples/shared_tree_item_counter_lustre && corepack pnpm run build
+    node examples/shared_tree_item_counter_lustre/smoke/browser.mjs
+
 # === INTEGRATION (live floodgate server) ===
 
 # Start a floodgate dev server in Docker, built from the levee repo's

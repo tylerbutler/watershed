@@ -311,7 +311,7 @@ fn validate_extensions(extensions: List(String)) -> Result(Nil, ConfigError) {
     _ ->
       list.try_each(extensions, fn(ext) {
         case ext {
-          ".gleam" | ".mjs" | ".ts" | ".js" -> Ok(Nil)
+          ".gleam" | ".mjs" | ".ts" | ".tsx" | ".js" -> Ok(Nil)
           other -> Error(UnsupportedExtension(other))
         }
       })

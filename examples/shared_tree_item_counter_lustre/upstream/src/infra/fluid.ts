@@ -1,0 +1,86 @@
+/*!
+ * Copyright (c) Microsoft Corporation and contributors. All rights reserved.
+ * Licensed under the MIT License.
+ */
+
+import type { AzureContainerServices, ITelemetryBaseLogger } from "@fluidframework/azure-client";
+import { AzureClient } from "@fluidframework/azure-client";
+import type { ContainerSchema, IFluidContainer } from "fluid-framework";
+import { SharedTree } from "fluid-framework";
+
+import { getClientProps } from "./clientProps.js";
+
+async function initializeClient(): Promise<{
+	client: AzureClient;
+	telemetryLogger: ITelemetryBaseLogger | undefined;
+}> {
+	// Initialize Devtools logger if in development mode
+	let telemetryLogger: ITelemetryBaseLogger | undefined;
+	if (process.env.NODE_ENV === "development") {
+		const { createDevtoolsLogger } = await import("@fluidframework/devtools/beta");
+		telemetryLogger = createDevtoolsLogger();
+	}
+
+	const clientProps = getClientProps(telemetryLogger);
+	const client = new AzureClient(clientProps);
+	return { client, telemetryLogger };
+}
+
+/**
+ * This function will create a container if no container ID is passed on the hash portion of the URL.
+ * If a container ID is provided, it will load the container.
+ *
+ * @returns The loaded container and container services.
+ */
+export async function loadFluidData<T extends ContainerSchema>(
+	containerId: string,
+	containerSchema: T,
+): Promise<{
+	services: AzureContainerServices;
+	container: IFluidContainer<T>;
+}> {
+	const minVersionForCollab = "2.0.0" as const;
+	const { client, telemetryLogger } = await initializeClient();
+
+	let container: IFluidContainer<T>;
+	let services: AzureContainerServices;
+
+// docs:snippet-start item-counter-fluid-container
+	// Get or create the document depending if we are running through the create new flow
+	if (containerId.length === 0) {
+		// The client will create a new detached container using the schema
+		// A detached container will enable the app to modify the container before attaching it to the client
+		({ container, services } = await client.createContainer(
+			containerSchema,
+			minVersionForCollab,
+		));
+	} else {
+		// Use the unique container ID to fetch the container created earlier. It will already be connected to the
+		// collaboration session.
+		({ container, services } = await client.getContainer(
+			containerId,
+			containerSchema,
+			minVersionForCollab,
+		));
+	}
+// docs:snippet-end item-counter-fluid-container
+
+	// Initialize Devtools
+	if (process.env.NODE_ENV === "development") {
+		const { initializeDevtools } = await import("@fluidframework/devtools/beta");
+		initializeDevtools({
+			initialContainers: [{ containerKey: "Item-Counter Container", container }],
+			logger: telemetryLogger,
+		});
+	}
+
+	return { services, container };
+}
+
+// docs:snippet-start item-counter-fluid-container-schema
+export const containerSchema = {
+	initialObjects: {
+		appData: SharedTree,
+	},
+} satisfies ContainerSchema;
+// docs:snippet-end item-counter-fluid-container-schema

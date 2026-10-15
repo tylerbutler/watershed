@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>watershed · SharedTree item counter</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; }
+      #app { max-width: 40rem; margin: 3rem auto; padding: 1rem; }
+      [data-count] { font-size: 4rem; font-variant-numeric: tabular-nums; }
+      [data-document-id] { overflow-wrap: anywhere; }
+      button { margin: 1rem 0.5rem 1rem 0; padding: 0.5rem 1rem; }
+      :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+      [data-error] { color: light-dark(#a51a32, #ff9fae); }
+      [data-development-auth] { max-width: 55ch; }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import { main } from "./dist/shared_tree_item_counter_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

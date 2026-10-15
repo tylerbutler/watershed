@@ -21,6 +21,7 @@ test("uses the shared browser test manifest", () => {
     "scripts/or-map-mv-register-demo.test.mjs",
     "scripts/runtime-demos.test.mjs",
     "scripts/shared-tree-checklist-demo.test.mjs",
+    "scripts/sharedtree-item-counter-page.test.mjs",
     "scripts/structure-runtime-contract.test.mjs",
   ]);
 });
