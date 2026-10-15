@@ -714,11 +714,19 @@ export async function startClient(target, descriptor, environment, options = {})
       disposeRevertible: (name, tree) => channel.disposeRevertible(name, tree),
       revert: (name, dispose, tree) => channel.revert(name, dispose, tree),
       async crash() {
+        const pid = child.pid;
         if (child.exitCode === null && child.signalCode === null) {
           const exited = once(child, "exit");
           child.kill("SIGKILL");
-          await exited;
+          const [exitCode, signal] = await exited;
+          return { pid, exitCode, signal, exited: true };
         }
+        return {
+          pid,
+          exitCode: child.exitCode,
+          signal: child.signalCode,
+          exited: true,
+        };
       },
       async close() {
         const cleanupErrors = [];

@@ -786,6 +786,7 @@ export class DeliveryGate {
     const captureStorage = method === "GET"
       && /\/git\/(?:commits|trees|blobs)\/[^/?]+/.test(path);
     const capturePublication = method === "POST" && /\/git\/(?:blobs|trees)\/?$/.test(path);
+    const captureDelta = method === "GET" && path.includes("/deltas/");
     const requestHash = createHash("sha256");
     const requestChunks = [];
     let requestBytes = 0;
@@ -870,6 +871,15 @@ export class DeliveryGate {
             const storageResponse = responseBytes === undefined
               ? undefined
               : storageResponseIdentity(path, responseBytes);
+            if (captureDelta && responseBytes !== undefined) {
+              try {
+                observation.responseEnvelopes = sequencedPayloads(
+                  JSON.parse(responseBytes.toString("utf8")),
+                );
+              } catch {
+                observation.responseEnvelopes = [];
+              }
+            }
             if (storageResponse !== undefined) {
               observation.storageResponse = storageResponse;
             }

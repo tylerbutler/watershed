@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   benchmarkFrameIds,
   median,
   validateBenchmarkReport,
+  validateCompressionFixtureResults,
   validateCompressionResults,
 } from "./compression-interop.mjs";
 
+const directory = dirname(fileURLToPath(import.meta.url));
+const repository = resolve(directory, "../..");
 const validatorRunId = "validator-only-run";
 const validatorProfileDigest = "a".repeat(64);
 const validatorProbeDigest = "b".repeat(64);
@@ -35,7 +41,9 @@ function syntheticPhysicalMessages(caseId, target) {
     compression: index === count - 1 ? "lz4" : null,
     metadata: { batch: index === count - 1 },
     contentsType: chunked ? "chunkedOp" : "groupedBatch",
-    payloadBytes: chunked ? 180_000 : 180_000,
+    wirePayloadBytes: chunked ? 180_100 : 180_100,
+    chunkPieceBytes: chunked ? 180_000 : null,
+    chunkPieceSha256: chunked ? `${index + 1}`.repeat(64).slice(0, 64) : null,
     chunkId: chunked ? index + 1 : null,
     totalChunks: chunked ? count : null,
     batchId: `${target}-${caseId}-batch`,
@@ -74,23 +82,49 @@ function syntheticCell(target, caseId) {
       },
       physicalMessages,
       byteSizes: {
-        sourceBytes: 900_000,
-        compressedBytes: caseId === "default-compressed" ? 180_000 : 540_000,
-        decodedBytes: 900_000,
-        highEntropyInputBytes: 900_000,
-        highEntropySha256: "e".repeat(64),
+        sourceUtf8Bytes: 900_000,
+        lz4FrameBytes: caseId === "default-compressed" ? 135_000 : 405_000,
+        packedContentsBase64Bytes:
+          caseId === "default-compressed" ? 180_000 : 540_000,
+        physicalWirePayloadBytes:
+          caseId === "default-compressed" ? 180_100 : 540_300,
+        decodedRuntimeBytes: 900_900,
+        decodedRuntimeSha256: "f".repeat(64),
+        sourceSha256: "e".repeat(64),
       },
       deliveredSequences: {
         held: caseId === "checkpoint-partial" ? sequences.slice(1) : [],
         delivered: caseId === "checkpoint-partial" ? sequences.slice(0, 1) : sequences,
         final: sequences.at(-1),
+        complete: caseId !== "checkpoint-partial",
       },
       pendingCounts: { before: 1, held: 1, after: 0 },
       commitCounts: {
         peerLogicalBatches: 1,
-        nativeSubmitted: 1,
-        nativeSettled: 1,
-        witnessObserved: 1,
+        peerTreeEvents: 1,
+        peerCommitEvents: 1,
+        peerRevisions: ["peer-edit"],
+        nativeSubmissionOccurrences: 1,
+        nativeLocalCommits: 1,
+        nativeSettlements: 1,
+        nativeActionId: `native-${target}-${caseId}`,
+        settledActionId: `native-${target}-${caseId}`,
+        nativeSubmissionIdentity: `submission-${target}-${caseId}`,
+        settledSubmissionIdentity: `submission-${target}-${caseId}`,
+        witnessCommitEvents: 1,
+      },
+      logicalBatch: {
+        baselineSequenceNumber: 99,
+        completedSequenceNumber: sequences.at(-1),
+        pendingPositionsAfter: 0,
+        prefixObservations: sequences.slice(0, -1).map((sequenceNumber) => ({
+          sequenceNumber,
+          treeSha256: "1".repeat(64),
+          events: 0,
+          commits: 0,
+        })),
+        baselineTreeSha256: "1".repeat(64),
+        completedTreeSha256: "2".repeat(64),
       },
       finalBatchIdentity: `${target}-${caseId}-batch`,
       gcRoutes: ["/", "/default"],
@@ -106,12 +140,21 @@ function syntheticCell(target, caseId) {
       bidirectionalEdits: {
         peerObservedByNative: true,
         nativeObservedByWitness: true,
+        nativeTreeMatchesUpstream: true,
+        witnessTreeMatchesNative: true,
       },
       history: {
         transport: "http-delta",
         requestedFrom: 81,
         requestedTo: 103,
         compressedSequences: sequences,
+        consumedThrough: sequences.at(-1),
+        requests: [{
+          method: "GET",
+          path: `/deltas/fluid/document?from=81&to=103`,
+          status: 200,
+          responseEnvelopes: sequences.map((sequenceNumber) => ({ sequenceNumber })),
+        }],
       },
       reconnect: {
         acknowledgementHeld: true,
@@ -119,31 +162,55 @@ function syntheticCell(target, caseId) {
         caughtUpThrough: 103,
         settledExactlyOnce: true,
         submissionOccurrences: 1,
+        pendingActionId: `native-${target}-${caseId}`,
+        settledActionId: `native-${target}-${caseId}`,
+        peerContentSha256: "e".repeat(64),
       },
       summary: {
         nativeHandle: "summary-validator",
+        snapshotSequenceNumber: sequences.at(-2),
         capabilityRetained: true,
         chunksPath: "/.chunks",
         chunkStreams: [{
           clientId: `upstream-${target}-${caseId}`,
-          pieces: ["prefix"],
+          pieceSha256: physicalMessages.slice(0, -1)
+            .map(({ chunkPieceSha256 }) => chunkPieceSha256),
         }],
+        publishedChunkStreams: [{
+          clientId: `upstream-${target}-${caseId}`,
+          pieceSha256: physicalMessages.slice(0, -1)
+            .map(({ chunkPieceSha256 }) => chunkPieceSha256),
+        }],
+        selectedPrefix: sequences.slice(0, -1),
+        heldFinal: sequences.at(-1),
+        consumedWatermark: sequences.at(-2),
         upstreamRead: true,
         nativeRead: true,
         tailConsumed: true,
         continuedEditing: true,
+        upstreamTreeSha256: "2".repeat(64),
+        nativeTreeSha256: "2".repeat(64),
       },
       checkpoint: {
         artifact: `${target}-${caseId}.checkpoint.json`,
         strictPrefix: sequences.slice(0, 1),
         heldSuffix: sequences.slice(1),
+        summarySequenceNumber: sequences[0],
+        consumedWatermark: sequences[0],
+        chunkStreams: [{
+          clientId: `upstream-${target}-${caseId}`,
+          pieceSha256: [physicalMessages[0].chunkPieceSha256],
+        }],
         prefixEndsBeforeFinalChunk: true,
         processSignal: "SIGKILL",
         processExited: true,
+        processPid: 12345,
+        processExitCode: null,
         restoredTarget: restoreTarget,
         tailConsumed: true,
         pendingSettled: true,
         continuedEditing: true,
+        restoredTreeSha256: "2".repeat(64),
       },
     },
   };
@@ -190,64 +257,93 @@ test("requires validated output and linear-enough target scaling", () => {
 });
 
 test("an empty or skipped matrix cannot pass", () => {
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     [], validatorRunId, validatorProfileDigest,
   ), /missing|twelve|12/i);
   const skipped = syntheticCompleteResults();
   skipped[0].skipped = true;
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     skipped, validatorRunId, validatorProfileDigest,
   ), /skipped/i);
 });
 
 test("accepts a complete explicitly synthetic validator-only matrix", () => {
   const results = syntheticCompleteResults();
-  assert.equal(validateCompressionResults(
+  assert.equal(validateCompressionFixtureResults(
     results, validatorRunId, validatorProfileDigest,
   ), results);
+  assert.throws(() => validateCompressionResults(
+    results, validatorRunId, validatorProfileDigest,
+  ), /artifactKind|live/i);
 });
 
 test("rejects missing and duplicate matrix cells", () => {
   const missing = syntheticCompleteResults();
   missing.pop();
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     missing, validatorRunId, validatorProfileDigest,
   ), /missing|twelve|12/i);
 
   const duplicate = syntheticCompleteResults();
   duplicate[11] = structuredClone(duplicate[0]);
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     duplicate, validatorRunId, validatorProfileDigest,
   ), /duplicate/i);
 });
 
-test("rejects stale run, profile, probe, source, and extension identities", () => {
+test("live validation binds identities to current verified inputs", () => {
+  const profileDigest = createHash("sha256").update(readFileSync(resolve(
+    repository, "test/fixtures/shared_tree/compression-profile.json",
+  ))).digest("hex");
+  const corpus = JSON.parse(readFileSync(resolve(
+    repository, "test/fixtures/shared_tree/compression.json",
+  )));
+  const current = {
+    probeDigest: corpus.probe.digest,
+    sourceDigest: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    extensionDigest: createHash("sha256").update(readFileSync(resolve(
+      repository, "test/fixtures/shared_tree/compression.json",
+    ))).digest("hex"),
+  };
   for (const [field, value] of [
     ["runId", "stale-run"],
     ["profileDigest", "1".repeat(64)],
-    ["probeDigest", "not-a-digest"],
-    ["sourceDigest", "not-a-revision"],
-    ["extensionDigest", "not-a-digest"],
+    ["probeDigest", "0".repeat(64)],
+    ["sourceDigest", "0".repeat(40)],
+    ["extensionDigest", "0".repeat(64)],
   ]) {
     const results = syntheticCompleteResults();
+    for (const result of results) {
+      result.artifactKind = "live";
+      result.profileDigest = profileDigest;
+      Object.assign(result, current);
+    }
     results[0][field] = value;
     assert.throws(() => validateCompressionResults(
-      results, validatorRunId, validatorProfileDigest,
+      results, validatorRunId, profileDigest,
     ), new RegExp(field, "i"));
   }
+});
+
+test("relabeling synthetic rows cannot pass live validation", () => {
+  const results = syntheticCompleteResults();
+  for (const result of results) result.artifactKind = "live";
+  assert.throws(() => validateCompressionResults(
+    results, validatorRunId, validatorProfileDigest,
+  ), /profileDigest|probeDigest|sourceDigest|extensionDigest|provenance/i);
 });
 
 test("rejects fake compressed and undersized chunk evidence", () => {
   const uncompressed = syntheticCompleteResults();
   uncompressed[0].evidence.physicalMessages[0].compression = null;
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     uncompressed, validatorRunId, validatorProfileDigest,
   ), /compression|lz4/i);
 
   const tooSmall = syntheticCompleteResults();
   const chunked = tooSmall.find(({ caseId }) => caseId === "default-chunked");
-  chunked.evidence.byteSizes.compressedBytes = 200_000;
-  assert.throws(() => validateCompressionResults(
+  chunked.evidence.byteSizes.lz4FrameBytes = 200_000;
+  assert.throws(() => validateCompressionFixtureResults(
     tooSmall, validatorRunId, validatorProfileDigest,
   ), /chunk|204800|compressed/i);
 
@@ -256,7 +352,7 @@ test("rejects fake compressed and undersized chunk evidence", () => {
   one.evidence.physicalMessages = one.evidence.physicalMessages.slice(-1);
   one.evidence.deliveredSequences.delivered =
     one.evidence.physicalMessages.map(({ sequenceNumber }) => sequenceNumber);
-  assert.throws(() => validateCompressionResults(
+  assert.throws(() => validateCompressionFixtureResults(
     onePhysical, validatorRunId, validatorProfileDigest,
   ), /physical|chunk/i);
 });
@@ -273,7 +369,7 @@ test("rejects missing case-specific HTTP, reconnect, witness, summary, and check
     const cell = results.find((entry) =>
       entry.target === "javascript" && entry.caseId === caseId);
     delete cell.evidence[field];
-    assert.throws(() => validateCompressionResults(
+    assert.throws(() => validateCompressionFixtureResults(
       results, validatorRunId, validatorProfileDigest,
     ), pattern);
   }
@@ -284,7 +380,8 @@ test("ties delivered sequences, bytes, chunk IDs, batches, and literal witness h
     (cell) => cell.evidence.deliveredSequences.final = 999,
     (cell) => cell.evidence.physicalMessages[1].chunkId = 3,
     (cell) => cell.evidence.physicalMessages[2].batchId = "different-batch",
-    (cell) => cell.evidence.byteSizes.compressedBytes = 700_000,
+    (cell) => cell.evidence.byteSizes.physicalWirePayloadBytes = 700_000,
+    (cell) => cell.evidence.byteSizes.decodedRuntimeBytes = 1,
     (cell) => cell.evidence.witnessContent.sha256 = "bad",
     (cell) => cell.evidence.commitCounts.peerLogicalBatches = 2,
   ]) {
@@ -292,8 +389,52 @@ test("ties delivered sequences, bytes, chunk IDs, batches, and literal witness h
     const cell = results.find(({ target, caseId }) =>
       target === "javascript" && caseId === "default-chunked");
     mutate(cell);
-    assert.throws(() => validateCompressionResults(
+    assert.throws(() => validateCompressionFixtureResults(
       results, validatorRunId, validatorProfileDigest,
     ), /sequence|chunk|batch|bytes|hash|logical/i);
+  }
+});
+
+test("rejects contradictory delivery, history, reconnect, summary, and checkpoint lifecycles", () => {
+  const mutations = [
+    ["default-chunked", (cell) => {
+      cell.evidence.deliveredSequences.delivered = [];
+      cell.evidence.deliveredSequences.held =
+        cell.evidence.physicalMessages.map(({ sequenceNumber }) => sequenceNumber);
+    }, /complete|delivered|held/i],
+    ["default-chunked", (cell) => {
+      cell.evidence.deliveredSequences.delivered.push(
+        cell.evidence.deliveredSequences.delivered[0],
+      );
+    }, /duplicate|partition/i],
+    ["history-catchup", (cell) => {
+      cell.evidence.history.requests = [];
+    }, /request|http/i],
+    ["history-catchup", (cell) => {
+      cell.evidence.history.requests[0].responseEnvelopes = [];
+    }, /response|sequence/i],
+    ["reconnect-pending", (cell) => {
+      cell.evidence.reconnect.caughtUpThrough =
+        cell.evidence.physicalMessages[0].sequenceNumber;
+    }, /catch-up|final/i],
+    ["summary-continuation", (cell) => {
+      cell.evidence.summary.chunkStreams[0].clientId = "unrelated-sender";
+    }, /sender|client/i],
+    ["summary-continuation", (cell) => {
+      cell.evidence.summary.publishedChunkStreams[0].pieceSha256 = ["0".repeat(64)];
+    }, /published|piece|prefix/i],
+    ["checkpoint-partial", (cell) => {
+      cell.evidence.checkpoint.summarySequenceNumber =
+        cell.evidence.checkpoint.strictPrefix[0] - 1;
+    }, /summary|prefix|watermark/i],
+  ];
+  for (const [caseId, mutate, pattern] of mutations) {
+    const results = syntheticCompleteResults();
+    const cell = results.find(({ target, caseId: current }) =>
+      target === "javascript" && current === caseId);
+    mutate(cell);
+    assert.throws(() => validateCompressionFixtureResults(
+      results, validatorRunId, validatorProfileDigest,
+    ), pattern);
   }
 });

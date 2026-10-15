@@ -769,6 +769,37 @@ test("review follow-up captures storage bytes without snapshot metadata", async 
   });
 });
 
+test("records successful HTTP delta response envelopes", async (t) => {
+  const messages = [10, 11].map((sequenceNumber) => ({
+    sequenceNumber,
+    clientSequenceNumber: sequenceNumber - 8,
+    referenceSequenceNumber: 9,
+    clientId: "peer",
+    type: "op",
+    contents: { value: sequenceNumber },
+  }));
+  const upstream = await service(Buffer.from(JSON.stringify({ messages })));
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  t.after(async () => {
+    await gate.close();
+    await upstream.close();
+  });
+  const response = await fetch(
+    `http://127.0.0.1:${gate.port}/deltas/fluid/document?from=10&to=12`,
+  );
+  assert.deepEqual(await response.json(), { messages });
+  assert.deepEqual(gate.evidence().http[0].responseEnvelopes,
+    messages.map(({ sequenceNumber, clientSequenceNumber,
+      referenceSequenceNumber, clientId, type, contents }) => ({
+      sequenceNumber,
+      clientSequenceNumber,
+      referenceSequenceNumber,
+      clientId,
+      type,
+      contents,
+    })));
+});
+
 test("summary load evidence identifies only protocol attribute responses", async (t) => {
   const attributes = {
     minimumSequenceNumber: 3,
