@@ -867,6 +867,16 @@ pub fn reference_at(
   tree_kernel.reference_at(checkout, path)
 }
 
+pub fn path_of_reference(
+  state: Forest,
+  checkout: Checkout,
+  reference: forest.NodeRef,
+) -> Result(FieldPath, TreeError) {
+  use selector <- result.try(validate_checkout(state, checkout))
+  use checkout <- result.try(state_for_selector(state, selector))
+  tree_kernel.path_of_reference(checkout, reference)
+}
+
 pub fn visible_data(
   state: Forest,
   checkout: Checkout,

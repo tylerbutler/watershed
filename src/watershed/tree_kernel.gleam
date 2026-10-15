@@ -261,6 +261,17 @@ pub fn reference_path(
   forest.attached_path(state.visible, reference)
 }
 
+pub fn path_of_reference(
+  state: TreeState,
+  reference: forest.NodeRef,
+) -> Result(FieldPath, TreeError) {
+  reference_path(state, reference)
+}
+
+pub fn visible_forest(state: TreeState) -> forest.Forest {
+  state.visible
+}
+
 pub fn array_references(
   state: TreeState,
   reference: forest.NodeRef,

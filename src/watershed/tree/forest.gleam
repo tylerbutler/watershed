@@ -39,6 +39,13 @@ pub opaque type NodeRef {
   NodeRef(view_id: StableId, node_id: Int)
 }
 
+pub type NodeStatus {
+  AttachedNode
+  RemovedNode
+  DeletedNode
+  ForeignNode
+}
+
 pub opaque type Forest {
   Forest(
     view_id: StableId,
@@ -1627,6 +1634,13 @@ pub fn attached_path(
   }
 }
 
+pub fn path_of_reference(
+  state: Forest,
+  reference: NodeRef,
+) -> Result(FieldPath, TreeError) {
+  attached_path(state, reference)
+}
+
 /// Return the current direct children of an attached array node.
 pub fn array_references(
   state: Forest,
@@ -1656,6 +1670,24 @@ pub fn is_attached(state: Forest, node: NodeRef) -> Result(Bool, TreeError) {
     }),
   )
   Ok(set.contains(visited, id))
+}
+
+/// Inspect node lifetime without interpreting an error message.
+pub fn reference_status(
+  state: Forest,
+  node: NodeRef,
+) -> Result(NodeStatus, TreeError) {
+  case node.view_id == state.view_id, dict.has_key(state.nodes, node.node_id) {
+    False, _ -> Ok(ForeignNode)
+    True, False -> Ok(DeletedNode)
+    True, True -> {
+      use attached <- result.try(is_attached(state, node))
+      Ok(case attached {
+        True -> AttachedNode
+        False -> RemovedNode
+      })
+    }
+  }
 }
 
 fn find_attached_path(
