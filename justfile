@@ -116,6 +116,24 @@ _test-compile-fail:
         'SharedTree(Item, ItemState)' \
         'The old raw tree edit surface is available again.'
     done
+    for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root; do
+      out=$(cd "tools/compile-fail/$fixture" && gleam build --target javascript 2>&1)
+      if [ $? -eq 0 ]; then
+        echo "FAIL: $fixture compiled. Typed tree authoring accepted an invalid value."
+        exit 1
+      fi
+      case "$fixture" in
+        incompatible_tree_property) expected='fn(Note) -> String'; found='fn(Note) -> Int' ;;
+        incompatible_tree_constructor) expected='builder.Property(Note, Int)'; found='builder.Property(Note, String)' ;;
+        incompatible_tree_root) expected='    String'; found='    Int' ;;
+      esac
+      if ! grep -q 'error: Type mismatch' <<<"$out" || ! grep -Fq "$expected" <<<"$out" || ! grep -Fq "$found" <<<"$out"; then
+        echo "FAIL: $fixture failed without its expected type diagnostic:"
+        echo "$out"
+        exit 1
+      fi
+      echo "ok  $fixture is rejected for its intended type mismatch"
+    done
 
 # Build the source-backed snippets, then run every registered website test.
 # The Node registry covers the snippet drift gates and component contracts;

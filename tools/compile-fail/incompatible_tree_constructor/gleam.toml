@@ -1,0 +1,9 @@
+name = "incompatible_tree_constructor"
+version = "1.0.0"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+watershed = { path = "../../.." }
