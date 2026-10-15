@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import * as source from "./source.mjs";
 import {
@@ -10,6 +10,8 @@ import {
   arraySupportInjectedPath,
   branchInjectedTestPath,
   branchSourceIdentity,
+  compressionInjectedTestPath,
+  compressionSourceIdentity,
   forestInjectedTestPath,
   historyInjectedTestPath,
   identifierInjectedTestPath,
@@ -28,7 +30,9 @@ import {
 } from "./source.mjs";
 
 async function temporaryDirectory(t) {
-  const directory = await mkdtemp(join(tmpdir(), "watershed-tree-oracle-"));
+  const base = join(dirname(fileURLToPath(import.meta.url)), ".output/test-");
+  await mkdir(dirname(base), { recursive: true });
+  const directory = await mkdtemp(base);
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -60,6 +64,10 @@ async function checkoutFixture(t) {
   git(directory, "init", "--quiet");
   await writeJson(join(directory, "packages/dds/tree/package.json"), {
     name: "@fluidframework/tree",
+    version: reference.version,
+  });
+  await writeJson(join(directory, "packages/runtime/container-runtime/package.json"), {
+    name: "@fluidframework/container-runtime",
     version: reference.version,
   });
   git(directory, "add", ".");
@@ -247,6 +255,34 @@ test("source runner registers the pinned lifecycle injection identity", () => {
   });
   assert.match(lifecycleSourceIdentity.digest, /^[0-9a-f]{64}$/);
   assert.equal(typeof source.runLifecycleSource, "function");
+});
+
+test("source runner registers the pinned compression injection identity", () => {
+  assert.equal(
+    compressionInjectedTestPath,
+    "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
+  );
+  assert.deepEqual(compressionSourceIdentity, {
+    path: compressionInjectedTestPath,
+    version: "3.1.0",
+    commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    digest: compressionSourceIdentity.digest,
+  });
+  assert.match(compressionSourceIdentity.digest, /^[0-9a-f]{64}$/);
+  assert.equal(typeof source.runCompressionSource, "function");
+});
+
+test("source verification byte-checks the owned compression injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, compressionInjectedTestPath);
+  const contents = await readFile(
+    new URL("./upstream-compression.spec.ts", import.meta.url),
+  );
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
 });
 
 test("source runner declares the owned Identifier injection", () => {

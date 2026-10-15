@@ -1,0 +1,57 @@
+{
+  "corpus": {
+    "path": "compression.json",
+    "sha256": "c869377dfaa5b10963e47853de27b27ce153ed6c2609eef642d530808fb3e887"
+  },
+  "defaults": {
+    "chunkSizeInBytes": 204800,
+    "compressionAlgorithm": "lz4",
+    "minimumBatchSizeInBytes": 614400
+  },
+  "exclusions": [
+    "native outbound compression or chunking",
+    "unmarked packed contents",
+    "compression algorithms other than lz4",
+    "legacy multi-message compressed arrays",
+    "missing partial chunk prefixes",
+    "nested compression",
+    "incremental FieldBatch",
+    "incremental summary writing",
+    "GC sweep",
+    "arbitrary factories",
+    "public tree API changes"
+  ],
+  "formatVersion": 1,
+  "legacyProfile": {
+    "path": "profile.json",
+    "sha256": "29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de"
+  },
+  "limits": {
+    "maxBufferedBytes": 16777216,
+    "maxChunks": 128,
+    "maxDecodedBytes": 16777216,
+    "maxPackedBytes": 16777216,
+    "maxStreams": 64
+  },
+  "name": "Fluid 3.1.0 SharedTree inbound compression extension",
+  "probe": {
+    "path": "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
+    "sha256": "9a6c7b0a7d879187f73afd2bfdaf13d3f180cd2bbec584a5a2b8e7d2b7e47296"
+  },
+  "supportedForms": [
+    "plain singleton runtime message",
+    "plain grouped runtime batch",
+    "lz4 compressed singleton runtime message",
+    "lz4 compressed grouped runtime batch",
+    "per-sender chunked lz4 runtime message",
+    "empty final chunk",
+    "empty grouped batch",
+    "partial /.chunks summary continuation",
+    "runtime schema compression activation"
+  ],
+  "upstream": {
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    "package": "@fluidframework/container-runtime",
+    "version": "3.1.0"
+  }
+}

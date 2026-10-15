@@ -25,6 +25,7 @@ const identifierSource = join(directory, "upstream-identifier.spec.ts");
 const undoRedoSource = join(directory, "upstream-undo-redo.spec.ts");
 const branchSource = join(directory, "upstream-branch.spec.ts");
 const lifecycleSource = join(directory, "upstream-lifecycle.spec.ts");
+const compressionSource = join(directory, "upstream-compression.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -68,6 +69,8 @@ export const branchInjectedTestPath =
   "packages/dds/tree/src/test/watershedBranch.spec.ts";
 export const lifecycleInjectedTestPath =
   "packages/dds/tree/src/test/watershedLifecycle.spec.ts";
+export const compressionInjectedTestPath =
+  "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts";
 export const branchSourceIdentity = {
   path: branchInjectedTestPath,
   version: reference.version,
@@ -79,6 +82,12 @@ export const lifecycleSourceIdentity = {
   version: reference.version,
   commit: reference.commit,
   digest: createHash("sha256").update(await readFile(lifecycleSource)).digest("hex"),
+};
+export const compressionSourceIdentity = {
+  path: compressionInjectedTestPath,
+  version: reference.version,
+  commit: reference.commit,
+  digest: createHash("sha256").update(await readFile(compressionSource)).digest("hex"),
 };
 const injections = new Map([
   [injectedTestPath, oracleSource],
@@ -98,6 +107,7 @@ const injections = new Map([
   [undoRedoInjectedTestPath, undoRedoSource],
   [branchInjectedTestPath, branchSource],
   [lifecycleInjectedTestPath, lifecycleSource],
+  [compressionInjectedTestPath, compressionSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -165,6 +175,15 @@ export async function verifyCheckout(root = checkout, expectedCommit = reference
   );
   if (manifest.name !== "@fluidframework/tree" || manifest.version !== reference.version) {
     throw new Error(`Reference source is not @fluidframework/tree@${reference.version}`);
+  }
+  const runtimeManifest = JSON.parse(
+    await readFile(join(root, "packages/runtime/container-runtime/package.json"), "utf8"),
+  );
+  if (runtimeManifest.name !== "@fluidframework/container-runtime"
+    || runtimeManifest.version !== reference.version) {
+    throw new Error(
+      `Reference source is not @fluidframework/container-runtime@${reference.version}`,
+    );
   }
   return { commit, version: manifest.version };
 }
@@ -350,6 +369,26 @@ export async function runLifecycleSource(output) {
   await verifyCheckout();
 }
 
+export async function runCompressionSource(output) {
+  await verifyPackages();
+  await injectSource();
+  const runtime = join(checkout, "packages/runtime/container-runtime");
+  await pnpm(["run", "build:compile"], runtime);
+  await pnpm(["run", "build:test:esm"], runtime);
+  await mkdir(output, { recursive: true });
+  await pnpm([
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "lib/test/watershedCompression.spec.js",
+  ], runtime, {
+    ...process.env,
+    WATERSHED_COMPRESSION_OUTPUT: resolve(output),
+    WATERSHED_ORACLE_COMMIT: reference.commit,
+    WATERSHED_COMPRESSION_DIGEST: compressionSourceIdentity.digest,
+  }, 90_000);
+  await verifyCheckout();
+}
+
 export async function captureSource(output) {
   await publishCapture(output, (temporary) => runSource(temporary));
 }
@@ -398,6 +437,12 @@ async function main() {
       }
       await runLifecycleSource(resolve(input));
       break;
+    case "compression-capture":
+      if (input === undefined) {
+        throw new Error("Usage: node source.mjs compression-capture <output-directory>");
+      }
+      await runCompressionSource(resolve(input));
+      break;
     case "codec-consume":
       if (input === undefined || output === undefined) {
         throw new Error("Usage: node source.mjs codec-consume <input-file> <output-directory>");
@@ -408,6 +453,7 @@ async function main() {
       throw new Error(
         "Usage: node source.mjs prepare|verify|inject|generate [output-directory]"
           + "|lifecycle-capture <output-directory>"
+          + "|compression-capture <output-directory>"
           + "|codec-consume <input-file> <output-directory>",
       );
   }
