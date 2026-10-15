@@ -1,10 +1,14 @@
+import gleam/bit_array
 import gleam/dynamic/decode
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 
+import watershed/tree/compression_fixture
 import watershed/wire
+import watershed/wire/lz4
 import watershed/wire/socket
 
 fn physical_message(compression: String) -> String {
@@ -22,6 +26,18 @@ fn physical_message(compression: String) -> String {
     \"data\":\"physical-data\",
     \"compression\":" <> compression <> "
   }"
+}
+
+fn frame_from_hex(encoded: String) -> BitArray {
+  let assert Ok(frame) = bit_array.base16_decode(encoded)
+  frame
+}
+
+fn replace_byte(frame: BitArray, offset: Int, byte: Int) -> BitArray {
+  let assert Ok(before) = bit_array.slice(frame, 0, offset)
+  let assert Ok(after) =
+    bit_array.slice(frame, offset + 1, bit_array.byte_size(frame) - offset - 1)
+  bit_array.concat([before, <<byte>>, after])
 }
 
 pub fn sequenced_envelope_preserves_physical_fields_test() -> Nil {
@@ -122,4 +138,156 @@ pub fn strict_plain_decoders_still_refuse_compression_test() -> Nil {
     )
     |> expect.to_be_error()
   Nil
+}
+
+pub fn shared_tree_compression_lz4_matches_upstream_test() -> Nil {
+  let assert Ok(#(compressed, decoded)) =
+    compression_fixture.frame("overlapping-match")
+  lz4.decompress(compressed, 16 * 1024 * 1024)
+  |> expect.to_equal(Ok(decoded))
+}
+
+pub fn shared_tree_compression_lz4_enforces_output_limit_test() -> Nil {
+  let assert Ok(#(compressed, decoded)) =
+    compression_fixture.frame("overlapping-match")
+  lz4.decompress(compressed, bit_array.byte_size(decoded) - 1)
+  |> expect.to_equal(Error(lz4.OutputLimitExceeded))
+}
+
+pub fn shared_tree_compression_lz4_accepts_exact_output_limit_test() -> Nil {
+  let assert Ok(#(compressed, decoded)) =
+    compression_fixture.frame("overlapping-match")
+  lz4.decompress(compressed, bit_array.byte_size(decoded))
+  |> expect.to_equal(Ok(decoded))
+}
+
+fn expect_captured_frame(id: String) -> Nil {
+  let assert Ok(#(compressed, decoded)) = compression_fixture.frame(id)
+  lz4.decompress(compressed, 16 * 1024 * 1024)
+  |> expect.to_equal(Ok(decoded))
+}
+
+pub fn shared_tree_compression_lz4_matches_literal_frame_test() -> Nil {
+  expect_captured_frame("literal-block")
+}
+
+pub fn shared_tree_compression_lz4_matches_multi_block_frame_test() -> Nil {
+  expect_captured_frame("multi-block-match")
+}
+
+pub fn shared_tree_compression_lz4_matches_utf8_frame_test() -> Nil {
+  expect_captured_frame("utf8")
+}
+
+pub fn shared_tree_compression_lz4_accepts_empty_frame_test() -> Nil {
+  frame_from_hex("04224d1860408200000000")
+  |> lz4.decompress(0)
+  |> expect.to_equal(Ok(<<>>))
+}
+
+pub fn shared_tree_compression_lz4_validates_optional_fields_test() -> Nil {
+  frame_from_hex(
+    "04224d187c4003000000000000007403000080616263ff53d13200000000ff53d132",
+  )
+  |> lz4.decompress(3)
+  |> expect.to_equal(Ok(<<"abc">>))
+}
+
+pub fn shared_tree_compression_lz4_supports_linked_block_history_test() -> Nil {
+  frame_from_hex("04224d184040c00400008061626364040000000404000000000000")
+  |> lz4.decompress(12)
+  |> expect.to_equal(Ok(<<"abcdabcdabcd">>))
+}
+
+pub fn shared_tree_compression_lz4_resets_independent_block_history_test() -> Nil {
+  frame_from_hex("04224d186040820400008061626364040000000404000000000000")
+  |> lz4.decompress(12)
+  |> expect.to_equal(Error(lz4.InvalidMatch))
+}
+
+pub fn shared_tree_compression_lz4_rejects_truncated_input_test() -> Nil {
+  [
+    <<>>,
+    <<4, 34, 77, 24>>,
+    frame_from_hex("04224d186040"),
+    frame_from_hex("04224d186040820300008061"),
+    frame_from_hex("04224d1860408201000000f000000000"),
+  ]
+  |> list.each(fn(frame) {
+    let _ = lz4.decompress(frame, 1024) |> expect.to_be_error()
+  })
+}
+
+pub fn shared_tree_compression_lz4_rejects_invalid_offsets_test() -> Nil {
+  frame_from_hex("04224d18604082040000001061000000000000")
+  |> lz4.decompress(1024)
+  |> expect.to_equal(Error(lz4.InvalidMatch))
+  frame_from_hex("04224d18604082040000001061020000000000")
+  |> lz4.decompress(1024)
+  |> expect.to_equal(Error(lz4.InvalidMatch))
+}
+
+pub fn shared_tree_compression_lz4_rejects_flags_and_dictionary_test() -> Nil {
+  let empty = frame_from_hex("04224d1860408200000000")
+  replace_byte(empty, 4, 0x42)
+  |> lz4.decompress(1024)
+  |> expect.to_equal(Error(lz4.InvalidFrame))
+  replace_byte(empty, 5, 0x30)
+  |> lz4.decompress(1024)
+  |> expect.to_equal(Error(lz4.InvalidFrame))
+  replace_byte(empty, 4, 0x61)
+  |> lz4.decompress(1024)
+  |> expect.to_equal(Error(lz4.UnsupportedFrameFeature("dictionary id")))
+}
+
+pub fn shared_tree_compression_lz4_rejects_bad_checksums_test() -> Nil {
+  let checked =
+    frame_from_hex(
+      "04224d187c4003000000000000007403000080616263ff53d13200000000ff53d132",
+    )
+  replace_byte(checked, 14, 0)
+  |> lz4.decompress(3)
+  |> expect.to_equal(Error(lz4.InvalidChecksum))
+  replace_byte(checked, 22, 0)
+  |> lz4.decompress(3)
+  |> expect.to_equal(Error(lz4.InvalidChecksum))
+  replace_byte(checked, 30, 0)
+  |> lz4.decompress(3)
+  |> expect.to_equal(Error(lz4.InvalidChecksum))
+}
+
+pub fn shared_tree_compression_lz4_rejects_invalid_sizes_test() -> Nil {
+  frame_from_hex("04224d1868400400000000000000cd0300008061626300000000")
+  |> lz4.decompress(4)
+  |> expect.to_equal(Error(lz4.InvalidFrame))
+  frame_from_hex(
+    "04224d187c4003000000000000007403000080616263ff53d13200000000ff53d132",
+  )
+  |> lz4.decompress(2)
+  |> expect.to_equal(Error(lz4.OutputLimitExceeded))
+  replace_byte(
+    frame_from_hex(
+      "04224d187c4003000000000000007403000080616263ff53d13200000000ff53d132",
+    ),
+    10,
+    1,
+  )
+  |> lz4.decompress(16 * 1024 * 1024)
+  |> expect.to_equal(Error(lz4.OutputLimitExceeded))
+  frame_from_hex("04224d186040820000008000000000")
+  |> lz4.decompress(0)
+  |> expect.to_equal(Error(lz4.InvalidFrame))
+}
+
+pub fn shared_tree_compression_lz4_checks_limit_before_literal_slice_test() -> Nil {
+  frame_from_hex("04224d1860408202000000f00a00000000")
+  |> lz4.decompress(0)
+  |> expect.to_equal(Error(lz4.OutputLimitExceeded))
+}
+
+pub fn shared_tree_compression_lz4_rejects_trailing_input_test() -> Nil {
+  let empty = frame_from_hex("04224d1860408200000000")
+  bit_array.append(empty, <<0>>)
+  |> lz4.decompress(0)
+  |> expect.to_equal(Error(lz4.InvalidFrame))
 }
