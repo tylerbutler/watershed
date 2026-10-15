@@ -27,6 +27,22 @@ test("split and coalesced replies retain request correlation", async (t) => {
   assert.equal((await second).requestId, 2);
 });
 
+test("checkpoint replies can carry a large decoded tree", async (t) => {
+  const process = child(`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString());
+      process.stdout.write(JSON.stringify({
+        requestId: request.requestId,
+        ok: true,
+        result: { content: "x".repeat(2 * 1024 * 1024) },
+      }) + "\\n");
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.equal((await channel.checkpoint()).content.length, 2 * 1024 * 1024);
+});
+
 test("map helpers send exact commands and return decoded results", async (t) => {
   const process = child(`
     const expected = [

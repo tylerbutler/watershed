@@ -851,6 +851,43 @@ test("review follow-up retains held upstream commits without inventing sends", {
   });
 });
 
+test("openSession scopes real default compression without changing legacy callers", {
+  timeout: 60_000,
+}, async () => {
+  await withLocalFloodgate(async (config) => {
+    const containers = [];
+    try {
+      const legacy = await openSession(config, containers);
+      assert.deepEqual(legacy.effectiveRuntimeOptions.compression, {
+        mode: "legacy-disabled",
+        minimumBatchSizeInBytes: Infinity,
+        chunkSizeInBytes: 204800,
+        compressionAlgorithm: "lz4",
+      });
+      const defaults = await openSession(
+        config,
+        containers,
+        legacy.container.resolvedUrl.id,
+        false,
+        { runtimeOptionMode: "default-compression" },
+      );
+      assert.deepEqual(defaults.effectiveRuntimeOptions.compression, {
+        mode: "default-compression",
+        minimumBatchSizeInBytes: 614400,
+        chunkSizeInBytes: 204800,
+        compressionAlgorithm: "lz4",
+      });
+      assert.deepEqual(
+        defaults.effectiveRuntimeOptions.summaryOptions,
+        legacy.effectiveRuntimeOptions.summaryOptions,
+      );
+      assert.equal(defaults.effectiveRuntimeOptions.enableRuntimeIdCompressor, "on");
+    } finally {
+      cleanupOwned(containers);
+    }
+  });
+});
+
 test("upstream adapter owns local forks and publishes only merged edits", {
   timeout: 60_000,
 }, async () => {

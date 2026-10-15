@@ -9,7 +9,7 @@ const WebSocket = require("ws");
 const WebSocketServer = WebSocket.WebSocketServer ?? WebSocket.Server;
 
 const directions = new Set(["inbound", "outbound"]);
-const kinds = new Set(["op", "summarize", "summary-load"]);
+const kinds = new Set(["connect", "op", "summarize", "summary-load"]);
 const maxMessageBytes = 1024 * 1024;
 const maxHeldBytes = 8 * 1024 * 1024;
 const maxHeldItems = 128;
@@ -90,7 +90,19 @@ function inspectPayload(bytes) {
   const event = short
     ? value[0]
     : (typeof value[3] === "string" ? value[3] : undefined);
-  if (event !== "op" && event !== "submitOp") return undefined;
+  if (event !== "op" && event !== "submitOp") {
+    const handshake = inspectHandshake(bytes);
+    if (!handshake) return undefined;
+    return {
+      kind: "connect",
+      topic: typeof value[2] === "string" ? value[2] : undefined,
+      event,
+      sequenceNumbers: handshake.initialMessageSequenceNumbers,
+      ...(handshake.initialMessages === undefined ? {} : {
+        sequencedMessages: handshake.initialMessages,
+      }),
+    };
+  }
   const sequenceNumbers = [];
   let summarize = false;
   const pending = [short ? value.slice(1) : value[4]];
@@ -430,6 +442,7 @@ export class DeliveryGate {
     order = "fifo",
     duplicate = false,
     beforeDuplicate,
+    messageIds,
   } = {}) {
     this.#validateDirection(direction);
     assert(["fifo", "reverse"].includes(order), `Unknown release order: ${order}`);
@@ -437,21 +450,37 @@ export class DeliveryGate {
       "beforeDuplicate must be a function");
     assert(beforeDuplicate === undefined || duplicate,
       "beforeDuplicate requires duplicate delivery");
+    assert(messageIds === undefined
+      || (Array.isArray(messageIds)
+        && messageIds.length > 0
+        && new Set(messageIds).size === messageIds.length
+        && messageIds.every(Number.isSafeInteger)),
+    "messageIds must contain unique integer frame IDs");
     if (this.#closed) throw new Error("Delivery gate is closed");
     if (this.#dropped[direction]) {
       this.#dropped[direction] = false;
       throw new Error(`Held ${direction} deliveries were dropped while disconnected`);
     }
-    this.#holds[direction].clear();
-    const queued = this.#queues[direction];
-    this.#queues[direction] = [];
-    this.#heldBytes[direction] = 0;
+    const selectedIds = messageIds === undefined ? undefined : new Set(messageIds);
+    const queued = selectedIds === undefined
+      ? this.#queues[direction]
+      : this.#queues[direction].filter(({ identity }) => selectedIds.has(identity.id));
+    if (selectedIds !== undefined && queued.length !== selectedIds.size) {
+      throw new Error(`Selected ${direction} release includes an unknown frame`);
+    }
+    this.#queues[direction] = selectedIds === undefined
+      ? []
+      : this.#queues[direction].filter(({ identity }) => !selectedIds.has(identity.id));
+    this.#heldBytes[direction] = this.#queues[direction]
+      .reduce((total, item) => total + item.bytes.length, 0);
+    if (selectedIds === undefined) this.#holds[direction].clear();
     this.#evidence.controls.push({
       action: "release",
       direction,
       order,
       duplicate,
       messageIds: queued.map(({ identity }) => identity.id),
+      remainingMessageIds: this.#queues[direction].map(({ identity }) => identity.id),
     });
     for (const item of queued) clearTimeout(item.timer);
     if (order === "reverse") queued.reverse();
@@ -465,7 +494,11 @@ export class DeliveryGate {
   }
 
   evidence() {
-    return structuredClone(this.#evidence);
+    return structuredClone({
+      ...this.#evidence,
+      currentlyHeld: [...directions].flatMap((direction) =>
+        this.#queues[direction].map(({ identity }) => identity)),
+    });
   }
 
   async disconnect() {

@@ -4594,7 +4594,10 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
 }
 
 export async function nativeAdapter(
-  target, config, descriptor, token, { createClient = startClient } = {},
+  target, config, descriptor, token, {
+    createClient = startClient,
+    configureGate,
+  } = {},
 ) {
   const client = await createClient(
     target,
@@ -4602,7 +4605,11 @@ export async function nativeAdapter(
     { socketUrl: config.socketUrl, token },
     {
       gateFactory: (host, port) =>
-        DeliveryGate.open(host, port, { documentId: descriptor.documentId }),
+        DeliveryGate.open(host, port, { documentId: descriptor.documentId })
+          .then(async (gate) => {
+            await configureGate?.(gate);
+            return gate;
+          }),
     },
   );
   const clientIds = new Set();

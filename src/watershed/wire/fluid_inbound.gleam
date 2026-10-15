@@ -160,16 +160,20 @@ fn step_operation(
   state: State,
   envelope: wire.SequencedEnvelope,
 ) -> Result(Step, Error) {
-  case decode.run(envelope.message.contents, message_type_decoder()) {
-    Ok("chunkedOp") -> step_chunk(state, envelope)
-    Ok(_) | Error(_) ->
-      step_complete(state, envelope, envelope.message.contents)
+  case container_dynamic(envelope.message.contents) {
+    Ok(contents) ->
+      case decode.run(contents, message_type_decoder()) {
+        Ok("chunkedOp") -> step_chunk(state, envelope, contents)
+        Ok(_) | Error(_) -> step_complete(state, envelope, contents)
+      }
+    Error(_) -> step_complete(state, envelope, envelope.message.contents)
   }
 }
 
 fn step_chunk(
   state: State,
   envelope: wire.SequencedEnvelope,
+  contents: Dynamic,
 ) -> Result(Step, Error) {
   use _ <- result.try(case envelope.compression {
     None -> Ok(Nil)
@@ -180,7 +184,7 @@ fn step_chunk(
     _ -> Error(InvalidChunk("chunk stream has no sender"))
   })
   use chunk <- result.try(
-    decode.run(envelope.message.contents, chunk_decoder())
+    decode.run(contents, chunk_decoder())
     |> result.map_error(fn(_) { InvalidChunk("invalid chunk message") }),
   )
   use _ <- result.try(check_chunk_count(state.limits, chunk.total))
@@ -297,15 +301,21 @@ fn step_complete(
   envelope: wire.SequencedEnvelope,
   contents: Dynamic,
 ) -> Result(Step, Error) {
+  use decoded_contents <- result.try(
+    container_dynamic(contents)
+    |> result.map_error(fn(_) {
+      InvalidPackedPayload("operation contents are not JSON")
+    }),
+  )
   use json_contents <- result.try(
-    socket.container_contents(contents)
+    socket.container_contents(decoded_contents)
     |> result.map_error(fn(_) {
       InvalidPackedPayload("operation contents are not JSON")
     }),
   )
   case envelope.compression {
     None -> {
-      use _ <- result.try(case has_packed_contents(contents) {
+      use _ <- result.try(case has_packed_contents(decoded_contents) {
         True ->
           Error(InvalidPackedPayload(
             "packed contents require a compression marker",
@@ -321,7 +331,7 @@ fn step_complete(
         string.byte_size(packed_text),
       ))
       use packed <- result.try(
-        decode.run(contents, packed_decoder())
+        decode.run(decoded_contents, packed_decoder())
         |> result.map_error(fn(_) {
           InvalidPackedPayload("compressed operation has no packed contents")
         }),
@@ -377,6 +387,14 @@ fn step_complete(
       finish(state, representative, logical, logical_json)
     }
     Some(format) -> Error(UnsupportedCompression(format))
+  }
+}
+
+fn container_dynamic(contents: Dynamic) -> Result(Dynamic, Nil) {
+  case decode.run(contents, decode.string) {
+    Ok(raw) ->
+      json.parse(raw, decode.dynamic) |> result.map_error(fn(_) { Nil })
+    Error(_) -> Ok(contents)
   }
 }
 

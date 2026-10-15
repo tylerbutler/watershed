@@ -77,6 +77,26 @@ export const summarizerRuntimeOptions = {
     },
   },
 };
+const defaultCompressionSettings = {
+  minimumBatchSizeInBytes: 614400,
+  chunkSizeInBytes: 204800,
+  compressionAlgorithm: "lz4",
+};
+
+function selectedRuntimeOptions(summarizing, mode) {
+  const legacy = summarizing ? summarizerRuntimeOptions : runtimeOptions;
+  if (mode === "legacy-disabled") return legacy;
+  assert.equal(mode, "default-compression", `Unknown runtime option mode: ${mode}`);
+  const { compressionOptions: _disabledCompression, ...defaults } = legacy;
+  return {
+    ...defaults,
+    compressionOptions: {
+      minimumBatchSizeInBytes: defaultCompressionSettings.minimumBatchSizeInBytes,
+      compressionAlgorithm: defaultCompressionSettings.compressionAlgorithm,
+    },
+    chunkSizeInBytes: defaultCompressionSettings.chunkSizeInBytes,
+  };
+}
 
 export const transactionSupportedFeatures = [
   "synchronous-single-tree-transactions",
@@ -639,6 +659,7 @@ export async function openSession(
     codeDetails = { package: "watershed-tree-oracle" },
     observeCreateContainer = false,
     observeStorage = false,
+    runtimeOptionMode = "legacy-disabled",
     store = serviceStore,
   } = options;
   assert(typeof cache === "boolean", "openSession cache must be a boolean");
@@ -646,7 +667,10 @@ export async function openSession(
   assert(typeof observeCreateContainer === "boolean",
     "openSession observeCreateContainer must be a boolean");
   assert(typeof observeStorage === "boolean", "openSession observeStorage must be a boolean");
+  assert(["legacy-disabled", "default-compression"].includes(runtimeOptionMode),
+    "openSession runtimeOptionMode must select legacy or default compression");
   assert(typeof store?.type === "string", "openSession store must be a data store");
+  const selectedOptions = selectedRuntimeOptions(summarizing, runtimeOptionMode);
   let runtime;
   const storageObservations = [];
   const transportEvidence = { connections: [], outboundOccurrences: [] };
@@ -673,7 +697,7 @@ export async function openSession(
         provideEntryPoint: parameters.provideEntryPoint,
         existing: parameters.existing,
         oldestSupportedClient: parameters.minVersionForCollab,
-        runtimeOptions: summarizing ? summarizerRuntimeOptions : runtimeOptions,
+        runtimeOptions: selectedOptions,
       });
       runtime = loaded.runtime;
       if (!parameters.existing) {
@@ -727,6 +751,22 @@ export async function openSession(
       : undefined,
     documentServiceFactory,
     storageObservations,
+    effectiveRuntimeOptions: {
+      enableRuntimeIdCompressor: selectedOptions.enableRuntimeIdCompressor,
+      summaryOptions: structuredClone(selectedOptions.summaryOptions),
+      compression: {
+        mode: runtimeOptionMode,
+        ...(runtimeOptionMode === "default-compression"
+          ? defaultCompressionSettings
+          : {
+              minimumBatchSizeInBytes:
+                selectedOptions.compressionOptions.minimumBatchSizeInBytes,
+              chunkSizeInBytes: defaultCompressionSettings.chunkSizeInBytes,
+              compressionAlgorithm:
+                selectedOptions.compressionOptions.compressionAlgorithm,
+            }),
+      },
+    },
     transportEvidence: () => structuredClone(transportEvidence),
   };
 }

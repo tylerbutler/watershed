@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { constants, inflateRawSync } from "node:zlib";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const nativeReplyLineLimit = 32 * 1024 * 1024;
 
 export class JsonLinesChannel {
   #child;
@@ -82,12 +83,12 @@ export class JsonLinesChannel {
   #receive(chunk) {
     if (this.#failure) return;
     this.#buffer += chunk;
-    if (this.#buffer.length > 1024 * 1024) {
-      this.#abort(new Error("Native client reply exceeds the line limit"));
-      return;
-    }
     let end;
     while ((end = this.#buffer.indexOf("\n")) >= 0) {
+      if (end > nativeReplyLineLimit) {
+        this.#abort(new Error("Native client reply exceeds the line limit"));
+        return;
+      }
       const line = this.#buffer.slice(0, end);
       this.#buffer = this.#buffer.slice(end + 1);
       let reply;
@@ -108,6 +109,9 @@ export class JsonLinesChannel {
       this.#pending.delete(id);
       this.#completed.add(id);
       entry.resolve(reply);
+    }
+    if (this.#buffer.length > nativeReplyLineLimit) {
+      this.#abort(new Error("Native client reply exceeds the line limit"));
     }
   }
 

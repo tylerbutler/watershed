@@ -98,6 +98,19 @@ fn compressed_operation(packed: String) -> wire.SequencedEnvelope {
   )
 }
 
+fn string_encode_contents(
+  envelope: wire.SequencedEnvelope,
+) -> wire.SequencedEnvelope {
+  let raw = json.to_string(wire.dynamic_to_json(envelope.message.contents))
+  wire.SequencedEnvelope(
+    SequencedDocumentMessage(
+      ..envelope.message,
+      contents: dynamic_json(json.to_string(json.string(raw))),
+    ),
+    envelope.compression,
+  )
+}
+
 fn chunk_from(
   source: wire.SequencedEnvelope,
   id: Int,
@@ -595,6 +608,30 @@ pub fn shared_tree_compression_completes_real_default_unchunked_streams_test() -
       )
     fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
   })
+}
+
+pub fn shared_tree_compression_accepts_service_string_encoded_packed_contents_test() -> Nil {
+  let id = "default-compressed-singleton"
+  let assert Ok([envelope]) = compression_fixture.envelopes(id)
+  let final_state =
+    expect_captured_completion(
+      id,
+      [string_encode_contents(envelope)],
+      fluid_inbound.new(fluid_inbound.default_limits()),
+    )
+  fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
+}
+
+pub fn shared_tree_compression_accepts_service_string_encoded_chunks_test() -> Nil {
+  let id = "default-chunked-group"
+  let assert Ok(envelopes) = compression_fixture.envelopes(id)
+  let final_state =
+    expect_captured_completion(
+      id,
+      list.map(envelopes, string_encode_contents),
+      fluid_inbound.new(fluid_inbound.default_limits()),
+    )
+  fluid_inbound.partial_chunks(final_state) |> expect.to_equal([])
 }
 
 pub fn shared_tree_compression_resumes_real_upstream_prefix_and_tail_test() -> Nil {

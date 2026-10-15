@@ -289,6 +289,53 @@ test("requestOps forwards unchanged and records only sanitized repair evidence",
   assert(!JSON.stringify(gate.evidence()).includes("must-not-be-recorded"));
 });
 
+test("connect injection can omit initial messages to exercise HTTP repair", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port, {
+    documentId: "owned",
+  });
+  const socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  gate.inject({
+    documentId: "owned",
+    mutation: "omit-initial-messages",
+    expectedStage: "history-catchup",
+    direction: "inbound",
+    kind: "connect",
+    transform(payload) {
+      payload[4].initialMessages = [];
+      return payload;
+    },
+  });
+  await until(() => upstream.connections() === 1, "Gate did not connect upstream");
+  const received = collect(socket, 1);
+  upstream.broadcast(JSON.stringify([
+    "1", null, "document:fluid:owned", "connect_document_success",
+    {
+      clientId: "reader",
+      checkpointSequenceNumber: 12,
+      summaryContext: { sequenceNumber: 8 },
+      initialMessages: [{
+        clientId: "writer",
+        clientSequenceNumber: 1,
+        referenceSequenceNumber: 8,
+        sequenceNumber: 9,
+        type: "op",
+        contents: {},
+      }],
+    },
+  ]));
+  const [message] = (await received).map(JSON.parse);
+  assert.deepEqual(message[4].initialMessages, []);
+  const evidence = gate.evidence();
+  assert.deepEqual(evidence.handshakes[0].initialMessageSequenceNumbers, [9]);
+  assert.equal(evidence.injections[0].kind, "connect");
+});
+
 test("duplicate release callback runs after originals and before the duplicate", async (t) => {
   const upstream = await service();
   const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
@@ -327,6 +374,42 @@ test("duplicate release callback runs after originals and before the duplicate",
   assert.deepEqual(
     upstream.received.map((payload) => payload.toString()),
     [payloads[0], payloads[1], payloads[1]],
+  );
+});
+
+test("selected release delivers complete operation frames and retains the exact held suffix", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  const socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  gate.hold("outbound", "op");
+  for (const sequenceNumber of [60, 61, 62]) {
+    socket.send(JSON.stringify([
+      "1", "2", "document:test", "op",
+      [{ sequenceNumber, clientSequenceNumber: sequenceNumber - 59,
+        referenceSequenceNumber: 59, clientId: "writer", type: "op" }],
+    ]));
+  }
+  await until(() => gate.evidence().held.length === 3,
+    "Gate did not hold the operation frames");
+  const held = gate.evidence().held;
+  await gate.release("outbound", { messageIds: held.slice(0, 2).map(({ id }) => id) });
+  assert.deepEqual(
+    gate.evidence().delivered.map(({ sequenceNumbers }) => sequenceNumbers),
+    [[60], [61]],
+  );
+  assert.deepEqual(
+    gate.evidence().currentlyHeld.map(({ sequenceNumbers }) => sequenceNumbers),
+    [[62]],
+  );
+  await gate.release("outbound");
+  assert.deepEqual(
+    gate.evidence().delivered.map(({ sequenceNumbers }) => sequenceNumbers),
+    [[60], [61], [62]],
   );
 });
 
