@@ -16,6 +16,8 @@ import watershed/tree/types.{
   type TreeCommitKind, type TreeError, type TreeValue,
 }
 
+const max_safe_integer = 9_007_199_254_740_991
+
 pub opaque type TreeSnapshot {
   TreeSnapshot(
     stored: schema.StoredSchema,
@@ -31,6 +33,18 @@ pub opaque type TreeState {
     sequenced: forest.Forest,
     history: history.History,
     local_session: fluid_ids.SessionId,
+    local_authoring_schemas: List(#(fluid_ids.StableId, schema.SchemaState)),
+    next_local_id: Int,
+    retained_wire: summary_codec.EditManagerSummary,
+  )
+}
+
+pub type RecoveryState {
+  RecoveryState(
+    stored: schema.StoredSchema,
+    visible: forest.ForestData,
+    sequenced: forest.ForestData,
+    history: history.RecoveryHistory,
     local_authoring_schemas: List(#(fluid_ids.StableId, schema.SchemaState)),
     next_local_id: Int,
     retained_wire: summary_codec.EditManagerSummary,
@@ -115,6 +129,77 @@ pub fn restore_unviewed(
     [],
     0,
     snapshot.retained_wire,
+  ))
+}
+
+pub fn capture_recovery(state: TreeState) -> Result(RecoveryState, TreeError) {
+  use visible <- result.try(forest.export_data(state.visible))
+  use sequenced <- result.try(forest.export_data(state.sequenced))
+  use branch_history <- result.try(history.recovery_snapshot(state.history))
+  Ok(RecoveryState(
+    forest.stored_schema(state.visible),
+    visible,
+    sequenced,
+    branch_history,
+    state.local_authoring_schemas,
+    state.next_local_id,
+    state.retained_wire,
+  ))
+}
+
+pub fn restore_recovery(
+  data: RecoveryState,
+  view_id: fluid_ids.StableId,
+) -> Result(TreeState, TreeError) {
+  use _ <- result.try(
+    case data.next_local_id >= 0 && data.next_local_id <= max_safe_integer {
+      True -> Ok(Nil)
+      False ->
+        Error(types.InvalidHistory("recovery local allocation is invalid"))
+    },
+  )
+  use branch_history <- result.try(history.restore_recovery(data.history))
+  use visible <- result.try(forest.import_data(
+    view_id,
+    data.stored,
+    data.visible,
+  ))
+  use sequenced <- result.try(forest.import_data(
+    view_id,
+    data.stored,
+    data.sequenced,
+  ))
+  let pending_revisions =
+    history.pending(branch_history)
+    |> list.map(fn(commit) { commit.revision })
+  use _ <- result.try(
+    case
+      list.length(data.local_authoring_schemas)
+      == list.length(pending_revisions)
+      && list.all(pending_revisions, fn(revision) {
+        list.length(
+          list.filter(data.local_authoring_schemas, fn(entry) {
+            entry.0 == revision
+          }),
+        )
+        == 1
+      })
+    {
+      True -> Ok(Nil)
+      False ->
+        Error(types.InvalidHistory(
+          "recovery authoring schemas do not match pending commits",
+        ))
+    },
+  )
+  Ok(TreeState(
+    visible,
+    sequenced,
+    branch_history,
+    history.local_session(branch_history),
+    data.local_authoring_schemas,
+    data.next_local_id,
+    data.retained_wire,
   ))
 }
 

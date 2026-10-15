@@ -1075,13 +1075,14 @@ function probeObservation(stdout) {
   return JSON.parse(line.slice(prefix.length));
 }
 
-async function runCreatorProbe(target, {
+export async function runCreatorProbe(target, {
   baseUrl,
   tenant,
   token,
   schema,
   root,
   expected,
+  layout,
 }) {
   const env = {
     ...process.env,
@@ -1091,6 +1092,7 @@ async function runCreatorProbe(target, {
     WATERSHED_TREE_CREATION_SCHEMA: schema,
     WATERSHED_TREE_CREATION_ROOT: JSON.stringify(root),
     WATERSHED_TREE_CREATION_EXPECT: expected,
+    ...(layout === undefined ? {} : { WATERSHED_TREE_CREATION_LAYOUT: layout }),
   };
   let result;
   if (target === "javascript") {

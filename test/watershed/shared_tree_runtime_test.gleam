@@ -8,6 +8,7 @@ import gleam/string
 import spillway/types
 import startest/expect
 import watershed/channel
+import watershed/container
 
 import watershed/fluid_ids
 import watershed/handle
@@ -27,6 +28,7 @@ import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 import watershed/wire/op as wire_op
 import watershed/wire/socket
 
@@ -2185,13 +2187,290 @@ pub fn shared_tree_runtime_alias_cannot_hide_datastore_identity_test() -> Nil {
   )
   |> expect.to_be_error()
   let core = core_from(input)
-  runtime_core.handle_sequenced(
-    core,
-    batch_message([fluid_container.DatastoreAlias("B", "A")]),
+  let assert Ok(#(next, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      batch_message([fluid_container.DatastoreAlias("B", "A")]),
+    )
+  runtime_core.resolve_handle_address(next, handle.encode_handle("A/root"))
+  |> expect.to_equal(Ok("A/root"))
+  dict.has_key(next.routing.aliases, "A") |> expect.to_be_false()
+  next.last_seen_sequence_number |> expect.to_equal(1)
+  Nil
+}
+
+pub fn shared_tree_runtime_alias_race_preserves_first_sequenced_claim_test() {
+  let assert Ok(#(next, _)) =
+    runtime_core.handle_sequenced(
+      core_from(seed_input()),
+      batch_message([
+        fluid_container.DatastoreAlias("A", "chosen"),
+        fluid_container.DatastoreAlias("B", "chosen"),
+      ]),
+    )
+  runtime_core.resolve_handle_address(next, handle.encode_handle("chosen/root"))
+  |> expect.to_equal(Ok("A/root"))
+}
+
+pub fn shared_tree_runtime_unknown_alias_target_does_not_poison_replay_test() {
+  let assert Ok(#(next, _)) =
+    runtime_core.handle_sequenced(
+      core_from(seed_input()),
+      batch_message([
+        fluid_container.DatastoreAlias("missing", "chosen"),
+        fluid_container.DatastoreAlias("B", "chosen"),
+      ]),
+    )
+  runtime_core.resolve_handle_address(next, handle.encode_handle("chosen/root"))
+  |> expect.to_equal(Ok("B/root"))
+  Nil
+}
+
+pub fn shared_tree_runtime_alias_claim_publishes_its_datastore_graph_test() {
+  let initial = map_core()
+  let core =
+    runtime_core.create_detached_data_store(initial, "B") |> expect.to_be_ok()
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "B/root", "value", json.string("published"))
+  let assert Ok(#(queued, [outbound], None)) =
+    runtime_core.try_set_alias(core, "B", "public")
+  dict.get(queued.bindings, "A/root")
+  |> expect.to_equal(dict.get(initial.bindings, "A/root"))
+  runtime_core.resolve_handle_address(
+    queued,
+    handle.encode_handle("public/root"),
   )
   |> expect.to_be_error()
-  runtime_core.resolve_handle_address(core, handle.encode_handle("A/root"))
-  |> expect.to_equal(Ok("A/root"))
+  let batch =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> expect.to_be_ok()
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), _, _),
+    fluid_container.ContainerMessage(
+      fluid_container.DatastoreAttach("B", _),
+      _,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.DatastoreAlias("B", "public"),
+      _,
+      _,
+    ),
+  ] = batch.messages
+  let message = map_message(queued, outbound, 1)
+  let assert Ok(#(acked, ingested)) =
+    runtime_core.handle_sequenced(queued, message)
+  ingested.runtime_events
+  |> expect.to_equal([
+    runtime_core.AliasSettled("B", "public", container.AliasSuccess),
+  ])
+  acked.in_flight |> expect.to_equal([])
+  let peer = map_core_for("peer", "40000000-0000-4000-8000-000000000004")
+  let assert Ok(#(peer, _)) = runtime_core.handle_sequenced(peer, message)
+  runtime_core.resolve_handle_address(peer, handle.encode_handle("public/root"))
+  |> expect.to_equal(Ok("B/root"))
+  runtime_core.get(peer, "B/root", "value")
+  |> expect.to_equal(Ok(json.string("published")))
+  let assert Ok(#(_, [], Some(container.AliasSuccess))) =
+    runtime_core.try_set_alias(acked, "B", "public")
+  let assert Ok(#(_, [], Some(container.AlreadyAliased))) =
+    runtime_core.try_set_alias(acked, "B", "different")
+  Nil
+}
+
+pub fn shared_tree_runtime_alias_claim_reports_its_own_race_outcome_test() {
+  let first =
+    runtime_core.create_detached_data_store(map_core(), "B")
+    |> expect.to_be_ok()
+  let second =
+    map_core_for("peer", "40000000-0000-4000-8000-000000000004")
+    |> runtime_core.create_detached_data_store("C")
+    |> expect.to_be_ok()
+  let assert Ok(#(first, [first_op], None)) =
+    runtime_core.try_set_alias(first, "B", "public")
+  let assert Ok(#(second, [second_op], None)) =
+    runtime_core.try_set_alias(second, "C", "public")
+  let first_message = map_message(first, first_op, 1)
+  let assert Ok(#(second, _)) =
+    runtime_core.handle_sequenced(second, first_message)
+  let assert Ok(#(second, ingested)) =
+    runtime_core.handle_sequenced(second, map_message(second, second_op, 2))
+  ingested.runtime_events
+  |> expect.to_equal([
+    runtime_core.AliasSettled("C", "public", container.AliasConflict),
+  ])
+  runtime_core.resolve_handle_address(
+    second,
+    handle.encode_handle("public/root"),
+  )
+  |> expect.to_equal(Ok("B/root"))
+  second.in_flight |> expect.to_equal([])
+  let assert Ok(#(_, [_], None)) =
+    runtime_core.try_set_alias(second, "C", "retry")
+  Nil
+}
+
+pub fn shared_tree_runtime_pending_alias_calls_share_one_submission_test() {
+  let initial =
+    runtime_core.create_detached_data_store(map_core(), "B")
+    |> expect.to_be_ok()
+  let assert Ok(#(queued, [_], None)) =
+    runtime_core.try_set_alias(initial, "B", "public")
+  let assert Ok(#(same, [], None)) =
+    runtime_core.try_set_alias(queued, "B", "public")
+  same |> expect.to_equal(queued)
+  let other =
+    runtime_core.create_detached_data_store(queued, "C")
+    |> expect.to_be_ok()
+  let assert Ok(#(refused, [], Some(container.AliasConflict))) =
+    runtime_core.try_set_alias(other, "C", "public")
+  refused |> expect.to_equal(other)
+}
+
+pub fn shared_tree_runtime_alias_rejects_invalid_names_before_publication_test() {
+  let core =
+    runtime_core.create_detached_data_store(map_core(), "B")
+    |> expect.to_be_ok()
+  list.each(["", "bad/name"], fn(alias) {
+    runtime_core.try_set_alias(core, "B", alias) |> expect.to_be_error()
+  })
+  runtime_core.try_set_alias(core, "missing", "public") |> expect.to_be_error()
+  core.in_flight |> expect.to_equal([])
+  dict.has_key(core.local_datastores, "B") |> expect.to_be_true()
+}
+
+pub fn shared_tree_runtime_alias_reconnect_waits_for_old_session_close_test() {
+  let core =
+    runtime_core.create_detached_data_store(map_core(), "B")
+    |> expect.to_be_ok()
+  let assert Ok(#(pending, [outbound], None)) =
+    runtime_core.try_set_alias(core, "B", "public")
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected("fresh", [], 0),
+    )
+    |> expect.to_be_ok()
+  let assert Ok(#(joined, _)) =
+    runtime_core.handle_sequenced(
+      rejoined,
+      types.SequencedDocumentMessage(
+        ..batch_message([]),
+        message_type: "join",
+        sequence_number: 1,
+        data: Some("{\"clientId\":\"fresh\",\"detail\":{}}"),
+      ),
+    )
+  runtime_core.reconnect_ready(joined, 1) |> expect.to_be_false()
+  let assert Ok(#(acked, receipt)) =
+    runtime_core.handle_sequenced(joined, map_message(pending, outbound, 2))
+  receipt.runtime_events
+  |> expect.to_equal([
+    runtime_core.AliasSettled("B", "public", container.AliasSuccess),
+  ])
+  runtime_core.reconnect_ready(acked, 1) |> expect.to_be_false()
+  let assert Ok(#(closed, _)) =
+    runtime_core.handle_sequenced(
+      acked,
+      types.SequencedDocumentMessage(
+        ..batch_message([]),
+        message_type: "leave",
+        sequence_number: 3,
+        data: Some(json.to_string(json.string(pending.client_id))),
+      ),
+    )
+  runtime_core.reconnect_ready(closed, 1) |> expect.to_be_true()
+  let assert Ok(#(_, [])) = runtime_core.resubmit(runtime_core.go_live(closed))
+  Nil
+}
+
+pub fn shared_tree_runtime_alias_summary_marks_target_as_root_test() {
+  let summary =
+    fluid_document.initial_tree(
+      identifier_fixture.full_stored(),
+      Some(
+        identifier_fixture.full_root(
+          identifier_fixture.point("child", "child"),
+          [],
+          [],
+          [],
+        ),
+      ),
+      fluid_ids.session_id(peer_session) |> expect.to_be_ok(),
+      fluid_ids.stable_id("90000000-0000-4000-8000-000000000009")
+        |> expect.to_be_ok(),
+    )
+    |> expect.to_be_ok()
+  let assert runtime_core.Complete(core) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("reader", [], 0),
+      summary,
+    )
+    |> expect.to_be_ok()
+  let core =
+    runtime_core.create_detached_data_store(core, "B")
+    |> expect.to_be_ok()
+  let assert Ok(#(pending, [outbound], None)) =
+    runtime_core.try_set_alias(core, "B", "public")
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(pending, map_message(pending, outbound, 1))
+  let captured = runtime_core.capture_summary(core) |> expect.to_be_ok()
+  fluid_document.aliases(captured)
+  |> expect.to_equal([#("root", "A"), #("public", "B")])
+  let store =
+    fluid_document.datastores(captured)
+    |> list.find(fn(store) { store.id == "B" })
+    |> expect.to_be_ok()
+  json.parse(
+    json.to_string(store.component),
+    decode.at(["isRootDataStore"], decode.bool),
+  )
+  |> expect.to_equal(Ok(True))
+}
+
+pub fn shared_tree_runtime_alias_only_claim_and_failed_retry_resubmit_test() {
+  let _ =
+    list.fold(
+      [#("root", container.AliasConflict), #("public", container.AliasSuccess)],
+      map_core(),
+      fn(core, attempt) {
+        let #(alias, outcome) = attempt
+        let assert Ok(#(pending, [_], None)) =
+          runtime_core.try_set_alias(core, "A", alias)
+        let rejoined =
+          runtime_core.adopt_reconnect(
+            pending,
+            runtime_fixture.connected(
+              "fresh-" <> alias,
+              [],
+              pending.last_seen_sequence_number,
+            ),
+          )
+          |> expect.to_be_ok()
+          |> runtime_core.go_live()
+        let assert Ok(#(restamped, [outbound])) =
+          runtime_core.resubmit(rejoined)
+        let batch =
+          fluid_container.decode(outbound.contents, outbound.metadata)
+          |> expect.to_be_ok()
+        batch.grouped |> expect.to_be_false()
+        list.map(batch.messages, fn(message) { message.kind })
+        |> expect.to_equal([fluid_container.DatastoreAlias("A", alias)])
+        let assert Ok(#(acked, receipt)) =
+          runtime_core.handle_sequenced(
+            restamped,
+            map_message(
+              restamped,
+              outbound,
+              restamped.last_seen_sequence_number + 1,
+            ),
+          )
+        receipt.runtime_events
+        |> expect.to_equal([runtime_core.AliasSettled("A", alias, outcome)])
+        acked.in_flight |> expect.to_equal([])
+        acked
+      },
+    )
   Nil
 }
 

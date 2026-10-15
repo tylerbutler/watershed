@@ -25,6 +25,8 @@ import startest/expect
 @target(erlang)
 import watershed/channel
 @target(erlang)
+import watershed/container
+@target(erlang)
 import watershed/fluid_ids
 @target(erlang)
 import watershed/handle
@@ -334,6 +336,145 @@ pub fn beam_branch_actor_fork_edit_isolation_test() {
   runtime_beam.tree_read_view_on(actor, "A/_C", selector, view, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
   process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn datastore_alias_claim_waits_for_ack_and_aborts_on_close_test() {
+  let submissions = process.new_subject()
+  let #(actor, callbacks, _) =
+    ready_tree_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> process.send(submissions, payload)
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let store = runtime_beam.create_data_store(actor) |> expect.to_be_ok()
+  let outcomes = process.new_subject()
+  let _ =
+    process.spawn_unlinked(fn() {
+      process.send(outcomes, runtime_beam.try_set_alias(actor, store, "public"))
+    })
+  let payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(outcomes, 0) |> expect.to_equal(Error(Nil))
+  let dynamic =
+    json.parse(json.to_string(payload), decode.dynamic) |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("reader"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: submitted.client_sequence_number,
+        reference_sequence_number: submitted.reference_sequence_number,
+        operation_type: "op",
+        contents: submitted.contents,
+        metadata: submitted.metadata,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  process.receive(outcomes, 1000)
+  |> expect.to_equal(Ok(Ok(container.AliasSuccess)))
+  runtime_beam.try_set_alias(actor, store, "public")
+  |> expect.to_equal(Ok(container.AliasSuccess))
+  runtime_beam.try_set_alias(actor, store, "different")
+  |> expect.to_equal(Ok(container.AlreadyAliased))
+  let another = runtime_beam.create_data_store(actor) |> expect.to_be_ok()
+  let _ =
+    process.spawn_unlinked(fn() {
+      process.send(
+        outcomes,
+        runtime_beam.try_set_alias(actor, another, "closing"),
+      )
+    })
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.send(actor, runtime_beam.Shutdown)
+  let assert Ok(Error(_)) = process.receive(outcomes, 1000)
+  Nil
+}
+
+@target(erlang)
+pub fn datastore_alias_reconnect_timeout_settles_waiters_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let actor =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let connected = fn(client_id) {
+    frame.encode_connected(
+      client_id: client_id,
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader", "fresh"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+  }
+  let transport =
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    )
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(transport)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let store = runtime_beam.create_data_store(actor) |> expect.to_be_ok()
+  let outcomes = process.new_subject()
+  let _ =
+    process.spawn_unlinked(fn() {
+      process.send(outcomes, runtime_beam.try_set_alias(actor, store, "public"))
+    })
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_close("transport lost")
+  let rejoined = process.receive(connections, 1000) |> expect.to_be_ok()
+  rejoined.on_ready(transport)
+  rejoined.on_event("connect_document_success", connected("fresh"))
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("catching-up")
+  process.send(actor, runtime_beam.ReconnectTimedOut("fresh"))
+  let outcome = process.receive(outcomes, 1000)
+  process.send(actor, runtime_beam.Shutdown)
+  let assert Ok(Error(_)) = outcome
+  Nil
 }
 
 @target(erlang)

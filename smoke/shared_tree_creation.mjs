@@ -8,6 +8,11 @@ import { promisify } from "node:util";
 
 const execute = promisify(execFile);
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { check_declared_layout_api } = await import(pathToFileURL(resolve(
+  repository,
+  "build/dev/javascript/watershed/watershed/shared_tree_creation_api_test.mjs",
+)).href);
+await check_declared_layout_api();
 const tenant = "tenant";
 const token = "creation-smoke-secret";
 const marker = "WATERSHED_TREE_CREATION=";

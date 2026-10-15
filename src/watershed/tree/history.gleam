@@ -84,6 +84,67 @@ pub type LocalBranch {
   )
 }
 
+pub type RecoveryBranchBase {
+  RecoverySentinel
+  RecoveryRevision(fluid_ids.StableId)
+}
+
+pub type RecoveryBranchCommit {
+  RecoveryBranchCommit(node_id: Int, commit: Commit)
+}
+
+pub type RecoveryLocalCommit {
+  RecoveryLocalCommit(
+    original: RecoveryBranchCommit,
+    current: RecoveryBranchCommit,
+    authoring_context: List(Commit),
+  )
+}
+
+pub type RecoveryPeer {
+  RecoveryPeer(
+    originator: fluid_ids.SessionId,
+    base: RecoveryBranchBase,
+    commits: List(RecoveryBranchCommit),
+  )
+}
+
+pub type RecoveryRollback {
+  RecoveryRollback(
+    source_node: Int,
+    revision: fluid_ids.StableId,
+    change: shared_change.Changeset,
+  )
+}
+
+pub type RecoveryReceipt {
+  RecoveryReceipt(
+    revision: fluid_ids.StableId,
+    commit: Option(Commit),
+    point: SequencePoint,
+    reference_sequence_number: Option(Int),
+    minimum_sequence_number: Option(Int),
+  )
+}
+
+pub type RecoveryHistory {
+  RecoveryHistory(
+    local_session: fluid_ids.SessionId,
+    base: HistoryBase,
+    trunk: List(SequencedCommit),
+    peers: List(RecoveryPeer),
+    pending: List(RecoveryLocalCommit),
+    local_base: Option(RecoveryBranchBase),
+    local_authored_context: List(Commit),
+    rollbacks: List(RecoveryRollback),
+    receipts: List(RecoveryReceipt),
+    replayed_receipts: List(SequencePoint),
+    next_node_id: Int,
+    sequence_number: Int,
+    minimum_sequence_number: Int,
+  )
+}
+
 pub type MintRevision(state) =
   fn(state) ->
     Result(#(fluid_ids.StableId, change.IdentityOrder, state), TreeError)
@@ -218,6 +279,215 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
 
 pub fn local_session(state: History) -> fluid_ids.SessionId {
   state.local_session
+}
+
+pub fn recovery_snapshot(state: History) -> Result(RecoveryHistory, TreeError) {
+  use _ <- result.try(check(
+    list.is_empty(state.local_checkouts),
+    "cannot capture recovery state with live local checkouts",
+  ))
+  Ok(RecoveryHistory(
+    state.local_session,
+    state.base,
+    state.trunk,
+    list.map(state.peers, recovery_peer),
+    list.map(state.pending, recovery_local_commit),
+    option.map(state.local_base, recovery_base),
+    state.local_authored_context,
+    list.map(state.rollbacks, fn(entry) {
+      RecoveryRollback(entry.source_node, entry.revision, entry.change)
+    }),
+    list.map(state.receipts, fn(entry) {
+      RecoveryReceipt(
+        entry.revision,
+        entry.commit,
+        entry.point,
+        entry.reference_sequence_number,
+        entry.minimum_sequence_number,
+      )
+    }),
+    state.replayed_receipts,
+    state.next_node_id,
+    state.sequence_number,
+    state.minimum_sequence_number,
+  ))
+}
+
+pub fn restore_recovery(data: RecoveryHistory) -> Result(History, TreeError) {
+  let peers = list.map(data.peers, restore_recovery_peer)
+  use _ <- result.try(
+    validate_snapshot(HistorySnapshot(
+      data.base,
+      data.trunk,
+      list.map(peers, peer_branch),
+      data.sequence_number,
+      data.minimum_sequence_number,
+      data.replayed_receipts,
+    )),
+  )
+  use _ <- result.try(validate_recovery_history(data))
+  Ok(
+    History(
+      local_session: data.local_session,
+      base: data.base,
+      trunk: data.trunk,
+      peers:,
+      pending: list.map(data.pending, restore_recovery_local_commit),
+      local_base: option.map(data.local_base, restore_recovery_base),
+      local_authored_context: data.local_authored_context,
+      rollbacks: list.map(data.rollbacks, fn(entry) {
+        RollbackEntry(entry.source_node, entry.revision, entry.change)
+      }),
+      receipts: list.map(data.receipts, fn(entry) {
+        RetainedReceipt(
+          entry.revision,
+          entry.commit,
+          entry.point,
+          entry.reference_sequence_number,
+          entry.minimum_sequence_number,
+        )
+      }),
+      replayed_receipts: data.replayed_receipts,
+      revertibles: [],
+      local_checkouts: [],
+      next_node_id: data.next_node_id,
+      next_revertible_id: 0,
+      next_local_checkout_id: 0,
+      sequence_number: data.sequence_number,
+      minimum_sequence_number: data.minimum_sequence_number,
+    )
+    |> prune_rollbacks,
+  )
+}
+
+fn recovery_peer(peer: PeerState) -> RecoveryPeer {
+  RecoveryPeer(
+    peer.originator,
+    recovery_base(peer.base),
+    list.map(peer.commits, recovery_branch_commit),
+  )
+}
+
+fn restore_recovery_peer(peer: RecoveryPeer) -> PeerState {
+  PeerState(
+    peer.originator,
+    restore_recovery_base(peer.base),
+    list.map(peer.commits, restore_recovery_branch_commit),
+  )
+}
+
+fn recovery_local_commit(commit: LocalCommit) -> RecoveryLocalCommit {
+  RecoveryLocalCommit(
+    recovery_branch_commit(commit.original),
+    recovery_branch_commit(commit.current),
+    commit.authoring_context,
+  )
+}
+
+fn restore_recovery_local_commit(commit: RecoveryLocalCommit) -> LocalCommit {
+  LocalCommit(
+    restore_recovery_branch_commit(commit.original),
+    restore_recovery_branch_commit(commit.current),
+    commit.authoring_context,
+  )
+}
+
+fn recovery_branch_commit(commit: BranchCommit) -> RecoveryBranchCommit {
+  RecoveryBranchCommit(commit.node_id, commit.commit)
+}
+
+fn restore_recovery_branch_commit(
+  commit: RecoveryBranchCommit,
+) -> BranchCommit {
+  BranchCommit(commit.node_id, commit.commit)
+}
+
+fn recovery_base(base: BranchBase) -> RecoveryBranchBase {
+  case base {
+    Sentinel -> RecoverySentinel
+    Revision(revision) -> RecoveryRevision(revision)
+  }
+}
+
+fn restore_recovery_base(base: RecoveryBranchBase) -> BranchBase {
+  case base {
+    RecoverySentinel -> Sentinel
+    RecoveryRevision(revision) -> Revision(revision)
+  }
+}
+
+fn validate_recovery_history(data: RecoveryHistory) -> Result(Nil, TreeError) {
+  use _ <- result.try(validate_safe(
+    data.next_node_id,
+    "recovery node allocation is outside the safe integer range",
+  ))
+  use _ <- result.try(check(
+    data.next_node_id >= 0,
+    "recovery node allocation is negative",
+  ))
+  use _ <- result.try(check(
+    case data.pending, data.local_base {
+      [], None -> True
+      [], Some(_) | [_, ..], None -> False
+      [_, ..], Some(_) -> True
+    },
+    "recovery local base does not match pending history",
+  ))
+  use _ <- result.try(case data.local_base {
+    None -> Ok(Nil)
+    Some(base) ->
+      commits_after_base(data.trunk, restore_recovery_base(base))
+      |> result.map(fn(_) { Nil })
+  })
+  use _ <- result.try(
+    data.pending
+    |> list.try_each(fn(entry) {
+      use _ <- result.try(check(
+        entry.original.commit.revision == entry.current.commit.revision,
+        "recovery pending revisions do not match",
+      ))
+      check(
+        entry.original.commit.originator == data.local_session
+          && entry.current.commit.originator == data.local_session,
+        "recovery pending originator does not match the local session",
+      )
+    }),
+  )
+  let pending_revisions =
+    list.map(data.pending, fn(entry) { entry.original.commit.revision })
+  use _ <- result.try(check(
+    list.length(list.unique(pending_revisions)) == list.length(data.pending),
+    "recovery pending revisions are not unique",
+  ))
+  use _ <- result.try(
+    data.receipts
+    |> list.try_each(fn(entry) {
+      case entry.commit {
+        None -> Ok(Nil)
+        Some(commit) ->
+          check(
+            commit.revision == entry.revision,
+            "recovery receipt revision does not match its commit",
+          )
+      }
+    }),
+  )
+  let nodes =
+    list.append(
+      list.flat_map(data.peers, fn(peer) {
+        list.map(peer.commits, fn(commit) { commit.node_id })
+      }),
+      list.append(
+        list.flat_map(data.pending, fn(commit) {
+          [commit.original.node_id, commit.current.node_id]
+        }),
+        list.map(data.rollbacks, fn(entry) { entry.source_node }),
+      ),
+    )
+  check(
+    list.all(nodes, fn(node) { node >= 0 && node < data.next_node_id }),
+    "recovery node identity exceeds its allocation watermark",
+  )
 }
 
 pub fn rebind_identity_order(

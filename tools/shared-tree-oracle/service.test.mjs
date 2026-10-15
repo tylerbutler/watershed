@@ -143,13 +143,14 @@ test("service profile publishes the accepted handle lifecycle boundary", {
     "implicit-attachment-graphs",
     "declared-cross-datastore-references",
     "retained-handle-routes",
+    "new-alias-authoring",
+    "declared-initial-container-layouts",
   ]) {
     assert(supportedFeatures.includes(feature), `Missing support: ${feature}`);
   }
   for (const feature of [
     "blob-handles",
     "arbitrary-datastore-factories",
-    "new-alias-authoring",
     "cross-container-handles",
     "production-authentication",
     "pending-state-disk-recovery",

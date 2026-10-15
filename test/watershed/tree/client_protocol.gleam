@@ -8,6 +8,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/canonical_json
+import watershed/container
 import watershed/handle
 import watershed/runtime_core
 import watershed/tree/schema
@@ -29,6 +30,7 @@ pub type Descriptor {
     port: Int,
     view: schema.ViewSchema,
     views: List(#(String, schema.ViewSchema)),
+    pending_checkpoint: Option(Json),
   )
 }
 
@@ -87,6 +89,19 @@ pub fn decode_descriptor(raw: String) -> Result(Descriptor, ProtocolError) {
       })
     }),
   )
+  use pending_checkpoint <- result.try(
+    decode.run(data, {
+      use checkpoint <- decode.optional_field(
+        "pendingCheckpoint",
+        None,
+        decode.optional(wire.json_value_decoder()),
+      )
+      decode.success(checkpoint)
+    })
+    |> result.map_error(fn(_) {
+      invalid("pendingCheckpoint", "invalid pending checkpoint")
+    }),
+  )
   Ok(Descriptor(
     run_id,
     document_id,
@@ -96,6 +111,7 @@ pub fn decode_descriptor(raw: String) -> Result(Descriptor, ProtocolError) {
     port,
     view,
     views,
+    pending_checkpoint,
   ))
 }
 
@@ -109,6 +125,7 @@ fn nonempty(data: Dynamic, key: String) -> Result(String, ProtocolError) {
 
 pub type Command {
   CreateDataStore(String)
+  TrySetAlias(String, String)
   RootMap(String)
   DataStoreRoot(String, String)
   CreateMap(String, Option(String))
@@ -159,6 +176,7 @@ pub type Command {
   Checkpoint
   RuntimeStateEvidence
   PendingSummaryEvidence
+  PendingCheckpoint
   Summarize
   Disconnect
   Reconnect
@@ -320,6 +338,11 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
   )
   use decoded <- result.try(case command {
     "create-data-store" -> nonempty(data, "name") |> result.map(CreateDataStore)
+    "try-set-alias" -> {
+      use store <- result.try(nonempty(data, "store"))
+      use alias <- result.try(nonempty(data, "alias"))
+      Ok(TrySetAlias(store, alias))
+    }
     "root-map" -> nonempty(data, "name") |> result.map(RootMap)
     "data-store-root" -> {
       use store <- result.try(nonempty(data, "store"))
@@ -521,6 +544,7 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     "checkpoint" -> Ok(Checkpoint)
     "runtime-state-evidence" -> Ok(RuntimeStateEvidence)
     "pending-summary-evidence" -> Ok(PendingSummaryEvidence)
+    "pending-checkpoint" -> Ok(PendingCheckpoint)
     "summarize" -> Ok(Summarize)
     "disconnect" -> Ok(Disconnect)
     "reconnect" -> Ok(Reconnect)
@@ -541,6 +565,7 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
 fn supports_selected_tree(command: Command) -> Bool {
   case command {
     CreateDataStore(_)
+    | TrySetAlias(_, _)
     | RootMap(_)
     | DataStoreRoot(_, _)
     | CreateMap(_, _)
@@ -555,6 +580,14 @@ fn supports_selected_tree(command: Command) -> Bool {
     | SelectedTree(_, _) -> False
     _ -> True
   }
+}
+
+pub fn encode_alias_result(outcome: container.AliasResult) -> Json {
+  json.string(case outcome {
+    container.AliasSuccess -> "Success"
+    container.AliasConflict -> "Conflict"
+    container.AlreadyAliased -> "AlreadyAliased"
+  })
 }
 
 fn optional_nonempty(

@@ -56,7 +56,7 @@ export async function lines(handle, finish) {
       } catch {
         command = undefined;
       }
-      if (command === "summarize") {
+      if (command === "summarize" || command === "try-set-alias") {
         const task = handle(line).then((reply) => {
           process.stdout.write(`${reply}\n`);
         }).finally(() => pending.delete(task));

@@ -81,23 +81,35 @@ pub fn main() -> Nil {
         outbound_store_loop(outbound_store, [], 0)
       })
       let outbound_store = process.receive_forever(from: outbound_store_ready)
-      case
-        watershed.connect_observing(
-          host: config.host,
-          port: config.port,
-          tenant: config.tenant,
-          document: config.document_id,
-          token: token(),
-          user_id: "shared-tree-client-beam",
-          observe_push: fn(event, payload) {
-            case event {
-              "submitOp" ->
-                process.send(outbound_store, RecordOutbound(payload))
-              _ -> Nil
-            }
-          },
-        )
-      {
+      let connection = case config.pending_checkpoint {
+        None ->
+          watershed.connect_observing(
+            host: config.host,
+            port: config.port,
+            tenant: config.tenant,
+            document: config.document_id,
+            token: token(),
+            user_id: "shared-tree-client-beam",
+            observe_push: fn(event, payload) {
+              case event {
+                "submitOp" ->
+                  process.send(outbound_store, RecordOutbound(payload))
+                _ -> Nil
+              }
+            },
+          )
+        Some(checkpoint) ->
+          watershed.connect_resuming(
+            host: config.host,
+            port: config.port,
+            tenant: config.tenant,
+            document: config.document_id,
+            token: token(),
+            user_id: "shared-tree-client-beam",
+            checkpoint: checkpoint,
+          )
+      }
+      case connection {
         Error(reason) ->
           fail(protocol.encode_startup_error(
             "bootstrap-failed",
@@ -252,7 +264,8 @@ fn loop(
     Error(_) -> Nil
     Ok(line) -> {
       case protocol.decode_request(line) {
-        Ok(protocol.Request(_, protocol.Summarize)) -> {
+        Ok(protocol.Request(_, protocol.Summarize))
+        | Ok(protocol.Request(_, protocol.TrySetAlias(_, _))) -> {
           process.spawn_unlinked(fn() {
             let #(output, _, _, _, _) =
               execute(
@@ -369,6 +382,27 @@ fn execute(
         Error(error) -> #(Error(error), tree, events, active, False)
         Ok(command_tree) ->
           case command {
+            protocol.TrySetAlias(store_name, alias) -> {
+              let outcome = {
+                use store <- result.try(
+                  process.call(object_store, waiting: 5000, sending: fn(reply) {
+                    LookupDataStore(store_name, reply)
+                  })
+                  |> result.map_error(fn(_) {
+                    facade(
+                      "try-set-alias",
+                      "Unknown data store: " <> store_name,
+                    )
+                  }),
+                )
+                map_result(
+                  "try-set-alias",
+                  watershed.try_set_alias(store, alias),
+                  protocol.encode_alias_result,
+                )
+              }
+              #(outcome, tree, events, active, False)
+            }
             protocol.CreateDataStore(name) -> {
               let outcome = {
                 use _ <- result.try(require_new_object_name(
@@ -1307,6 +1341,20 @@ fn execute(
             )
             protocol.Checkpoint -> #(
               checkpoint(document, command_tree, owner, events, handle_store),
+              tree,
+              events,
+              active,
+              False,
+            )
+            protocol.PendingCheckpoint -> #(
+              watershed.pending_checkpoint(document)
+                |> result.map_error(fn(reason) {
+                  protocol.ProtocolError(
+                    "facade-error",
+                    "pending-checkpoint",
+                    reason,
+                  )
+                }),
               tree,
               events,
               active,

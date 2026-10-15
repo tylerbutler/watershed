@@ -35,8 +35,14 @@ jobs:
         run: just shared-tree-interop
       - name: Supported SharedTree creation acceptance
         run: just shared-tree-create-interop
+      - name: Declared initial container layout acceptance
+        run: just shared-tree-layout-interop
       - name: SharedTree handle lifecycle acceptance
         run: just shared-tree-lifecycle-interop
+      - name: SharedTree pending checkpoint recovery acceptance
+        run: just shared-tree-recovery-interop
+      - name: Datastore alias lifecycle acceptance
+        run: just shared-tree-alias-interop
       - name: Preserve interoperability evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,4 +53,7 @@ jobs:
           path: |
             tools/shared-tree-oracle/.output/interop/
             tools/shared-tree-oracle/.output/creation/
+            tools/shared-tree-oracle/.output/layouts/
             tools/shared-tree-oracle/.output/lifecycle/
+            tools/shared-tree-oracle/.output/recovery/
+            tools/shared-tree-oracle/.output/aliases/

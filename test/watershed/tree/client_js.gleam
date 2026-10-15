@@ -84,138 +84,166 @@ pub fn main() -> Promise(Nil) {
       let #(ready, signal) = promise.start()
       let outbound_sends = transport_js.new_cell([])
       let outbound_send_count = transport_js.new_cell(0)
-      let document =
-        watershed.connect_observing(
-          watershed.WatershedConfig(
-            url: config.socket_url,
-            tenant: config.tenant,
-            document: config.document_id,
-            token: token(),
-            user_id: "shared-tree-client-js",
-          ),
-          observe_push: fn(event, payload) {
-            case event {
-              "submitOp" -> {
-                let send_id = transport_js.get_cell(outbound_send_count) + 1
-                transport_js.set_cell(outbound_send_count, send_id)
-                push_json(
-                  outbound_sends,
-                  json.object([
-                    #("sendId", json.int(send_id)),
-                    #("payload", payload),
-                  ]),
-                )
+      let connection = case config.pending_checkpoint {
+        None ->
+          Ok(watershed.connect_observing(
+            watershed.WatershedConfig(
+              url: config.socket_url,
+              tenant: config.tenant,
+              document: config.document_id,
+              token: token(),
+              user_id: "shared-tree-client-js",
+            ),
+            observe_push: fn(event, payload) {
+              case event {
+                "submitOp" -> {
+                  let send_id = transport_js.get_cell(outbound_send_count) + 1
+                  transport_js.set_cell(outbound_send_count, send_id)
+                  push_json(
+                    outbound_sends,
+                    json.object([
+                      #("sendId", json.int(send_id)),
+                      #("payload", payload),
+                    ]),
+                  )
+                }
+                _ -> Nil
               }
-              _ -> Nil
-            }
-          },
-          on_ready: signal,
-        )
-      use opened <- promise.await(ready)
-      case opened {
+            },
+            on_ready: signal,
+          ))
+        Some(checkpoint) ->
+          watershed.connect_resuming(
+            watershed.WatershedConfig(
+              url: config.socket_url,
+              tenant: config.tenant,
+              document: config.document_id,
+              token: token(),
+              user_id: "shared-tree-client-js",
+            ),
+            checkpoint: checkpoint,
+            on_ready: signal,
+          )
+      }
+      case connection {
         Error(reason) -> {
-          watershed.close(document)
           fail(protocol.encode_startup_error(
-            "bootstrap-failed",
+            "recovery-failed",
             "connect",
             reason,
           ))
           promise.resolve(Nil)
         }
-        Ok(Nil) ->
-          case watershed.resolve_root(document) {
+        Ok(document) -> {
+          use opened <- promise.await(ready)
+          case opened {
             Error(reason) -> {
               watershed.close(document)
               fail(protocol.encode_startup_error(
-                "root-lookup-failed",
-                "resolve-root",
+                "bootstrap-failed",
+                "connect",
                 reason,
               ))
               promise.resolve(Nil)
             }
-            Ok(root) ->
-              case watershed.get(root, "tree") {
-                Error(_) -> {
+            Ok(Nil) ->
+              case watershed.resolve_root(document) {
+                Error(reason) -> {
                   watershed.close(document)
                   fail(protocol.encode_startup_error(
                     "root-lookup-failed",
                     "resolve-root",
-                    "Root map has no tree handle",
+                    reason,
                   ))
                   promise.resolve(Nil)
                 }
-                Ok(handle) ->
-                  case
-                    facade_fixture.resolve_javascript(
-                      document,
-                      handle,
-                      config.view,
-                    )
-                  {
-                    Error(reason) -> {
+                Ok(root) ->
+                  case watershed.get(root, "tree") {
+                    Error(_) -> {
                       watershed.close(document)
                       fail(protocol.encode_startup_error(
-                        "view-resolution-failed",
-                        "resolve-view",
-                        reason,
+                        "root-lookup-failed",
+                        "resolve-root",
+                        "Root map has no tree handle",
                       ))
                       promise.resolve(Nil)
                     }
-                    Ok(tree) -> {
-                      let active_tree = transport_js.new_cell(tree)
-                      let data_stores = transport_js.new_cell(dict.new())
-                      let maps = transport_js.new_cell(dict.new())
-                      let trees =
-                        transport_js.new_cell(dict.from_list([#("main", tree)]))
-                      let branches = transport_js.new_cell(dict.new())
-                      let branch_subscriptions =
-                        transport_js.new_cell(dict.new())
-                      let events = transport_js.new_cell(dict.new())
-                      let commits = transport_js.new_cell(dict.new())
-                      let handles = transport_js.new_cell(dict.new())
-                      let last_local = transport_js.new_cell(dict.new())
-                      let commit_event_count = transport_js.new_cell(0)
-                      let subscriptions = transport_js.new_cell(dict.new())
-                      let _ =
-                        watershed.subscribe_tree_commits(tree, fn(event) {
-                          observe_commit(
-                            event,
-                            tree,
-                            protocol.Document("main"),
-                            commits,
-                            last_local,
-                            commit_event_count,
+                    Ok(handle) ->
+                      case
+                        facade_fixture.resolve_javascript(
+                          document,
+                          handle,
+                          config.view,
+                        )
+                      {
+                        Error(reason) -> {
+                          watershed.close(document)
+                          fail(protocol.encode_startup_error(
+                            "view-resolution-failed",
+                            "resolve-view",
+                            reason,
+                          ))
+                          promise.resolve(Nil)
+                        }
+                        Ok(tree) -> {
+                          let active_tree = transport_js.new_cell(tree)
+                          let data_stores = transport_js.new_cell(dict.new())
+                          let maps = transport_js.new_cell(dict.new())
+                          let trees =
+                            transport_js.new_cell(
+                              dict.from_list([#("main", tree)]),
+                            )
+                          let branches = transport_js.new_cell(dict.new())
+                          let branch_subscriptions =
+                            transport_js.new_cell(dict.new())
+                          let events = transport_js.new_cell(dict.new())
+                          let commits = transport_js.new_cell(dict.new())
+                          let handles = transport_js.new_cell(dict.new())
+                          let last_local = transport_js.new_cell(dict.new())
+                          let commit_event_count = transport_js.new_cell(0)
+                          let subscriptions = transport_js.new_cell(dict.new())
+                          let _ =
+                            watershed.subscribe_tree_commits(tree, fn(event) {
+                              observe_commit(
+                                event,
+                                tree,
+                                protocol.Document("main"),
+                                commits,
+                                last_local,
+                                commit_event_count,
+                              )
+                            })
+                          lines(
+                            fn(raw) {
+                              execute(
+                                raw,
+                                document,
+                                handle,
+                                config,
+                                active_tree,
+                                data_stores,
+                                maps,
+                                trees,
+                                branches,
+                                branch_subscriptions,
+                                events,
+                                commits,
+                                handles,
+                                last_local,
+                                commit_event_count,
+                                outbound_sends,
+                                outbound_send_count,
+                                subscriptions,
+                              )
+                            },
+                            fn() { watershed.close(document) },
                           )
-                        })
-                      lines(
-                        fn(raw) {
-                          execute(
-                            raw,
-                            document,
-                            handle,
-                            config,
-                            active_tree,
-                            data_stores,
-                            maps,
-                            trees,
-                            branches,
-                            branch_subscriptions,
-                            events,
-                            commits,
-                            handles,
-                            last_local,
-                            commit_event_count,
-                            outbound_sends,
-                            outbound_send_count,
-                            subscriptions,
-                          )
-                        },
-                        fn() { watershed.close(document) },
-                      )
-                    }
+                        }
+                      }
                   }
               }
           }
+        }
       }
     }
   }
@@ -1199,6 +1227,11 @@ fn execute(
             )
           protocol.Checkpoint ->
             checkpoint(document, tree, owner, events, commits)
+          protocol.PendingCheckpoint ->
+            watershed.pending_checkpoint(document)
+            |> result.map_error(fn(reason) {
+              facade("pending-checkpoint", reason)
+            })
           protocol.RuntimeStateEvidence ->
             Ok(
               json.string(
@@ -1275,10 +1308,31 @@ fn execute(
               watershed.pending_summary_evidence(document),
               fn(value) { value },
             )
-          protocol.AwaitSynced(_) | protocol.Summarize -> Ok(json.null())
+          protocol.AwaitSynced(_)
+          | protocol.Summarize
+          | protocol.TrySetAlias(_, _) -> Ok(json.null())
         }
       }
       case command {
+        protocol.TrySetAlias(store_name, alias) ->
+          case
+            named_object(data_stores, store_name, "data store", "try-set-alias")
+          {
+            Error(error) ->
+              promise.resolve(response(Some(id), Error(error), document))
+            Ok(store) -> {
+              use outcome <- promise.await(watershed.try_set_alias(store, alias))
+              promise.resolve(response(
+                Some(id),
+                map_result(
+                  "try-set-alias",
+                  outcome,
+                  protocol.encode_alias_result,
+                ),
+                document,
+              ))
+            }
+          }
         protocol.AwaitSynced(watermark) -> {
           use synced <- promise.await(await_synced(document, watermark, 1200))
           promise.resolve(response(Some(id), synced, document))

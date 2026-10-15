@@ -73,6 +73,15 @@ import spillway/message.{
 }
 
 @target(erlang)
+pub fn try_set_alias(
+  runtime: Subject(Msg),
+  store_id: String,
+  alias: String,
+) -> Result(container.AliasResult, String) {
+  call_runtime(runtime, fn(reply) { TrySetAlias(store_id, alias, reply) })
+}
+
+@target(erlang)
 pub fn create_data_store(runtime: Subject(Msg)) -> Result(String, String) {
   call_runtime(runtime, CreateDataStore)
 }
@@ -181,6 +190,8 @@ import watershed/channel.{
 @target(erlang)
 import watershed/claims_kernel
 @target(erlang)
+import watershed/container
+@target(erlang)
 import watershed/fluid_ids
 @target(erlang)
 import watershed/git_storage
@@ -192,6 +203,8 @@ import watershed/json_ot
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/ordered_collection_kernel
+@target(erlang)
+import watershed/recovery
 
 @target(erlang)
 import watershed/pact_map_kernel
@@ -566,6 +579,11 @@ pub type Msg {
   CreateRichText(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
   CreateDataStore(reply: Subject(Result(String, String)))
+  TrySetAlias(
+    store_id: String,
+    alias: String,
+    reply: Subject(Result(container.AliasResult, String)),
+  )
   DataStoreRoot(store_id: String, reply: Subject(Result(String, String)))
   CreateMapIn(store_id: String, reply: Subject(Result(String, String)))
   CreateTree(
@@ -636,6 +654,7 @@ pub type Msg {
   )
   TreeHistoryEvidence(address: String, reply: Subject(Result(Json, String)))
   PendingSummaryEvidence(reply: Subject(Result(Json, String)))
+  PendingCheckpoint(reply: Subject(Result(Json, String)))
   TreeRead(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -1172,6 +1191,7 @@ type State {
     reconnect_error: Option(String),
     channel: Option(TransportHandle),
     phase: Phase,
+    recovery_waiters: Option(List(Subject(Result(Nil, String)))),
     subscribers: List(
       #(String, tree_types.CheckoutSelector, fn(ChannelEvent) -> Nil),
     ),
@@ -1198,6 +1218,10 @@ type State {
     /// server that does not have it.
     supported_features: Dict(String, Dynamic),
     writable: Bool,
+    alias_waiters: Dict(
+      #(String, String),
+      List(Subject(Result(container.AliasResult, String))),
+    ),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     /// The pending acquires on an ordered collection, which wait for their
     /// sequenced outcome, keyed by `#(address, acquire_id)`.
@@ -1317,7 +1341,7 @@ pub fn start_with_transport(
   connect_message connect_message: ConnectMessage,
   transport transport: Transport,
 ) -> Result(Subject(Msg), actor.StartError) {
-  start_with_optional_seed(host, port, connect_message, transport, None)
+  start_with_optional_seed(host, port, connect_message, transport, None, None)
 }
 
 @target(erlang)
@@ -1352,7 +1376,73 @@ pub fn start_with_transport_and_seed(
   transport transport: Transport,
   seed seed: runtime_core.BootstrapSeed,
 ) -> Result(Subject(Msg), actor.StartError) {
-  start_with_optional_seed(host, port, connect_message, transport, Some(seed))
+  start_with_optional_seed(
+    host,
+    port,
+    connect_message,
+    transport,
+    Some(seed),
+    None,
+  )
+}
+
+@target(erlang)
+/// Resume a persisted checkpoint with fresh credentials.
+pub fn start_with_checkpoint(
+  host host: String,
+  port port: Int,
+  path path: String,
+  tenant tenant: String,
+  document document: String,
+  connect_message connect_message: ConnectMessage,
+  checkpoint checkpoint: Json,
+) -> Result(Subject(Msg), String) {
+  let topic = "document:" <> tenant <> ":" <> document
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
+  start_with_transport_and_checkpoint(
+    host: host,
+    port: port,
+    connect_message: connect_message,
+    transport: aquamarine_transport(host, port, path, topic, join_payload),
+    checkpoint: checkpoint,
+  )
+}
+
+@target(erlang)
+pub fn start_with_transport_and_checkpoint(
+  host host: String,
+  port port: Int,
+  connect_message connect_message: ConnectMessage,
+  transport transport: Transport,
+  checkpoint checkpoint: Json,
+) -> Result(Subject(Msg), String) {
+  use view_id <- result.try(
+    fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use core <- result.try(recovery.restore(
+    checkpoint,
+    tenant: connect_message.tenant_id,
+    document: connect_message.document_id,
+    view_id: view_id,
+  ))
+  start_with_optional_seed(
+    host,
+    port,
+    connect_message,
+    transport,
+    None,
+    Some(core),
+  )
+  |> result.map_error(string.inspect)
+}
+
+@target(erlang)
+/// Flush queued submissions, then capture one atomic runtime state.
+pub fn pending_checkpoint(runtime: Subject(Msg)) -> Result(Json, String) {
+  call_runtime(runtime, PendingCheckpoint)
 }
 
 @target(erlang)
@@ -1362,6 +1452,7 @@ fn start_with_optional_seed(
   connect_message: ConnectMessage,
   transport: Transport,
   seed: Option(runtime_core.BootstrapSeed),
+  recovered: Option(runtime_core.Core),
 ) -> Result(Subject(Msg), actor.StartError) {
   actor.new_with_initialiser(1000, fn(self) {
     let state =
@@ -1375,7 +1466,11 @@ fn start_with_optional_seed(
         reconnect_failures: 0,
         reconnect_error: None,
         channel: None,
-        phase: Connecting([]),
+        phase: case recovered {
+          Some(core) -> Reconnecting(core)
+          None -> Connecting([])
+        },
+        recovery_waiters: option.map(recovered, fn(_) { [] }),
         subscribers: [],
         tree_commit_subscribers: [],
         tree_commit_settlements: dict.new(),
@@ -1391,14 +1486,16 @@ fn start_with_optional_seed(
         supported_features: dict.new(),
         writable: False,
         claim_waiters: dict.new(),
+        alias_waiters: dict.new(),
         acquire_waiters: dict.new(),
-        auto_summary: case seed {
-          Some(seed) ->
+        auto_summary: case recovered, seed {
+          Some(_), _ -> None
+          None, Some(seed) ->
             case runtime_core.seed_has_tree(seed) {
               True -> None
               False -> Some(summary_policy.policy())
             }
-          None -> Some(summary_policy.policy())
+          None, None -> Some(summary_policy.policy())
         },
         summary_armed: False,
         pending_summary: None,
@@ -1429,11 +1526,7 @@ fn start_with_optional_seed(
 @target(erlang)
 /// Wait until the handshake completes or fails.
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
-  process.call(
-    runtime,
-    waiting: connect_timeout_milliseconds,
-    sending: AwaitReady,
-  )
+  call_runtime(runtime, AwaitReady)
 }
 
 @target(erlang)
@@ -2851,6 +2944,10 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(reply, Error("runtime is closing"))
       actor.continue(state)
     }
+    TrySetAlias(_, _, reply) -> {
+      process.send(reply, Error("runtime is closing"))
+      actor.continue(state)
+    }
     IncrementGCounter(_, _, reply)
     | SetLwwRegister(_, _, reply)
     | SetLwwMap(_, _, _, reply)
@@ -2886,7 +2983,9 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
-    TreeHistoryEvidence(_, reply) | PendingSummaryEvidence(reply) -> {
+    TreeHistoryEvidence(_, reply)
+    | PendingSummaryEvidence(reply)
+    | PendingCheckpoint(reply) -> {
       process.send(reply, Error("tree runtime is closing"))
       actor.continue(state)
     }
@@ -3114,16 +3213,15 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       case state.phase {
         Ready(core, Some(_)) if core.client_id == client_id ->
           case runtime_core.reconnect_barrier_active(core) {
-            True ->
-              actor.continue(
-                State(
-                  ..state,
-                  phase: SuspendedPendingTree(
-                    core,
-                    "Reconnect timed out before the old session closed.",
-                  ),
-                ),
-              )
+            True -> {
+              let reason = "Reconnect timed out before the old session closed."
+              let state =
+                State(..state, phase: SuspendedPendingTree(core, reason))
+                |> abort_outcome_waiters
+                |> abort_pending_summary
+              let state = finish_recovery_waiters(state, Error(reason))
+              actor.continue(state)
+            }
             False -> actor.continue(state)
           }
         _ -> actor.continue(state)
@@ -3504,6 +3602,24 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
           },
         ),
       )
+      actor.continue(state)
+    }
+    PendingCheckpoint(reply) -> {
+      let #(state, outcome) = flush_outbound_now(state)
+      let checkpoint = case outcome, state.phase {
+        Ok(Nil), Ready(core, None)
+        | Ok(Nil), Reconnecting(core)
+        | Ok(Nil), SuspendedPendingTree(core, _)
+        ->
+          recovery.capture(
+            core,
+            tenant: state.connect_message.tenant_id,
+            document: state.connect_message.document_id,
+          )
+        Error(reason), _ -> Error(reason)
+        _, _ -> Error("checkpoint requires a settled document connection")
+      }
+      process.send(reply, checkpoint)
       actor.continue(state)
     }
     TreeRead(address, selector, path, reply) -> {
@@ -4444,6 +4560,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CreateTaskManager(reply) ->
       create_channel(state, reply, InitTaskManager, "create_task_manager")
     CreateDataStore(reply) -> create_data_store_in_actor(state, reply)
+    TrySetAlias(store_id, alias, reply) ->
+      try_set_alias_in_actor(state, store_id, alias, reply)
     DataStoreRoot(store_id, reply) -> {
       let address = store_id <> "/root"
       process.send(
@@ -4995,6 +5113,24 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         ]),
       )
 
+    AwaitReady(reply) if state.recovery_waiters != None -> {
+      case state.phase {
+        Failed(reason) | SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        _ ->
+          actor.continue(
+            State(
+              ..state,
+              recovery_waiters: Some([
+                reply,
+                ..option.unwrap(state.recovery_waiters, [])
+              ]),
+            ),
+          )
+      }
+    }
     AwaitReady(reply) ->
       case state.phase {
         Ready(_, _) -> {
@@ -5030,6 +5166,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       }
 
     Shutdown -> {
+      let state =
+        finish_recovery_waiters(state, Error("document runtime is closing"))
       let state = abort_outcome_waiters(state)
       let state = abort_pending_summary(state)
       let _ = release_tree_transaction_caller(state)
@@ -5621,6 +5759,63 @@ fn new_detached(
 }
 
 @target(erlang)
+fn try_set_alias_in_actor(
+  state: State,
+  store_id: String,
+  alias: String,
+  reply: Subject(Result(container.AliasResult, String)),
+) -> actor.Next(State, Msg) {
+  case lifecycle_caller(state, reply), state.phase, state.writable {
+    Error(error), _, _ -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_), Ready(core, resubmit_at), True ->
+      case runtime_core.try_set_alias(core, store_id, alias) {
+        Error(error) -> {
+          process.send(reply, Error(string.inspect(error)))
+          actor.continue(state)
+        }
+        Ok(#(_, _, Some(outcome))) -> {
+          process.send(reply, Ok(outcome))
+          actor.continue(state)
+        }
+        Ok(#(core, outbound, None)) -> {
+          let key = #(store_id, alias)
+          let state =
+            State(
+              ..state,
+              alias_waiters: dict.insert(
+                state.alias_waiters,
+                key,
+                list.append(
+                  dict.get(state.alias_waiters, key) |> result.unwrap([]),
+                  [reply],
+                ),
+              ),
+            )
+          let #(state, _) = queue_or_send(state, core, resubmit_at, outbound)
+          actor.continue(state)
+        }
+      }
+    Ok(_), Ready(_, _), False -> {
+      process.send(
+        reply,
+        Error("try_set_alias requires a writable document connection"),
+      )
+      actor.continue(state)
+    }
+    Ok(_), _, _ -> {
+      process.send(
+        reply,
+        Error("try_set_alias requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
 fn create_data_store_in_actor(
   state: State,
   reply: Subject(Result(String, String)),
@@ -5792,7 +5987,7 @@ fn create_tree_in_actor(
 @target(erlang)
 fn lifecycle_caller(
   state: State,
-  reply: Subject(Result(String, String)),
+  reply: Subject(Result(value, String)),
 ) -> Result(Nil, String) {
   case state.active_tree_transaction {
     None -> Ok(Nil)
@@ -6118,10 +6313,10 @@ fn handle_operation_delivery(
           }
           #(state, Error(reason))
         }
-        Ok(#(core, events, resolutions, summary_events, request_from, released)) -> {
+        Ok(#(core, events, resolutions, runtime_events, request_from, released)) -> {
           let state = resolve_claim_waiters(state, resolutions)
           let state = resolve_acquire_waiters(state, resolutions)
-          let state = apply_summary_events(state, summary_events)
+          let state = apply_runtime_events(state, runtime_events)
           let state =
             State(..state, phase: Ready(core, resubmit_at))
             |> fan_out_scoped(runtime_core.scope_tree_events(core, events))
@@ -6216,7 +6411,16 @@ fn settle_reconnect_state(
   case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
-        Ok(#(core, outbound)) -> queue_or_send(state, core, None, outbound)
+        Ok(#(core, outbound)) -> {
+          let #(state, outcome) = queue_or_send(state, core, None, outbound)
+          case state.phase, outcome {
+            Ready(_, None), Ok(Nil) -> #(
+              finish_recovery_waiters(state, Ok(Nil)),
+              outcome,
+            )
+            _, _ -> #(state, outcome)
+          }
+        }
         Error(error) -> {
           let reason = string.inspect(error)
           let state = case runtime_core.has_pending_tree(core) {
@@ -6250,7 +6454,7 @@ fn apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(runtime_core.SummaryEvent),
+    List(runtime_core.RuntimeEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -6265,7 +6469,7 @@ fn do_apply_operations(
   operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
-  summary_events: List(List(runtime_core.SummaryEvent)),
+  runtime_events: List(List(runtime_core.RuntimeEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
 ) -> Result(
@@ -6273,7 +6477,7 @@ fn do_apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(runtime_core.SummaryEvent),
+    List(runtime_core.RuntimeEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -6285,7 +6489,7 @@ fn do_apply_operations(
         core,
         list.reverse(events) |> list.flatten,
         list.reverse(resolutions) |> list.flatten,
-        list.reverse(summary_events) |> list.flatten,
+        list.reverse(runtime_events) |> list.flatten,
         request_from,
         released,
       ))
@@ -6297,7 +6501,7 @@ fn do_apply_operations(
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
-            [ingested.summary_events, ..summary_events],
+            [ingested.runtime_events, ..runtime_events],
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
@@ -6307,12 +6511,18 @@ fn do_apply_operations(
 }
 
 @target(erlang)
-fn apply_summary_events(
+fn apply_runtime_events(
   state: State,
-  events: List(runtime_core.SummaryEvent),
+  events: List(runtime_core.RuntimeEvent),
 ) -> State {
   list.fold(events, state, fn(state, event) {
     case state.pending_summary, event {
+      _, runtime_core.AliasSettled(store_id, alias, outcome) -> {
+        let key = #(store_id, alias)
+        let waiters = dict.get(state.alias_waiters, key) |> result.unwrap([])
+        list.each(waiters, fn(waiter) { process.send(waiter, Ok(outcome)) })
+        State(..state, alias_waiters: dict.delete(state.alias_waiters, key))
+      }
       Some(pending),
         runtime_core.SummaryProposalSequenced(
           _,
@@ -6500,13 +6710,23 @@ fn abort_pending_summary(state: State) -> State {
 
 @target(erlang)
 fn abort_outcome_waiters(state: State) -> State {
+  dict.values(state.alias_waiters)
+  |> list.flatten
+  |> list.each(fn(waiter) {
+    process.send(waiter, Error("datastore alias claim was interrupted"))
+  })
   dict.values(state.claim_waiters)
   |> list.each(fn(waiter) { process.send(waiter, claims_kernel.Aborted) })
   dict.values(state.acquire_waiters)
   |> list.each(fn(waiter) {
     process.send(waiter, ordered_collection_kernel.Aborted)
   })
-  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
+  State(
+    ..state,
+    claim_waiters: dict.new(),
+    acquire_waiters: dict.new(),
+    alias_waiters: dict.new(),
+  )
 }
 
 @target(erlang)
@@ -7077,6 +7297,7 @@ fn connection_failed(state: State, reason: String) -> State {
 
 @target(erlang)
 fn suspend_or_fail(state: State, reason: String) -> State {
+  let state = finish_recovery_waiters(state, Error(reason))
   let state = discard_pending_outbound(state)
   case state.phase {
     Ready(core, _) | Reconnecting(core) ->
@@ -8193,6 +8414,7 @@ fn notify_tree_revertible_disposals(
 
 @target(erlang)
 fn fail(state: State, reason: String) -> State {
+  let state = finish_recovery_waiters(state, Error(reason))
   let state = abort_outcome_waiters(state)
   let state = abort_pending_summary(state)
   let state = release_tree_transaction_caller(state)
@@ -8204,6 +8426,20 @@ fn fail(state: State, reason: String) -> State {
     pending_reconnect: None,
     deferred_operations: [],
   )
+}
+
+@target(erlang)
+fn finish_recovery_waiters(
+  state: State,
+  outcome: Result(Nil, String),
+) -> State {
+  case state.recovery_waiters {
+    Some(waiters) -> {
+      list.each(waiters, process.send(_, outcome))
+      State(..state, recovery_waiters: None)
+    }
+    None -> state
+  }
 }
 
 @target(erlang)

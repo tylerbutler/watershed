@@ -70,7 +70,7 @@ fn kinds() -> List(Kind) {
     Kind(
       "data_store",
       ["create_data_store", "data_store_root", "create_map_in"],
-      [],
+      ["try_set_alias"],
       [],
     ),
     Kind(
@@ -481,10 +481,17 @@ pub fn tree_creation_has_public_facade_parity_test() -> Nil {
 }
 
 pub fn tree_container_creation_has_native_facade_parity_test() -> Nil {
-  set.contains(exports_of("src/watershed.gleam"), "create_tree_container")
-  |> expect.to_be_true()
-  set.contains(exports_of("src/watershed_beam.gleam"), "create_tree_container")
-  |> expect.to_be_true()
+  list.each(["src/watershed.gleam", "src/watershed_beam.gleam"], fn(path) {
+    let exports = exports_of(path)
+    list.each(
+      [
+        "create_tree_container",
+        "create_tree_container_with_layout",
+        "with_initial_tree",
+      ],
+      fn(name) { set.contains(exports, name) |> expect.to_be_true() },
+    )
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

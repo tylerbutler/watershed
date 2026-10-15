@@ -1,6 +1,6 @@
 import gleam/io
 import gleam/json
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/container
@@ -22,6 +22,18 @@ import watershed as watershed_javascript
 import watershed_beam
 
 const marker = "WATERSHED_TREE_CREATION="
+
+fn graph_layout() -> container.Layout {
+  container.layout()
+  |> container.with_data_store("B", Some("catalog"))
+  |> container.with_data_store("C", None)
+  |> container.with_map("B", "child", [#("value", json.string("initial child"))])
+  |> container.with_binding("A", "root", "catalog", "B", "root")
+  |> container.with_binding("B", "root", "tree", "B", "items")
+  |> container.with_binding("B", "root", "child", "B", "child")
+  |> container.with_binding("B", "child", "parent", "C", "root")
+  |> container.with_binding("C", "root", "parent", "B", "root")
+}
 
 fn publish(result: Result(String, String), expected: String) -> Nil {
   let output = case result {
@@ -82,7 +94,29 @@ pub fn main() -> Nil {
   let assert Ok(expected) = envoy.get("WATERSHED_TREE_CREATION_EXPECT")
   let #(config, definition, builder, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
-  watershed_beam.create_tree_container(config, definition, builder, root)
+  let outcome = case envoy.get("WATERSHED_TREE_CREATION_LAYOUT") {
+    Error(_) ->
+      watershed_beam.create_tree_container(config, definition, builder, root)
+    Ok("graph") -> {
+      use layout <- result.try(watershed_beam.with_initial_tree(
+        graph_layout(),
+        "B",
+        "items",
+        definition,
+        builder,
+        root,
+      ))
+      watershed_beam.create_tree_container_with_layout(
+        config,
+        definition,
+        builder,
+        root,
+        layout,
+      )
+    }
+    Ok(_) -> Error(typed.AccessFailed("unsupported creation probe layout"))
+  }
+  outcome
   |> result.map_error(string.inspect)
   |> publish(expected)
 }
@@ -100,12 +134,42 @@ pub fn main() -> Promise(Nil) {
     javascript_envoy.get("WATERSHED_TREE_CREATION_EXPECT")
   let #(config, definition, builder, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
-  use outcome <- promise.await(watershed_javascript.create_tree_container(
-    config,
-    definition,
-    builder,
-    root,
-  ))
+  let pending = case javascript_envoy.get("WATERSHED_TREE_CREATION_LAYOUT") {
+    Error(_) ->
+      watershed_javascript.create_tree_container(
+        config,
+        definition,
+        builder,
+        root,
+      )
+    Ok("graph") -> {
+      case
+        watershed_javascript.with_initial_tree(
+          graph_layout(),
+          "B",
+          "items",
+          definition,
+          builder,
+          root,
+        )
+      {
+        Error(error) -> promise.resolve(Error(error))
+        Ok(layout) ->
+          watershed_javascript.create_tree_container_with_layout(
+            config,
+            definition,
+            builder,
+            root,
+            layout,
+          )
+      }
+    }
+    Ok(_) ->
+      promise.resolve(
+        Error(typed.AccessFailed("unsupported creation probe layout")),
+      )
+  }
+  use outcome <- promise.await(pending)
   publish(result.map_error(outcome, string.inspect), expected)
   promise.resolve(Nil)
 }

@@ -32,9 +32,12 @@ test counts remain historical acceptance records. The local branching
 continuation started at `18ec7c4a` and completed Task 9 through `5e8050a4`;
 its service evidence is recorded below. Task 11 completed local M6 release
 acceptance on 2026-10-09 with the published profile and full regression gates.
-The subsequent approved [M7 Lustre consumer slice](2026-10-09-shared-tree-lustre.md)
-is implemented and locally accepted. Its effects, application-owned history,
-lifecycle cleanup and browser proof do not close the remaining M7 areas.
+The approved M7 [Lustre consumer](2026-10-09-shared-tree-lustre.md),
+[handles and live attachment](2026-10-10-shared-tree-handles-attachment.md),
+and [typed application API](2026-10-13-shared-tree-typed-api.md) slices, together
+with the pending-tree recovery, alias, and declared-layout work below,
+complete M7 for the published supported profile. Their dated records describe
+the local acceptance boundaries; the excluded extensions remain future work.
 
 | Area | Current status | Plan or remaining scope |
 | --- | --- | --- |
@@ -45,16 +48,24 @@ lifecycle cleanup and browser proof do not close the remaining M7 areas.
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
 | M5: transactions and undo/redo | Implemented and published; local release accepted. M6 Task 11 closes the earlier full-build/standalone-browser prerequisite under the unchanged registry policy. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; fresh combined release evidence below. |
 | M6: branching | Approved runtime-local slice complete, published and locally release-accepted through Task 11. | [Local branching](2026-10-05-shared-tree-local-branching.md). Shared/persisted branches remain excluded and require a separate profile/version decision. |
-| M7: application/container lifecycle | Fixed-layout native creation plus the Lustre transaction, commit/revertible, application-owned history, and browser checklist slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md) and [Lustre consumer slice](2026-10-09-shared-tree-lustre.md); broader layouts, live attachment, handle-valued leaves, richer typed consumers, production authentication, and disk pending-state recovery remain open. |
+| M7: application/container lifecycle | Complete for the published profile, with local acceptance. Includes default and declared-layout native creation, Lustre history/checklist, same-container handle graphs, the typed SharedTree API, pending-tree crash/restart recovery, and acknowledged native alias claims. | [Lustre consumer](2026-10-09-shared-tree-lustre.md), [handles and live attachment](2026-10-10-shared-tree-handles-attachment.md), [typed application API](2026-10-13-shared-tree-typed-api.md), and the M7 acceptance record below. Arbitrary factories/layouts, production authentication, automatic journaling, and mixed-DDS recovery remain excluded extensions. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
-The next M7 slice is
-[handles and live attachment](2026-10-10-shared-tree-handles-attachment.md),
-with its [design](../specs/2026-10-10-shared-tree-handles-attachment-design.md).
-Preliminary pinned-source discovery started on 2026-10-10. Its complete
-discovery gate remains open, and native handle-valued leaves and runtime-owned
-map/tree attachment graphs across declared datastores are not implemented or
-accepted; the M7 status above remains unchanged.
+The [handles and live attachment plan](2026-10-10-shared-tree-handles-attachment.md)
+completed Tasks 1-9 with local acceptance on 2026-10-13. Native JavaScript and
+BEAM clients support same-container SharedMap/SharedTree handle leaves and
+runtime-owned attachment graphs across the declared datastores. The
+[typed application API plan](2026-10-13-shared-tree-typed-api.md) completed all
+seven tasks and its final review through `90739e50`. Both facades now expose
+`SharedTree(schema, record)` with identity-bound node, array, and map handles;
+the former public path/`TreeValue` read and edit signatures are historical.
+
+Array range edits and identity-preserving moves belong to the completed M3
+slice. The typed M7 API carries that behavior forward through
+`tree_array_move` and captured-item `tree_array_move_before`, including moves
+between compatible arrays. Array schema evolution remains outside the
+profile. The completed plans below retain their implementation and acceptance
+records.
 
 The generated and service profiles publish the approved M5 transaction and
 undo/redo slices. Both native facades expose runtime-local revertible handles,
@@ -66,13 +77,257 @@ Local branching Task 11 supplies the passing current release result below.
 No hosted workflow was dispatched for either continuation. The local M6 slice
 is published and locally accepted with native, service and full release evidence.
 
-The current manifest has 63 generated cases and 37 registered native semantic
+The current manifest has 68 generated cases and 42 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
 7,500 for the deep run. `.github/workflows/shared-tree.yml` runs the native
-checks automatically; `.github/workflows/shared-tree-interop.yml` runs service
-acceptance only on manual dispatch. Their M6 names describe the published
-runtime-local profile, and workflow existence is not fresh execution evidence. The browser
-checklist is a separate manual recipe, not the website browser workflow.
+checks automatically; `.github/workflows/shared-tree-interop.yml` runs legacy,
+creation, declared-layout, handle-lifecycle, recovery, and alias service
+acceptance only on manual dispatch.
+Workflow existence is not fresh execution evidence. The browser checklist is
+a separate manual recipe, not the website browser workflow.
+
+### M7 scope reconciliation and array-move verification — 2026-10-14
+
+This continuation checked `fcc7cb48` and corrected this roadmap's stale
+handle/attachment and typed-API status. It changed no production code,
+dependency, version pin, or generated fixture. The accepted M3 array/move and
+M7 slice implementations were already present.
+
+| Command | Fresh local result |
+| --- | --- |
+| `gleam test --target erlang -- shared_tree_node shared_tree_array shared_tree_typed` | 149 passed. |
+| `gleam test --target javascript -- shared_tree_node shared_tree_array shared_tree_typed` | 148 passed. |
+| `node tools/shared-tree-oracle/source.mjs verify` and `npm --prefix tools/shared-tree-oracle run check` | Passed; verified the pinned source and 68-case corpus. |
+| `just shared-tree-test` | 1,223 BEAM and 1,194 JavaScript tests passed, plus storage, bootstrap, and creation smokes. |
+| `just shared-tree-codec-interop` | Both targets passed, 38 items each. |
+| `just shared-tree-interop` | Run `43f60070-1a5f-413b-be68-8f4866189ef9` passed against pinned Floodgate: 300 requested/generated/executed seed-42 schedules, zero skips or divergences. Its corpus selection passed 1,206 BEAM and 1,177 JavaScript tests. |
+| `just build` and `just lint` | Passed. |
+
+The service report is
+`tools/shared-tree-oracle/.output/interop/43f60070-1a5f-413b-be68-8f4866189ef9/report.json`.
+It includes the array summary/reload matrix, deterministic array and move
+scenarios, and seeded schedules under unchanged profile digest
+`997cd8cb8d91f9ef7c82a18eee661791ea6985e6c78a04e2976357fcc98458a7`.
+This run does not replace the dated lifecycle, creation, or browser acceptance
+in the completed M7 plans, and it does not close the broader milestone.
+Arbitrary layouts, new alias authoring, and production authentication remain
+open. The subsequent implementation below adds a bounded pending-tree
+checkpoint rather than treating this reconciliation as milestone completion.
+
+### Pending-tree restart checkpoints — 2026-10-14
+
+Both facades expose `pending_checkpoint` and `connect_resuming`. The former
+flushes queued submissions and exports portable version-1 JSON; the application
+must store it durably. The latter validates the checkpoint before opening a
+transport, accepts fresh credentials, and uses the existing replay,
+old-session-leave/new-join barrier, and pending resubmission path.
+
+The checkpoint retains both native forests, original and rebased pending
+commits, authoring contexts and schemas, rollback and receipt relationships,
+compressor local ranges, and original batch/client sequence identities.
+Recovery uses a fresh view and does not revive application handles, branches,
+subscriptions, or undo stacks. Captures explicitly reject active transactions,
+unmerged branches, detached graphs, pending attachments/aliases, ordinary DDS
+pending edits, and replay gaps. This is an application-stored checkpoint, not
+automatic write-ahead journaling or offline authoring.
+
+The new document acceptance tests perform an actual file write/read and JSON
+parse around a pending cross-array move and later field edit, preserve the
+compressor and submission identities, and drain an original acknowledgement
+without repeating the move. Both runtime adapters cover unaccepted and
+accepted-before-crash work, readiness after catch-up, subsequent checkpoint
+capture, and closed-runtime errors. Further cases cover pending insertion,
+remote rebase followed by another checkpoint, coalesced acknowledgements,
+finalized compressor capacity without a batch ID, and malformed history or
+submissions. Recovery validates full wire changes and exact per-tree revision
+order before opening a transport.
+
+Earlier checkpoint-codec verification with `just shared-tree-test` passed
+1,243 BEAM and 1,213 JavaScript tests plus its
+storage/bootstrap/creation smokes. `just shared-tree-codec-interop` passed
+38 items on each target. Separate-process file tests also passed BEAM-to-JS
+and JS-to-BEAM restoration with continued ID allocation. These runs preceded
+the later stale-checkpoint replay changes.
+
+The focused recovery gates passed 32 BEAM and 31 JavaScript tests. The service
+coordinator passed all 32 cells in run
+`c41fb650-8a3a-4699-8816-9383704b5619`, against the unchanged pinned Floodgate.
+It stores a checkpoint, kills the writer process with `SIGKILL`, applies a
+peer edit, and restores in a fresh process. The matrix covers both writer and
+reader targets with unsent work, accepted-before-crash work, accepted edits
+newer than the saved checkpoint, and five intervening-reconnect cases.
+The reconnect cases cover full acceptance, partial-prefix acceptance, later
+allocations, peer rebase, and a second peer edit between resubmission authoring
+and acceptance. In the delayed cases the native writer authored at sequence 9
+before a peer edit sequenced at 10. Fully accepted work produced zero recovery
+submissions; partial acceptance produced one suffix submission. Each restored
+writer continued allocating IDs, converged with the upstream reader, and
+drained its pending queue.
+The eight delayed cells also stored a pending continuation, killed the recovered
+process, restored on the original writer target, acknowledged the accepted
+continuation without another submission, and continued allocating and editing.
+The four full-acceptance continuation files include rollback destroys.
+Raw checkpoints and transport evidence are under
+`tools/shared-tree-oracle/.output/recovery/c41fb650-8a3a-4699-8816-9383704b5619/`.
+The manual interoperability workflow now runs this gate and preserves its
+artifacts. No hosted run was dispatched.
+
+After the final node-scope fix, the combined `runtime_core`, `shared_tree_codec`,
+`shared_tree_document_recovery`, and `shared_tree_recovery` selection passed
+179 BEAM and 178 JavaScript tests. `just shared-tree-codec-interop` passed
+38 items per target; `just build` and `just lint` passed.
+The broader `just shared-tree-test` run passed 1,255 BEAM and 1,225 JavaScript
+tests and its storage/bootstrap/creation smokes before that last codec fix.
+
+Before the intervening-reconnect fixes, broader regression passed: `just test`
+ran 2,806 BEAM and 3,054
+JavaScript root tests, the workspace tests, JavaScript suites, compile-fail
+checks, storage/bootstrap/creation smokes, and website snippet checks.
+`just build` and `just lint` passed. The oracle's Node suite passed 825 tests
+with no failures or skips, including its live-service acceptance cases.
+These full-suite results precede the later reconnect fixes.
+
+Recovery now correlates accepted resubmissions with the first saved logical
+batch and checks full native changes, allocations, metadata, and grouping.
+While saved work remains pending, it retains immutable replay-time authoring
+states keyed by sequence number. Reconstructing at the incoming reference
+sequence avoids rebasing against peer edits that arrived after submission.
+Normal-session acknowledgement validation remains unchanged.
+
+A separate sequenced reader applies the same replay without the saved local
+compressor session. After all saved work acknowledges, recovery transfers to
+that reader and keeps the old-client leave barrier. This admits later
+allocations absent from the file without reusing their IDs. Local history
+checkpoints also retain rollback-only destroys and composed revision metadata
+outside the unchanged wire format. An explicit recovery codec context retains
+commit-scoped graph-node IDs without weakening message or summary validation.
+An earlier untagged context lost those scopes and failed the second-crash
+service case with a node-ownership cycle; the native regression now checks
+pending node scopes. Native and service tests exercise another checkpoint,
+restore, acknowledgement, and continued allocation after this handoff.
+Broader M7 scope remains open.
+
+### Native datastore alias claims — 2026-10-14
+
+Both facades expose `try_set_alias(store, alias)`. JavaScript returns a promise;
+BEAM waits for the same `Result(container.AliasResult, String)` outcome.
+Success, conflict, and already-aliased outcomes follow the claim's own
+sequenced acknowledgement. Duplicate pending callers share one submission and
+its outcome. A conflict leaves the published graph attached and allows another
+name; it does not fail the document. Bootstrap alias validation stays strict.
+Claims cannot hide datastore identities. Invalid names fail before allocation
+or publication.
+
+Publication traverses the complete graph without inventing a bootstrap-map
+reference. Summaries promote successful alias targets to root datastore
+metadata, which upstream lookup requires after reload. Reconnect preserves the
+original logical submission identity for grouped graph publication and
+alias-only submissions. The latter include already-attached targets and retries
+after conflict. Reconnect deadline suspension clears and aborts outstanding
+alias callers while retaining the native core. BEAM's ten-second call timeout
+does not cancel a submitted operation.
+
+`just shared-tree-alias-interop` passed its native and asynchronous JavaScript
+gates. The expanded service matrix passed all 16 cells in run
+`ec7a6d54-982e-4a87-8950-09fa9e6f367e`. For each native target it checks success,
+an upstream-wins race, and unaccepted or accepted-before-disconnect claims for
+fresh graphs, previously published targets, and conflict retries. Every cell
+publishes a cyclic map graph containing a fresh SharedTree, publishes a native
+summary, reloads upstream and natively, and drains all pending submissions.
+Artifacts are under
+`tools/shared-tree-oracle/.output/aliases/ec7a6d54-982e-4a87-8950-09fa9e6f367e/`.
+
+The generated and service profiles now advertise `new-alias-authoring`.
+The corpus still contains 68 cases; current profile SHA-256 is
+`7ab0c1e3ca554ce47aebf53881d8e3ea5da10baf1c6009f64a4fa3850a4a9757`.
+Fluid, Floodgate, codec versions, and the minimum collaboration version are
+unchanged. The manual workflow runs the alias gate and preserves its artifacts;
+no hosted run was dispatched. Pending aliases remain outside the tree
+checkpoint format, and the broader M7 lifecycle scope remains open.
+
+Final alias regression ran 2,827 BEAM and 3,073 JavaScript root tests, the
+workspace and JavaScript suites, compile-fail checks, storage/bootstrap/creation
+smokes, and website type, unit, and snippet checks. The first full command
+stopped on the unchanged guide-race browser test timing out while waiting for
+an animated label. Its isolated retry passed, followed by all 42 registered
+website browser tests against the same build. No website source changed.
+`just build`, `just lint`, explicit formatting checks for untracked Gleam
+files, and `git diff --check` passed. Codec interoperability passed 38 items
+per target, the generated corpus check verified all 68 cases, and nine focused
+Node profile/driver/recipe tests passed.
+
+Both permanent lifecycle recipes were then rerun serially under the published
+profile. `just shared-tree-alias-interop` passed all 16 cells in run
+`955cb3cd-8aba-441c-b2c5-57fd3c4c8e75`.
+`just shared-tree-recovery-interop` passed all 32 crash/restart cells in run
+`132e3651-a386-479e-abf4-4a2ff4ec5f49`, including the second-crash and target-switch
+cases. Their current-run reports and evidence remain in the corresponding
+`.output/aliases/` and `.output/recovery/` directories.
+
+### Declared initial container layouts — 2026-10-14
+
+Both typed facades expose `create_tree_container_with_layout` and
+`with_initial_tree`. `container.layout`, `with_data_store`, `with_map`,
+`with_binding`, and the low-level `with_tree` declare a complete initial
+graph using the registered bootstrap and map-root graph factories.
+Creation preserves `A/root`, `A/_C`, and alias `root`, validates before
+network I/O, and sends the graph in one initial POST. Additional trees can
+use different schemas; they share the document compressor. Bindings support
+cycles and forward references. Invalid routes, duplicate declarations or
+keys, alias/identity collisions, non-map binding sources, and undeclared
+references fail before storage.
+
+The initial twelve-cell live run was `a5fea36d-25e1-4b18-8bb1-054f6ea59754`.
+Run `ff0ba142-c875-43a8-9061-0b39e24fc48d` then added insert/move/remove
+continuation from each fresh reader. Both runs used the previous alias
+profile. Each native creator produced a document that upstream, JavaScript,
+and BEAM loaded before and after a native summary. Upstream alias lookup
+and cyclic map traversal succeeded; array moves preserved node identity
+while the primary tree stayed unchanged.
+
+`just shared-tree-layout-interop` now retains those native/API checks and
+the service matrix as a permanent gate. The manual workflow uploads
+`.output/layouts/` on success or failure. The generated and service profiles
+advertise `declared-initial-container-layouts` under digest
+`29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de`.
+Codec versions, Fluid and Floodgate pins, and the 68 generated cases are
+unchanged. Arbitrary factories and layouts, production authentication,
+automatic journaling, mixed-DDS recovery, and blob/cross-container handles
+remain excluded.
+
+### M7 supported-profile acceptance — 2026-10-14
+
+The milestone's original deliverables are native creation, broader declared
+layouts, same-container Fluid handles, the typed application API, Lustre
+bindings/examples, and crash-recoverable pending trees. Each now has an
+implementation and a bounded interoperability contract. Arbitrary executable
+factories, blob/cross-container handles, production token services, automatic
+journaling, mixed-DDS recovery, and generated schemas are future extensions,
+not claims of this supported profile.
+
+Fresh acceptance under profile digest
+`29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de`:
+
+| Command | Result and current-run evidence |
+| --- | --- |
+| `just shared-tree-test` | 1,271 BEAM and 1,238 JavaScript tests, plus storage/bootstrap/creation smokes; the creation smoke made 34 requests with no redirect or WebSocket connection. |
+| `just shared-tree-create-interop` | Eighteen object/array/Identifier creator-reader cells, zero skips or divergences; `.output/creation/c0ce7557-90f9-49cf-a3d7-c2becb2fb256/report.json`. |
+| `just shared-tree-layout-interop` | Twelve initial/native-summary creator-reader cells with continued secondary-tree array moves; `.output/layouts/02da92a9-acb4-4b33-8440-e417089b7d1f/report.json`. |
+| `just shared-tree-lifecycle-interop` | All seven sections, 27 reload cells, and 300 requested/executed seed-42 schedules; `.output/lifecycle/dca6bc01-8cec-42fe-99f0-6e941474c9b3/report.json` (report run ID `ff93aace-543d-4172-813b-28af4c9719f5`). |
+| `just shared-tree-alias-interop` | Sixteen cells; `.output/aliases/4a3b1d5a-4e0c-4098-a219-8d6ff0c63f78/report.json`. |
+| `just shared-tree-recovery-interop` | Thirty-two crash/restart cells; `.output/recovery/4c35f303-6330-493a-9433-879e3749ceb9/report.json`. |
+| Serialized Node tests for `interop`, `creation`, `client-driver`, `gates`, and `service` | 223 passed, zero failures or skips. Includes compilation of the documented layout builder. |
+| `just shared-tree-interop` | Run `b1332ca2-68be-462e-ad12-3fefdb78cc65` passed the object/map/array/move/schema/Identifier and history matrices, including 300 requested/generated/executed seed-42 schedules, zero skips or divergences. Its corpus selection passed 1,254 BEAM and 1,221 JavaScript tests. |
+| `just build`, `just lint`, and explicit formatting checks for untracked Gleam files | Passed. |
+| `just shared-tree-codec-interop` and `just shared-tree-oracle-check` | Both targets passed 38 codec items; regeneration verified all 68 cases without changing codec or source pins. |
+
+The focused read-only layout review reported no significant issues. These
+are local runs; no hosted workflow or release was dispatched. The historical
+full repository and 42-case website browser results in the alias record
+remain historical rather than substitutes for these fresh feature gates.
+This closes the original M7 deliverables within the published profile.
+Array schema evolution remains a separate extension to the completed
+array/move API, and M8 performance/reclamation/version work remains deferred.
 
 ### Deferred branch-schema work
 
@@ -2442,9 +2697,9 @@ new scope needs its own approved design and interoperability proof.
 | --- | --- | --- |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
-| Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
-| Richer typed schema UX | Stable native and Lustre facades | Typed consumers and generated schema ergonomics without changing kernel or bootstrap contracts. |
-| Crash-recoverable pending state | In-process reconnect | Disk restoration of compressor session and unsent changes, resubmission, and accepted-before-crash deduplication. |
+| Future container lifecycle extensions | Accepted default/declared-layout creation, live attachment, and native alias claims | Arbitrary factories/layouts, blob/cross-container handles, and production authentication need separate contracts and upstream/native loading proof. |
+| Generated schema ergonomics | Accepted hand-authored typed SharedTree API | Optional schema-to-Gleam generation without adding another tree API or changing kernel/bootstrap contracts. |
+| Broader pending-state durability | Explicit application-stored pending-tree checkpoints with dual-target service proof for intervening reconnects, partial acceptance, historical rebases, and later accepted edits, described above | Automatic journaling, mixed-DDS pending edits, and detached graph persistence. |
 | M8 scale and incremental summaries | Representative object/map/array/transaction/undo workloads | Measured operation costs, safe reclamation with live handles, incremental persistence, and cross-version compatibility. |
 
 ### Current parallel opportunities
@@ -2454,10 +2709,10 @@ staging is historical. The remaining work can split as follows:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| Selected M7 consumers | Typed consumers and generated schema ergonomics beyond the implemented Lustre history/checklist slice. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
-| New-scope design/oracle work | Array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
+| Additional consumers | Additional consumers or schema generation beyond the accepted typed API and Lustre history/checklist slices. | Consume the single typed SharedTree API; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
+| New-scope design/oracle work | Array schema evolution, broader pending-state durability, arbitrary factories/layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 
-Further M7 container lifecycle work can overlap the consumer lane after its
+Future container lifecycle extensions can overlap the consumer lane after their
 contracts stabilize, but it needs one owner for attach, alias, bootstrap, and
 handle behavior.
 
@@ -2465,10 +2720,13 @@ handle behavior.
 and `shared_tree_checklist_lustre` example cover browser-native creation,
 fixed-layout resolution, subscriptions, transaction and commit/revertible
 effects, application-owned undo/redo, grouped completion, ordered cleanup, and
-a two-context Chromium gate. They do not close M7. Production token services,
-arbitrary layouts, live attachment, handle-valued leaves, richer typed APIs,
-and pending-state recovery remain open. The example's local pending counter
-measures effect completion, not sequenced acknowledgement.
+a two-context Chromium gate. The later handle/attachment and typed-API slices
+extend that work with handle-valued leaves, declared-datastore live attachment,
+checked declarations, and captured-node actions. Explicit pending-tree restart
+checkpoints are now available in both native facades. Production token services,
+arbitrary layouts and broader pending-state durability
+remain open. The example's local pending counter measures effect completion, not
+sequenced acknowledgement.
 
 The fixed-layout creation slice now has a standalone dual-target example at
 `examples/shared_tree_cli`. It uses caller-authored schema and initial content,
@@ -2482,8 +2740,8 @@ field kinds. Transactions/undo, branching, crash recovery, and reclamation
 share history or runtime state; do not assign concurrent owners to the same
 reconciliation and retention paths. M8 reclamation must preserve live
 revertibles as well as collaboration history; measurements can use the
-implemented M3/M5 workloads now. Broader container layouts, handle-valued
-leaves, incremental summaries, and additional supported versions each need
+implemented M3/M5 workloads now. Arbitrary factories/layouts, incremental
+summaries, and additional supported versions each need
 their own approved scope and interoperability proof. Independent design or
 oracle work does not remove those implementation dependencies.
 

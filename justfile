@@ -248,9 +248,26 @@ shared-tree-create-test:
 shared-tree-create-interop: shared-tree-create-test
     node tools/shared-tree-oracle/creation.mjs interop --local-floodgate
 
+# Declared initial graphs, fresh readers, secondary-tree moves, and summaries.
+shared-tree-layout-interop: shared-tree-create-test
+    node tools/shared-tree-oracle/layout-interop.mjs
+
 # Handle values, attachment graphs, retention, reconnect, reload, and schedules.
 shared-tree-lifecycle-interop:
     node tools/shared-tree-oracle/lifecycle-interop.mjs --local-floodgate --iterations 300 --seed 42
+
+# Kill native writers, restore disk checkpoints on either target, and continue.
+shared-tree-recovery-interop:
+    gleam test --target erlang -- shared_tree_document_recovery shared_tree_recovery
+    gleam test --target javascript -- shared_tree_document_recovery shared_tree_recovery
+    node tools/shared-tree-oracle/recovery-interop.mjs
+
+# Publish aliases, race upstream claims, reconnect, and reload native summaries.
+shared-tree-alias-interop:
+    gleam test --target erlang -- shared_tree_runtime shared_tree_client facade_parity
+    gleam test --target javascript -- shared_tree_runtime shared_tree_client facade_parity
+    node smoke/shared_tree_bootstrap.mjs
+    node tools/shared-tree-oracle/alias-interop.mjs
 
 # The p2p gate: two *real* browser pages join a room through the real
 # signaling process, clap concurrently, and must converge on the same total

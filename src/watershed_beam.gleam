@@ -154,15 +154,55 @@ pub fn create_tree_container(
   builder: typed.Builder(s, input),
   initial_root: Option(input),
 ) -> Result(String, typed.Error) {
+  create_tree_container_with_layout(
+    config,
+    definition,
+    builder,
+    initial_root,
+    container.layout(),
+  )
+}
+
+@target(erlang)
+/// Create a persisted container with declared initial stores and channels.
+/// Creation does not open a runtime or retry an uncertain response.
+pub fn create_tree_container_with_layout(
+  config: container.CreateConfig,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+  layout: container.Layout,
+) -> Result(String, typed.Error) {
   use root <- result.try(prepare_tree_root(definition, builder, initial_root))
-  container.create_tree(
+  container.create_tree_with_layout(
     config,
     tree_schema.view_to_stored(typed.schema_view(definition)),
     root,
+    layout,
   )
   |> result.map_error(fn(error) {
     typed.AccessFailed(container.error_to_string(error))
   })
+}
+
+@target(erlang)
+/// Add a typed tree to a declared initial container layout.
+pub fn with_initial_tree(
+  layout: container.Layout,
+  store: String,
+  channel: String,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(container.Layout, typed.Error) {
+  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  Ok(container.with_tree(
+    layout,
+    store,
+    channel,
+    tree_schema.view_to_stored(typed.schema_view(definition)),
+    root,
+  ))
 }
 
 @target(erlang)
@@ -565,6 +605,49 @@ pub fn connect(
 }
 
 @target(erlang)
+/// Resume a stored checkpoint with fresh credentials. This function waits for
+/// history replay. Invalid checkpoints do not open a transport.
+/// Replay accepts saved batches resubmitted after a later reconnect.
+pub fn connect_resuming(
+  host host: String,
+  port port: Int,
+  tenant tenant: String,
+  document document: String,
+  token token: String,
+  user_id user_id: String,
+  checkpoint checkpoint: Json,
+) -> Result(Document(root), String) {
+  use subject <- result.try(runtime_beam.start_with_checkpoint(
+    host: host,
+    port: port,
+    path: socket_path,
+    tenant: tenant,
+    document: document,
+    connect_message: build_connect_message(
+      tenant,
+      document,
+      user_id,
+      Some(token),
+    ),
+    checkpoint: checkpoint,
+  ))
+  case runtime_beam.await_ready(subject) {
+    Ok(Nil) -> Ok(Document(subject))
+    Error(reason) -> {
+      process.send(subject, runtime_beam.Shutdown)
+      Error(reason)
+    }
+  }
+}
+
+@target(erlang)
+/// Flush queued submissions and capture pending tree state. Store the returned
+/// JSON durably before you rely on recovery. Do not resume two live copies.
+pub fn pending_checkpoint(document: Document(root)) -> Result(Json, String) {
+  runtime_beam.pending_checkpoint(document.runtime)
+}
+
+@target(erlang)
 /// Connect and observe each transport push before it is sent.
 pub fn connect_observing(
   host host: String,
@@ -767,6 +850,16 @@ pub fn data_store_root(store: DataStore) -> Result(SharedMap, String) {
   |> result.map(fn(address) {
     SharedMap(runtime: store.runtime, address: address)
   })
+}
+
+@target(erlang)
+/// Publish the datastore graph and wait for its alias claim outcome.
+/// A timeout does not cancel a submitted claim.
+pub fn try_set_alias(
+  store: DataStore,
+  alias: String,
+) -> Result(container.AliasResult, String) {
+  runtime_beam.try_set_alias(store.runtime, store.id, alias)
 }
 
 @target(erlang)

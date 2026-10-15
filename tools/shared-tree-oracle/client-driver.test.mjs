@@ -115,6 +115,7 @@ test("native object helpers send exact datastore map and tree commands", async (
     },
     { command: "open-tree", name: "selected", handle, view: schema },
     { command: "read", tree: "selected", path: [] },
+    { command: "try-set-alias", store: "secondary", alias: "public" },
   ];
   const process = child(`
     const expected = ${JSON.stringify(expected)};
@@ -156,6 +157,7 @@ test("native object helpers send exact datastore map and tree commands", async (
   }), null);
   assert.equal(await channel.openTree("selected", handle, schema), null);
   assert.equal(await channel.read([], "selected"), null);
+  assert.equal(await channel.trySetAlias("secondary", "public"), null);
 });
 
 test("schema helpers send explicit view commands", async (t) => {

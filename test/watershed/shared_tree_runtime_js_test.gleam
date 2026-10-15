@@ -27,6 +27,8 @@ import watershed
 @target(javascript)
 import watershed/channel
 @target(javascript)
+import watershed/container
+@target(javascript)
 import watershed/fluid_ids
 @target(javascript)
 import watershed/handle
@@ -3961,6 +3963,119 @@ pub fn check_tree_summary_guard() -> Promise(Nil) {
     runtime.diagnostics(owner).next_client_sequence_number
     |> expect.to_equal(before)
     runtime.close(owner)
+  })
+}
+
+@target(javascript)
+pub fn check_datastore_alias_claims() -> Promise(Nil) {
+  let submissions = transport_js.new_cell([])
+  let #(owner, callbacks, _, scheduled) =
+    ready_scheduled_runtime(fn(event, payload) {
+      case event {
+        "submitOp" ->
+          transport_js.set_cell(submissions, [
+            payload,
+            ..transport_js.get_cell(submissions)
+          ])
+        _ -> Nil
+      }
+    })
+  let store = runtime.create_data_store(owner) |> expect.to_be_ok()
+  let settled = transport_js.new_cell(False)
+  let first =
+    runtime.try_set_alias(owner, store, "public")
+    |> promise.map(fn(outcome) {
+      transport_js.set_cell(settled, True)
+      runtime.resolve_handle_address(owner, handle.encode_handle("public/root"))
+      |> expect.to_equal(Ok(store <> "/root"))
+      outcome
+    })
+  let duplicate = runtime.try_set_alias(owner, store, "public")
+  run_scheduled(scheduled)
+  let assert [payload] = transport_js.get_cell(submissions)
+  let dynamic =
+    json.parse(json.to_string(payload), decode.dynamic) |> expect.to_be_ok()
+  let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  promise.resolve(Nil)
+  |> promise.await(fn(_) {
+    transport_js.get_cell(settled) |> expect.to_be_false()
+    callbacks.on_event(
+      "op",
+      frame.encode_operation_event([
+        sequenced_submission(submitted, "reader", 1),
+      ])
+        |> json.to_string,
+    )
+    promise.await_list([first, duplicate])
+  })
+  |> promise.await(fn(outcomes) {
+    outcomes
+    |> expect.to_equal([
+      Ok(container.AliasSuccess),
+      Ok(container.AliasSuccess),
+    ])
+    runtime.try_set_alias(owner, store, "different")
+  })
+  |> promise.await(fn(outcome) {
+    outcome |> expect.to_equal(Ok(container.AlreadyAliased))
+    let another = runtime.create_data_store(owner) |> expect.to_be_ok()
+    let pending = runtime.try_set_alias(owner, another, "closing")
+    runtime.close(owner)
+    pending
+  })
+  |> promise.map(fn(outcome) {
+    outcome |> expect.to_be_error()
+    Nil
+  })
+}
+
+@target(javascript)
+pub fn check_datastore_alias_reconnect_timeout() -> Promise(Nil) {
+  let #(owner, callbacks, _, _) = ready_scheduled_runtime(fn(_, _) { Nil })
+  let timers = transport_js.new_cell([])
+  runtime.set_scheduler(
+    owner,
+    transport_js.Scheduler(
+      now_milliseconds: fn() { 0 },
+      schedule: fn(action, delay) {
+        transport_js.set_cell(timers, [
+          #(delay, action),
+          ..transport_js.get_cell(timers)
+        ])
+        fn() { Nil }
+      },
+    ),
+  )
+  let store = runtime.create_data_store(owner) |> expect.to_be_ok()
+  let pending = runtime.try_set_alias(owner, store, "public")
+  runtime.force_reconnect(owner)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "fresh",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader", "fresh"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let #(_, deadline) =
+    transport_js.get_cell(timers)
+    |> list.find(fn(timer) { timer.0 == 10_000 })
+    |> expect.to_be_ok()
+  deadline()
+  runtime.connection_observation(owner).phase |> expect.to_equal("suspended")
+  promise.race_list([pending, promise.resolve(Ok(container.AliasSuccess))])
+  |> promise.map(fn(outcome) {
+    runtime.close(owner)
+    outcome |> expect.to_be_error()
+    Nil
   })
 }
 

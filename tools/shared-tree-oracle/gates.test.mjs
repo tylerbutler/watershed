@@ -125,6 +125,15 @@ test("lifecycle acceptance runs the complete owned-service profile", () => {
   ]);
 });
 
+test("layout acceptance checks native creation before the owned-service matrix", () => {
+  assert.deepEqual(recipeCommands("shared-tree-layout-interop"), [
+    "gleam test --target erlang -- shared_tree_creation git_storage facade_parity",
+    "gleam test --target javascript -- shared_tree_creation git_storage facade_parity",
+    "node smoke/shared_tree_creation.mjs",
+    "node tools/shared-tree-oracle/layout-interop.mjs",
+  ]);
+});
+
 test("committed corpus gates source and both native schema evolution coverage", () => {
   const manifest = JSON.parse(readFileSync(
     resolve(repository, "test/fixtures/shared_tree/manifest.json"),
@@ -337,6 +346,14 @@ test("README typed SharedTree examples compile against the public Gleam API", ()
     "README.md",
     "### Typed SharedTree application API",
     "readme_typed_shared_tree_examples.gleam",
+  );
+});
+
+test("README initial layout example compiles against the public Gleam API", () => {
+  compileMarkdownSection(
+    "README.md",
+    "### Declare an initial container layout",
+    "readme_initial_layout_example.gleam",
   );
 });
 

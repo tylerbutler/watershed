@@ -149,6 +149,10 @@ export class JsonLinesChannel {
     return this.#result({ command: "create-data-store", name });
   }
 
+  trySetAlias(store, alias) {
+    return this.#result({ command: "try-set-alias", store, alias });
+  }
+
   rootMap(name) {
     return this.#result({ command: "root-map", name });
   }
@@ -653,6 +657,7 @@ export async function startClient(target, descriptor, environment, options = {})
       request: (command) => channel.request(command),
       read: (path, tree) => channel.read(path, tree),
       createDataStore: (name) => channel.createDataStore(name),
+      trySetAlias: (store, alias) => channel.trySetAlias(store, alias),
       rootMap: (name) => channel.rootMap(name),
       dataStoreRoot: (store, name) => channel.dataStoreRoot(store, name),
       createMap: (name, store) => channel.createMap(name, store),
@@ -704,6 +709,13 @@ export async function startClient(target, descriptor, environment, options = {})
       revertibleStatus: (name, tree) => channel.revertibleStatus(name, tree),
       disposeRevertible: (name, tree) => channel.disposeRevertible(name, tree),
       revert: (name, dispose, tree) => channel.revert(name, dispose, tree),
+      async crash() {
+        if (child.exitCode === null && child.signalCode === null) {
+          const exited = once(child, "exit");
+          child.kill("SIGKILL");
+          await exited;
+        }
+      },
       async close() {
         const cleanupErrors = [];
         try {

@@ -68,7 +68,40 @@ npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate
 npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
 just shared-tree-interop
 just shared-tree-lifecycle-interop
+just shared-tree-recovery-interop
+just shared-tree-alias-interop
 ```
+
+The alias gate publishes cyclic map graphs with a fresh SharedTree, checks
+upstream/native claim races, then summarizes natively and reloads through both
+readers. Its 16 cells cover both native targets: success, conflict, and
+unaccepted or accepted-before-disconnect claims for fresh datastores,
+already-published datastores, and retries after a conflicting claim published
+the graph. Alias-only reconnects must settle without changing datastore
+identities or leaving pending submissions. Evidence remains under
+`.output/aliases/<run-id>/`; the manual interoperability workflow runs the gate
+and preserves that directory.
+
+The recovery gate kills a native writer with `SIGKILL` after storing a pending
+checkpoint on disk. It restores that file in a fresh JavaScript or BEAM process,
+checks a peer edit made during the outage, and continues allocating IDs and
+editing. Its 32 cells cover each writer/reader target pair in eight modes:
+unsent moves, accepted-before-crash moves, accepted edits newer than the saved
+checkpoint, and five intervening-reconnect cases. The latter accept the full
+saved prefix, accept only its first submission, accept a later insertion, or
+delay full or partial acceptance until another peer edit sequences. That delay
+checks a resubmission authored at an older sequence than the latest replayed
+edit.
+
+Accepted work must produce no recovery resubmission. Partial acceptance must
+produce exactly one suffix submission, and the restored runtime must preserve
+literal array contents and drain its pending queue. Checkpoints and transport
+evidence remain under `.output/recovery/<run-id>/`; the manual interoperability
+workflow runs the gate and preserves that directory.
+The eight delayed cases also store a pending continuation, kill the restored
+runtime, and restore again on the original writer target. Full-acceptance
+checkpoints must retain a rollback destroy. The second recovery must acknowledge
+the accepted continuation without resubmitting it, then allocate and edit again.
 
 The M7 lifecycle discovery probe runs separately from the existing source
 batches, so it cannot change their deterministic ID stream:
@@ -437,11 +470,15 @@ check.
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
 | `just shared-tree-interop` | Real-service object, map, array, schema-evolution, and Identifier matrices plus 300 seeded schedules. |
 | `just shared-tree-create-interop` | Eighteen object, array, and Identifier native-creator/fresh-reader cells with continued editing. |
+| `just shared-tree-layout-interop` | Twelve declared-layout creator/checkpoint/reader cells with continued secondary-tree moves. |
 | `just shared-tree-lifecycle-interop` | Seven non-skipping handle lifecycle sections, 27 reload cells, and 300 schedules at seed 42. |
+| `just shared-tree-recovery-interop` | Thirty-two checkpoint crash/restart cells across both targets. |
+| `just shared-tree-alias-interop` | Sixteen alias publication, conflict, retry, and reconnect cells. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
-The service job uploads `.output/interop/`, `.output/creation/`, and
-`.output/lifecycle/` on success or failure as
+The service job uploads `.output/interop/`, `.output/creation/`,
+`.output/layouts/`, `.output/lifecycle/`, `.output/recovery/`, and
+`.output/aliases/` on success or failure as
 `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden `.output`
 directory but excludes source checkouts, service databases, and other output
 directories. Each runner verifies its own current-run artifacts; an older
@@ -471,8 +508,10 @@ before its referring edit, keeps branch-only bindings local until merge,
 rejects target attachment during an active transaction, retains summary and GC
 routes needed by undo, and reuses accepted identities through reconnect and
 fresh load. It excludes blob handles, arbitrary datastore factories and
-layouts, new alias authoring, cross-container handles, GC sweep, production
-authentication, pending-state disk recovery, and richer typed consumers.
+layouts, cross-container handles, GC sweep, production
+authentication, and broader pending-state durability. The checkpoint gate above
+covers a separate, bounded restart-recovery slice; the alias gate covers
+native alias publication. The typed application API has its own acceptance plan.
 
 The workflow starts no shared development server. The existing service wrapper
 verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
@@ -508,7 +547,7 @@ continuation. A missing creator, reader, service, or evidence cell fails the run
 Run artifacts live under `.output/creation/<run-id>/`; they contain no tokens
 or tenant secrets.
 
-The supported layout is root alias `root` -> `A`, map `/A/root`, and tree `/A/_C`.
+The default layout is root alias `root` -> `A`, map `/A/root`, and tree `/A/_C`.
 The create request sends the inline application tree and sequence-zero code
 quorum to `POST /documents/{tenant}`. Floodgate publishes the initial summary
 before returning its assigned ID. The fresh upstream reader uses the same
@@ -518,8 +557,37 @@ datastore factory as the object-profile oracle and must accept the logical
 This gate covers the pulled-forward native-creation slice of M7 and runs in
 the permanent interoperability job. Live attachment is proved by the separate
 lifecycle gate. M7 still excludes arbitrary Fluid applications and layouts,
-service discovery, production authentication, disk recovery, and a hosted
-relay.
+service discovery, production authentication, automatic disk journaling, and a
+hosted relay. The checkpoint gate above covers explicit pending-tree files,
+including full and partial acceptance across intervening reconnects.
+
+### Declared initial layouts
+
+```sh
+just shared-tree-layout-interop
+```
+
+This gate creates documents through each production typed facade with named
+graph datastores, an initial alias, a child map, a secondary tree, and cyclic
+bindings. Fresh upstream, JavaScript, and BEAM readers load the initial
+summary and a native-published summary. Each reader inserts, moves, and removes
+secondary-tree content; the observing upstream view checks node identity,
+and the native writer checks convergence. The primary tree must remain
+unchanged. Both native creators and all twelve reader cells are mandatory.
+
+The layout builder preserves `A/root`, `A/_C`, and the `root` alias. Additional
+map-root datastores use `org.watershed.shared-tree.m7.graph`; channels can use
+independent schemas and share the container's compressor. Complete-graph
+validation rejects duplicate or unsafe names, alias/identity collisions,
+duplicate map keys, invalid binding sources, and undeclared references before
+the request. Creation still sends one POST without starting a runtime.
+Arbitrary executable factories and cross-container or blob handles remain
+excluded.
+
+Current-run results, initial and edited summaries, final transport/checkpoint
+evidence, and failures go under `.output/layouts/<run-id>/`. The report records
+the validated profile digest and compatibility pins. The manual service
+workflow runs this recipe and uploads that directory on success or failure.
 
 `client:interop` builds long-lived JavaScript and BEAM test clients once, then
 creates a fresh upstream document for each schedule. The upstream summarizer

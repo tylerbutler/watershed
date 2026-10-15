@@ -8,6 +8,7 @@ import gleam/result
 import startest/expect
 import watershed/channel
 import watershed/fluid_ids
+import watershed/handle
 import watershed/runtime_core
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
@@ -68,6 +69,198 @@ fn initial() -> fluid_document.DocumentSummary {
   let assert Ok(summary) =
     fluid_document.initial_tree(stored(), Some(root()), session, view)
   summary
+}
+
+fn graph_layout() -> fluid_document.InitialLayout {
+  let assert Ok(note_schema) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{
+        \"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}
+      },\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}",
+    )
+  fluid_document.InitialLayout(
+    stores: [
+      fluid_document.InitialDatastore("B", Some("public")),
+      fluid_document.InitialDatastore("C", None),
+    ],
+    channels: [
+      fluid_document.InitialMap("A", "local", [#("local", json.bool(True))]),
+      fluid_document.InitialTree(
+        "A",
+        "note",
+        note_schema,
+        Some(types.StringValue("independent schema")),
+      ),
+      fluid_document.InitialMap("B", "child", [
+        #("label", json.string("initial child")),
+      ]),
+      fluid_document.InitialTree("B", "items", stored(), Some(root())),
+    ],
+    bindings: [
+      fluid_document.InitialBinding("A", "root", "other", "B", "root"),
+      fluid_document.InitialBinding("B", "root", "child", "B", "child"),
+      fluid_document.InitialBinding("B", "root", "tree", "B", "items"),
+      fluid_document.InitialBinding("B", "child", "parent", "C", "root"),
+      fluid_document.InitialBinding("C", "root", "parent", "B", "root"),
+    ],
+  )
+}
+
+pub fn shared_tree_creation_declared_layout_round_trip_and_edit_test() {
+  let #(session, view) = identity()
+  let created =
+    fluid_document.initial_tree_with_layout(
+      stored(),
+      Some(root()),
+      session,
+      view,
+      graph_layout(),
+    )
+    |> expect.to_be_ok()
+  fluid_document.aliases(created)
+  |> expect.to_equal([#("root", "A"), #("public", "B")])
+  let encoded = fluid_document.encode(created) |> expect.to_be_ok()
+  let component = blob(encoded, "/.channels/B/.component")
+  json.parse(
+    json.to_string(component),
+    decode.at(["isRootDataStore"], decode.bool),
+  )
+  |> expect.to_equal(Ok(True))
+  let #(reader_session, reader_view) = identity()
+  let loaded =
+    fluid_document.decode(encoded, None, reader_session, reader_view)
+    |> expect.to_be_ok()
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("reader", [], 0),
+      loaded,
+    )
+  runtime_core.get(core, "A/root", "other")
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok(json.to_string(handle.encode_handle("B/root"))))
+  runtime_core.get(core, "B/child", "parent")
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok(json.to_string(handle.encode_handle("C/root"))))
+  runtime_core.get(core, "A/local", "local")
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("true"))
+  runtime_core.tree_read(core, "A/note", [])
+  |> expect.to_equal(Ok(Some(types.StringValue("independent schema"))))
+  runtime_core.tree_read(core, "B/items", ["title"])
+  |> expect.to_equal(Ok(Some(types.StringValue("Native"))))
+  let assert Ok(#(edited, _, [_])) =
+    runtime_core.submit_tree_edits(core, "B/items", [
+      types.SetField(["title"], types.StringValue("layout edit")),
+    ])
+  runtime_core.tree_read(edited, "B/items", ["title"])
+  |> expect.to_equal(Ok(Some(types.StringValue("layout edit"))))
+  runtime_core.tree_read(edited, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(types.StringValue("Native"))))
+}
+
+pub fn shared_tree_creation_layout_rejects_ambiguous_graphs_test() {
+  let #(session, view) = identity()
+  let good = graph_layout()
+  [
+    fluid_document.InitialLayout(..good, stores: [
+      fluid_document.InitialDatastore("A", None),
+    ]),
+    fluid_document.InitialLayout(..good, stores: [
+      fluid_document.InitialDatastore("B", Some("root")),
+    ]),
+    fluid_document.InitialLayout(..good, stores: [
+      fluid_document.InitialDatastore("B", Some("C")),
+      fluid_document.InitialDatastore("C", None),
+    ]),
+    fluid_document.InitialLayout(..good, channels: [
+      fluid_document.InitialMap("B", "root", []),
+    ]),
+    fluid_document.InitialLayout(..good, stores: [
+      fluid_document.InitialDatastore("../B", None),
+    ]),
+    fluid_document.InitialLayout(..good, stores: [
+      fluid_document.InitialDatastore("B", Some("not canonical")),
+    ]),
+    fluid_document.InitialLayout(..good, channels: [
+      fluid_document.InitialMap("B", "child", [
+        #("duplicate", json.int(1)),
+        #("duplicate", json.int(2)),
+      ]),
+    ]),
+    fluid_document.InitialLayout(..good, channels: [
+      fluid_document.InitialMap("B", "child", [
+        #("missing", handle.encode_handle("absent/root")),
+      ]),
+    ]),
+    fluid_document.InitialLayout(..good, bindings: [
+      fluid_document.InitialBinding("A", "_C", "bad", "B", "root"),
+    ]),
+    fluid_document.InitialLayout(..good, bindings: [
+      fluid_document.InitialBinding("A", "root", "tree", "B", "root"),
+    ]),
+    fluid_document.InitialLayout(..good, bindings: [
+      fluid_document.InitialBinding("A", "root", "missing", "B", "absent"),
+    ]),
+  ]
+  |> list.each(fn(layout) {
+    fluid_document.initial_tree_with_layout(
+      stored(),
+      Some(root()),
+      session,
+      view,
+      layout,
+    )
+    |> expect.to_be_error()
+    Nil
+  })
+}
+
+pub fn shared_tree_creation_layout_shares_identifier_allocation_test() {
+  let #(session, view) = identity()
+  let root =
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("generated")),
+    ])
+  let created =
+    fluid_document.initial_tree_with_layout(
+      identifier_fixture.stored(),
+      Some(root),
+      session,
+      view,
+      fluid_document.InitialLayout(
+        [fluid_document.InitialDatastore("B", Some("public"))],
+        [
+          fluid_document.InitialTree(
+            "B",
+            "items",
+            identifier_fixture.stored(),
+            Some(root),
+          ),
+        ],
+        [],
+      ),
+    )
+    |> expect.to_be_ok()
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("reader", [], 0),
+      created,
+    )
+  let assert Ok(Some(types.StringValue(first))) =
+    runtime_core.tree_read(core, "A/_C", ["id"])
+  let assert Ok(Some(types.StringValue(second))) =
+    runtime_core.tree_read(core, "B/items", ["id"])
+  let #(expected, first_id) =
+    fluid_ids.new(session) |> fluid_ids.generate |> expect.to_be_ok()
+  let #(expected, second_id) = fluid_ids.generate(expected) |> expect.to_be_ok()
+  fluid_ids.decompress(expected, first_id)
+  |> result.map(fluid_ids.stable_id_to_string)
+  |> expect.to_equal(Ok(first))
+  fluid_ids.decompress(expected, second_id)
+  |> result.map(fluid_ids.stable_id_to_string)
+  |> expect.to_equal(Ok(second))
+  { first == second } |> expect.to_be_false()
+  fluid_document.compressor(created) |> expect.to_equal(Some(expected))
 }
 
 pub fn shared_tree_creation_materializes_identifier_defaults_in_pinned_order_test() {

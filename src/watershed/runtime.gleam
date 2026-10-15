@@ -65,6 +65,8 @@ import watershed/channel.{
 @target(javascript)
 import watershed/claims_kernel
 @target(javascript)
+import watershed/container
+@target(javascript)
 import watershed/fluid_ids
 @target(javascript)
 import watershed/git_storage
@@ -78,6 +80,8 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 import watershed/ordered_collection_kernel
 @target(javascript)
 import watershed/pact_map_kernel
+@target(javascript)
+import watershed/recovery
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy}
 @target(javascript)
@@ -312,6 +316,10 @@ type State {
     /// server that does not have it.
     supported_features: Dict(String, Dynamic),
     writable: Bool,
+    alias_waiters: Dict(
+      #(String, String),
+      List(fn(Result(container.AliasResult, String)) -> Nil),
+    ),
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -507,6 +515,7 @@ pub fn start_with_transport(
     connect_message,
     transport,
     None,
+    None,
     on_ready,
   )
 }
@@ -545,8 +554,74 @@ pub fn start_with_transport_and_seed(
     connect_message,
     transport,
     Some(seed),
+    None,
     on_ready,
   )
+}
+
+@target(javascript)
+/// Resume a persisted checkpoint with fresh credentials.
+pub fn start_with_checkpoint(
+  url url: String,
+  topic topic: String,
+  connect_message connect_message: ConnectMessage,
+  checkpoint checkpoint: Json,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Result(Runtime, String) {
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
+  start_with_transport_and_checkpoint(
+    http_base_url: http_base_from_socket_url(url),
+    connect_message: connect_message,
+    transport: phoenix_transport(url, topic, join_payload),
+    checkpoint: checkpoint,
+    on_ready: on_ready,
+  )
+}
+
+@target(javascript)
+pub fn start_with_transport_and_checkpoint(
+  http_base_url http_base_url: String,
+  connect_message connect_message: ConnectMessage,
+  transport transport: Transport,
+  checkpoint checkpoint: Json,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Result(Runtime, String) {
+  use view_id <- result.try(
+    fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use core <- result.try(recovery.restore(
+    checkpoint,
+    tenant: connect_message.tenant_id,
+    document: connect_message.document_id,
+    view_id: view_id,
+  ))
+  Ok(start_with_optional_seed(
+    http_base_url,
+    connect_message,
+    transport,
+    None,
+    Some(core),
+    on_ready,
+  ))
+}
+
+@target(javascript)
+/// Flush queued submissions, then capture one atomic runtime state.
+pub fn pending_checkpoint(runtime: Runtime) -> Result(Json, String) {
+  flush_outbound(runtime.cell)
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, None) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
+      recovery.capture(
+        core,
+        tenant: state.connect_message.tenant_id,
+        document: state.connect_message.document_id,
+      )
+    _ -> Error("checkpoint requires a settled document connection")
+  }
 }
 
 @target(javascript)
@@ -555,6 +630,7 @@ fn start_with_optional_seed(
   connect_message: ConnectMessage,
   transport: Transport,
   seed: Option(runtime_core.BootstrapSeed),
+  recovered: Option(runtime_core.Core),
   on_ready: fn(Result(Nil, String)) -> Nil,
 ) -> Runtime {
   let cell =
@@ -563,7 +639,10 @@ fn start_with_optional_seed(
       seed: seed,
       http_base_url: http_base_url,
       channel: None,
-      phase: Connecting,
+      phase: case recovered {
+        Some(core) -> Reconnecting(core)
+        None -> Connecting
+      },
       subscribers: [],
       tree_commit_subscribers: [],
       tree_commit_settlements: dict.new(),
@@ -574,18 +653,20 @@ fn start_with_optional_seed(
       supported_features: dict.new(),
       writable: False,
       claim_waiters: dict.new(),
+      alias_waiters: dict.new(),
       acquire_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
       bootstrap_generation: 0,
       bootstrap: None,
-      auto_summary: case seed {
-        Some(seed) ->
+      auto_summary: case recovered, seed {
+        Some(_), _ -> None
+        None, Some(seed) ->
           case runtime_core.seed_has_tree(seed) {
             True -> None
             False -> Some(summary_policy.policy())
           }
-        None -> Some(summary_policy.policy())
+        None, None -> Some(summary_policy.policy())
       },
       summary_armed: False,
       pending_summary: None,
@@ -1966,6 +2047,54 @@ pub fn create_data_store(runtime: Runtime) -> Result(String, String) {
     Ready(_, _), False ->
       Error("create_data_store requires a writable document connection")
     _, _ -> Error("create_data_store requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn try_set_alias(
+  runtime: Runtime,
+  store_id: String,
+  alias: String,
+) -> Promise(Result(container.AliasResult, String)) {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.writable {
+    Ready(core, resubmit_at), True ->
+      case runtime_core.try_set_alias(core, store_id, alias) {
+        Error(error) -> promise.resolve(Error(string.inspect(error)))
+        Ok(#(_, _, Some(outcome))) -> promise.resolve(Ok(outcome))
+        Ok(#(core, outbound, None)) -> {
+          let #(pending, resolve) = promise.start()
+          let key = #(store_id, alias)
+          cell_set(
+            runtime.cell,
+            State(
+              ..state,
+              phase: Ready(core, resubmit_at),
+              alias_waiters: dict.insert(
+                state.alias_waiters,
+                key,
+                list.append(
+                  dict.get(state.alias_waiters, key) |> result.unwrap([]),
+                  [resolve],
+                ),
+              ),
+            ),
+          )
+          case resubmit_at {
+            None -> queue_outbound(runtime.cell, outbound)
+            Some(_) -> Nil
+          }
+          pending
+        }
+      }
+    Ready(_, _), False ->
+      promise.resolve(Error(
+        "try_set_alias requires a writable document connection",
+      ))
+    _, _ ->
+      promise.resolve(Error(
+        "try_set_alias requires a ready document connection",
+      ))
   }
 }
 
@@ -3945,6 +4074,7 @@ pub fn close(runtime: Runtime) -> Nil {
       channel: None,
       subscribers: [],
       claim_waiters: dict.new(),
+      alias_waiters: dict.new(),
       acquire_waiters: dict.new(),
       tree_commit_subscribers: [],
       tree_commit_settlements: dict.new(),
@@ -4956,10 +5086,10 @@ fn apply_received_operations(
   case state.phase {
     Ready(core, resubmit_at) ->
       case apply_operations(core, operations) {
-        Ok(#(core, events, resolutions, summary_events, request_from, released)) -> {
+        Ok(#(core, events, resolutions, runtime_events, request_from, released)) -> {
           let #(state, outcomes) = take_outcome_waiters(state, resolutions)
           let #(state, summary_outcomes) =
-            take_summary_outcomes(state, summary_events)
+            take_runtime_outcomes(state, runtime_events)
           // Commit the new core before fan-out (see fan_out's contract).
           case resubmit_at {
             Some(checkpoint) -> {
@@ -4972,7 +5102,7 @@ fn apply_received_operations(
             observe("operation outcome", outcome)
           })
           list.each(summary_outcomes, fn(outcome) {
-            observe("summary publication", outcome)
+            observe("runtime outcome", outcome)
           })
           fan_out_scoped(
             cell,
@@ -5067,10 +5197,14 @@ fn settle_reconnect(
         Ok(#(core, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           queue_outbound(cell, outbound)
+          case cell_get(cell).phase {
+            Ready(_, None) -> fire_ready(cell, Ok(Nil))
+            _ -> Nil
+          }
         }
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
-            True ->
+            True -> {
               cell_set(
                 cell,
                 State(
@@ -5078,6 +5212,8 @@ fn settle_reconnect(
                   phase: SuspendedPendingTree(core, string.inspect(error)),
                 ),
               )
+              fire_ready(cell, Error(string.inspect(error)))
+            }
             False -> fail(cell, string.inspect(error))
           }
       }
@@ -5093,17 +5229,14 @@ fn reconnect_deadline(cell: Cell(State), client_id: String) -> Nil {
   case state.phase {
     Ready(core, Some(_)) if core.client_id == client_id ->
       case runtime_core.reconnect_barrier_active(core) {
-        True ->
+        True -> {
+          let reason = "Reconnect timed out before the old session closed."
           cell_set(
             cell,
-            State(
-              ..state,
-              phase: SuspendedPendingTree(
-                core,
-                "Reconnect timed out before the old session closed.",
-              ),
-            ),
+            State(..state, phase: SuspendedPendingTree(core, reason)),
           )
+          fail(cell, reason)
+        }
         False -> Nil
       }
     _ -> Nil
@@ -5119,7 +5252,7 @@ fn apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(runtime_core.SummaryEvent),
+    List(runtime_core.RuntimeEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -5134,7 +5267,7 @@ fn do_apply_operations(
   operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
-  summary_events: List(List(runtime_core.SummaryEvent)),
+  runtime_events: List(List(runtime_core.RuntimeEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
 ) -> Result(
@@ -5142,7 +5275,7 @@ fn do_apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(runtime_core.SummaryEvent),
+    List(runtime_core.RuntimeEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -5154,7 +5287,7 @@ fn do_apply_operations(
         core,
         list.reverse(events) |> list.flatten,
         list.reverse(resolutions) |> list.flatten,
-        list.reverse(summary_events) |> list.flatten,
+        list.reverse(runtime_events) |> list.flatten,
         request_from,
         released,
       ))
@@ -5166,7 +5299,7 @@ fn do_apply_operations(
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
-            [ingested.summary_events, ..summary_events],
+            [ingested.runtime_events, ..runtime_events],
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
@@ -5176,13 +5309,24 @@ fn do_apply_operations(
 }
 
 @target(javascript)
-fn take_summary_outcomes(
+fn take_runtime_outcomes(
   state: State,
-  events: List(runtime_core.SummaryEvent),
+  events: List(runtime_core.RuntimeEvent),
 ) -> #(State, List(fn() -> Nil)) {
   list.fold(events, #(state, []), fn(acc, event) {
     let #(state, outcomes) = acc
     case state.pending_summary, event {
+      _, runtime_core.AliasSettled(store_id, alias, outcome) -> {
+        let key = #(store_id, alias)
+        let waiters = dict.get(state.alias_waiters, key) |> result.unwrap([])
+        #(
+          State(..state, alias_waiters: dict.delete(state.alias_waiters, key)),
+          list.append(
+            outcomes,
+            list.map(waiters, fn(resolve) { fn() { resolve(Ok(outcome)) } }),
+          ),
+        )
+      }
       Some(pending),
         runtime_core.SummaryProposalSequenced(
           _,
@@ -5305,6 +5449,13 @@ fn abort_pending_summary(state: State) -> Nil {
 
 @target(javascript)
 fn abort_outcome_waiters(state: State) -> Nil {
+  dict.values(state.alias_waiters)
+  |> list.flatten
+  |> list.each(fn(resolve) {
+    observe("alias claim aborted", fn() {
+      resolve(Error("datastore alias claim was interrupted"))
+    })
+  })
   dict.values(state.claim_waiters)
   |> list.each(fn(resolve_outcome) {
     observe("claim aborted", fn() { resolve_outcome(claims_kernel.Aborted) })
@@ -6246,6 +6397,7 @@ fn fail(cell: Cell(State), reason: String) -> Nil {
       ..state,
       phase: phase,
       claim_waiters: dict.new(),
+      alias_waiters: dict.new(),
       acquire_waiters: dict.new(),
       pending_summary: None,
       bootstrap: None,

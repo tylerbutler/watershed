@@ -56,7 +56,7 @@ import gleam/option.{type Option, None, Some}
 @target(javascript)
 import signet/types as token
 @target(javascript)
-import spillway/message.{type SignalMessage, ConnectMessage}
+import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
 @target(javascript)
 import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
@@ -418,6 +418,37 @@ pub fn connect(
 }
 
 @target(javascript)
+/// Resume a stored checkpoint with fresh connection credentials. Invalid
+/// checkpoints do not open a transport. `on_ready` waits for history replay.
+/// Replay accepts saved batches resubmitted after a later reconnect.
+pub fn connect_resuming(
+  config: WatershedConfig,
+  checkpoint checkpoint: Json,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Result(Document(root), String) {
+  runtime.start_with_checkpoint(
+    url: config.url,
+    topic: "document:" <> config.tenant <> ":" <> config.document,
+    connect_message: build_connect_message(
+      config.tenant,
+      config.document,
+      config.user_id,
+      Some(config.token),
+    ),
+    checkpoint: checkpoint,
+    on_ready: on_ready,
+  )
+  |> result.map(fn(runtime) { Document(runtime) })
+}
+
+@target(javascript)
+/// Flush queued submissions and capture pending tree state. Store the returned
+/// JSON durably before you rely on recovery. Do not resume two live copies.
+pub fn pending_checkpoint(document: Document(root)) -> Result(Json, String) {
+  runtime.pending_checkpoint(document.runtime)
+}
+
+@target(javascript)
 /// Connect and observe each transport push before it is sent.
 pub fn connect_observing(
   config: WatershedConfig,
@@ -435,30 +466,11 @@ fn connect_observed(
 ) -> Document(root) {
   let topic = "document:" <> config.tenant <> ":" <> config.document
   let connect_message =
-    ConnectMessage(
-      tenant_id: config.tenant,
-      document_id: config.document,
-      token: Some(config.token),
-      client: Client(
-        mode: WriteMode,
-        details: ClientDetails(
-          capabilities: ClientCapabilities(interactive: True),
-          client_type: Some("watershed-js"),
-          environment: None,
-          device: None,
-        ),
-        permission: [],
-        user: token.User(id: config.user_id, properties: dict.new()),
-        scopes: ["doc:read", "doc:write", "summary:write"],
-        timestamp: None,
-      ),
-      versions: ["^0.1.0"],
-      driver_version: None,
-      mode: WriteMode,
-      nonce: None,
-      epoch: None,
-      supported_features: None,
-      relay_user_agent: None,
+    build_connect_message(
+      config.tenant,
+      config.document,
+      config.user_id,
+      Some(config.token),
     )
 
   let runtime = case observe_push {
@@ -482,6 +494,40 @@ fn connect_observed(
 }
 
 @target(javascript)
+fn build_connect_message(
+  tenant: String,
+  document: String,
+  user_id: String,
+  auth_token: Option(String),
+) -> ConnectMessage {
+  ConnectMessage(
+    tenant_id: tenant,
+    document_id: document,
+    token: auth_token,
+    client: Client(
+      mode: WriteMode,
+      details: ClientDetails(
+        capabilities: ClientCapabilities(interactive: True),
+        client_type: Some("watershed-js"),
+        environment: None,
+        device: None,
+      ),
+      permission: [],
+      user: token.User(id: user_id, properties: dict.new()),
+      scopes: ["doc:read", "doc:write", "summary:write"],
+      timestamp: None,
+    ),
+    versions: ["^0.1.0"],
+    driver_version: None,
+    mode: WriteMode,
+    nonce: None,
+    epoch: None,
+    supported_features: None,
+    relay_user_agent: None,
+  )
+}
+
+@target(javascript)
 /// Create a persisted SharedTree container and return its assigned ID.
 /// Obtain a token for that ID, then call `connect`. This call does not retry.
 pub fn create_tree_container(
@@ -490,13 +536,33 @@ pub fn create_tree_container(
   builder: typed.Builder(s, input),
   initial_root: Option(input),
 ) -> Promise(Result(String, typed.Error)) {
+  create_tree_container_with_layout(
+    config,
+    definition,
+    builder,
+    initial_root,
+    container.layout(),
+  )
+}
+
+@target(javascript)
+/// Create a persisted container with declared initial stores and channels.
+/// Creation does not open a runtime or retry an uncertain response.
+pub fn create_tree_container_with_layout(
+  config: container.CreateConfig,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+  layout: container.Layout,
+) -> Promise(Result(String, typed.Error)) {
   case prepare_tree_root(definition, builder, initial_root) {
     Error(error) -> promise.resolve(Error(error))
     Ok(root) ->
-      container.create_tree(
+      container.create_tree_with_layout(
         config,
         tree_schema.view_to_stored(typed.schema_view(definition)),
         root,
+        layout,
       )
       |> promise.map(
         result.map_error(_, fn(error) {
@@ -504,6 +570,26 @@ pub fn create_tree_container(
         }),
       )
   }
+}
+
+@target(javascript)
+/// Add a typed tree to a declared initial container layout.
+pub fn with_initial_tree(
+  layout: container.Layout,
+  store: String,
+  channel: String,
+  definition: typed.Schema(s, r),
+  builder: typed.Builder(s, input),
+  initial_root: Option(input),
+) -> Result(container.Layout, typed.Error) {
+  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  Ok(container.with_tree(
+    layout,
+    store,
+    channel,
+    tree_schema.view_to_stored(typed.schema_view(definition)),
+    root,
+  ))
 }
 
 @target(javascript)
@@ -551,32 +637,7 @@ fn connect_via_with_seed(
   seed: option.Option(runtime_core.BootstrapSeed),
   on_ready: fn(Result(Nil, String)) -> Nil,
 ) -> Document(root) {
-  let connect_message =
-    ConnectMessage(
-      tenant_id: tenant,
-      document_id: document,
-      token: None,
-      client: Client(
-        mode: WriteMode,
-        details: ClientDetails(
-          capabilities: ClientCapabilities(interactive: True),
-          client_type: Some("watershed-js"),
-          environment: None,
-          device: None,
-        ),
-        permission: [],
-        user: token.User(id: user_id, properties: dict.new()),
-        scopes: ["doc:read", "doc:write", "summary:write"],
-        timestamp: None,
-      ),
-      versions: ["^0.1.0"],
-      driver_version: None,
-      mode: WriteMode,
-      nonce: None,
-      epoch: None,
-      supported_features: None,
-      relay_user_agent: None,
-    )
+  let connect_message = build_connect_message(tenant, document, user_id, None)
   let runtime = case seed {
     None ->
       runtime.start_with_transport(
@@ -637,6 +698,16 @@ pub fn data_store_root(store: DataStore) -> Result(SharedMap, String) {
   |> result.map(fn(address) {
     SharedMap(runtime: store.runtime, address: address)
   })
+}
+
+@target(javascript)
+/// Publish the datastore graph and wait for its alias claim outcome.
+/// Repeated pending calls share the same submission.
+pub fn try_set_alias(
+  store: DataStore,
+  alias: String,
+) -> Promise(Result(container.AliasResult, String)) {
+  runtime.try_set_alias(store.runtime, store.id, alias)
 }
 
 @target(javascript)

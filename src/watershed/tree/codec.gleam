@@ -31,6 +31,8 @@ pub type Profile {
 pub type Purpose {
   Message
   Summary
+  /// Retain composed revision metadata in a local checkpoint.
+  Recovery
 }
 
 pub type DecodeContext {
@@ -895,9 +897,9 @@ fn decode_revision_infos(
           Ok(change.RevisionInfo(revision, rollback))
         }),
       )
-      case tagged {
-        None -> Ok(revisions)
-        Some(tagged) ->
+      case tagged, change_context.purpose {
+        None, _ | _, Recovery -> Ok(revisions)
+        Some(tagged), _ ->
           case revisions {
             [change.RevisionInfo(revision, None)] if revision == tagged ->
               Ok(revisions)
@@ -1555,8 +1557,8 @@ fn encode_revision_infos(
   change_context: ChangeContext,
   location: String,
 ) -> Result(Option(JsonValue), TreeError) {
-  case change_context.revision {
-    Some(tagged) ->
+  case change_context.revision, change_context.purpose {
+    Some(tagged), Message | Some(tagged), Summary ->
       case revisions {
         [change.RevisionInfo(revision, None)] if revision == tagged -> Ok(None)
         _ ->
@@ -1565,7 +1567,7 @@ fn encode_revision_infos(
             "tagged change must contain only its commit revision",
           ))
       }
-    None -> {
+    _, _ -> {
       use values <- result.try(
         index_try_map(revisions, fn(info, index) {
           let location =
@@ -1960,7 +1962,7 @@ fn id_context(
   context: ChangeContext,
 ) -> field_batch.IdContext {
   case context.purpose {
-    Message -> field_batch.MessageIds(compressor, context.originator)
+    Message | Recovery -> field_batch.MessageIds(compressor, context.originator)
     Summary -> field_batch.SummaryIds(compressor)
   }
 }

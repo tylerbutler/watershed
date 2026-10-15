@@ -263,9 +263,9 @@ fn apply_tagged(
 fn apply_summary(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
-) -> #(Core, List(runtime_core.SummaryEvent)) {
+) -> #(Core, List(runtime_core.RuntimeEvent)) {
   case runtime_core.handle_sequenced(core, sequenced) {
-    Ok(#(core, ingested)) -> #(core, ingested.summary_events)
+    Ok(#(core, ingested)) -> #(core, ingested.runtime_events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
 }

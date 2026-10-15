@@ -34,6 +34,38 @@ import watershed/wire/socket
 import watershed/wire/summary as summary_message
 import watershed/wire/summary_blob as inspection
 
+pub type InitialLayout {
+  InitialLayout(
+    stores: List(InitialDatastore),
+    channels: List(InitialChannel),
+    bindings: List(InitialBinding),
+  )
+}
+
+pub type InitialDatastore {
+  InitialDatastore(id: String, alias: Option(String))
+}
+
+pub type InitialChannel {
+  InitialMap(store: String, id: String, entries: List(#(String, Json)))
+  InitialTree(
+    store: String,
+    id: String,
+    stored: schema.StoredSchema,
+    root: Option(tree_types.TreeValue),
+  )
+}
+
+pub type InitialBinding {
+  InitialBinding(
+    source_store: String,
+    source_channel: String,
+    key: String,
+    target_store: String,
+    target_channel: String,
+  )
+}
+
 /// Build the supported initial container. No edit has been sequenced.
 pub fn initial_tree(
   stored: schema.StoredSchema,
@@ -41,59 +73,30 @@ pub fn initial_tree(
   session: fluid_ids.SessionId,
   view_id: fluid_ids.StableId,
 ) -> Result(DocumentSummary, SummaryError) {
-  let compressor = fluid_ids.new(session)
-  use #(initial_root, compressor) <- result.try(case initial_root {
-    None -> {
-      use _ <- result.try(
-        schema.validate_root_field(stored, None)
-        |> result.map_error(fn(error) {
-          fluid_summary.MalformedEntry(
-            "/.channels/A/.channels/_C",
-            string.inspect(error),
-          )
-        }),
-      )
-      Ok(#(None, compressor))
-    }
-    Some(value) -> {
-      use #(value, compressor) <- result.try(
-        identifier.materialize_value(stored, value, compressor)
-        |> result.map_error(fn(error) {
-          fluid_summary.MalformedEntry(
-            "/.channels/A/.channels/_C",
-            string.inspect(error),
-          )
-        }),
-      )
-      use _ <- result.try(
-        schema.validate_root(stored, value)
-        |> result.map_error(fn(error) {
-          fluid_summary.MalformedEntry(
-            "/.channels/A/.channels/_C",
-            string.inspect(error),
-          )
-        }),
-      )
-      Ok(#(Some(value), compressor))
-    }
-  })
-  // ponytail: Fragmented modules. To make an initial tree, this caller builds
-  // the internal records forest.ForestData and history.HistorySnapshot. Add one
-  // tree function that makes the initial snapshot.
-  use snapshot <- result.try(
-    tree_kernel.snapshot_from_parts(
-      view_id,
-      stored,
-      forest.ForestData(initial_root, [], 1),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
-    )
-    |> result.map_error(fn(error) {
-      fluid_summary.MalformedEntry(
-        "/.channels/A/.channels/_C",
-        string.inspect(error),
-      )
-    }),
+  initial_tree_with_layout(
+    stored,
+    initial_root,
+    session,
+    view_id,
+    InitialLayout([], [], []),
   )
+}
+
+/// Build an initial container with declared map and tree channels.
+pub fn initial_tree_with_layout(
+  stored: schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  session: fluid_ids.SessionId,
+  view_id: fluid_ids.StableId,
+  layout: InitialLayout,
+) -> Result(DocumentSummary, SummaryError) {
+  use #(snapshot, compressor) <- result.try(initial_tree_snapshot(
+    stored,
+    initial_root,
+    fluid_ids.new(session),
+    view_id,
+    "/.channels/A/.channels/_C",
+  ))
   let code =
     json.array(
       [
@@ -186,8 +189,317 @@ pub fn initial_tree(
       0,
       [],
     )
+  use summary <- result.try(apply_initial_layout(summary, layout))
   use gc <- result.try(refresh_gc(summary))
   Ok(DocumentSummary(..summary, gc:))
+}
+
+fn initial_tree_snapshot(
+  stored: schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  compressor: fluid_ids.Compressor,
+  view_id: fluid_ids.StableId,
+  path: String,
+) -> Result(#(tree_kernel.TreeSnapshot, fluid_ids.Compressor), SummaryError) {
+  use #(initial_root, compressor) <- result.try(case initial_root {
+    None -> {
+      use _ <- result.try(
+        schema.validate_root_field(stored, None)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(path, string.inspect(error))
+        }),
+      )
+      Ok(#(None, compressor))
+    }
+    Some(value) -> {
+      use #(value, compressor) <- result.try(
+        identifier.materialize_value(stored, value, compressor)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(path, string.inspect(error))
+        }),
+      )
+      use _ <- result.try(
+        schema.validate_root(stored, value)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(path, string.inspect(error))
+        }),
+      )
+      Ok(#(Some(value), compressor))
+    }
+  })
+  // ponytail: Fragmented modules. To make an initial tree, this caller builds
+  // the internal records forest.ForestData and history.HistorySnapshot. Add one
+  // tree function that makes the initial snapshot.
+  use snapshot <- result.try(
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      stored,
+      forest.ForestData(initial_root, [], 1),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
+    )
+    |> result.map_error(fn(error) {
+      fluid_summary.MalformedEntry(path, string.inspect(error))
+    }),
+  )
+  Ok(#(snapshot, compressor))
+}
+
+fn apply_initial_layout(
+  summary: DocumentSummary,
+  layout: InitialLayout,
+) -> Result(DocumentSummary, SummaryError) {
+  use summary <- result.try(
+    list.try_fold(layout.stores, summary, fn(summary, definition) {
+      use _ <- result.try(validate_initial_route(definition.id, "root"))
+      use _ <- result.try(require(
+        !list.any(summary.datastores, fn(store) { store.id == definition.id }),
+        "/.channels/" <> definition.id,
+        "duplicate initial datastore",
+      ))
+      let aliases = case definition.alias {
+        None -> summary.aliases
+        Some(alias) -> list.append(summary.aliases, [#(alias, definition.id)])
+      }
+      let store =
+        Datastore(
+          definition.id,
+          json.object([
+            #("pkg", json.string("[\"org.watershed.shared-tree.m7.graph\"]")),
+            #("summaryFormatVersion", json.int(2)),
+            #("isRootDataStore", json.bool(definition.alias != None)),
+          ]),
+          ["org.watershed.shared-tree.m7.graph"],
+          [
+            Channel(
+              "root",
+              channel.fluid_attributes(channel.MapChannel),
+              channel.MapSnapshot([]),
+            ),
+          ],
+        )
+      Ok(
+        DocumentSummary(
+          ..summary,
+          aliases: aliases,
+          datastores: list.append(summary.datastores, [store]),
+        ),
+      )
+    }),
+  )
+  use _ <- result.try(require(
+    list.length(list.unique(list.map(summary.aliases, fn(alias) { alias.0 })))
+      == list.length(summary.aliases),
+    "/.aliases",
+    "duplicate initial alias",
+  ))
+  use _ <- result.try(
+    list.try_each(summary.aliases, fn(alias) {
+      use _ <- result.try(validate_initial_route(alias.0, "root"))
+      require(
+        !list.any(summary.datastores, fn(store) { store.id == alias.0 }),
+        "/.aliases/" <> alias.0,
+        "initial alias conflicts with a datastore identity",
+      )
+    }),
+  )
+  use summary <- result.try(
+    list.try_fold(layout.channels, summary, fn(summary, definition) {
+      use _ <- result.try(validate_initial_route(
+        definition.store,
+        definition.id,
+      ))
+      let path =
+        "/.channels/" <> definition.store <> "/.channels/" <> definition.id
+      use #(snapshot, compressor) <- result.try(case definition {
+        InitialMap(_, _, entries) ->
+          Ok(#(channel.MapSnapshot(entries), summary.compressor))
+        InitialTree(_, _, stored, root) -> {
+          use compressor <- result.try(case summary.compressor {
+            Some(compressor) -> Ok(compressor)
+            None -> Error(fluid_summary.MissingEntry("/.idCompressor"))
+          })
+          use #(snapshot, compressor) <- result.try(initial_tree_snapshot(
+            stored,
+            root,
+            compressor,
+            summary.view_id,
+            path,
+          ))
+          Ok(#(channel.TreeSnapshot(snapshot), Some(compressor)))
+        }
+      })
+      let summary = DocumentSummary(..summary, compressor:)
+      update_initial_channels(summary, definition.store, fn(channels) {
+        use _ <- result.try(require(
+          !list.any(channels, fn(item) { item.id == definition.id }),
+          path,
+          "duplicate initial channel",
+        ))
+        Ok(
+          list.append(channels, [
+            Channel(
+              definition.id,
+              channel.fluid_attributes(channel.snapshot_type(snapshot)),
+              snapshot,
+            ),
+          ]),
+        )
+      })
+    }),
+  )
+  use summary <- result.try(
+    list.try_fold(layout.bindings, summary, fn(summary, binding) {
+      use _ <- result.try(validate_initial_route(
+        binding.source_store,
+        binding.source_channel,
+      ))
+      use target <- result.try(validate_initial_route(
+        binding.target_store,
+        binding.target_channel,
+      ))
+      use _ <- result.try(require(
+        initial_channel_exists(summary, "/" <> target),
+        "/.channels/" <> binding.target_store,
+        "unknown initial binding target",
+      ))
+      update_initial_channels(summary, binding.source_store, fn(channels) {
+        use source <- result.try(
+          list.find(channels, fn(item) { item.id == binding.source_channel })
+          |> result.replace_error(fluid_summary.MissingEntry(
+            "/" <> binding.source_store <> "/" <> binding.source_channel,
+          )),
+        )
+        use entries <- result.try(case source.snapshot {
+          channel.MapSnapshot(entries) -> Ok(entries)
+          _ ->
+            Error(fluid_summary.MalformedEntry(
+              "/" <> binding.source_store <> "/" <> binding.source_channel,
+              "initial binding source must be a SharedMap",
+            ))
+        })
+        use _ <- result.try(require(
+          !result.is_ok(list.key_find(entries, binding.key)),
+          "/" <> binding.source_store <> "/" <> binding.source_channel,
+          "duplicate initial map key",
+        ))
+        let updated =
+          Channel(
+            ..source,
+            snapshot: channel.MapSnapshot(
+              list.append(entries, [
+                #(binding.key, handle.encode_handle(target)),
+              ]),
+            ),
+          )
+        Ok(
+          list.map(channels, fn(item) {
+            case item.id == source.id {
+              True -> updated
+              False -> item
+            }
+          }),
+        )
+      })
+    }),
+  )
+  use _ <- result.try(validate_initial_references(summary))
+  Ok(summary)
+}
+
+fn validate_initial_route(
+  store: String,
+  channel: String,
+) -> Result(String, SummaryError) {
+  use route <- result.try(
+    fluid_container.route_key(fluid_container.Route(store, channel))
+    |> result.map_error(fn(error) {
+      fluid_summary.MalformedEntry("/.channels", string.inspect(error))
+    }),
+  )
+  use _ <- result.try(require(
+    route == store <> "/" <> channel
+      && !string.starts_with(store, ".")
+      && !string.starts_with(channel, "."),
+    "/.channels/" <> route,
+    "initial names must be canonical path components without a leading dot",
+  ))
+  Ok(route)
+}
+
+fn update_initial_channels(
+  summary: DocumentSummary,
+  store_id: String,
+  update: fn(List(Channel)) -> Result(List(Channel), SummaryError),
+) -> Result(DocumentSummary, SummaryError) {
+  use store <- result.try(
+    list.find(summary.datastores, fn(store) { store.id == store_id })
+    |> result.replace_error(fluid_summary.MissingEntry(
+      "/.channels/" <> store_id,
+    )),
+  )
+  use channels <- result.try(update(store.channels))
+  Ok(
+    DocumentSummary(
+      ..summary,
+      datastores: list.map(summary.datastores, fn(candidate) {
+        case candidate.id == store_id {
+          True -> Datastore(..store, channels:)
+          False -> candidate
+        }
+      }),
+    ),
+  )
+}
+
+fn initial_channel_exists(summary: DocumentSummary, path: String) -> Bool {
+  list.any(summary.datastores, fn(store) {
+    list.any(store.channels, fn(item) {
+      "/" <> store.id <> "/" <> item.id == path
+    })
+  })
+}
+
+fn validate_initial_references(
+  summary: DocumentSummary,
+) -> Result(Nil, SummaryError) {
+  list.try_each(summary.datastores, fn(store) {
+    list.try_each(store.channels, fn(item) {
+      let path = "/" <> store.id <> "/" <> item.id
+      use references <- result.try(case item.snapshot {
+        channel.MapSnapshot(entries) -> {
+          use _ <- result.try(require(
+            list.length(list.unique(list.map(entries, fn(entry) { entry.0 })))
+              == list.length(entries),
+            path,
+            "duplicate initial map key",
+          ))
+          list.try_map(entries, fn(entry) {
+            handle.collect_routed_addresses(entry.1, "/" <> store.id)
+            |> result.map(fn(addresses) {
+              list.map(addresses, fn(address) { "/" <> address })
+            })
+            |> result.map_error(fn(error) {
+              fluid_summary.MalformedEntry(path, string.inspect(error))
+            })
+          })
+          |> result.map(list.flatten)
+        }
+        channel.TreeSnapshot(snapshot) ->
+          Ok(
+            tree_kernel.snapshot_handle_references(snapshot)
+            |> list.map(handle.reference_path),
+          )
+        _ -> Ok([])
+      })
+      list.try_each(references, fn(reference) {
+        require(
+          initial_channel_exists(summary, reference),
+          path,
+          "initial handle must name a declared channel",
+        )
+      })
+    })
+  })
 }
 
 /// Encode the Routerlicious first-summary POST body, not a Historian upload.
@@ -1321,7 +1633,19 @@ pub fn capture(
           )
         }),
       )
-      Ok(Datastore(..store, channels: snapshots))
+      use component <- result.try(
+        case list.any(aliases, fn(alias) { alias.1 == store.id }) {
+          True ->
+            replace_member(
+              store.component,
+              "isRootDataStore",
+              json.bool(True),
+              "/.channels/" <> store.id <> "/.component",
+            )
+          False -> Ok(store.component)
+        },
+      )
+      Ok(Datastore(..store, component:, channels: snapshots))
     }),
   )
   use _ <- result.try(require(

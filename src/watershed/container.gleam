@@ -1,8 +1,9 @@
-//// Native creation of the fixed SharedTree container profile.
+//// Native container creation and datastore alias outcomes.
 
 import gleam/int
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -15,6 +16,100 @@ import watershed/tree/schema
 import watershed/tree/types
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
+
+pub type AliasResult {
+  AliasSuccess
+  AliasConflict
+  AlreadyAliased
+}
+
+pub opaque type Layout {
+  Layout(definition: fluid_document.InitialLayout)
+}
+
+/// Declare additions to the standard `A/root` and `A/_C` bootstrap layout.
+/// Creation validates the complete layout before it sends a request.
+pub fn layout() -> Layout {
+  Layout(fluid_document.InitialLayout([], [], []))
+}
+
+/// Add a datastore with a SharedMap entry point named `root`.
+pub fn with_data_store(
+  layout: Layout,
+  id: String,
+  alias: Option(String),
+) -> Layout {
+  let Layout(definition) = layout
+  Layout(
+    fluid_document.InitialLayout(
+      ..definition,
+      stores: list.append(definition.stores, [
+        fluid_document.InitialDatastore(id, alias),
+      ]),
+    ),
+  )
+}
+
+pub fn with_map(
+  layout: Layout,
+  store: String,
+  id: String,
+  entries: List(#(String, Json)),
+) -> Layout {
+  let Layout(definition) = layout
+  Layout(
+    fluid_document.InitialLayout(
+      ..definition,
+      channels: list.append(definition.channels, [
+        fluid_document.InitialMap(store, id, entries),
+      ]),
+    ),
+  )
+}
+
+pub fn with_tree(
+  layout: Layout,
+  store: String,
+  id: String,
+  stored: schema.StoredSchema,
+  root: Option(types.TreeValue),
+) -> Layout {
+  let Layout(definition) = layout
+  Layout(
+    fluid_document.InitialLayout(
+      ..definition,
+      channels: list.append(definition.channels, [
+        fluid_document.InitialTree(store, id, stored, root),
+      ]),
+    ),
+  )
+}
+
+/// Bind a declared channel handle to a key in an initial SharedMap.
+pub fn with_binding(
+  layout: Layout,
+  source_store: String,
+  source_channel: String,
+  key: String,
+  target_store: String,
+  target_channel: String,
+) -> Layout {
+  let Layout(definition) = layout
+  Layout(
+    fluid_document.InitialLayout(
+      ..definition,
+      bindings: list.append(definition.bindings, [
+        fluid_document.InitialBinding(
+          source_store,
+          source_channel,
+          key,
+          target_store,
+          target_channel,
+        ),
+      ]),
+    ),
+  )
+}
 
 pub type CreateConfig {
   /// Use an HTTP service URL without user information, query, or fragment.
@@ -40,7 +135,19 @@ pub fn create_tree(
   stored: schema.StoredSchema,
   initial_root: Option(types.TreeValue),
 ) -> Result(String, CreateError) {
-  use summary <- result.try(prepare(config, stored, initial_root))
+  create_tree_with_layout(config, stored, initial_root, layout())
+}
+
+@target(erlang)
+/// Create the full declared layout in one initial storage request.
+/// This function does not retry uncertain creation outcomes.
+pub fn create_tree_with_layout(
+  config: CreateConfig,
+  stored: schema.StoredSchema,
+  initial_root: Option(types.TreeValue),
+  layout: Layout,
+) -> Result(String, CreateError) {
+  use summary <- result.try(prepare(config, stored, initial_root, layout))
   git_storage.create_document(
     base_url: config.base_url,
     tenant: config.tenant,
@@ -60,7 +167,19 @@ pub fn create_tree(
   stored: schema.StoredSchema,
   initial_root: Option(types.TreeValue),
 ) -> Promise(Result(String, CreateError)) {
-  case prepare(config, stored, initial_root) {
+  create_tree_with_layout(config, stored, initial_root, layout())
+}
+
+@target(javascript)
+/// Create the full declared layout in one initial storage request.
+/// This function does not retry uncertain creation outcomes.
+pub fn create_tree_with_layout(
+  config: CreateConfig,
+  stored: schema.StoredSchema,
+  initial_root: Option(types.TreeValue),
+  layout: Layout,
+) -> Promise(Result(String, CreateError)) {
+  case prepare(config, stored, initial_root, layout) {
     Error(error) -> promise.resolve(Error(error))
     Ok(summary) ->
       git_storage.create_document(
@@ -77,6 +196,7 @@ fn prepare(
   config: CreateConfig,
   stored: schema.StoredSchema,
   initial_root: Option(types.TreeValue),
+  layout: Layout,
 ) -> Result(fluid_document.DocumentSummary, CreateError) {
   use url <- result.try(
     uri.parse(config.base_url)
@@ -135,7 +255,14 @@ fn prepare(
   use view <- result.try(
     fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(InvalidIdentity),
   )
-  fluid_document.initial_tree(stored, initial_root, session, view)
+  let Layout(definition) = layout
+  fluid_document.initial_tree_with_layout(
+    stored,
+    initial_root,
+    session,
+    view,
+    definition,
+  )
   |> result.map_error(InvalidSummary)
 }
 

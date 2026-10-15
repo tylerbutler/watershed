@@ -33,6 +33,7 @@ import watershed/channel.{
 }
 import watershed/claims_kernel
 import watershed/client_id
+import watershed/container
 import watershed/counter_kernel
 import watershed/directory_kernel
 import watershed/fluid_ids
@@ -118,6 +119,8 @@ pub type Core {
     channel_order: List(String),
     detached: Dict(String, ChannelState),
     local_datastores: Dict(String, LocalDatastore),
+    /// Aliases claimed by this runtime, including pending claims.
+    alias_claims: Dict(String, String),
     bindings: Dict(String, List(handle.Reference)),
     prepared_attachments: List(fluid_container.MessageKind),
     next_client_sequence_number: Int,
@@ -125,6 +128,7 @@ pub type Core {
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
     reconnect_barrier: Option(ReconnectBarrier),
+    recovery_replay: Option(RecoveryReplay),
     /// The connected roster, as the integer ids that the kernels use to
     /// tie-break. The `initialClients` field of the handshake fills it, and the
     /// sequenced `"join"` and `"leave"` system messages maintain it. Every
@@ -174,6 +178,10 @@ pub type Core {
     /// `channel.apply_remote` can add to it, by returning owed operations.
     owed: Dict(String, List(channel.ChannelOperation)),
   )
+}
+
+pub type RecoveryReplay {
+  RecoveryReplay(sequenced: Core, authoring_points: Dict(Int, Core))
 }
 
 pub type LocalDatastore {
@@ -321,7 +329,12 @@ pub type Bootstrapped {
   MissingPrefix(core: Core, checkpoint: Int, from: Int, to: Int)
 }
 
-pub type SummaryEvent {
+pub type RuntimeEvent {
+  AliasSettled(
+    data_store_id: String,
+    alias: String,
+    outcome: container.AliasResult,
+  )
   SummaryProposalSequenced(
     client_id: Option(String),
     client_sequence_number: Int,
@@ -335,7 +348,7 @@ pub type Ingested {
   Ingested(
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
-    summary_events: List(SummaryEvent),
+    runtime_events: List(RuntimeEvent),
     request_operations_from: Option(Int),
     /// The operations that a one-operation-in-flight kernel, which is json0,
     /// released onto the wire while the runtime acked its own operation. The
@@ -923,6 +936,7 @@ fn start_core(
       detached: dict.new(),
       local_datastores: dict.new(),
       bindings: dict.new(),
+      alias_claims: dict.new(),
       prepared_attachments: [],
       next_client_sequence_number: 1,
       last_seen_sequence_number: last_seen,
@@ -937,6 +951,7 @@ fn start_core(
       in_flight: [],
       out_of_order: [],
       reconnect_barrier: None,
+      recovery_replay: None,
       // Seeded from the checkpoint, **not** from the handshake's roster, and
       // advanced by the `join`/`leave` messages in the replay itself. Seeding
       // from `initialClients` — the room as it is *now* — time-shifts every
@@ -1480,6 +1495,17 @@ pub fn adopt_reconnect(
   connected: ConnectedMessage,
 ) -> Result(Core, CoreError) {
   use _ <- result.try(require_no_tree_transaction(core, "reconnect"))
+  use recovery_replay <- result.try(case core.recovery_replay {
+    None -> Ok(None)
+    Some(RecoveryReplay(sequenced, authoring_points)) -> {
+      use sequenced <- result.try(adopt_reconnect(sequenced, connected))
+      Ok(Some(RecoveryReplay(sequenced, authoring_points)))
+    }
+  })
+  let needs_barrier =
+    has_pending_tree(core)
+    || has_pending_alias(core)
+    || option.is_some(core.recovery_replay)
   // `members` is left exactly as it was: it is the roster at
   // `last_seen_sequence_number`, which is precisely where the replay about to
   // happen starts. The gap's own `join`/`leave` messages then advance it —
@@ -1500,7 +1526,7 @@ pub fn adopt_reconnect(
         True -> core.next_client_sequence_number
         False -> 1
       },
-      reconnect_barrier: case core.reconnect_barrier, has_pending_tree(core) {
+      reconnect_barrier: case core.reconnect_barrier, needs_barrier {
         Some(barrier), _ ->
           Some(ReconnectBarrier(
             list.unique([core.client_id, ..barrier.previous_clients]),
@@ -1519,6 +1545,7 @@ pub fn adopt_reconnect(
       // made, and no other replica agrees. `go_live` clears this when the gap
       // closes.
       ingest: Replaying,
+      recovery_replay: recovery_replay,
     ),
   )
 }
@@ -1552,7 +1579,7 @@ pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
   }
 }
 
-/// A pending tree can replay only after the old submitting session closes.
+/// A pending tree or alias can replay only after the old session closes.
 pub fn reconnect_ready(core: Core, checkpoint: Int) -> Bool {
   core.last_seen_sequence_number >= checkpoint
   && case core.reconnect_barrier {
@@ -1573,7 +1600,7 @@ pub fn reconnect_barrier_active(core: Core) -> Bool {
 /// puts `ingest` back at `Live`. The replay position thus cannot outlast the
 /// gap and disable `quorum_of` for the rest of the session.
 pub fn go_live(core: Core) -> Core {
-  Core(..core, ingest: Live, reconnect_barrier: None)
+  Core(..core, ingest: Live, reconnect_barrier: None, recovery_replay: None)
 }
 
 /// The quorum that the core judges a sequenced operation against: the roster at
@@ -1706,7 +1733,8 @@ pub fn resubmit(
               list.append(outbounds, [sent]),
             ))
           }
-          InFlightBatch(pending: [_, _, ..], ..) ->
+          InFlightBatch(pending: [_, _, ..], ..)
+          | InFlightBatch(pending: [InFlightBatch(..)], ..) ->
             case in_flight_has_tree_items(core, entry) {
               True -> {
                 use #(compressor, remaining, updated, sent) <- result.try(
@@ -1732,7 +1760,7 @@ pub fn resubmit(
                 ))
               }
               False -> {
-                use #(updated, sent) <- result.try(restamp_grouped_batch(
+                use #(updated, sent) <- result.try(restamp_container_batch(
                   core,
                   entry,
                   client_sequence_number,
@@ -1818,31 +1846,35 @@ fn resubmitted_batch_id(entry: InFlight) -> String {
   )
 }
 
-fn restamp_grouped_batch(
+fn restamp_container_batch(
   core: Core,
   entry: InFlight,
   csn: Int,
 ) -> Result(#(InFlight, wire.OutboundOperation), CoreError) {
   let assert InFlightBatch(items: items, pending: pending, ..) = entry
+  let grouped = list.length(items) > 1
   let batch_id = Some(resubmitted_batch_id(entry))
   let metadata =
     Some(
-      json.object(case batch_id {
-        Some(batch_id) -> [
-          #("batchId", json.string(batch_id)),
-          #("groupedOpCount", json.int(list.length(items))),
-        ]
-        None -> [#("groupedOpCount", json.int(list.length(items)))]
-      }),
+      json.object(
+        list.append(
+          [#("batchId", json.string(resubmitted_batch_id(entry)))],
+          case grouped {
+            True -> [#("groupedOpCount", json.int(list.length(items)))]
+            False -> []
+          },
+        ),
+      ),
     )
   let last = list.length(items) - 1
   use contents <- result.try(
     fluid_container.encode_batch(fluid_container.DecodedBatch(
-      True,
+      grouped,
       metadata,
       list.index_map(items, fn(item, index) {
-        let boundary = case index {
-          0 ->
+        let boundary = case grouped, index {
+          False, _ -> None
+          True, 0 ->
             Some(
               json.object(case batch_id {
                 Some(batch_id) -> [
@@ -1852,9 +1884,9 @@ fn restamp_grouped_batch(
                 None -> [#("batch", json.bool(True))]
               }),
             )
-          index if index == last ->
+          True, index if index == last ->
             Some(json.object([#("batch", json.bool(False))]))
-          _ -> None
+          _, _ -> None
         }
         fluid_container.ContainerMessage(item, index, boundary)
       }),
@@ -1889,7 +1921,7 @@ fn restamp_grouped_batch(
       core.client_id,
       csn,
       core.last_seen_sequence_number,
-      True,
+      grouped,
       batch_id,
       items,
       pending,
@@ -2588,11 +2620,11 @@ pub fn handle_sequenced(
       Ok(#(core, Ingested([], [], [], request, [])))
     }
     _ -> {
-      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
+      use #(core, events, resolutions, runtime_events) <- result.try(apply_one(
         core,
         msg,
       ))
-      use #(core, drained, drained_resolutions, drained_summary_events) <- result.try(
+      use #(core, drained, drained_resolutions, drained_runtime_events) <- result.try(
         drain_buffer(core),
       )
       // A single-in-flight kernel (json0 or rich text) may have promoted a
@@ -2605,7 +2637,7 @@ pub fn handle_sequenced(
         Ingested(
           events: list.append(events, drained),
           resolutions: list.append(resolutions, drained_resolutions),
-          summary_events: list.append(summary_events, drained_summary_events),
+          runtime_events: list.append(runtime_events, drained_runtime_events),
           request_operations_from: None,
           outbound: outbound,
         ),
@@ -2776,7 +2808,81 @@ fn apply_one(
     Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(SummaryEvent),
+    List(RuntimeEvent),
+  ),
+  CoreError,
+) {
+  case core.recovery_replay {
+    None -> apply_one_state(core, msg)
+    Some(RecoveryReplay(sequenced, authoring_points)) -> {
+      use
+        #(
+          sequenced,
+          sequenced_events,
+          sequenced_resolutions,
+          sequenced_runtime_events,
+        )
+      <- result.try(apply_one_state(
+        Core(..sequenced, reconnect_barrier: core.reconnect_barrier),
+        msg,
+      ))
+      case core.in_flight == [] {
+        True ->
+          Ok(#(
+            Core(..sequenced, out_of_order: core.out_of_order),
+            sequenced_events,
+            sequenced_resolutions,
+            sequenced_runtime_events,
+          ))
+        False -> {
+          use #(core, events, resolutions, runtime_events) <- result.try(
+            apply_one_state(core, msg),
+          )
+          case core.in_flight == [] {
+            True ->
+              Ok(#(
+                Core(
+                  ..sequenced,
+                  out_of_order: core.out_of_order,
+                  reconnect_barrier: core.reconnect_barrier,
+                ),
+                events,
+                resolutions,
+                runtime_events,
+              ))
+            False ->
+              Ok(#(
+                Core(
+                  ..core,
+                  recovery_replay: Some(RecoveryReplay(
+                    sequenced,
+                    dict.insert(
+                      authoring_points,
+                      core.last_seen_sequence_number,
+                      Core(..core, recovery_replay: None, out_of_order: []),
+                    ),
+                  )),
+                ),
+                events,
+                resolutions,
+                runtime_events,
+              ))
+          }
+        }
+      }
+    }
+  }
+}
+
+fn apply_one_state(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(RuntimeEvent),
   ),
   CoreError,
 ) {
@@ -2797,11 +2903,11 @@ fn apply_one(
       |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
     None -> Ok(Nil)
   })
-  use #(core, events, resolutions, summary_events) <- result.try(
+  use #(core, events, resolutions, runtime_events) <- result.try(
     case msg.message_type {
-      "op" -> without_summary_events(handle_operation(core, msg))
-      "join" -> without_summary_events(handle_join(core, msg))
-      "leave" -> without_summary_events(handle_leave(core, msg))
+      "op" -> handle_operation(core, msg)
+      "join" -> without_runtime_events(handle_join(core, msg))
+      "leave" -> without_runtime_events(handle_leave(core, msg))
       "summarize" ->
         Ok(
           #(core, [], [], [
@@ -2838,7 +2944,7 @@ fn apply_one(
       list.filter(tree_events, fn(event) { !list.contains(events, event) }),
     ),
     resolutions,
-    summary_events,
+    runtime_events,
   ))
 }
 
@@ -2910,7 +3016,7 @@ fn advance_tree_positions(
   })
 }
 
-fn without_summary_events(
+fn without_runtime_events(
   outcome: Result(
     #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
     CoreError,
@@ -2920,7 +3026,7 @@ fn without_summary_events(
     Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(SummaryEvent),
+    List(RuntimeEvent),
   ),
   CoreError,
 ) {
@@ -2938,7 +3044,7 @@ fn apply_summary_response(
     Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(SummaryEvent),
+    List(RuntimeEvent),
   ),
   CoreError,
 ) {
@@ -3091,7 +3197,7 @@ fn drain_buffer(
     Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
-    List(SummaryEvent),
+    List(RuntimeEvent),
   ),
   CoreError,
 ) {
@@ -3101,18 +3207,18 @@ fn drain_buffer(
     [head, ..rest]
       if head.sequence_number == core.last_seen_sequence_number + 1
     -> {
-      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
+      use #(core, events, resolutions, runtime_events) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
         head,
       ))
-      use #(core, more, more_resolutions, more_summary_events) <- result.try(
+      use #(core, more, more_resolutions, more_runtime_events) <- result.try(
         drain_buffer(core),
       )
       Ok(#(
         core,
         list.append(events, more),
         list.append(resolutions, more_resolutions),
-        list.append(summary_events, more_summary_events),
+        list.append(runtime_events, more_runtime_events),
       ))
     }
     _ -> Ok(#(core, [], [], []))
@@ -3138,7 +3244,12 @@ fn handle_operation(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(RuntimeEvent),
+  ),
   CoreError,
 ) {
   use contents <- result.try(
@@ -3165,6 +3276,20 @@ fn handle_operation(
     fluid_container.validate_profile_batch(batch)
     |> result.map_error(ContainerOperationFailed),
   )
+  use actual_id <- result.try(case batch.metadata {
+    None -> Ok(None)
+    Some(value) ->
+      json.parse(json.to_string(value), {
+        use id <- decode.optional_field(
+          "batchId",
+          None,
+          decode.map(decode.string, Some),
+        )
+        decode.success(id)
+      })
+      |> result.map_error(fn(_) { AckMismatch("invalid outer batch identity") })
+  })
+  use core <- result.try(recover_resubmission(core, msg, batch, actual_id))
   let own = is_own_operation(core, msg.client_id)
   use _ <- result.try(case own, core.in_flight {
     True,
@@ -3183,21 +3308,6 @@ fn handle_operation(
     -> {
       let actual = list.map(batch.messages, fn(item) { item.kind })
       use same_items <- result.try(same_batch_items(core, actual, items))
-      use actual_id <- result.try(case batch.metadata {
-        None -> Ok(None)
-        Some(value) ->
-          json.parse(json.to_string(value), {
-            use id <- decode.optional_field(
-              "batchId",
-              None,
-              decode.map(decode.string, Some),
-            )
-            decode.success(id)
-          })
-          |> result.map_error(fn(_) {
-            AckMismatch("invalid outer batch identity")
-          })
-      })
       case
         msg.client_id == Some(client_id)
         && msg.client_sequence_number == csn
@@ -3216,325 +3326,465 @@ fn handle_operation(
     True, [] -> Error(AckMismatch("own outer submission has no pending entry"))
     False, _ -> Ok(Nil)
   })
-  use #(candidate, events, resolutions, _) <- result.try(
-    list.try_fold(batch.messages, #(core, [], [], dict.new()), fn(acc, message) {
-      let #(core, events, resolutions, ordinals) = acc
-      use #(core, more_events, more_resolutions) <- result.try(
-        case message.kind {
-          fluid_container.ChannelOperation(route, contents) -> {
+  use #(candidate, events, resolutions, _, runtime_events) <- result.try(
+    list.try_fold(
+      batch.messages,
+      #(core, [], [], dict.new(), []),
+      fn(acc, message) {
+        let #(core, events, resolutions, ordinals, runtime_events) = acc
+        let before = core
+        use #(core, more_events, more_resolutions) <- result.try(
+          case message.kind {
+            fluid_container.ChannelOperation(route, contents) -> {
+              use address <- result.try(
+                fluid_container.route_key(route)
+                |> result.map_error(ContainerOperationFailed),
+              )
+              case dict.get(core.channels, address) {
+                Ok(channel.TreeState(state)) -> {
+                  use compressor <- result.try(case core.compressor {
+                    Some(value) -> Ok(value)
+                    None ->
+                      Error(BadBootstrapSeed(
+                        "tree channel has no document compressor",
+                      ))
+                  })
+                  use context <- result.try(handle_context(address))
+                  use contents <- result.try(
+                    handle.bind_serialized_references(contents, context)
+                    |> result.map_error(fn(error) {
+                      TreeOperationFailed(
+                        address,
+                        tree_types.CorruptData("message", string.inspect(error)),
+                      )
+                    }),
+                  )
+                  use #(commit, _) <- result.try(
+                    tree_runtime.decode_sequenced_message(
+                      json.to_string(contents),
+                      state,
+                      msg.reference_sequence_number,
+                      compressor,
+                    )
+                    |> result.map_error(fn(error) {
+                      TreeOperationFailed(address, error)
+                    }),
+                  )
+                  use _ <- result.try(
+                    case
+                      !own
+                      && commit.originator
+                      == fluid_ids.local_session(compressor)
+                    {
+                      True ->
+                        Error(AckMismatch(
+                          "local tree commit requires its own transport submission",
+                        ))
+                      False -> Ok(Nil)
+                    },
+                  )
+                  let ordinal = dict.get(ordinals, address) |> result.unwrap(0)
+                  let pending_local =
+                    own
+                    && list.any(
+                      tree_kernel.history_view(state).pending,
+                      fn(pending) { pending.revision == commit.revision },
+                    )
+                  // Read the rebased pending outcome before acknowledgement trims history.
+                  use commit_events <- result.try(tree_commit_events(
+                    address,
+                    state,
+                    commit,
+                    own,
+                    pending_local,
+                  ))
+                  use #(state, changes, compressor) <- result.try(
+                    tree_runtime.receive_commit(
+                      state,
+                      commit,
+                      tree_types.SequencePoint(msg.sequence_number, ordinal),
+                      msg.reference_sequence_number,
+                      msg.minimum_sequence_number,
+                      compressor,
+                    )
+                    |> result.map_error(fn(error) {
+                      TreeOperationFailed(address, error)
+                    }),
+                  )
+                  Ok(
+                    #(
+                      Core(
+                        ..core,
+                        channels: dict.insert(
+                          core.channels,
+                          address,
+                          channel.TreeState(state),
+                        ),
+                        compressor: Some(compressor),
+                      ),
+                      list.append(commit_events, case changes.array_changed {
+                        True ->
+                          list.map(changes.events, fn(event) {
+                            #(address, channel.TreeEvent(event))
+                          })
+                        False -> []
+                      }),
+                      [],
+                    ),
+                  )
+                }
+                _ -> {
+                  use operation <- result.try(
+                    wire_op.decode_channel_message(message.kind)
+                    |> result.map_error(ContainerOperationFailed),
+                  )
+                  handle_channel_operation(
+                    core,
+                    msg,
+                    message.index_in_batch,
+                    operation,
+                  )
+                }
+              }
+            }
+            fluid_container.ChannelAttach(route, type_name, _) -> {
+              use operation <- result.try(case type_name {
+                "https://graph.microsoft.com/types/tree" -> {
+                  use compressor <- result.try(
+                    core.compressor
+                    |> option.to_result(BadBootstrapSeed(
+                      "tree attach requires a document compressor",
+                    )),
+                  )
+                  use view_id <- result.try(attachment_view_id(core, route))
+                  wire_op.decode_channel_message_with_context(
+                    message.kind,
+                    compressor,
+                    view_id,
+                    "/" <> fluid_summary.encode_component(route.data_store_id),
+                    msg.sequence_number,
+                    msg.minimum_sequence_number,
+                  )
+                  |> result.map_error(ContainerOperationFailed)
+                }
+                _ ->
+                  wire_op.decode_channel_message(message.kind)
+                  |> result.map_error(ContainerOperationFailed)
+              })
+              handle_channel_operation(
+                core,
+                msg,
+                message.index_in_batch,
+                operation,
+              )
+            }
+            fluid_container.DatastoreAlias(datastore, alias) -> {
+              use _ <- result.try(seed_requirement(
+                result.is_ok(
+                  fluid_container.route_key(fluid_container.Route(alias, "root")),
+                ),
+                "invalid datastore alias",
+              ))
+              let available = alias_available(core, datastore, alias)
+              Ok(
+                #(
+                  Core(
+                    ..core,
+                    routing: case available {
+                      True ->
+                        Routing(
+                          ..core.routing,
+                          aliases: dict.insert(
+                            core.routing.aliases,
+                            alias,
+                            datastore,
+                          ),
+                        )
+                      False -> core.routing
+                    },
+                    alias_claims: case own, available {
+                      True, False -> dict.delete(core.alias_claims, datastore)
+                      _, _ -> core.alias_claims
+                    },
+                  ),
+                  [],
+                  [],
+                ),
+              )
+            }
+            fluid_container.DatastoreAttach(datastore, contents) -> {
+              use #(package_path, channels) <- result.try(case core.compressor {
+                None ->
+                  wire_op.decode_datastore_attach(contents)
+                  |> result.map_error(ContainerOperationFailed)
+                Some(compressor) -> {
+                  use view_id <- result.try(attachment_view_id(
+                    core,
+                    fluid_container.Route(datastore, "root"),
+                  ))
+                  wire_op.decode_datastore_attach_with_context(
+                    contents,
+                    compressor,
+                    view_id,
+                    "/" <> fluid_summary.encode_component(datastore),
+                    msg.sequence_number,
+                    msg.minimum_sequence_number,
+                  )
+                  |> result.map_error(ContainerOperationFailed)
+                }
+              })
+              case
+                is_own_operation(core, msg.client_id),
+                dict.get(core.local_datastores, datastore)
+              {
+                True, Ok(local) -> {
+                  use _ <- result.try(seed_requirement(
+                    dict.get(core.routing.datastores, datastore)
+                      == Ok(local.package_path)
+                      && package_path == local.package_path,
+                    "own datastore attach does not match the prepared store",
+                  ))
+                  Ok(#(core, [], []))
+                }
+                _, _ -> {
+                  use _ <- result.try(seed_requirement(
+                    result.is_ok(
+                      fluid_container.route_key(fluid_container.Route(
+                        datastore,
+                        "root",
+                      )),
+                    )
+                      && !dict.has_key(core.routing.datastores, datastore)
+                      && !dict.has_key(core.routing.aliases, datastore),
+                    "invalid or duplicate datastore identity",
+                  ))
+                  let candidate =
+                    Core(
+                      ..core,
+                      routing: Routing(
+                        ..core.routing,
+                        datastores: dict.insert(
+                          core.routing.datastores,
+                          datastore,
+                          package_path,
+                        ),
+                      ),
+                    )
+                  use candidate <- result.try(
+                    list.try_fold(channels, candidate, fn(candidate, entry) {
+                      use address <- result.try(
+                        fluid_container.route_key(fluid_container.Route(
+                          datastore,
+                          entry.0,
+                        ))
+                        |> result.map_error(ContainerOperationFailed),
+                      )
+                      use #(candidate, _, _) <- result.try(remote_attach(
+                        candidate,
+                        msg.sequence_number,
+                        address,
+                        entry.1,
+                      ))
+                      Ok(candidate)
+                    }),
+                  )
+                  Ok(#(candidate, [], []))
+                }
+              }
+            }
+            fluid_container.IdAllocation(range) -> {
+              use compressor <- result.try(case core.compressor {
+                Some(value) -> Ok(value)
+                None ->
+                  Error(BadBootstrapSeed(
+                    "id allocation requires a document compressor",
+                  ))
+              })
+              use compressor <- result.try(
+                fluid_ids.finalize(compressor, range)
+                |> result.map_error(fn(error) {
+                  ContainerOperationFailed(fluid_container.MalformedMessage(
+                    "idAllocation",
+                    string.inspect(error),
+                  ))
+                }),
+              )
+              Ok(#(Core(..core, compressor: Some(compressor)), [], []))
+            }
+          },
+        )
+        let ordinals = case message.kind {
+          fluid_container.ChannelOperation(route, _) -> {
             use address <- result.try(
               fluid_container.route_key(route)
               |> result.map_error(ContainerOperationFailed),
             )
             case dict.get(core.channels, address) {
-              Ok(channel.TreeState(state)) -> {
-                use compressor <- result.try(case core.compressor {
-                  Some(value) -> Ok(value)
-                  None ->
-                    Error(BadBootstrapSeed(
-                      "tree channel has no document compressor",
-                    ))
-                })
-                use context <- result.try(handle_context(address))
-                use contents <- result.try(
-                  handle.bind_serialized_references(contents, context)
-                  |> result.map_error(fn(error) {
-                    TreeOperationFailed(
-                      address,
-                      tree_types.CorruptData("message", string.inspect(error)),
-                    )
-                  }),
-                )
-                use #(commit, _) <- result.try(
-                  tree_runtime.decode_sequenced_message(
-                    json.to_string(contents),
-                    state,
-                    msg.reference_sequence_number,
-                    compressor,
-                  )
-                  |> result.map_error(fn(error) {
-                    TreeOperationFailed(address, error)
-                  }),
-                )
-                use _ <- result.try(
-                  case
-                    !own
-                    && commit.originator == fluid_ids.local_session(compressor)
-                  {
-                    True ->
-                      Error(AckMismatch(
-                        "local tree commit requires its own transport submission",
-                      ))
-                    False -> Ok(Nil)
-                  },
-                )
-                let ordinal = dict.get(ordinals, address) |> result.unwrap(0)
-                let pending_local =
-                  own
-                  && list.any(
-                    tree_kernel.history_view(state).pending,
-                    fn(pending) { pending.revision == commit.revision },
-                  )
-                // Read the rebased pending outcome before acknowledgement trims history.
-                use commit_events <- result.try(tree_commit_events(
-                  address,
-                  state,
-                  commit,
-                  own,
-                  pending_local,
-                ))
-                use #(state, changes, compressor) <- result.try(
-                  tree_runtime.receive_commit(
-                    state,
-                    commit,
-                    tree_types.SequencePoint(msg.sequence_number, ordinal),
-                    msg.reference_sequence_number,
-                    msg.minimum_sequence_number,
-                    compressor,
-                  )
-                  |> result.map_error(fn(error) {
-                    TreeOperationFailed(address, error)
-                  }),
-                )
-                Ok(
-                  #(
-                    Core(
-                      ..core,
-                      channels: dict.insert(
-                        core.channels,
-                        address,
-                        channel.TreeState(state),
-                      ),
-                      compressor: Some(compressor),
-                    ),
-                    list.append(commit_events, case changes.array_changed {
-                      True ->
-                        list.map(changes.events, fn(event) {
-                          #(address, channel.TreeEvent(event))
-                        })
-                      False -> []
-                    }),
-                    [],
-                  ),
-                )
+              Ok(channel.TreeState(_)) -> {
+                let prior = dict.get(ordinals, address) |> result.unwrap(0)
+                Ok(dict.insert(ordinals, address, prior + 1))
               }
-              _ -> {
-                use operation <- result.try(
-                  wire_op.decode_channel_message(message.kind)
-                  |> result.map_error(ContainerOperationFailed),
-                )
-                handle_channel_operation(
-                  core,
-                  msg,
-                  message.index_in_batch,
-                  operation,
-                )
-              }
+              _ -> Ok(ordinals)
             }
           }
-          fluid_container.ChannelAttach(route, type_name, _) -> {
-            use operation <- result.try(case type_name {
-              "https://graph.microsoft.com/types/tree" -> {
-                use compressor <- result.try(
-                  core.compressor
-                  |> option.to_result(BadBootstrapSeed(
-                    "tree attach requires a document compressor",
-                  )),
-                )
-                use view_id <- result.try(attachment_view_id(core, route))
-                wire_op.decode_channel_message_with_context(
-                  message.kind,
-                  compressor,
-                  view_id,
-                  "/" <> fluid_summary.encode_component(route.data_store_id),
-                  msg.sequence_number,
-                  msg.minimum_sequence_number,
-                )
-                |> result.map_error(ContainerOperationFailed)
-              }
-              _ ->
-                wire_op.decode_channel_message(message.kind)
-                |> result.map_error(ContainerOperationFailed)
-            })
-            handle_channel_operation(
-              core,
-              msg,
-              message.index_in_batch,
-              operation,
-            )
-          }
-          fluid_container.DatastoreAlias(datastore, alias) -> {
-            use _ <- result.try(seed_requirement(
-              !dict.has_key(core.routing.datastores, alias)
-                || alias == datastore,
-              "alias conflicts with a datastore identity",
-            ))
-            use _ <- result.try(seed_requirement(
-              dict.has_key(core.routing.datastores, datastore)
-                && result.is_ok(
-                fluid_container.route_key(fluid_container.Route(alias, "root")),
-              ),
-              "invalid datastore alias",
-            ))
-            use _ <- result.try(seed_requirement(
-              !dict.has_key(core.routing.aliases, alias)
-                || dict.get(core.routing.aliases, alias) == Ok(datastore),
-              "datastore alias is already registered",
-            ))
-            Ok(
-              #(
-                Core(
-                  ..core,
-                  routing: Routing(
-                    ..core.routing,
-                    aliases: dict.insert(core.routing.aliases, alias, datastore),
-                  ),
-                ),
-                [],
-                [],
-              ),
-            )
-          }
-          fluid_container.DatastoreAttach(datastore, contents) -> {
-            use #(package_path, channels) <- result.try(case core.compressor {
-              None ->
-                wire_op.decode_datastore_attach(contents)
-                |> result.map_error(ContainerOperationFailed)
-              Some(compressor) -> {
-                use view_id <- result.try(attachment_view_id(
-                  core,
-                  fluid_container.Route(datastore, "root"),
-                ))
-                wire_op.decode_datastore_attach_with_context(
-                  contents,
-                  compressor,
-                  view_id,
-                  "/" <> fluid_summary.encode_component(datastore),
-                  msg.sequence_number,
-                  msg.minimum_sequence_number,
-                )
-                |> result.map_error(ContainerOperationFailed)
-              }
-            })
-            case
-              is_own_operation(core, msg.client_id),
-              dict.get(core.local_datastores, datastore)
-            {
-              True, Ok(local) -> {
-                use _ <- result.try(seed_requirement(
-                  dict.get(core.routing.datastores, datastore)
-                    == Ok(local.package_path)
-                    && package_path == local.package_path,
-                  "own datastore attach does not match the prepared store",
-                ))
-                Ok(#(core, [], []))
-              }
-              _, _ -> {
-                use _ <- result.try(seed_requirement(
-                  result.is_ok(
-                    fluid_container.route_key(fluid_container.Route(
-                      datastore,
-                      "root",
-                    )),
-                  )
-                    && !dict.has_key(core.routing.datastores, datastore)
-                    && !dict.has_key(core.routing.aliases, datastore),
-                  "invalid or duplicate datastore identity",
-                ))
-                let candidate =
-                  Core(
-                    ..core,
-                    routing: Routing(
-                      ..core.routing,
-                      datastores: dict.insert(
-                        core.routing.datastores,
-                        datastore,
-                        package_path,
-                      ),
-                    ),
-                  )
-                use candidate <- result.try(
-                  list.try_fold(channels, candidate, fn(candidate, entry) {
-                    use address <- result.try(
-                      fluid_container.route_key(fluid_container.Route(
-                        datastore,
-                        entry.0,
-                      ))
-                      |> result.map_error(ContainerOperationFailed),
-                    )
-                    use #(candidate, _, _) <- result.try(remote_attach(
-                      candidate,
-                      msg.sequence_number,
-                      address,
-                      entry.1,
-                    ))
-                    Ok(candidate)
-                  }),
-                )
-                Ok(#(candidate, [], []))
-              }
-            }
-          }
-          fluid_container.IdAllocation(range) -> {
-            use compressor <- result.try(case core.compressor {
-              Some(value) -> Ok(value)
-              None ->
-                Error(BadBootstrapSeed(
-                  "id allocation requires a document compressor",
-                ))
-            })
-            use compressor <- result.try(
-              fluid_ids.finalize(compressor, range)
-              |> result.map_error(fn(error) {
-                ContainerOperationFailed(fluid_container.MalformedMessage(
-                  "idAllocation",
-                  string.inspect(error),
-                ))
-              }),
-            )
-            Ok(#(Core(..core, compressor: Some(compressor)), [], []))
-          }
-        },
-      )
-      let ordinals = case message.kind {
-        fluid_container.ChannelOperation(route, _) -> {
-          use address <- result.try(
-            fluid_container.route_key(route)
-            |> result.map_error(ContainerOperationFailed),
-          )
-          case dict.get(core.channels, address) {
-            Ok(channel.TreeState(_)) -> {
-              let prior = dict.get(ordinals, address) |> result.unwrap(0)
-              Ok(dict.insert(ordinals, address, prior + 1))
-            }
-            _ -> Ok(ordinals)
-          }
+          _ -> Ok(ordinals)
         }
-        _ -> Ok(ordinals)
-      }
-      use ordinals <- result.try(ordinals)
-      Ok(#(
-        core,
-        list.append(
-          events,
-          list.filter(more_events, fn(event) {
-            case event.1 {
-              channel.TreeEvent(_) -> !list.contains(events, event)
-              _ -> True
-            }
-          }),
-        ),
-        list.append(resolutions, more_resolutions),
-        ordinals,
-      ))
-    }),
+        use ordinals <- result.try(ordinals)
+        let runtime_events = case message.kind, own {
+          fluid_container.DatastoreAlias(datastore, alias), True ->
+            list.append(runtime_events, [
+              AliasSettled(
+                datastore,
+                alias,
+                case alias_available(before, datastore, alias) {
+                  True -> container.AliasSuccess
+                  False -> container.AliasConflict
+                },
+              ),
+            ])
+          _, _ -> runtime_events
+        }
+        Ok(#(
+          core,
+          list.append(
+            events,
+            list.filter(more_events, fn(event) {
+              case event.1 {
+                channel.TreeEvent(_) -> !list.contains(events, event)
+                _ -> True
+              }
+            }),
+          ),
+          list.append(resolutions, more_resolutions),
+          ordinals,
+          runtime_events,
+        ))
+      },
+    ),
   )
   use candidate <- result.try(case own, candidate.in_flight {
     True, [InFlightBatch(..), ..rest] -> Ok(Core(..candidate, in_flight: rest))
     True, _ -> Error(AckMismatch("own outer submission was not pending"))
     False, _ -> Ok(candidate)
   })
-  Ok(#(candidate, events, resolutions))
+  Ok(#(candidate, events, resolutions, runtime_events))
+}
+
+fn alias_available(core: Core, datastore: String, alias: String) -> Bool {
+  dict.has_key(core.routing.datastores, datastore)
+  && !dict.has_key(core.routing.datastores, alias)
+  && !dict.has_key(core.routing.aliases, alias)
+}
+
+fn recover_resubmission(
+  core: Core,
+  msg: SequencedDocumentMessage,
+  batch: fluid_container.DecodedBatch,
+  batch_id: Option(String),
+) -> Result(Core, CoreError) {
+  case core.recovery_replay, core.in_flight, msg.client_id {
+    Some(_),
+      [InFlightBatch(client_id: original, ..) as first, ..rest],
+      Some(client)
+      if client != core.client_id && client != original
+    -> {
+      case
+        batch_id == Some(resubmitted_batch_id(first))
+        && in_flight_has_tree_items(core, first)
+      {
+        False -> Ok(core)
+        True -> {
+          use candidate <- result.try(recovery_submission_candidate(
+            core,
+            msg,
+            batch,
+            first,
+          ))
+          case candidate {
+            None -> Ok(core)
+            Some(first) -> {
+              let assert InFlightBatch(..) = first
+              Ok(
+                Core(
+                  ..core,
+                  in_flight: [
+                    InFlightBatch(
+                      ..first,
+                      client_id: client,
+                      client_sequence_number: msg.client_sequence_number,
+                      reference_sequence_number: msg.reference_sequence_number,
+                      batch_id: batch_id,
+                    ),
+                    ..rest
+                  ],
+                  reconnect_barrier: case core.reconnect_barrier {
+                    None -> None
+                    Some(barrier) ->
+                      Some(
+                        ReconnectBarrier(
+                          ..barrier,
+                          previous_clients: list.unique([
+                            client,
+                            ..barrier.previous_clients
+                          ]),
+                        ),
+                      )
+                  },
+                ),
+              )
+            }
+          }
+        }
+      }
+    }
+    _, _, _ -> Ok(core)
+  }
+}
+
+fn recovery_submission_candidate(
+  core: Core,
+  msg: SequencedDocumentMessage,
+  batch: fluid_container.DecodedBatch,
+  first: InFlight,
+) -> Result(Option(InFlight), CoreError) {
+  let assert InFlightBatch(items: items, grouped: grouped, ..) = first
+  let actual = list.map(batch.messages, fn(item) { item.kind })
+  use same <- result.try(same_batch_items(core, actual, items))
+  case same && grouped == batch.grouped {
+    True -> Ok(Some(first))
+    False -> {
+      use authoring <- result.try(case core.recovery_replay {
+        Some(RecoveryReplay(_, authoring_points)) ->
+          dict.get(authoring_points, msg.reference_sequence_number)
+          |> result.map_error(fn(_) {
+            HistoryGap("recovery submission authoring point is not retained")
+          })
+        None -> Error(AckMismatch("recovery has no sequenced replay"))
+      })
+      use #(rebuilt, _) <- result.try(resubmit(
+        Core(
+          ..authoring,
+          next_client_sequence_number: msg.client_sequence_number,
+        ),
+      ))
+      case
+        list.find(rebuilt.in_flight, fn(candidate) {
+          resubmitted_batch_id(candidate) == resubmitted_batch_id(first)
+        })
+      {
+        Ok(
+          InFlightBatch(items: rebuilt_items, grouped: rebuilt_grouped, ..) as candidate,
+        ) -> {
+          use same <- result.try(same_batch_items(core, actual, rebuilt_items))
+          Ok(case same && rebuilt_grouped == batch.grouped {
+            True -> Some(candidate)
+            False -> None
+          })
+        }
+        _ -> Error(AckMismatch("recovery lost its pending submission"))
+      }
+    }
+  }
 }
 
 fn same_batch_items(
@@ -4195,6 +4445,177 @@ pub fn create_detached_data_store(
       ),
     )
   create_detached(core, id <> "/root", channel.InitMap)
+}
+
+pub fn try_set_alias(
+  core: Core,
+  data_store_id: String,
+  alias: String,
+) -> Result(
+  #(Core, List(wire.OutboundOperation), Option(container.AliasResult)),
+  CoreError,
+) {
+  use _ <- result.try(seed_requirement(
+    !string.is_empty(alias) && !string.contains(alias, "/"),
+    "datastore alias must be nonempty and contain no slash",
+  ))
+  use _ <- result.try(
+    fluid_container.route_key(fluid_container.Route(alias, "root"))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    dict.has_key(core.routing.datastores, data_store_id)
+      || dict.has_key(core.local_datastores, data_store_id),
+    "unknown datastore alias target",
+  ))
+  case dict.get(core.alias_claims, data_store_id) {
+    Ok(existing) if existing != alias ->
+      Ok(#(core, [], Some(container.AlreadyAliased)))
+    Ok(_) -> {
+      let pending =
+        list.any(core.in_flight, fn(entry) {
+          case entry {
+            InFlightBatch(items: items, ..) ->
+              list.contains(
+                items,
+                fluid_container.DatastoreAlias(data_store_id, alias),
+              )
+            _ -> False
+          }
+        })
+      Ok(
+        #(core, [], case pending {
+          True -> None
+          False -> Some(container.AliasSuccess)
+        }),
+      )
+    }
+    Error(_) -> {
+      use <- bool.guard(
+        list.any(dict.to_list(core.alias_claims), fn(claim) {
+          claim.1 == alias
+          && list.any(core.in_flight, fn(entry) {
+            case entry {
+              InFlightBatch(items: items, ..) ->
+                list.contains(
+                  items,
+                  fluid_container.DatastoreAlias(claim.0, alias),
+                )
+              _ -> False
+            }
+          })
+        }),
+        Ok(#(core, [], Some(container.AliasConflict))),
+      )
+      use reference <- result.try(
+        handle.reference_from_path("/" <> data_store_id <> "/root")
+        |> result.map_error(fn(error) {
+          BadBootstrapSeed(string.inspect(error))
+        }),
+      )
+      use #(core, prepared) <- result.try(
+        prepare_graph_attachments(core, [reference]),
+      )
+      let kinds =
+        list.append(prepared, [
+          fluid_container.DatastoreAlias(data_store_id, alias),
+        ])
+      let count = list.length(kinds)
+      let grouped = count > 1
+      let csn = core.next_client_sequence_number
+      let batch_id = case kinds {
+        [fluid_container.IdAllocation(_), ..] ->
+          Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+        _ -> None
+      }
+      let metadata = case grouped {
+        True ->
+          Some(
+            json.object(
+              list.append(
+                case batch_id {
+                  Some(id) -> [#("batchId", json.string(id))]
+                  None -> []
+                },
+                [#("groupedOpCount", json.int(count))],
+              ),
+            ),
+          )
+        False -> None
+      }
+      use contents <- result.try(
+        fluid_container.encode_batch(fluid_container.DecodedBatch(
+          grouped,
+          metadata,
+          list.index_map(kinds, fn(kind, index) {
+            let metadata = case grouped, index {
+              True, 0 ->
+                Some(
+                  json.object(
+                    list.append([#("batch", json.bool(True))], case batch_id {
+                      Some(id) -> [#("batchId", json.string(id))]
+                      None -> []
+                    }),
+                  ),
+                )
+              True, index if index == count - 1 ->
+                Some(json.object([#("batch", json.bool(False))]))
+              _, _ -> None
+            }
+            fluid_container.ContainerMessage(kind, index, metadata)
+          }),
+        ))
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use pending <- result.try(
+        list.try_map(kinds, pending_tree_batch_item(core, csn, _)),
+      )
+      let outbound =
+        wire.OutboundOperation(
+          csn,
+          core.last_seen_sequence_number,
+          "op",
+          contents,
+          metadata,
+        )
+      Ok(#(
+        Core(
+          ..core,
+          prepared_attachments: [],
+          alias_claims: dict.insert(core.alias_claims, data_store_id, alias),
+          next_client_sequence_number: csn + 1,
+          in_flight: list.append(core.in_flight, [
+            InFlightBatch(
+              core.client_id,
+              csn,
+              core.last_seen_sequence_number,
+              grouped,
+              batch_id,
+              kinds,
+              pending,
+            ),
+          ]),
+        ),
+        [outbound],
+        None,
+      ))
+    }
+  }
+}
+
+fn has_pending_alias(core: Core) -> Bool {
+  list.any(core.in_flight, fn(entry) {
+    case entry {
+      InFlightBatch(items: items, ..) ->
+        list.any(items, fn(item) {
+          case item {
+            fluid_container.DatastoreAlias(_, _) -> True
+            _ -> False
+          }
+        })
+      _ -> False
+    }
+  })
 }
 
 pub fn create_detached(
@@ -9664,7 +10085,6 @@ pub fn prepare_attachments(
 ) -> Result(#(Core, List(fluid_container.MessageKind)), CoreError) {
   use source_address <- result.try(resolve_alias(core, source_address))
   use _ <- result.try(locate_channel(core, source_address))
-  let visible_datastores = dict.keys(core.routing.datastores)
   let core =
     Core(
       ..core,
@@ -9676,8 +10096,16 @@ pub fn prepare_attachments(
           references,
         ),
       ),
-      prepared_attachments: [],
     )
+  prepare_graph_attachments(core, references)
+}
+
+fn prepare_graph_attachments(
+  core: Core,
+  references: List(handle.Reference),
+) -> Result(#(Core, List(fluid_container.MessageKind)), CoreError) {
+  let visible_datastores = dict.keys(core.routing.datastores)
+  let core = Core(..core, prepared_attachments: [])
   use candidates <- result.try(attachment_candidates(core, references))
   use #(core, messages, _) <- result.try(
     list.try_fold(references, #(core, [], []), fn(acc, reference) {

@@ -115,6 +115,14 @@ pub fn shared_tree_client_decodes_named_native_objects_test() -> Nil {
   )
 }
 
+pub fn shared_tree_client_decodes_alias_claim_test() {
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"try-set-alias\",\"store\":\"secondary\",\"alias\":\"public\"}",
+  )
+  |> expect.to_be_ok()
+  Nil
+}
+
 pub fn shared_tree_client_rejects_bad_native_object_commands_test() -> Nil {
   list.each(
     [

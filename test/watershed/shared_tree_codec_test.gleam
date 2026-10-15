@@ -904,6 +904,24 @@ pub fn shared_tree_codec_untagged_revisions_round_trip_test() {
     )
   codec.decode_modular(round_trip, decode_context, change_context)
   |> expect.to_equal(Ok(change_set))
+  let recovery_context =
+    codec.ChangeContext(owner, Some(first_revision), codec.Recovery)
+  codec.decode_modular(encoded, decode_context, recovery_context)
+  |> expect.to_equal(Ok(change_set))
+  let encode_context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let assert Ok(recovered) =
+    codec.encode_modular(change_set, encode_context, recovery_context)
+  codec.decode_modular(recovered, decode_context, recovery_context)
+  |> expect.to_equal(Ok(change_set))
+  [codec.Message, codec.Summary]
+  |> list.each(fn(purpose) {
+    let context = codec.ChangeContext(owner, Some(first_revision), purpose)
+    codec.decode_modular(recovered, decode_context, context)
+    |> expect.to_be_error()
+    codec.encode_modular(change_set, encode_context, context)
+    |> expect.to_be_error()
+    Nil
+  })
 }
 
 pub fn shared_tree_codec_rejects_tagged_revision_mismatch_test() {

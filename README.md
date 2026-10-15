@@ -122,7 +122,7 @@ The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
 `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`. Its `oldestSupportedClient: 2.117.0`
 field is container metadata, not a claim of tested Fluid 2.x compatibility.
-The layout uses alias `root` -> datastore `A`, a bootstrap map at `/A/root`
+The default layout uses alias `root` -> datastore `A`, a bootstrap map at `/A/root`
 with a `"tree"` handle, and a tree at `/A/_C`.
 
 The schema subset includes nested objects, required and optional fields,
@@ -136,7 +136,8 @@ Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
 `runtime_core.BootstrapSeed` and `connect_via_seed` remain available for injected
 transports. Both targets can also create new containers for this profile with
-`create_tree_container`. Arbitrary Fluid container layouts remain unsupported.
+`create_tree_container`. Use `create_tree_container_with_layout` for declared
+additional datastores and channels. Arbitrary Fluid factories remain unsupported.
 
 On either facade, `resolve_root(document)` returns the checked bootstrap
 `SharedMap` or an error before readiness. Its handle preserves the full route,
@@ -644,7 +645,8 @@ One outer transaction commit can supply one revertible after the transaction
 finishes. `tree_revert` during an active transaction is unsupported. Persisted
 stacks, schema undo, remote-commit undo, cross-tree atomic undo, public
 branches, `noChange`, custom revert metadata, clone-to-view, and `revertTo`
-remain outside the profile. Richer Lustre and UI bindings remain M7 work.
+remain outside the profile. The Lustre history/checklist adapter uses this
+lifecycle; additional UI bindings are separate consumer work.
 
 ### SharedTree local branches
 
@@ -772,7 +774,7 @@ Branch schema authoring is unsupported. A schema change on main can make a
 branch incompatible; an unsupported reconciliation fails atomically rather
 than silently changing either checkout. Shared or persisted branches, branch
 wire APIs, cross-runtime or cross-tree merge, historical checkouts, portable
-handles, async transactions, offline or disk recovery, managed undo stacks,
+handles, async transactions, offline authoring, automatic disk journaling, managed undo stacks,
 clone-to-view, `revertTo`, and preview diffs remain outside this profile.
 
 Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
@@ -801,12 +803,63 @@ Authorization refusal stops reconnect with the pending tree still readable;
 recoverable connection failures have a bounded, delayed retry and report
 their cause through `connection_observation`. A replay error also suspends
 recovery without discarding accepted local edits.
-This is in-memory reconnect, not disk recovery or offline authoring.
+This reconnect path keeps state in memory. Explicit pending checkpoints also
+support restart recovery as described below; neither path enables offline
+authoring.
 The combined service gate includes the six focused reconnect schedules on
 each native target, the three-client editing matrix, and fresh summary readers.
 SharedTree has no P2P mode; P2P tree creation and snapshot import return an
 unsupported-channel error. A compatible service transport alone does not
 establish SharedTree operation or persistence compatibility.
+
+### Recover pending tree edits
+
+Both native facades expose `pending_checkpoint(document)`. It flushes queued
+submissions and returns a versioned JSON checkpoint for a persisted SharedTree
+document, including pending array moves and subsequent edits. The checkpoint
+retains the original compressor session, native node identities, authoring
+history, submission identities, and the sequenced document base. It contains no
+connection token.
+
+Your application owns storage. Serialize the returned JSON and durably replace
+the previous checkpoint in your chosen store. Local edits that the server has
+not accepted must appear in the last successfully stored checkpoint to survive
+a crash. Recovery also replays later server-accepted edits. This API does not
+journal each edit automatically. Stop the old runtime before restoring, and
+never run two copies of the same checkpoint concurrently.
+
+Pass the parsed checkpoint to `connect_resuming` with fresh connection
+credentials. The JavaScript facade takes the usual `WatershedConfig`, the
+`checkpoint:` argument, and `on_ready:`; it returns
+`Result(Document(root), String)`. The BEAM facade takes the usual labeled
+connection arguments plus `checkpoint:` and waits before returning that same
+result shape. Invalid, unsupported, or wrong-document checkpoints fail before
+a transport opens. Recovery replays missing operations, waits for the old
+session's leave and the new join, and resubmits only work not already accepted
+by the server. A move accepted before the crash is acknowledged, not repeated.
+
+A stored checkpoint can span a later reconnect of the original runtime.
+Recovery recognizes accepted resubmissions by their logical batch identity and
+complete contents, including peer rebases at the submission's authoring
+sequence. It removes accepted prefixes and resubmits only the saved suffix.
+After replay acknowledges all saved work, the runtime switches to a fresh
+allocation session that includes later server-accepted IDs.
+
+Reacquire typed tree and node handles after restart. Subscriptions, revertible
+handles, and application undo stacks are not restored. Capture rejects active
+transactions, unmerged local branches, detached graphs, pending attachments or
+aliases, pending ordinary DDS edits, and incomplete replay rather than losing
+that state. Settle or dispose those before capturing. The checkpoint is a
+local recovery format, not a Fluid summary or a portable branch format.
+
+`just shared-tree-recovery-interop` exercises disk capture, process kill, and
+fresh-process restoration through pinned Floodgate for all JavaScript/BEAM
+writer-reader pairs. Its 32 cells cover unsent moves, accepted-before-crash
+moves, accepted edits newer than the checkpoint, and full or partial acceptance
+after an intervening reconnect. Peer edits before resubmission and between
+authoring and acceptance exercise historical rebase context. Each restored
+writer continues editing and drains its pending queue. The eight delayed
+cases also store another pending checkpoint and recover from a second crash.
 
 ### Build a graph in an open document
 
@@ -858,9 +911,37 @@ disconnected, reconnecting, read-only, or still replaying history.
 This is the supported native SharedTree profile, not arbitrary Fluid dynamic
 object authoring. It does not add custom datastore factories, caller-selected
 channel IDs, detached graph persistence across runtime close, offline
-publication, blob or cross-container handles, new alias authoring, GC sweep,
+publication, blob or cross-container handles, GC sweep,
 production token handling, cross-runtime handles, or broader DDS and schema
 support.
+
+### Publish a datastore alias
+
+`try_set_alias(store, "public")` publishes the datastore's complete attachment
+graph and requests a container-wide name. It takes the runtime-owned `DataStore`,
+not a document and a separate datastore ID. JavaScript returns
+`Promise(Result(container.AliasResult, String))`; BEAM waits and returns
+`Result(container.AliasResult, String)`.
+
+The result is `AliasSuccess`, `AliasConflict`, or `AlreadyAliased`. The first
+sequenced claim wins; an alias cannot hide an existing datastore identity.
+Conflicts leave the document usable and the newly published graph attached,
+so the caller can retry another name. Concurrent calls for the same datastore
+and name share one submission and receive its exact outcome. After this
+runtime has successfully claimed a name, another name for that datastore
+returns `AlreadyAliased`.
+
+Completion comes from the claim's own acknowledgement, not from an optimistic
+local lookup. Reconnect preserves submission identity, waits for the old session
+to close, and resubmits only an unaccepted claim. This also works for an
+already-published datastore and a retry after conflict. Reaching the reconnect
+deadline returns an interruption error rather than leaving callers waiting.
+BEAM's runtime-call timeout is ten seconds; a timeout or interruption does not
+cancel a claim that the server may already have accepted.
+
+Published summaries retain successful alias targets as root datastores so
+upstream and native readers can resolve them after reload. Pending alias claims
+are not part of pending-tree checkpoints: settle them before capture.
 
 ### Limits
 
@@ -875,9 +956,10 @@ persisted undo stacks, and incremental summaries remain deferred. Transaction,
 undo/redo, handle-valued leaves, and runtime-local branch support are limited as
 described above.
 The compatibility claim also excludes additional upstream package versions.
-Fixed-layout creation is available below; broader container layouts, live
-container reconfiguration, automatic application history management, and disk
-recovery of pending edits are not.
+Default and declared-layout creation and the live attachment graph are available.
+Arbitrary container layouts, automatic application history management, and
+automatic disk journaling remain outside the profile. Explicit restart
+checkpoints cover the pending-tree boundary described above.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -909,8 +991,9 @@ The initial layout uses alias `root` -> datastore `A`, a bootstrap map at
 `/A/root`, and a tree at `/A/_C`. The logical code package is
 `watershed-shared-tree`; an upstream reader must provide a matching application
 loader and view schema. The library has no Fluid SDK runtime dependency.
-Service-side creation remains fixed-layout. Use the open-document APIs above to
-add runtime-owned detached datastores and channels after connecting.
+Use `create_tree_container_with_layout` to include declared stores and channels
+in that first POST. The open-document APIs above add runtime-owned detached
+datastores and channels after connecting.
 
 The [standalone CLI example](examples/shared_tree_cli) creates a document on
 JavaScript, edits it on BEAM, and reopens it without an SDK seed. Local token
@@ -928,6 +1011,53 @@ one transaction and undo step, clears invalidated history, and releases its
 subscriptions and handles on close. Reload restores committed data but not the
 page-local history stacks.
 
+### Declare an initial container layout
+
+Start with `container.layout()` and declare additions to the standard bootstrap.
+Store declarations create a SharedMap entry point named `root`. Map bindings
+can point forward or form cycles; creation checks the complete graph before
+sending the POST.
+
+```gleam
+import gleam/json
+import gleam/option.{Some}
+import watershed/container
+
+pub fn initial_layout() -> container.Layout {
+  container.layout()
+  |> container.with_data_store("catalog", Some("public"))
+  |> container.with_map("catalog", "settings", [
+    #("theme", json.string("dark")),
+  ])
+  |> container.with_binding("A", "root", "catalog", "catalog", "root")
+  |> container.with_binding("catalog", "root", "settings", "catalog", "settings")
+}
+```
+
+Both facades expose
+`with_initial_tree(layout, store, channel, definition, builder, input)`.
+It returns `Result(container.Layout, typed.Error)` and supports a different
+schema for each additional tree, including channels in datastore `A`.
+Pass the completed layout as the last argument to
+`create_tree_container_with_layout(config, definition, builder, input, layout)`.
+Its return type and creation uncertainty match `create_tree_container`.
+All initial trees share one document ID compressor.
+
+Names must be canonical, unescaped path components without a leading dot.
+Store IDs, aliases, channel IDs within a store, and map keys must be unique.
+An alias cannot shadow a store ID. Creation rejects undeclared handle targets,
+non-map binding sources, and bindings that replace an existing map key,
+including the primary `"tree"` binding. The standard `A/root`, `A/_C`, and
+`root` alias remain reserved. Initial aliases publish their stores as summary
+roots; unaliased stores can be reached through declared bindings.
+
+This API uses the registered bootstrap and map-root graph factories with code
+package `watershed-shared-tree`. Supply both factories to an upstream loader.
+It does not install executable factories or enable blob or cross-container
+handles. `just shared-tree-layout-interop` checks both creators, three fresh
+readers before and after a native summary, cyclic bindings, alias lookup, and
+continued secondary-tree array moves without changing the primary tree.
+
 ### SharedTree checks
 
 The `SharedTree native` CI job runs on pull requests and pushes to `main`. The
@@ -937,8 +1067,8 @@ tests both native targets, then runs the source/generator/gate validator
 selection. It does not run the live service suite. The manual workflow performs
 the same source and native preparation, captures the genuine pinned source
 artifact, then runs the complete serialized Node inventory. It owns isolated
-pinned Floodgate runs for the legacy matrices, native creation, and handle
-lifecycle profile.
+pinned Floodgate runs for the legacy matrices, native creation, declared
+layouts, handle lifecycle, checkpoint recovery, and aliases.
 
 | Command | Checks |
 | --- | --- |
@@ -947,7 +1077,10 @@ lifecycle profile.
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
 | `just shared-tree-interop` | The existing object/map/array/schema/Identifier service profile and its 300 seeded schedules. |
 | `just shared-tree-create-interop` | Object, array, and Identifier creation by JavaScript and BEAM, each loaded by fresh JavaScript, BEAM, and upstream readers: eighteen cells. |
+| `just shared-tree-layout-interop` | Declared initial graphs: twelve creator/checkpoint/reader cells with continued array moves. |
 | `just shared-tree-lifecycle-interop` | Seven handle-lifecycle sections, 27 writer/checkpoint/reader reload cells, and 300 handle schedules at seed 42. |
+| `just shared-tree-recovery-interop` | Thirty-two crash/restart cells, including partial acceptance and a second crash after continued editing. |
+| `just shared-tree-alias-interop` | Sixteen alias publication, conflict, retry, and reconnect cells. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule run through the same coordinator. |
 
 See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,

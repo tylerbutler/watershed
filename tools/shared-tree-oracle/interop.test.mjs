@@ -6517,7 +6517,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "997cd8cb8d91f9ef7c82a18eee661791ea6985e6c78a04e2976357fcc98458a7",
+    "29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -6552,6 +6552,8 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "implicit-attachment-graphs",
     "declared-cross-datastore-references",
     "retained-handle-routes",
+    "new-alias-authoring",
+    "declared-initial-container-layouts",
     "synchronous-single-tree-transactions",
     "stable-node-existence-constraints",
     "application-owned-revertibles",
@@ -6586,7 +6588,6 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "uuidv5-healing",
     "blob-handles",
     "arbitrary-datastore-factories",
-    "new-alias-authoring",
     "cross-container-handles",
     "production-authentication",
     "pending-state-disk-recovery",

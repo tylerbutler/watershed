@@ -327,7 +327,8 @@ the commands and required outputs for each gate.
 | M7: application and container lifecycle | Native document creation, broader declared container layouts, Fluid handles, richer typed APIs, Lustre bindings/examples, and crash-recoverable pending state. Split these into individual plans when scheduled. |
 | M8: scale and supported versions | Measured forest/history performance, safe reclamation, incremental summary writing, additional upstream versions, and automated compatibility regression runs. |
 
-M7 is still partial. The fixed-layout native creator and the SharedTree Lustre
+M7 is complete for the published supported profile with local acceptance.
+The native creator and the SharedTree Lustre
 checklist cover application-owned local undo/redo, grouped bulk transactions,
 explicit history cleanup, close, and reload. The accepted handle slice adds
 handle-valued leaves, detached SharedMap/SharedTree creation, and attachment
@@ -344,10 +345,52 @@ runtime schema. Existing transactions, subscriptions, revertibles, branches,
 Fluid handle values, close, and reload behavior keep their established
 lifecycle.
 
-Arbitrary factories and layouts, blob and cross-container handles, new alias
-authoring, schema generation, production authentication, GC sweep, and
-crash-recoverable pending state remain open. The typed slice adds no per-field
-event stream, persistent node identity, or persisted application history.
+Both native facades also support explicit application-stored pending-tree
+checkpoints through `pending_checkpoint` and `connect_resuming`. They preserve
+native tree and compressor identities, original submission identities, and
+authoring history across process restarts. The application stores the returned
+JSON and supplies fresh credentials on restore. Capture rejects pending ordinary
+DDS edits, attachments, detached graphs, transactions, and local branches.
+Recovery catches up and acknowledges work accepted before the crash before it
+resubmits remaining edits. Recovery recognizes full and partially accepted
+resubmissions across intervening reconnects by logical batch identity and
+complete contents. It reconstructs rebased submissions at their actual
+authoring sequence, even when later peer edits sequence before acceptance.
+Once replay acknowledges all saved work, a canonical replay reader supplies
+the fresh allocation session and later accepted IDs. The implementation plan
+records the 32-cell, dual-target service crash/restart gate and its boundaries.
+Eight cells repeat checkpoint capture and crash recovery after continued
+editing, including retained rollback history and another target switch.
+
+Both facades expose `try_set_alias(store, alias)` for runtime-owned datastores.
+The operation publishes the complete attachment graph before its claim and
+settles from its own acknowledgement with success, conflict, or already-aliased
+outcomes. The first sequenced claimant wins; conflicts are not document errors.
+Repeated pending callers share one submission and its outcome. Reconnect covers
+fresh graphs, already-published targets, and retries after conflict, including
+claims accepted before the disconnect. Successful alias targets become summary
+roots for upstream lookup after reload. Pending alias claims remain outside the
+tree checkpoint format. Close or reconnect deadline aborts their waiters;
+BEAM's ten-second call timeout does not cancel an already-submitted claim.
+
+Both facades expose `create_tree_container_with_layout` and
+`with_initial_tree`. A pure `container.Layout` declares additional named
+map-root graph datastores, initial aliases, SharedMap/SharedTree channels, and
+map bindings, including cycles and forward references. Creation validates
+the complete graph before one initial storage POST. It preserves the primary
+`A/root`, `A/_C`, and `root` alias and shares the document compressor across
+independent tree schemas. The twelve-cell service gate covers both native
+creators and upstream/native readers before and after a native summary;
+each reader continues secondary-tree array moves without changing the primary
+tree. These declarations use the existing registered factories, not arbitrary
+executable application code.
+
+Arbitrary factories and layouts, blob and cross-container handles,
+schema generation, production authentication, GC sweep, automatic
+journaling, and broader pending-state recovery remain excluded extensions.
+The typed slice
+adds no per-field event stream, persistent application node handles, or
+persisted application history.
 
 The [handles and live attachment slice](2026-10-10-shared-tree-handles-attachment-design.md)
 uses upstream's separation of handle-valued tree data and runtime attachment
@@ -357,7 +400,8 @@ source/native/codec/service/browser gates and release-profile integration.
 The [implementation plan](../plans/2026-10-10-shared-tree-handles-attachment.md)
 records the code range, run IDs, counts, review closures and execution rulings.
 This is local acceptance; the controller did not run a hosted workflow or
-publish a release. The broader M7 items listed above remain open.
+publish a release. The broader extensions listed above remain outside the
+accepted M7 profile.
 
 M0 precedes M1. Each later milestone requires M1 and its own approved design and
 plan. Map/sequence/schema development can proceed independently only after
