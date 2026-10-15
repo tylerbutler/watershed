@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 
 import watershed/wire
@@ -58,6 +59,13 @@ pub fn sequenced_envelope_rejects_non_string_compression_test() -> Nil {
   Nil
 }
 
+pub fn sequenced_envelope_rejects_null_compression_test() -> Nil {
+  let _ =
+    json.parse(physical_message("null"), socket.sequenced_envelope_decoder())
+    |> expect.to_be_error()
+  Nil
+}
+
 pub fn operation_envelopes_accept_wrapped_and_bare_lists_test() -> Nil {
   let message = physical_message("\"lz4\"")
   let assert Ok(wrapped) =
@@ -96,7 +104,8 @@ pub fn connection_envelope_owns_initial_messages_once_test() -> Nil {
 }
 
 pub fn strict_plain_decoder_and_envelope_decoder_agree_test() -> Nil {
-  let plain = physical_message("null")
+  let plain =
+    string.replace(physical_message("null"), ",\n    \"compression\":null", "")
   let assert Ok(message) =
     json.parse(plain, socket.sequenced_document_message_decoder())
   let assert Ok(envelope) =

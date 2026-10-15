@@ -542,7 +542,7 @@ pub fn sequenced_envelope_decoder() -> Decoder(SequencedEnvelope) {
   use compression <- decode.optional_field(
     "compression",
     None,
-    decode.optional(decode.string),
+    decode.map(decode.string, Some),
   )
   let message =
     SequencedDocumentMessage(
