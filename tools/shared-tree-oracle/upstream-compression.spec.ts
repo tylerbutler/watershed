@@ -519,6 +519,15 @@ describe("Watershed compression source capture", () => {
 			kind: treeInput.treeState.kind,
 			completeness: treeInput.treeState.completeness,
 			workloads: treeInput.treeState.workloads.map((item) => {
+				const allocationPreludes = item.messages.flatMap((message) => {
+					const contents = message.contents as {
+						type?: ContainerMessageType;
+						contents?: unknown;
+					} | null;
+					return contents?.type === ContainerMessageType.IdAllocation
+						? [contents.contents]
+						: [];
+				});
 				const operations = item.messages
 					.map((message, index, messages) => ({
 						contents: message.contents as {
@@ -537,6 +546,7 @@ describe("Watershed compression source capture", () => {
 				return {
 					id: item.id,
 					context: item.context,
+					allocationPreludes,
 					operations,
 				};
 			}),

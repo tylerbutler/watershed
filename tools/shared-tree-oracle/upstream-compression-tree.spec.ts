@@ -88,6 +88,7 @@ async function captureWorkload(
 	runtimeFactory.processAllMessages();
 	const initializationMessages = copy(processed);
 	const initialSummary = (await tree.summarize(true)).summary;
+	const initialCompressor = serializeIdCompressor(compressor, false);
 	const workloadStart = processed.length;
 	for (const label of labels) {
 		view.root.label = label;
@@ -111,7 +112,7 @@ async function captureWorkload(
 			dataStoreAddress: runtime.id,
 			channelAddress: tree.id,
 			summary: initialSummary,
-			compressor: serializeIdCompressor(compressor, false),
+			compressor: initialCompressor,
 			initializationMessages,
 		},
 		messages,

@@ -3339,7 +3339,7 @@
       },
       "sequenceNumber": 10
     },
-    "digest": "773fbc02336b4be62e90d310f21eab0ffc9c194b7527ec4892215c96e79ca159",
+    "digest": "d5e628e0fe657b8938a7de5b121fa69a02a48f98c4a3f85bb0fa52b9c95f09b9",
     "path": "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
     "schemaActivation": {
       "accepted": true,
@@ -3461,17 +3461,37 @@
         "version": 1
       }
     },
-    "treeDigest": "a784f2125e5ef65b53244244115d3b2111743c9dedda67fddee1a8c5afe08c09",
+    "treeDigest": "89e63ad88ac2f88c090f07c24bac390e793d40bf34be868922de320dcb06c191",
     "treePath": "packages/dds/tree/src/test/watershedCompressionTree.spec.ts",
     "treeState": {
       "completeness": "channel-summary-contexts-not-full-container-snapshots",
       "kind": "source-produced-shared-tree-channel-state",
       "workloads": [
         {
+          "allocationPreludes": [
+            {
+              "ids": {
+                "count": 1,
+                "firstGenCount": 3,
+                "localIdRanges": [],
+                "requestedClusterSize": 512
+              },
+              "sessionId": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "ids": {
+                "count": 1,
+                "firstGenCount": 4,
+                "localIdRanges": [],
+                "requestedClusterSize": 512
+              },
+              "sessionId": "10000000-0000-4000-8000-000000000001"
+            }
+          ],
           "context": {
             "channelAddress": "compression-tree-tree",
             "completeness": "channel-summary-and-id-compressor-not-container-snapshot",
-            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAABCAQAAAAAAAABBA",
+            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAABCAQAAAAAAAAABA",
             "dataStoreAddress": "compression-tree-store",
             "initializationMessages": [
               {
@@ -3789,10 +3809,30 @@
           ]
         },
         {
+          "allocationPreludes": [
+            {
+              "ids": {
+                "count": 1,
+                "firstGenCount": 3,
+                "localIdRanges": [],
+                "requestedClusterSize": 512
+              },
+              "sessionId": "20000000-0000-4000-8000-000000000002"
+            },
+            {
+              "ids": {
+                "count": 1,
+                "firstGenCount": 4,
+                "localIdRanges": [],
+                "requestedClusterSize": 512
+              },
+              "sessionId": "20000000-0000-4000-8000-000000000002"
+            }
+          ],
           "context": {
             "channelAddress": "compression-tree-chunked-tree",
             "completeness": "channel-summary-and-id-compressor-not-container-snapshot",
-            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8CAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAABCAQAAAAAAAABBA",
+            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8CAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAABCAQAAAAAAAAABA",
             "dataStoreAddress": "compression-tree-chunked-store",
             "initializationMessages": [
               {

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  deserializeIdCompressor,
+  serializeIdCompressor,
+} from "@fluidframework/id-compressor/internal";
 import { decompress } from "./node_modules/lz4js/lz4.js";
 import { validateCompressionCapture } from "./compression.mjs";
 
@@ -16,6 +20,38 @@ const caseById = (id) => capture.cases.find((entry) => entry.id === id);
 
 test("accepts the complete pinned compression capture", () => {
   assert.equal(validateCompressionCapture(capture), capture);
+});
+
+test("source initial compressors replay recorded allocation preludes", () => {
+  for (const workload of capture.probe.treeState.workloads) {
+    const compressor = deserializeIdCompressor(
+      workload.context.compressor,
+      "00000000-0000-4000-8000-000000000000",
+    );
+    for (const range of workload.allocationPreludes) {
+      assert.doesNotThrow(
+        () => compressor.finalizeCreationRange(range),
+        workload.id,
+      );
+    }
+  }
+});
+
+test("rejects a source compressor advanced past its recorded allocation preludes", () => {
+  const changed = structuredClone(capture);
+  const workload = changed.probe.treeState.workloads[0];
+  const compressor = deserializeIdCompressor(
+    workload.context.compressor,
+    "00000000-0000-4000-8000-000000000000",
+  );
+  for (const range of workload.allocationPreludes) {
+    compressor.finalizeCreationRange(range);
+  }
+  workload.context.compressor = serializeIdCompressor(compressor, false);
+  assert.throws(
+    () => validateCompressionCapture(changed),
+    /compressor|allocation|prelude|range/i,
+  );
 });
 
 test("source hash is part of the captured contract", () => {

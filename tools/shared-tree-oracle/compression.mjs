@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  deserializeIdCompressor,
+} from "@fluidframework/id-compressor/internal";
 import { decompress } from "./node_modules/lz4js/lz4.js";
 
 import {
@@ -423,6 +426,30 @@ export function validateCompressionCapture(value) {
     if (initialization.length === 0) {
       fail(`${id} SharedTree context must include source-produced initialization`);
     }
+    const allocationPreludes = array(
+      workload.allocationPreludes,
+      `${id} SharedTree allocation preludes`,
+    );
+    if (allocationPreludes.length === 0) {
+      fail(`${id} SharedTree context must include source-produced allocation preludes`);
+    }
+    let compressor;
+    try {
+      compressor = deserializeIdCompressor(
+        context.compressor,
+        "00000000-0000-4000-8000-000000000000",
+      );
+    } catch {
+      fail(`${id} SharedTree context compressor cannot be deserialized`);
+    }
+    allocationPreludes.forEach((value, index) => {
+      const range = object(value, `${id} SharedTree allocation prelude ${index}`);
+      try {
+        compressor.finalizeCreationRange(range);
+      } catch {
+        fail(`${id} SharedTree context compressor cannot replay allocation prelude ${index}`);
+      }
+    });
     const operations = array(workload.operations, `${id} SharedTree workload operations`);
     if (operations.length === 0) fail(`${id} SharedTree workload has no operations`);
     operations.forEach((operation, index) => {
