@@ -55,6 +55,7 @@ pub type Sequenced {
     /// the payload is here. That difference comes from the server, not from
     /// this module. See `system_join_data` and `system_leave_data`.
     data: Option(String),
+    compression: Option(String),
   )
 }
 
@@ -305,7 +306,7 @@ pub fn encode_operation_event(operations operations: List(Sequenced)) -> Json {
 }
 
 /// Encode one sequenced operation, in the shape that
-/// `socket.sequenced_document_message_decoder` accepts.
+/// `socket.sequenced_envelope_decoder` accepts.
 pub fn encode_sequenced(operation: Sequenced) -> Json {
   json.object(
     list.flatten([
@@ -328,6 +329,10 @@ pub fn encode_sequenced(operation: Sequenced) -> Json {
       },
       case operation.data {
         Some(data) -> [#("data", json.string(data))]
+        None -> []
+      },
+      case operation.compression {
+        Some(compression) -> [#("compression", json.string(compression))]
         None -> []
       },
     ]),

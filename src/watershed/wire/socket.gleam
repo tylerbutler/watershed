@@ -33,7 +33,11 @@ import spillway/types.{
   SequencedDocumentMessage, ServiceConfiguration, SignalClient, WriteMode,
 }
 
-import watershed/wire.{type OutboundOperation}
+import watershed/wire.{
+  type ConnectionEnvelope, type OperationEnvelopes, type OutboundOperation,
+  type SequencedEnvelope, ConnectionEnvelope, OperationEnvelopes,
+  SequencedEnvelope,
+}
 
 pub fn container_contents(contents: Dynamic) -> Result(Json, String) {
   case decode.run(contents, decode.string) {
@@ -258,6 +262,30 @@ fn mode_decoder() -> Decoder(ConnectionMode) {
 
 /// The `connect_document_success` payload.
 pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
+  connected_message_with_initial_messages_decoder(
+    decode.list(sequenced_document_message_decoder()),
+    fn(handshake, initial_messages) {
+      ConnectedMessage(..handshake, initial_messages: initial_messages)
+    },
+  )
+}
+
+pub fn connection_envelope_decoder() -> Decoder(ConnectionEnvelope) {
+  connected_message_with_initial_messages_decoder(
+    decode.list(sequenced_envelope_decoder()),
+    fn(handshake, initial_messages) {
+      ConnectionEnvelope(
+        handshake: handshake,
+        initial_messages: initial_messages,
+      )
+    },
+  )
+}
+
+fn connected_message_with_initial_messages_decoder(
+  initial_messages_decoder: Decoder(List(a)),
+  finish: fn(ConnectedMessage, List(a)) -> b,
+) -> Decoder(b) {
   use claims <- decode.field("claims", token_claims_decoder())
   use client_id <- decode.field("clientId", decode.string)
   use existing <- decode.optional_field("existing", True, decode.bool)
@@ -275,7 +303,7 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   use initial_messages <- decode.optional_field(
     "initialMessages",
     [],
-    decode.list(sequenced_document_message_decoder()),
+    initial_messages_decoder,
   )
   use initial_signals <- decode.optional_field(
     "initialSignals",
@@ -333,25 +361,27 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
     summary_handle,
     summary_sequence_number,
   ))
-  decode.success(ConnectedMessage(
-    claims: claims,
-    client_id: client_id,
-    existing: existing,
-    max_message_size: max_message_size,
-    mode: mode,
-    service_configuration: service_configuration,
-    initial_clients: initial_clients,
-    initial_messages: initial_messages,
-    initial_signals: initial_signals,
-    supported_versions: supported_versions,
-    supported_features: supported_features,
-    version: version,
-    timestamp: timestamp,
-    checkpoint_sequence_number: checkpoint_sequence_number,
-    epoch: epoch,
-    relay_service_agent: relay_service_agent,
-    summary_context: summary_context,
-  ))
+  let handshake =
+    ConnectedMessage(
+      claims: claims,
+      client_id: client_id,
+      existing: existing,
+      max_message_size: max_message_size,
+      mode: mode,
+      service_configuration: service_configuration,
+      initial_clients: initial_clients,
+      initial_messages: [],
+      initial_signals: initial_signals,
+      supported_versions: supported_versions,
+      supported_features: supported_features,
+      version: version,
+      timestamp: timestamp,
+      checkpoint_sequence_number: checkpoint_sequence_number,
+      epoch: epoch,
+      relay_service_agent: relay_service_agent,
+      summary_context: summary_context,
+    )
+  decode.success(finish(handshake, initial_messages))
 }
 
 /// The `supportedFeatures` key that a server sets to announce the presence
@@ -422,31 +452,64 @@ pub fn connect_error_decoder() -> Decoder(ConnectError) {
 /// either server. `document_id` is `""` for the bare shape, and no caller reads
 /// it.
 pub fn operation_message_decoder() -> Decoder(OpMessage) {
-  decode.one_of(wrapped_operation_message_decoder(), [
-    bare_operation_message_decoder(),
+  operation_envelopes_with_decoder(
+    sequenced_document_message_decoder(),
+    fn(document_id, operations) {
+      OpMessage(document_id: document_id, ops: operations)
+    },
+  )
+}
+
+pub fn operation_envelopes_decoder() -> Decoder(OperationEnvelopes) {
+  operation_envelopes_with_decoder(
+    sequenced_envelope_decoder(),
+    fn(document_id, operations) {
+      OperationEnvelopes(document_id: document_id, ops: operations)
+    },
+  )
+}
+
+fn operation_envelopes_with_decoder(
+  message_decoder: Decoder(a),
+  finish: fn(String, List(a)) -> b,
+) -> Decoder(b) {
+  decode.one_of(wrapped_operation_envelopes_decoder(message_decoder, finish), [
+    bare_operation_envelopes_decoder(message_decoder, finish),
   ])
 }
 
-fn wrapped_operation_message_decoder() -> Decoder(OpMessage) {
+fn wrapped_operation_envelopes_decoder(
+  message_decoder: Decoder(a),
+  finish: fn(String, List(a)) -> b,
+) -> Decoder(b) {
   use document_id <- decode.field("documentId", decode.string)
-  use operations <- decode.field(
-    "op",
-    decode.list(sequenced_document_message_decoder()),
-  )
-  decode.success(OpMessage(document_id: document_id, ops: operations))
+  use operations <- decode.field("op", decode.list(message_decoder))
+  decode.success(finish(document_id, operations))
 }
 
-fn bare_operation_message_decoder() -> Decoder(OpMessage) {
-  use operations <- decode.then(
-    decode.list(sequenced_document_message_decoder()),
-  )
-  decode.success(OpMessage(document_id: "", ops: operations))
+fn bare_operation_envelopes_decoder(
+  message_decoder: Decoder(a),
+  finish: fn(String, List(a)) -> b,
+) -> Decoder(b) {
+  use operations <- decode.then(decode.list(message_decoder))
+  decode.success(finish("", operations))
 }
 
 /// One sequenced message, as the `session_logic.build_sequenced_op` function
 /// of spillway builds it. `clientId` is null for a system message, which is a
 /// join, a leave, or a summary message.
 pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage) {
+  sequenced_envelope_decoder()
+  |> decode.then(fn(envelope) {
+    case envelope.compression {
+      None -> decode.success(envelope.message)
+      Some(_) ->
+        decode.failure(envelope.message, "uncompressed sequenced message")
+    }
+  })
+}
+
+pub fn sequenced_envelope_decoder() -> Decoder(SequencedEnvelope) {
   use client_id <- decode.field("clientId", decode.optional(decode.string))
   use sequence_number <- decode.field("sequenceNumber", decode.int)
   use minimum_sequence_number <- decode.field(
@@ -497,10 +560,7 @@ pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage)
       timestamp: timestamp,
       data: data,
     )
-  case compression {
-    None -> decode.success(message)
-    Some(_) -> decode.failure(message, "uncompressed sequenced message")
-  }
+  decode.success(SequencedEnvelope(message: message, compression: compression))
 }
 
 /// The `nack` event payload: `{clientId, nacks}`. This decoder reads the nack

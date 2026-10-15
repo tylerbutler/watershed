@@ -21,6 +21,27 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
+import spillway/message.{type ConnectedMessage}
+import spillway/types.{type SequencedDocumentMessage}
+
+pub type SequencedEnvelope {
+  SequencedEnvelope(
+    message: SequencedDocumentMessage,
+    compression: Option(String),
+  )
+}
+
+pub type ConnectionEnvelope {
+  ConnectionEnvelope(
+    handshake: ConnectedMessage,
+    initial_messages: List(SequencedEnvelope),
+  )
+}
+
+pub type OperationEnvelopes {
+  OperationEnvelopes(document_id: String, ops: List(SequencedEnvelope))
+}
+
 /// An operation that a client wrote, ready for `submitOp`. It has the same
 /// fields that the `submitCore` function of the TypeScript driver puts on the
 /// wire. `wire/op` constructs it, and `wire/socket` serializes it.

@@ -893,6 +893,7 @@ fn acknowledgement(payload: json.Json) -> json.Json {
       metadata: submitted.metadata,
       timestamp: 0,
       data: None,
+      compression: None,
     ),
   ])
 }
@@ -922,6 +923,7 @@ fn invalid_operation(sequence_number: Int) -> json.Json {
       metadata: None,
       timestamp: 0,
       data: None,
+      compression: None,
     ),
   ])
 }

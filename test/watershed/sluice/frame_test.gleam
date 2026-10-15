@@ -80,6 +80,7 @@ fn a_sequenced(
     metadata: None,
     timestamp: 1234,
     data: None,
+    compression: None,
   )
 }
 
@@ -101,6 +102,7 @@ fn a_system_message(
     metadata: None,
     timestamp: 1234,
     data: Some(data),
+    compression: None,
   )
 }
 
@@ -273,6 +275,36 @@ pub fn encode_operation_event_is_decodable_test() -> Nil {
   operation.client_sequence_number |> expect.to_equal(2)
   operation.client_id |> expect.to_equal(Some("sluice-client-1"))
   operation.message_type |> expect.to_equal("op")
+}
+
+pub fn encode_sequenced_keeps_compression_on_outer_message_test() -> Nil {
+  let payload =
+    frame.Sequenced(
+      client_id: Some("sluice-client-1"),
+      sequence_number: 7,
+      minimum_sequence_number: 3,
+      client_sequence_number: 2,
+      reference_sequence_number: 5,
+      operation_type: "op",
+      contents: json.object([#("packedContents", json.string("bytes"))]),
+      metadata: None,
+      timestamp: 1234,
+      data: None,
+      compression: Some("lz4"),
+    )
+    |> frame.encode_sequenced
+    |> json.to_string
+
+  string.contains(payload, "\"compression\":\"lz4\"")
+  |> expect.to_be_true()
+  string.contains(
+    payload,
+    "\"contents\":{\"packedContents\":\"bytes\",\"compression\"",
+  )
+  |> expect.to_be_false()
+  let assert Ok(envelope) =
+    json.parse(payload, socket.sequenced_envelope_decoder())
+  envelope.compression |> expect.to_equal(Some("lz4"))
 }
 
 pub fn encode_signal_strips_type_test() -> Nil {

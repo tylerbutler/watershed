@@ -74,6 +74,7 @@ fn operation(sequence: Int, value: String) -> frame.Sequenced {
     metadata: None,
     timestamp: 0,
     data: None,
+    compression: None,
   )
 }
 

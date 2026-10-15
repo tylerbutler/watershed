@@ -375,6 +375,7 @@ pub fn datastore_alias_claim_waits_for_ack_and_aborts_on_close_test() {
         metadata: submitted.metadata,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -1812,6 +1813,7 @@ pub fn beam_branch_registered_source_settlement_survives_unsubscribe_until_merge
         metadata: submitted.metadata,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -3093,6 +3095,7 @@ fn membership_frame(
     metadata: None,
     timestamp: 0,
     data: Some(data),
+    compression: None,
   )
 }
 
@@ -3140,6 +3143,7 @@ fn sequenced_submission(
     metadata: submitted.metadata,
     timestamp: 0,
     data: None,
+    compression: None,
   )
 }
 
@@ -3246,6 +3250,7 @@ fn peer_map_set_payload(sequence_number: Int) -> json.Json {
       metadata: None,
       timestamp: 0,
       data: None,
+      compression: None,
     ),
   ])
 }
@@ -3979,6 +3984,7 @@ pub fn bad_replayed_operation_suspends_without_killing_actor_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -4056,6 +4062,7 @@ pub fn bad_live_operation_fails_without_crashing_actor_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -4134,6 +4141,7 @@ pub fn deferred_bad_operation_fails_transaction_abort_explicitly_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -4933,6 +4941,7 @@ pub fn actor_tree_echo_installs_state_before_next_command_test() {
                   metadata: submitted.metadata,
                   timestamp: 0,
                   data: None,
+                  compression: None,
                 ),
               ]),
             )
@@ -5335,6 +5344,7 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
         metadata: submitted.metadata,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )
@@ -5844,6 +5854,7 @@ pub fn bad_last_group_child_fails_without_notifying_beam_subscribers_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ]),
   )

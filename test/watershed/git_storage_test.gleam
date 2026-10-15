@@ -1,9 +1,35 @@
 import gleam/json
+import gleam/option.{Some}
 import gleam/string
 import startest/expect
 
 import watershed/git_storage
 import watershed/wire/fluid_summary
+
+pub fn enveloped_deltas_retain_outer_compression_test() -> Nil {
+  let body =
+    "{\"value\":[{
+      \"clientId\":\"writer-a\",
+      \"sequenceNumber\":9,
+      \"minimumSequenceNumber\":3,
+      \"clientSequenceNumber\":4,
+      \"referenceSequenceNumber\":7,
+      \"type\":\"op\",
+      \"contents\":{\"packedContents\":\"bytes\"},
+      \"metadata\":{\"batch\":true},
+      \"serverMetadata\":{\"order\":2},
+      \"timestamp\":1700000000009,
+      \"compression\":\"lz4\"
+    }]}"
+  let assert Ok([envelope]) =
+    json.parse(body, git_storage.enveloped_deltas_decoder())
+
+  envelope.compression |> expect.to_equal(Some("lz4"))
+  envelope.message.sequence_number |> expect.to_equal(9)
+  let assert Some(_) = envelope.message.metadata
+  let assert Some(_) = envelope.message.server_metadata
+  Nil
+}
 
 pub fn shared_tree_creation_url_encodes_tenant_test() {
   git_storage.document_create_url("http://127.0.0.1:3000/", "a/b +")

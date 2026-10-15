@@ -565,14 +565,14 @@ fn operation_meta(frame: core.Outbound) -> #(Int, String) {
       case
         json.parse(
           json.to_string(frame.payload),
-          socket.operation_message_decoder(),
+          socket.operation_envelopes_decoder(),
         )
       {
         Ok(message) ->
           case message.ops {
             [operation, ..] -> #(
-              operation.sequence_number,
-              option.unwrap(operation.client_id, ""),
+              operation.message.sequence_number,
+              option.unwrap(operation.message.client_id, ""),
             )
             [] -> #(0, "")
           }

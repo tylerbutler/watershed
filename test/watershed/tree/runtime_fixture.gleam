@@ -94,6 +94,7 @@ pub fn sequenced_frame(message: SequencedDocumentMessage) -> frame.Sequenced {
     metadata: option.map(message.metadata, wire.dynamic_to_json),
     timestamp: message.timestamp,
     data: message.data,
+    compression: None,
   )
 }
 

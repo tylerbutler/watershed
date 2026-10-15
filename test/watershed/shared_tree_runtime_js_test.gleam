@@ -124,6 +124,7 @@ fn membership_frame(
     metadata: None,
     timestamp: 0,
     data: Some(data),
+    compression: None,
   )
 }
 
@@ -168,6 +169,7 @@ fn sequenced_submission(
     metadata: submitted.metadata,
     timestamp: 0,
     data: None,
+    compression: None,
   )
 }
 
@@ -379,6 +381,7 @@ fn peer_map_set(sequence_number: Int) -> String {
       metadata: None,
       timestamp: 0,
       data: None,
+      compression: None,
     ),
   ])
   |> json.to_string
@@ -2171,6 +2174,7 @@ pub fn facade_merge_invalid_inline_echo_rejects_success_delivery_test() {
                       metadata: submitted.metadata,
                       timestamp: 0,
                       data: None,
+                      compression: None,
                     ),
                   ])
                     |> json.to_string,
@@ -2600,6 +2604,7 @@ pub fn inline_tree_echo_preserves_one_local_invalidation_test() {
                       metadata: submitted.metadata,
                       timestamp: 0,
                       data: None,
+                      compression: None,
                     ),
                   ])
                     |> json.to_string,
@@ -2845,6 +2850,7 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
         metadata: submitted.metadata,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ])
       |> json.to_string,
@@ -2941,6 +2947,7 @@ pub fn bad_replayed_operation_retains_js_pending_tree_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ])
       |> json.to_string,
@@ -3037,6 +3044,7 @@ pub fn bad_last_group_child_does_not_notify_subscribers_test() {
         metadata: None,
         timestamp: 0,
         data: None,
+        compression: None,
       ),
     ])
       |> json.to_string,
@@ -3865,6 +3873,7 @@ pub fn invalid_inline_own_echo_rejects_edit_without_fanout_test() {
                       metadata: submitted.metadata,
                       timestamp: 0,
                       data: None,
+                      compression: None,
                     ),
                   ])
                     |> json.to_string,

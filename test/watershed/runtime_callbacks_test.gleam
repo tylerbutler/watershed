@@ -81,6 +81,7 @@ fn noop(sequence: Int) -> frame.Sequenced {
     metadata: None,
     timestamp: 0,
     data: None,
+    compression: None,
   )
 }
 

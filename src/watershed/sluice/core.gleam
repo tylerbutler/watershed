@@ -328,6 +328,7 @@ fn sequence_operation(
           metadata: operation.metadata,
           timestamp: sluice.now_milliseconds,
           data: None,
+          compression: None,
         )
       let event = frame.encode_operation_event([sequenced])
       Sluice(..sluice, sequence_state: sequence_state, log: [
@@ -674,6 +675,7 @@ fn sequence_system(
       metadata: None,
       timestamp: sluice.now_milliseconds,
       data: Some(data),
+      compression: None,
     )
   #(
     Sluice(..sluice, sequence_state: sequence_state, log: [

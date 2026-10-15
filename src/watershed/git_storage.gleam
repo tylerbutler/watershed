@@ -35,6 +35,7 @@ import gleam/uri
 
 import spillway/types.{type SequencedDocumentMessage}
 
+import watershed/wire.{type SequencedEnvelope}
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/socket
@@ -228,10 +229,35 @@ pub fn fetch_deltas(
   from from: Int,
   to to: Int,
 ) -> Result(List(SequencedDocumentMessage), StorageError) {
-  get_json(
-    deltas_url(base_url, tenant, document, from, to),
+  fetch_delta_values(
+    base_url,
+    tenant,
     token,
+    document,
+    from,
+    to,
     deltas_decoder(),
+  )
+}
+
+@target(erlang)
+/// Fetch deltas without discarding an outer compression marker.
+pub fn fetch_enveloped_deltas(
+  base_url base_url: String,
+  tenant tenant: String,
+  token token: String,
+  document document: String,
+  from from: Int,
+  to to: Int,
+) -> Result(List(SequencedEnvelope), StorageError) {
+  fetch_delta_values(
+    base_url,
+    tenant,
+    token,
+    document,
+    from,
+    to,
+    enveloped_deltas_decoder(),
   )
 }
 
@@ -310,10 +336,35 @@ pub fn fetch_deltas(
   from from: Int,
   to to: Int,
 ) -> Promise(Result(List(SequencedDocumentMessage), StorageError)) {
-  get_json(
-    deltas_url(base_url, tenant, document, from, to),
+  fetch_delta_values(
+    base_url,
+    tenant,
     token,
+    document,
+    from,
+    to,
     deltas_decoder(),
+  )
+}
+
+@target(javascript)
+/// Fetch deltas without discarding an outer compression marker.
+pub fn fetch_enveloped_deltas(
+  base_url base_url: String,
+  tenant tenant: String,
+  token token: String,
+  document document: String,
+  from from: Int,
+  to to: Int,
+) -> Promise(Result(List(SequencedEnvelope), StorageError)) {
+  fetch_delta_values(
+    base_url,
+    tenant,
+    token,
+    document,
+    from,
+    to,
+    enveloped_deltas_decoder(),
   )
 }
 
@@ -1140,6 +1191,19 @@ fn get_json(
 }
 
 @target(erlang)
+fn fetch_delta_values(
+  base_url: String,
+  tenant: String,
+  token: String,
+  document: String,
+  from: Int,
+  to: Int,
+  decoder: Decoder(a),
+) -> Result(a, StorageError) {
+  get_json(deltas_url(base_url, tenant, document, from, to), token, decoder)
+}
+
+@target(erlang)
 fn get_text(url: String, token: String) -> Result(String, StorageError) {
   use request <- result.try(build_get(url, token))
   send_text(request)
@@ -1202,6 +1266,19 @@ fn get_json(
     Error(reason) -> promise.resolve(Error(reason))
     Ok(request) -> send(request, decoder)
   }
+}
+
+@target(javascript)
+fn fetch_delta_values(
+  base_url: String,
+  tenant: String,
+  token: String,
+  document: String,
+  from: Int,
+  to: Int,
+  decoder: Decoder(a),
+) -> Promise(Result(a, StorageError)) {
+  get_json(deltas_url(base_url, tenant, document, from, to), token, decoder)
 }
 
 @target(javascript)
@@ -1334,11 +1411,14 @@ fn sha_decoder() -> Decoder(String) {
   decode.field("sha", decode.string, decode.success)
 }
 
-/// The deltas response `{value: [SequencedDocumentMessage]}`. A document
-/// channel push uses the same message format, so this decoder uses the channel
-/// decoder.
+/// The strict plain deltas response `{value: [SequencedDocumentMessage]}`.
 fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
   decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
+}
+
+/// The deltas response with owned outer envelopes.
+pub fn enveloped_deltas_decoder() -> Decoder(List(SequencedEnvelope)) {
+  decode.at(["value"], decode.list(socket.sequenced_envelope_decoder()))
 }
 
 /// Decode a commit response to its root tree SHA.
