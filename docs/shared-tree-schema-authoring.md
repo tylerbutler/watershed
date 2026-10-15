@@ -188,6 +188,51 @@ values instead of expanding the schema. Required cycles retain their declared
 cardinalities and follow the native validator; the builder does not invent an
 empty value for a type with no finite inhabitant.
 
+## Identifier fields and new content
+
+`identifier(key, getter)` declares a native Identifier object property whose
+application value is `builder.Identifier`:
+
+```gleam
+pub type Item {
+  Item(id: builder.Identifier, label: String)
+}
+
+pub fn item() -> builder.Node(Item) {
+  builder.object2(
+    builder.factory("com.example"),
+    "Item",
+    Item,
+    builder.identifier("id", fn(v: Item) { v.id }),
+    builder.required("label", builder.string(), fn(v: Item) { v.label }),
+  )
+}
+```
+
+`Assigned(string)` preserves the exact string, including empty strings and
+duplicate custom identifiers. Identifier strings are not node identity.
+`Generate` asks the document compressor for an identifier when new content is
+inserted.
+
+Strict `encode` rejects `Generate`. `encode_new(compiled, value)` omits those
+properties and validates a construction snapshot. It propagates through
+objects, optional properties, collections, unions, and recursive values.
+Repeated calls produce the same unallocated snapshot: the builder does not
+allocate IDs, mutate records, or generate application UUIDs. Pass the result
+to native document creation or insertion; the existing runtime materializes
+the missing fields through the document compressor.
+
+Strict `decode` rejects missing identifiers and returns only `Assigned` values.
+Input and output share the same record type, so the type alone does not
+distinguish construction input from read output. Successful reads have the
+stronger runtime guarantee that no Identifier is `Generate`. Read after
+insertion to obtain generated values.
+
+Transaction rollback restores document content but can retain compressor
+advancement. It does not promise that an allocated identifier can be reused.
+Identifier cardinality is only available on object properties, not roots or
+collection entry declarations.
+
 ## Native create, open, and read
 
 The native facade APIs keep their signatures:
@@ -238,9 +283,10 @@ separate milestone.
 | `sf.optional(node)` | `optional(key, node, getter)` or `optional_root(node)` |
 | Allowed-type array | `union([variant(node, inject, project), ...])` |
 | Recursive schema reference | `lazy(factory, name, resolve)` |
+| `sf.identifier` | `identifier(key, getter)` |
 | View configuration | `view(compiled)` plus the existing native open API |
 
-This milestone excludes Identifier defaults, anonymous names, custom codecs, schema migration,
+This milestone excludes anonymous names, custom codecs, schema migration,
 code generation, and typed live node references. The low-level native schema
 API retains its existing capabilities. Object descriptors support at most
 eight properties. This layer uses the same Schema V2 format and does not

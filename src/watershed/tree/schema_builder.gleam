@@ -47,12 +47,22 @@ type Resolution {
   )
 }
 
+type EncodeMode {
+  Snapshot
+  Construction
+}
+
+pub type Identifier {
+  Generate
+  Assigned(String)
+}
+
 pub opaque type Node(a) {
   Node(
     identifiers: List(String),
     definitions: List(Definition),
     errors: List(TreeError),
-    encode: fn(a) -> Result(TreeValue, TreeError),
+    encode: fn(EncodeMode, a) -> Result(TreeValue, TreeError),
     decode: fn(TreeValue) -> Result(a, TreeError),
   )
 }
@@ -62,7 +72,7 @@ pub opaque type Root(a) {
     field: schema.FieldSchema,
     definitions: List(Definition),
     errors: List(TreeError),
-    encode: fn(a) -> Result(Option(TreeValue), TreeError),
+    encode: fn(EncodeMode, a) -> Result(Option(TreeValue), TreeError),
     decode: fn(Option(TreeValue)) -> Result(a, TreeError),
   )
 }
@@ -71,7 +81,7 @@ pub opaque type Compiled(a) {
   Compiled(
     stored: schema.StoredSchema,
     view: schema.ViewSchema,
-    encode: fn(a) -> Result(Option(TreeValue), TreeError),
+    encode: fn(EncodeMode, a) -> Result(Option(TreeValue), TreeError),
     decode: fn(Option(TreeValue)) -> Result(a, TreeError),
   )
 }
@@ -80,7 +90,7 @@ pub opaque type Property(record, a) {
   Property(
     key: String,
     root: Root(a),
-    encode: fn(record) -> Result(Option(TreeValue), TreeError),
+    encode: fn(EncodeMode, record) -> Result(Option(TreeValue), TreeError),
   )
 }
 
@@ -90,7 +100,7 @@ type ObjectProperty(record) {
     field: schema.FieldSchema,
     definitions: List(Definition),
     errors: List(TreeError),
-    encode: fn(record) -> Result(Option(TreeValue), TreeError),
+    encode: fn(EncodeMode, record) -> Result(Option(TreeValue), TreeError),
   )
 }
 
@@ -100,7 +110,7 @@ pub fn required(
   get: fn(record) -> a,
 ) -> Property(record, a) {
   let root = root(node)
-  Property(key, root, fn(record) { root.encode(get(record)) })
+  Property(key, root, fn(mode, record) { root.encode(mode, get(record)) })
 }
 
 pub fn optional(
@@ -109,7 +119,38 @@ pub fn optional(
   get: fn(record) -> Option(a),
 ) -> Property(record, Option(a)) {
   let root = optional_root(node)
-  Property(key, root, fn(record) { root.encode(get(record)) })
+  Property(key, root, fn(mode, record) { root.encode(mode, get(record)) })
+}
+
+pub fn identifier(
+  key: String,
+  get: fn(record) -> Identifier,
+) -> Property(record, Identifier) {
+  let node = string()
+  let root =
+    Root(
+      schema.FieldSchema(schema.Identifier, node.identifiers),
+      node.definitions,
+      [],
+      fn(mode, value) {
+        case mode, value {
+          _, Assigned(value) -> Ok(Some(types.StringValue(value)))
+          Construction, Generate -> Ok(None)
+          Snapshot, Generate ->
+            Error(types.InvalidEdit(
+              [key],
+              "Snapshot identifier must be assigned",
+            ))
+        }
+      },
+      fn(value) {
+        case value {
+          Some(types.StringValue(value)) -> Ok(Assigned(value))
+          _ -> mismatch()
+        }
+      },
+    )
+  Property(key, root, fn(mode, record) { root.encode(mode, get(record)) })
 }
 
 fn object_property(property: Property(record, a)) -> ObjectProperty(record) {
@@ -162,11 +203,11 @@ fn object(
       duplicate_errors,
       list.flat_map(properties, fn(p) { p.errors }),
     ]),
-    fn(value) {
+    fn(mode, value) {
       use fields <- result.try(
         properties
         |> list.try_map(fn(p) {
-          result.map(p.encode(value), fn(encoded) {
+          result.map(p.encode(mode, value), fn(encoded) {
             option.map(encoded, fn(encoded) { #(p.key, encoded) })
           })
         }),
@@ -427,7 +468,7 @@ fn leaf(
     [identifier],
     [Concrete(identifier, schema.Leaf(kind), [])],
     [],
-    fn(value) { Ok(encode(value)) },
+    fn(_, value) { Ok(encode(value)) },
     decode,
   )
 }
@@ -437,7 +478,7 @@ pub opaque type Variant(sum) {
     identifiers: List(String),
     definitions: List(Definition),
     errors: List(TreeError),
-    encode: fn(sum) -> Result(Option(TreeValue), TreeError),
+    encode: fn(EncodeMode, sum) -> Result(Option(TreeValue), TreeError),
     decode: fn(TreeValue) -> Result(sum, TreeError),
   )
 }
@@ -451,10 +492,10 @@ pub fn variant(
     node.identifiers,
     node.definitions,
     node.errors,
-    fn(value) {
+    fn(mode, value) {
       case project(value) {
         None -> Ok(None)
-        Some(value) -> result.map(node.encode(value), Some)
+        Some(value) -> result.map(node.encode(mode, value), Some)
       }
     },
     fn(value) { result.map(node.decode(value), inject) },
@@ -475,9 +516,9 @@ pub fn union(variants: List(Variant(sum))) -> Node(sum) {
     list.sort(identifiers, string.compare),
     list.flat_map(variants, fn(v) { v.definitions }),
     list.append(errors, list.flat_map(variants, fn(v) { v.errors })),
-    fn(value) {
+    fn(mode, value) {
       use matches <- result.try(
-        list.try_map(variants, fn(v) { v.encode(value) }),
+        list.try_map(variants, fn(v) { v.encode(mode, value) }),
       )
       case list.filter_map(matches, option.to_result(_, Nil)) {
         [value] -> Ok(value)
@@ -516,7 +557,7 @@ pub fn lazy(
       }),
     ],
     name_errors(factory, name),
-    fn(value) { resolve().encode(value) },
+    fn(mode, value) { resolve().encode(mode, value) },
     fn(value) { resolve().decode(value) },
   )
 }
@@ -582,11 +623,11 @@ pub fn array(
       ),
     ],
     list.append(name_errors(factory, name), element.errors),
-    fn(values) {
-      result.map(list.try_map(values, element.encode), types.ArrayValue(
-        identifier,
-        _,
-      ))
+    fn(mode, values) {
+      result.map(
+        list.try_map(values, element.encode(mode, _)),
+        types.ArrayValue(identifier, _),
+      )
     },
     fn(value) {
       case value {
@@ -614,13 +655,15 @@ pub fn map(
       ),
     ],
     list.append(name_errors(factory, name), value.errors),
-    fn(values) {
+    fn(mode, values) {
       use entries <- result.try(
         values
         |> dict.to_list
         |> sort_entries
         |> list.try_map(fn(entry) {
-          result.map(value.encode(entry.1), fn(value) { #(entry.0, value) })
+          result.map(value.encode(mode, entry.1), fn(value) {
+            #(entry.0, value)
+          })
         }),
       )
       Ok(types.MapValue(identifier, entries))
@@ -646,7 +689,7 @@ pub fn root(node: Node(a)) -> Root(a) {
     schema.FieldSchema(schema.Required, node.identifiers),
     node.definitions,
     node.errors,
-    fn(value) { result.map(node.encode(value), Some) },
+    fn(mode, value) { result.map(node.encode(mode, value), Some) },
     fn(value) {
       case value {
         Some(value) -> node.decode(value)
@@ -661,10 +704,10 @@ pub fn optional_root(node: Node(a)) -> Root(Option(a)) {
     schema.FieldSchema(schema.Optional, node.identifiers),
     node.definitions,
     node.errors,
-    fn(value) {
+    fn(mode, value) {
       case value {
         None -> Ok(None)
-        Some(value) -> result.map(node.encode(value), Some)
+        Some(value) -> result.map(node.encode(mode, value), Some)
       }
     },
     fn(value) {
@@ -799,8 +842,20 @@ pub fn encode(
   compiled: Compiled(a),
   value: a,
 ) -> Result(Option(TreeValue), TreeError) {
-  use encoded <- result.try(compiled.encode(value))
+  use encoded <- result.try(compiled.encode(Snapshot, value))
   use _ <- result.try(schema.validate_root_field(compiled.stored, encoded))
+  Ok(encoded)
+}
+
+pub fn encode_new(
+  compiled: Compiled(a),
+  value: a,
+) -> Result(Option(TreeValue), TreeError) {
+  use encoded <- result.try(compiled.encode(Construction, value))
+  use _ <- result.try(schema.validate_root_construction(
+    compiled.stored,
+    encoded,
+  ))
   Ok(encoded)
 }
 
