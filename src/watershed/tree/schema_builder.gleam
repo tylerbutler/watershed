@@ -30,10 +30,27 @@ fn name_errors(factory: Factory, name: String) -> List(TreeError) {
   }
 }
 
+type Definition {
+  Concrete(
+    identifier: String,
+    schema: schema.NodeSchema,
+    children: List(Definition),
+  )
+  Deferred(identifier: String, resolve: fn() -> Resolution)
+}
+
+type Resolution {
+  Resolution(
+    identifiers: List(String),
+    definitions: List(Definition),
+    errors: List(TreeError),
+  )
+}
+
 pub opaque type Node(a) {
   Node(
     identifiers: List(String),
-    definitions: List(#(String, schema.NodeSchema)),
+    definitions: List(Definition),
     errors: List(TreeError),
     encode: fn(a) -> Result(TreeValue, TreeError),
     decode: fn(TreeValue) -> Result(a, TreeError),
@@ -43,7 +60,7 @@ pub opaque type Node(a) {
 pub opaque type Root(a) {
   Root(
     field: schema.FieldSchema,
-    definitions: List(#(String, schema.NodeSchema)),
+    definitions: List(Definition),
     errors: List(TreeError),
     encode: fn(a) -> Result(Option(TreeValue), TreeError),
     decode: fn(Option(TreeValue)) -> Result(a, TreeError),
@@ -71,7 +88,7 @@ type ObjectProperty(record) {
   ObjectProperty(
     key: String,
     field: schema.FieldSchema,
-    definitions: List(#(String, schema.NodeSchema)),
+    definitions: List(Definition),
     errors: List(TreeError),
     encode: fn(record) -> Result(Option(TreeValue), TreeError),
   )
@@ -134,8 +151,11 @@ fn object(
   Node(
     [identifier],
     [
-      #(identifier, schema.Object(fields)),
-      ..list.flat_map(properties, fn(p) { p.definitions })
+      Concrete(
+        identifier,
+        schema.Object(fields),
+        list.flat_map(properties, fn(p) { p.definitions }),
+      ),
     ],
     list.flatten([
       name_errors(factory, name),
@@ -405,7 +425,7 @@ fn leaf(
   let identifier = "com.fluidframework.leaf." <> name
   Node(
     [identifier],
-    [#(identifier, schema.Leaf(kind))],
+    [Concrete(identifier, schema.Leaf(kind), [])],
     [],
     fn(value) { Ok(encode(value)) },
     decode,
@@ -415,7 +435,7 @@ fn leaf(
 pub opaque type Variant(sum) {
   Variant(
     identifiers: List(String),
-    definitions: List(#(String, schema.NodeSchema)),
+    definitions: List(Definition),
     errors: List(TreeError),
     encode: fn(sum) -> Result(Option(TreeValue), TreeError),
     decode: fn(TreeValue) -> Result(sum, TreeError),
@@ -481,6 +501,26 @@ pub fn union(variants: List(Variant(sum))) -> Node(sum) {
   )
 }
 
+pub fn lazy(
+  factory: Factory,
+  name: String,
+  resolve: fn() -> Node(a),
+) -> Node(a) {
+  let identifier = factory.scope <> "." <> name
+  Node(
+    [identifier],
+    [
+      Deferred(identifier, fn() {
+        let node = resolve()
+        Resolution(node.identifiers, node.definitions, node.errors)
+      }),
+    ],
+    name_errors(factory, name),
+    fn(value) { resolve().encode(value) },
+    fn(value) { resolve().decode(value) },
+  )
+}
+
 pub fn string() -> Node(String) {
   leaf("string", schema.StringLeaf, types.StringValue, fn(value) {
     case value {
@@ -535,11 +575,11 @@ pub fn array(
   Node(
     [identifier],
     [
-      #(
+      Concrete(
         identifier,
         schema.Array(schema.FieldSchema(schema.Sequence, element.identifiers)),
+        element.definitions,
       ),
-      ..element.definitions
     ],
     list.append(name_errors(factory, name), element.errors),
     fn(values) {
@@ -567,11 +607,11 @@ pub fn map(
   Node(
     [identifier],
     [
-      #(
+      Concrete(
         identifier,
         schema.Map(schema.FieldSchema(schema.Optional, value.identifiers)),
+        value.definitions,
       ),
-      ..value.definitions
     ],
     list.append(name_errors(factory, name), value.errors),
     fn(values) {
@@ -641,27 +681,17 @@ pub fn compile(root: Root(a)) -> Result(Compiled(a), TreeError) {
     [error, ..] -> Error(error)
     [] -> Ok(Nil)
   })
-  use definitions <- result.try(
-    list.try_fold(root.definitions, dict.new(), fn(definitions, entry) {
-      let #(identifier, definition) = entry
-      let definition = normalize(definition)
-      case dict.get(definitions, identifier) {
-        Ok(existing) if existing != definition ->
-          Error(types.InvalidSchema(
-            "Conflicting node definition: " <> identifier,
-          ))
-        Ok(_) | Error(Nil) ->
-          Ok(dict.insert(definitions, identifier, definition))
-      }
-    }),
-  )
+  use graph <- result.try(collect_definitions(
+    root.definitions,
+    Graph(dict.new(), dict.new()),
+  ))
   let document =
     json.object([
       #("version", json.int(2)),
       #(
         "nodes",
         json.object(
-          definitions
+          graph.definitions
           |> dict.to_list
           |> sort_entries
           |> list.map(fn(entry) { #(entry.0, render_node(entry.1)) }),
@@ -672,6 +702,89 @@ pub fn compile(root: Root(a)) -> Result(Compiled(a), TreeError) {
   use stored <- result.try(schema.stored_from_json(document))
   use view <- result.try(schema.view_from_json(document))
   Ok(Compiled(stored, view, root.encode, root.decode))
+}
+
+type Visit {
+  Visiting
+  Visited
+}
+
+type Graph {
+  Graph(
+    definitions: Dict(String, schema.NodeSchema),
+    visits: Dict(String, Visit),
+  )
+}
+
+fn collect_definitions(
+  definitions: List(Definition),
+  graph: Graph,
+) -> Result(Graph, TreeError) {
+  list.try_fold(definitions, graph, collect_definition)
+}
+
+fn collect_definition(
+  graph: Graph,
+  definition: Definition,
+) -> Result(Graph, TreeError) {
+  case definition {
+    Deferred(identifier, resolve) -> {
+      let resolved = resolve()
+      use _ <- result.try(case resolved.errors {
+        [error, ..] -> Error(error)
+        [] -> Ok(Nil)
+      })
+      case resolved.identifiers, resolved.definitions {
+        [actual], [Concrete(named, node, _) as concrete]
+          if actual == identifier && named == identifier
+        ->
+          case node {
+            schema.Leaf(_) ->
+              Error(types.InvalidSchema(
+                "Lazy schema must resolve to a named container",
+              ))
+            _ ->
+              case dict.get(graph.visits, identifier) {
+                Ok(Visiting) | Ok(Visited) ->
+                  check_definition(graph, identifier, node)
+                Error(Nil) -> collect_definition(graph, concrete)
+              }
+          }
+        _, _ ->
+          Error(types.InvalidSchema(
+            "Lazy schema must resolve to its declared named container: "
+            <> identifier,
+          ))
+      }
+    }
+    Concrete(identifier, node, children) -> {
+      use graph <- result.try(check_definition(graph, identifier, node))
+      let graph =
+        Graph(..graph, visits: dict.insert(graph.visits, identifier, Visiting))
+      // Check each finite declaration. Only deferred edges expand the graph.
+      use graph <- result.try(collect_definitions(children, graph))
+      Ok(Graph(..graph, visits: dict.insert(graph.visits, identifier, Visited)))
+    }
+  }
+}
+
+fn check_definition(
+  graph: Graph,
+  identifier: String,
+  node: schema.NodeSchema,
+) -> Result(Graph, TreeError) {
+  let node = normalize(node)
+  case dict.get(graph.definitions, identifier) {
+    Ok(existing) if existing != node ->
+      Error(types.InvalidSchema("Conflicting node definition: " <> identifier))
+    Ok(_) | Error(Nil) ->
+      Ok(
+        Graph(
+          ..graph,
+          definitions: dict.insert(graph.definitions, identifier, node),
+        ),
+      )
+  }
 }
 
 pub fn stored(compiled: Compiled(a)) -> schema.StoredSchema {

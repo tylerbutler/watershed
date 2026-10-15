@@ -149,6 +149,45 @@ return `Some(value)`, and all other branch projectors must return `None`.
 Gleam checks the function types, not these laws; test the pairs with application
 values. Missing or ambiguous projections return errors, never a default branch.
 
+## Named recursion
+
+Use `lazy(factory, name, resolve)` for a named recursive edge. The resolver is
+a pure declaration function, not a value loader:
+
+```gleam
+pub type Outline {
+  Outline(label: String, children: List(Outline))
+}
+
+pub fn outline() -> builder.Node(Outline) {
+  let f = builder.factory("com.example")
+  let self = builder.lazy(f, "Outline", outline)
+  builder.object2(
+    f,
+    "Outline",
+    Outline,
+    builder.required("label", builder.string(), fn(v: Outline) { v.label }),
+    builder.required(
+      "children",
+      builder.array(f, "Children", self),
+      fn(v: Outline) { v.children },
+    ),
+  )
+}
+```
+
+The resolver must return a concrete named object, array, or map with the exact
+claimed identifier. Alias-only lazy chains, leaves, differently named
+containers, and multi-type unions are rejected. Recursive union branches
+can themselves be lazy. Mutual recursion and optional recursive children
+work the same way.
+
+Compilation checks a finite definition graph, including conflicting
+declarations of an already-seen name. Encoding and decoding follow finite
+values instead of expanding the schema. Required cycles retain their declared
+cardinalities and follow the native validator; the builder does not invent an
+empty value for a type with no finite inhabitant.
+
 ## Native create, open, and read
 
 The native facade APIs keep their signatures:
@@ -198,10 +237,10 @@ separate milestone.
 | Implicit required field | `required(key, node, getter)` |
 | `sf.optional(node)` | `optional(key, node, getter)` or `optional_root(node)` |
 | Allowed-type array | `union([variant(node, inject, project), ...])` |
+| Recursive schema reference | `lazy(factory, name, resolve)` |
 | View configuration | `view(compiled)` plus the existing native open API |
 
-This milestone excludes recursive declarations,
-Identifier defaults, anonymous names, custom codecs, schema migration,
+This milestone excludes Identifier defaults, anonymous names, custom codecs, schema migration,
 code generation, and typed live node references. The low-level native schema
 API retains its existing capabilities. Object descriptors support at most
 eight properties. This layer uses the same Schema V2 format and does not
