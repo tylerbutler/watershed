@@ -278,6 +278,12 @@ function validatePhysicalEvidence(evidence, label, caseId) {
     && (held.length !== 0 || delivered.join(",") !== ordered.join(","))) {
     fail(`${label} complete delivery does not include every physical message`);
   }
+  if (caseId !== "checkpoint-partial"
+    && (delivery.complete !== true
+      || held.length !== 0
+      || delivered.join(",") !== ordered.join(","))) {
+    fail(`${label} final delivery is not complete`);
+  }
   if (delivery.final !== messages.at(-1).sequenceNumber) {
     fail(`${label} final delivered sequence does not identify the final physical message`);
   }
@@ -304,14 +310,20 @@ function validateCommonSemantics(evidence, label, caseId) {
     commits.peerCommitEvents,
     `${label} peer commit events`,
   );
+  const historySettlements = nonnegativeInteger(
+    commits.nativeHistorySettlements ?? 0,
+    `${label} native history settlements`,
+  );
   if (commits.peerLogicalBatches !== 1
+    || peerRevisions.length !== 1
     || peerTreeEvents !== peerCommitEvents
-    || peerCommitEvents !== peerRevisions.length
     || (!["history-catchup", "checkpoint-partial"].includes(caseId)
       && peerCommitEvents !== 1)
+    || (["history-catchup", "checkpoint-partial"].includes(caseId)
+      && peerCommitEvents !== 0)
     || commits.nativeSubmissionOccurrences !== 1
     || commits.nativeLocalCommits !== 1
-    || commits.nativeSettlements !== 1
+    || commits.nativeSettlements + historySettlements !== 1
     || commits.witnessCommitEvents < 1
     || string(
       commits.nativeSubmissionIdentity,
@@ -353,16 +365,80 @@ function validateCommonSemantics(evidence, label, caseId) {
     `${label} completed tree hash`,
   );
   if (baselineHash === completedHash) fail(`${label} peer logical batch changed no tree state`);
-  for (const observationValue of array(
+  const baselineHistory = array(
+    logical.baselineHistory,
+    `${label} baseline native history`,
+  );
+  const baselinePendingRevisions = array(
+    logical.baselinePendingRevisions,
+    `${label} baseline pending revisions`,
+  );
+  const completedHistory = array(
+    logical.completedHistory,
+    `${label} completed native history`,
+  );
+  const newPeerHistory = array(
+    logical.newPeerHistory,
+    `${label} new peer native history`,
+  );
+  const validateHistoryPoint = (value, pointLabel) => {
+    const point = object(value, pointLabel);
+    string(point.revision, `${pointLabel} revision`);
+    nonnegativeInteger(point.sequenceNumber, `${pointLabel} sequence`);
+    nonnegativeInteger(point.indexInBatch, `${pointLabel} batch index`);
+    return point;
+  };
+  baselineHistory.forEach((value, index) =>
+    validateHistoryPoint(value, `${label} baseline history ${index}`));
+  baselinePendingRevisions.forEach((revision, index) =>
+    string(revision, `${label} baseline pending revision ${index}`));
+  completedHistory.forEach((value, index) =>
+    validateHistoryPoint(value, `${label} completed history ${index}`));
+  newPeerHistory.forEach((value, index) =>
+    validateHistoryPoint(value, `${label} new peer history ${index}`));
+  if (baselineHistory.some(({ sequenceNumber }) =>
+    sequenceNumber >= evidence.physicalMessages[0].sequenceNumber)
+    || newPeerHistory.length !== 1
+    || newPeerHistory[0].sequenceNumber
+      !== evidence.physicalMessages.at(-1).sequenceNumber
+    || completedSequence !== newPeerHistory[0].sequenceNumber
+    || baselinePendingRevisions.includes(newPeerHistory[0].revision)
+    || peerRevisions.join(",")
+      !== newPeerHistory.map(({ revision }) => revision).join(",")) {
+    fail(`${label} native history does not identify one peer commit at the final chunk`);
+  }
+  const baselineHistorySha256 = digestString(
+    logical.baselineHistorySha256,
+    64,
+    `${label} baseline history hash`,
+  );
+  const baselineCompressorSha256 = digestString(
+    logical.baselineCompressorSha256,
+    64,
+    `${label} baseline compressor allocation hash`,
+  );
+  const prefixObservations = array(
     logical.prefixObservations,
     `${label} prefix observations`,
-  )) {
+  );
+  const expectedPrefix = ["default-chunked", "summary-continuation", "checkpoint-partial"]
+    .includes(caseId)
+    ? evidence.physicalMessages.slice(0, -1)
+      .map(({ sequenceNumber }) => sequenceNumber)
+    : [];
+  if (prefixObservations.map(({ sequenceNumber }) => sequenceNumber).join(",")
+      !== expectedPrefix.join(",")) {
+    fail(`${label} prefix observations do not cover the exact physical prefix`);
+  }
+  for (const observationValue of prefixObservations) {
     const observation = object(observationValue, `${label} prefix observation`);
     positiveInteger(observation.sequenceNumber, `${label} prefix sequence`);
     if (observation.treeSha256 !== baselineHash
       || observation.events !== 0
-      || observation.commits !== 0) {
-      fail(`${label} partial chunk changed tree, events, or commits before completion`);
+      || observation.commits !== 0
+      || observation.historySha256 !== baselineHistorySha256
+      || observation.compressorSha256 !== baselineCompressorSha256) {
+      fail(`${label} partial chunk changed tree, events, history, or compressor allocation state`);
     }
   }
   const witness = object(evidence.witnessContent, `${label} witnessContent`);
@@ -421,6 +497,10 @@ function validateHistory(evidence, label, physicalSequences) {
         object(envelope, `${label} history response envelope`).sequenceNumber,
         `${label} history response sequence`,
       )));
+  if (responseSequences.some((sequence) =>
+    sequence < history.requestedFrom || sequence >= history.requestedTo)) {
+    fail(`${label} HTTP response sequence is outside the requested bounds`);
+  }
   if (!compressed.every((sequence) => responseSequences.includes(sequence))) {
     fail(`${label} HTTP response envelopes do not cover compressed sequences`);
   }
@@ -469,7 +549,19 @@ function validateChunkStreams(streamsValue, label, physical, prefix) {
 
 function validateSummary(evidence, label, physical) {
   const summary = object(evidence.summary, `${label} summary`);
-  string(summary.nativeHandle, `${label} native summary handle`);
+  const nativeHandle = string(summary.nativeHandle, `${label} native summary handle`);
+  if (string(summary.storedVersion, `${label} stored summary version`) !== nativeHandle
+    || string(
+      summary.freshNativeFetchedVersion,
+      `${label} fresh native fetched summary version`,
+    ) !== nativeHandle) {
+    fail(`${label} summary handle is not the stored snapshot fetched by the fresh reader`);
+  }
+  digestString(
+    summary.storedSnapshotSha256,
+    64,
+    `${label} stored snapshot hash`,
+  );
   positiveInteger(summary.snapshotSequenceNumber, `${label} summary sequence`);
   exactTrue(summary.capabilityRetained, `${label} retained summary capability`);
   if (summary.chunksPath !== "/.chunks") fail(`${label} summary omits /.chunks`);
@@ -545,6 +637,41 @@ function validateCheckpoint(result, evidence, label, physical) {
     exactTrue(checkpoint[field], `${label} checkpoint ${field}`);
   }
   digestString(checkpoint.restoredTreeSha256, 64, `${label} restored tree hash`);
+  const pendingRevision = string(
+    checkpoint.originalPendingRevision,
+    `${label} original pending revision`,
+  );
+  if (string(checkpoint.settledRevision, `${label} settled revision`)
+      !== pendingRevision
+    || string(checkpoint.pendingBatchId, `${label} pending batch identity`)
+      !== string(
+        checkpoint.acknowledgementBatchId,
+        `${label} acknowledgement batch identity`,
+      )) {
+    fail(`${label} checkpoint did not settle the saved pending revision and batch`);
+  }
+  const historyPoint = object(
+    checkpoint.settledHistoryPoint,
+    `${label} settled history point`,
+  );
+  if (positiveInteger(
+    checkpoint.acknowledgementSequenceNumber,
+    `${label} acknowledgement sequence`,
+  ) !== positiveInteger(
+    historyPoint.sequenceNumber,
+    `${label} settled history sequence`,
+  )
+    || nonnegativeInteger(
+      historyPoint.indexInBatch,
+      `${label} settled history batch index`,
+    ) !== 0
+    || checkpoint.liveSettlementEvents !== 0
+    || string(
+      checkpoint.continuationRevision,
+      `${label} continuation revision`,
+    ) === pendingRevision) {
+    fail(`${label} checkpoint settlement history is mixed with continuation work`);
+  }
 }
 
 function validateLiveProvenance(result, label) {
@@ -582,6 +709,138 @@ function validateLiveProvenance(result, label) {
   );
   if (JSON.stringify(actualSizes) !== JSON.stringify(result.evidence.byteSizes)) {
     fail(`${label} byte measures differ from the raw live compressed stream`);
+  }
+  const same = (actual, expected, claim) => {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      fail(`${label} ${claim} differs from the hashed raw capture`);
+    }
+  };
+  const lifecycle = {
+    "default-compressed": [raw.baselineNative, raw.nativeAfterPeer],
+    "default-chunked": [raw.baselineNative, raw.nativeAfterPeer],
+    "history-catchup": [raw.baselineNative, raw.freshAfterPeer],
+    "reconnect-pending": [raw.pending, raw.settled],
+    "summary-continuation": [raw.initialNative, raw.sourceAfterPeer],
+    "checkpoint-partial": [raw.batchBaseline, raw.restoredAfterPeer],
+  }[result.caseId];
+  assert(lifecycle?.every(Boolean), `${label} raw lifecycle checkpoints are missing`);
+  const [baseline, completion] = lifecycle;
+  const baselineHistory = nativeHistoryPoints(baseline.history);
+  const baselinePendingRevisions = (baseline.history.pending ?? [])
+    .map(({ revision }) => revision);
+  const completedHistory = nativeHistoryPoints(completion.history);
+  const baselineRevisions = new Set([
+    ...baselineHistory.map(({ revision }) => revision),
+    ...baselinePendingRevisions,
+  ]);
+  const newPeerHistory = completedHistory.filter(({ revision }) =>
+    !baselineRevisions.has(revision));
+  const logical = result.evidence.logicalBatch;
+  same(logical.baselineHistory, baselineHistory, "baseline native history");
+  same(logical.baselinePendingRevisions, baselinePendingRevisions,
+    "baseline pending revisions");
+  same(logical.completedHistory, completedHistory, "completed native history");
+  same(logical.newPeerHistory, newPeerHistory, "new peer native history");
+  same(logical.baselineSequenceNumber, baseline.sequenceNumber,
+    "logical baseline sequence");
+  same(logical.completedSequenceNumber, newPeerHistory[0]?.sequenceNumber,
+    "logical completion sequence");
+  same(logical.baselineHistorySha256, sha256(JSON.stringify(baselineHistory)),
+    "baseline history hash");
+  same(logical.baselineCompressorSha256, baseline.compressorSha256,
+    "baseline compressor allocation hash");
+  if (completion.sequenceNumber < actualPhysical.at(-1).sequenceNumber) {
+    fail(`${label} raw native completion stops before the final physical message`);
+  }
+  if (raw.boundary) {
+    const rawPrefix = raw.boundary.prefixObservations.map((observation) => ({
+      sequenceNumber: observation.sequenceNumber,
+      treeSha256: sha256(JSON.stringify(observation.wholeTree)),
+      events: observation.events.length,
+      commits: observation.commits.length,
+      historySha256: historySha256(observation.history),
+      compressorSha256: observation.compressorSha256,
+    }));
+    same(logical.prefixObservations, rawPrefix, "prefix observations");
+    if (result.caseId === "checkpoint-partial") {
+      same(
+        result.evidence.deliveredSequences.delivered,
+        raw.boundary.deliveredSequences,
+        "controlled delivered prefix",
+      );
+      same(
+        result.evidence.deliveredSequences.held,
+        raw.boundary.heldSequences,
+        "controlled held suffix",
+      );
+    }
+  }
+  if (result.caseId === "history-catchup") {
+    const rawRequests = raw.nativeEvidence.http.filter(
+      ({ method, path, status }) =>
+        method === "GET"
+        && path.includes("/deltas")
+        && status >= 200
+        && status < 300,
+    );
+    same(result.evidence.history.requests, rawRequests, "HTTP delta requests");
+    same(
+      result.evidence.history.consumedThrough,
+      raw.freshAfterPeer.sequenceNumber,
+      "HTTP consumed watermark",
+    );
+  }
+  if (result.caseId === "summary-continuation") {
+    const summary = result.evidence.summary;
+    same(summary.nativeHandle, raw.publication.version, "published summary handle");
+    same(summary.storedVersion, raw.publishedSummary.version, "stored summary version");
+    same(
+      summary.storedSnapshotSha256,
+      raw.publishedSummary.snapshotSha256,
+      "stored snapshot hash",
+    );
+    const fetchedVersions = raw.freshNative.http.flatMap(({ method, path, status }) => {
+      const match = path.match(/\/commits\/([^/?]+)$/);
+      return method === "GET" && status >= 200 && status < 300 && match
+        ? [match[1]]
+        : [];
+    });
+    if (!fetchedVersions.includes(summary.freshNativeFetchedVersion)) {
+      fail(`${label} fresh native did not fetch the claimed summary version`);
+    }
+    same(
+      summary.publishedChunkStreams,
+      chunkStreamEvidence(raw.publishedSummary.chunkStreams),
+      "stored summary chunk streams",
+    );
+  }
+  if (result.caseId === "checkpoint-partial") {
+    const checkpoint = result.evidence.checkpoint;
+    const pending = raw.batchBaseline.history.pending;
+    same(pending.length, 1, "saved pending revision count");
+    same(checkpoint.originalPendingRevision, pending[0].revision,
+      "saved pending revision");
+    same(checkpoint.pendingBatchId, raw.checkpointBatchId,
+      "saved pending batch identity");
+    same(checkpoint.acknowledgementBatchId, messageBatchId(raw.acknowledgement),
+      "acknowledgement batch identity");
+    same(
+      checkpoint.acknowledgementSequenceNumber,
+      raw.acknowledgement.sequenceNumber,
+      "acknowledgement sequence",
+    );
+    same(checkpoint.settledHistoryPoint, raw.settledHistoryPoint,
+      "settled native history point");
+    same(
+      checkpoint.liveSettlementEvents,
+      raw.restoredSettled.commits.filter(({ type }) => type === "settlement").length,
+      "live settlement event count",
+    );
+    const continuation = raw.continuedRestored.commits.find(
+      ({ type, local }) => type === "commit" && local === true,
+    );
+    same(checkpoint.continuationRevision, continuation?.revision,
+      "continuation revision");
   }
 }
 
@@ -865,6 +1124,14 @@ function nestedJson(value) {
 
 function messageContents(message) {
   return nestedJson(message.contents);
+}
+
+function messageBatchId(message) {
+  if (typeof message.metadata?.batchId === "string") return message.metadata.batchId;
+  const contents = messageContents(message);
+  if (contents?.type !== "groupedBatch") return undefined;
+  return contents.contents?.map((entry) => entry.metadata?.batchId)
+    .find((batchId) => typeof batchId === "string");
 }
 
 function capturedCompressionPayload(messages) {
@@ -1263,6 +1530,50 @@ function documentEvidence(document) {
   };
 }
 
+function sequencePoint(value) {
+  const match = String(value).match(
+    /SequencePoint\((?:sequence_number:\s*)?(\d+),\s*(?:index_in_batch:\s*)?(\d+)\)/,
+  );
+  assert(match, `Native history has an invalid sequence point: ${value}`);
+  return {
+    sequenceNumber: Number(match[1]),
+    indexInBatch: Number(match[2]),
+  };
+}
+
+function nativeHistoryPoints(history) {
+  assert(Array.isArray(history?.trunk), "Native checkpoint lacks trunk history");
+  return history.trunk.map(({ commit, point }) => ({
+    revision: string(commit?.revision, "native history revision"),
+    ...sequencePoint(point),
+  }));
+}
+
+function historySha256(history) {
+  return sha256(JSON.stringify(nativeHistoryPoints(history)));
+}
+
+function summaryBlob(summary, name) {
+  const visit = (entry) => {
+    if (entry?.type !== "tree") return undefined;
+    for (const [key, child] of entry.entries ?? []) {
+      if (key === name && child?.type === "blob") {
+        return Buffer.from(child.base64, "base64");
+      }
+      const nested = visit(child);
+      if (nested !== undefined) return nested;
+    }
+    return undefined;
+  };
+  const found = visit(summary.tree);
+  assert(found, `Pending summary lacks ${name}`);
+  return found;
+}
+
+async function compressorSha256(native) {
+  return sha256(summaryBlob(await native.pendingSummaryEvidence(), ".idCompressor"));
+}
+
 async function observedPeerBatch(session, writerClientId, beforeSequence) {
   const history = await serverHistory(session);
   const messages = history.filter((message) =>
@@ -1298,6 +1609,8 @@ function commonEvidence({
   settledSubmissionIdentity,
   settlementActionId,
   pendingPositionsAfter,
+  baselineCompressorSha256 = baseline.compressorSha256,
+  settlementProof,
 }) {
   const baselineTreeSha256 = sha256(JSON.stringify(baseline.wholeTree));
   const completedTreeSha256 = sha256(JSON.stringify(peerCompletion.wholeTree));
@@ -1309,6 +1622,23 @@ function commonEvidence({
     sha256(JSON.stringify(upstreamFinalCompletion.wholeTree));
   const witnessTreeSha256 =
     sha256(JSON.stringify(witnessCompletion.wholeTree));
+  const baselineHistory = nativeHistoryPoints(baseline.history);
+  const completedHistory = nativeHistoryPoints(peerCompletion.history);
+  const baselinePendingRevisions = (baseline.history.pending ?? [])
+    .map(({ revision }) => string(revision, "native pending history revision"));
+  const baselineRevisions = new Set([
+    ...baselineHistory.map(({ revision }) => revision),
+    ...baselinePendingRevisions,
+  ]);
+  const newPeerHistory = completedHistory.filter(({ revision }) =>
+    !baselineRevisions.has(revision));
+  assert.equal(newPeerHistory.length, 1,
+    "Native history did not add exactly one peer revision");
+  assert.equal(
+    newPeerHistory[0].sequenceNumber,
+    physical.at(-1).sequenceNumber,
+    "Native history did not sequence the peer revision at the final chunk",
+  );
   const peerCommits = peerCompletion.commits.filter(
     ({ type, local }) => type === "commit" && local === false,
   );
@@ -1321,14 +1651,13 @@ function commonEvidence({
       type === "settlement"
       && actionId === (settlementActionId ?? localCommits[0].actionId),
   );
-  assert.equal(
-    settlements.length,
-    1,
-    `Native edit did not produce one settlement: ${JSON.stringify({
+  const nativeHistorySettlements = settlementProof === undefined ? 0 : 1;
+  assert.equal(settlements.length + nativeHistorySettlements, 1,
+    `Native edit did not produce one settlement proof: ${JSON.stringify({
       local: localCommits,
       observed: nativeSettlement.commits,
-    })}`,
-  );
+      settlementProof,
+    })}`);
   return {
     runtimeOptions: observedRuntimeOptions(writerSession),
     capability: {
@@ -1347,29 +1676,36 @@ function commonEvidence({
     },
     pendingCounts: pending,
     commitCounts: {
-      peerLogicalBatches: 1,
+      peerLogicalBatches: newPeerHistory.length,
       peerTreeEvents: peerCompletion.events.filter(
         ({ kind, local }) => kind === "data" && local === false,
       ).length,
       peerCommitEvents: peerCommits.length,
-      peerRevisions: peerCommits.map(({ revision, actionId }) => revision ?? actionId),
+      peerRevisions: newPeerHistory.map(({ revision }) => revision),
       nativeSubmissionOccurrences,
       nativeLocalCommits: localCommits.length,
       nativeSettlements: settlements.length,
+      nativeHistorySettlements,
       nativeActionId: localCommits[0].actionId,
-      settledActionId: settlements[0].actionId,
+      settledActionId: settlements[0]?.actionId ?? settlementProof.revision,
       nativeSubmissionIdentity:
         nativeSubmissionIdentity ?? localCommits[0].actionId,
       settledSubmissionIdentity:
-        settledSubmissionIdentity ?? settlements[0].actionId,
+        settledSubmissionIdentity ?? settlements[0]?.actionId,
       witnessCommitEvents: witnessCompletion.commits.filter(
         ({ type, local }) => type === "commit" && local === false,
       ).length,
     },
     logicalBatch: {
       baselineSequenceNumber: baseline.sequenceNumber,
-      completedSequenceNumber: peerCompletion.sequenceNumber,
+      completedSequenceNumber: newPeerHistory[0].sequenceNumber,
       pendingPositionsAfter,
+      baselineHistory,
+      baselinePendingRevisions,
+      completedHistory,
+      newPeerHistory,
+      baselineHistorySha256: sha256(JSON.stringify(baselineHistory)),
+      baselineCompressorSha256,
       baselineTreeSha256,
       completedTreeSha256,
       prefixObservations: prefixObservations.map((observation) => ({
@@ -1377,6 +1713,8 @@ function commonEvidence({
         treeSha256: sha256(JSON.stringify(observation.wholeTree)),
         events: observation.events.length,
         commits: observation.commits.length,
+        historySha256: historySha256(observation.history),
+        compressorSha256: observation.compressorSha256,
       })),
     },
     finalBatchIdentity: physical.at(-1).batchId,
@@ -1436,6 +1774,7 @@ async function runSimpleCell(context, caseId) {
     );
     natives.push(clients.native);
     const baselineNative = await clients.native.checkpoint();
+    baselineNative.compressorSha256 = await compressorSha256(clients.native);
     await clients.writer.checkpoint();
     await clients.witness.checkpoint();
     if (caseId === "history-catchup") {
@@ -1576,13 +1915,15 @@ async function runSimpleCell(context, caseId) {
     );
     const upstreamAfterPeer = await clients.writer.checkpoint();
     let prefixObservations = [];
+    let boundary;
     if (caseId === "default-chunked") {
-      const boundary = await heldChunkPrefix(
+      boundary = await heldChunkPrefix(
         clients.native,
         batch.physical,
         target,
         caseId,
         sha256(JSON.stringify(baselineNative.wholeTree)),
+        baselineNative.compressorSha256,
       );
       prefixObservations = boundary.prefixObservations;
       await clients.native.client.gate.release("inbound");
@@ -1650,6 +1991,7 @@ async function runSimpleCell(context, caseId) {
         writerCheckpoint, baselineNative, upstreamAfterPeer,
         nativeAfterPeer, nativeAfterEdit, upstreamFinal, witnessFinal,
         nativeEvidence, serverHistory: batch.messages, activation,
+        ...(boundary ? { boundary } : {}),
       },
     });
   } catch (caught) {
@@ -1667,7 +2009,14 @@ async function runSimpleCell(context, caseId) {
   }
 }
 
-async function heldChunkPrefix(native, physical, target, caseId, baselineTreeSha256) {
+async function heldChunkPrefix(
+  native,
+  physical,
+  target,
+  caseId,
+  baselineTreeSha256,
+  baselineCompressorSha256,
+) {
   await until(() => {
     const evidence = native.evidence();
     const sequences = new Set(frameSequences(evidence.currentlyHeld));
@@ -1703,6 +2052,12 @@ async function heldChunkPrefix(native, physical, target, caseId, baselineTreeSha
       `${target} ${caseId} emitted a tree event before the final chunk`);
     assert.deepEqual(observation.commits, [],
       `${target} ${caseId} emitted a commit before the final chunk`);
+    observation.compressorSha256 = await compressorSha256(native);
+    assert.equal(
+      observation.compressorSha256,
+      baselineCompressorSha256,
+      `${target} ${caseId} changed compressor allocation state before the final chunk`,
+    );
     prefixObservations.push(observation);
   }
   const delivered = native.evidence().delivered.filter(({ id }) =>
@@ -1743,6 +2098,7 @@ async function runPartialCell(context, caseId) {
     );
     natives.push(clients.native);
     const initialNative = await clients.native.checkpoint();
+    initialNative.compressorSha256 = await compressorSha256(clients.native);
     await clients.witness.checkpoint();
     const before = (await clients.writer.checkpoint()).sequenceNumber;
     const sourceText = deterministicText(`${target}:${caseId}`, 640_000);
@@ -1757,6 +2113,7 @@ async function runPartialCell(context, caseId) {
       await clients.native.holdOutbound();
       await clients.native.set(["rating"], 106);
       const pending = await clients.native.checkpoint();
+      pending.compressorSha256 = await compressorSha256(clients.native);
       nativeLocal = pending;
       batchBaseline = pending;
       pendingBefore = pending.pendingTreeCount;
@@ -1776,6 +2133,7 @@ async function runPartialCell(context, caseId) {
       target,
       caseId,
       sha256(JSON.stringify(batchBaseline.wholeTree)),
+      batchBaseline.compressorSha256,
     );
     const activation = await activationEvidence(
       clients.writerSession, batch.history,
@@ -1845,6 +2203,14 @@ async function runPartialCell(context, caseId) {
         clients.witness.awaitSynced(continuedUpstream.sequenceNumber),
       ]);
       const continuedNative = await freshNative.checkpoint();
+      const freshNativeEvidence = freshNative.evidence();
+      const fetchedPublication = freshNativeEvidence.http.find(({ method, path, status }) =>
+        method === "GET"
+        && status >= 200
+        && status < 300
+        && path.endsWith(`/commits/${publication.version}`));
+      assert(fetchedPublication,
+        `${target} fresh native did not fetch the published summary version`);
       const witnessContent = witnessedLiteral(
         clients.witnessSession, peerHash, nativeRating,
       );
@@ -1870,6 +2236,9 @@ async function runPartialCell(context, caseId) {
       });
       evidence.summary = {
         nativeHandle: publication.version,
+        storedVersion: publishedSummary.version,
+        storedSnapshotSha256: publishedSummary.snapshotSha256,
+        freshNativeFetchedVersion: publication.version,
         snapshotSequenceNumber: publication.snapshotSequenceNumber,
         capabilityRetained: activation.schema.compressionLz4 === true,
         chunksPath: "/.chunks",
@@ -1905,7 +2274,7 @@ async function runPartialCell(context, caseId) {
         raw: {
           serverHistory: batch.messages,
           sourceNative: clients.native.evidence(),
-          freshNative: freshNative.evidence(),
+          freshNative: freshNativeEvidence,
           activation, initialNative, upstreamAfterPeer, sourceAfterPeer,
           freshUpstreamAfterPeer, freshNativeAfterPeer, freshNativeAfterEdit,
           upstreamAfterNative, witnessAfterNative, continuedNative,
@@ -1959,10 +2328,28 @@ async function runPartialCell(context, caseId) {
     await restored.awaitSynced(batch.physical.at(-1).sequenceNumber);
     await Promise.all([clients.writer.awaitSynced(), clients.witness.awaitSynced()]);
     const restoredSettled = await restored.checkpoint();
-    const restoredSettlementWindow = {
-      ...restoredSettled,
-      commits: [...restoredAfterPeer.commits, ...restoredSettled.commits],
-    };
+    const pendingHistory = batchBaseline.history.pending;
+    assert.equal(pendingHistory.length, 1,
+      `${target} saved checkpoint must retain one pending native revision`);
+    const originalPendingRevision = string(
+      pendingHistory[0].revision,
+      `${target} saved pending revision`,
+    );
+    const settledHistoryPoint = nativeHistoryPoints(restoredSettled.history)
+      .find(({ revision }) => revision === originalPendingRevision);
+    assert(settledHistoryPoint,
+      `${restoreTarget} native history lacks the saved pending revision`);
+    const settlementHistory = await serverHistory(clients.writerSession);
+    const acknowledgementMessages = settlementHistory.filter((message) =>
+      messageBatchId(message) === checkpointBatchId);
+    assert.equal(acknowledgementMessages.length, 1,
+      `${restoreTarget} history must contain one acknowledgement for the saved batch`);
+    const acknowledgement = acknowledgementMessages[0];
+    assert.equal(
+      acknowledgement.sequenceNumber,
+      settledHistoryPoint.sequenceNumber,
+      `${restoreTarget} saved revision history point differs from its acknowledgement`,
+    );
     const upstreamAfterSettlement = await clients.writer.checkpoint();
     const witnessAfterSettlement = await clients.witness.checkpoint();
     await restored.set(["point", "y"], 206);
@@ -1971,7 +2358,6 @@ async function runPartialCell(context, caseId) {
     const continuedUpstream = await clients.writer.checkpoint();
     await restored.awaitSynced(continuedUpstream.sequenceNumber);
     const continuedRestored = await restored.checkpoint();
-    restoredSettlementWindow.commits.push(...continuedRestored.commits);
     assert.equal(restoredSettled.pendingTreeCount, 0);
     assert.equal(restoredSettled.inflightSubmissionCount, 0);
     const witnessContent = witnessedLiteral(
@@ -1981,11 +2367,13 @@ async function runPartialCell(context, caseId) {
     const matchingOccurrences = restoredEvidence.outboundOccurrences.filter(
       (occurrence) => JSON.stringify(occurrence).includes(checkpointBatchId),
     );
-    const restoredLocalCommit = restoredSettlementWindow.commits.find(
+    const continuationCommit = continuedRestored.commits.find(
       ({ type, local }) => type === "commit" && local === true,
     );
-    assert(restoredLocalCommit,
-      `${restoreTarget} restore lacks the resubmitted local commit observation`);
+    assert(continuationCommit,
+      `${restoreTarget} continuation lacks its own local commit observation`);
+    assert.notEqual(continuationCommit.revision, originalPendingRevision,
+      `${restoreTarget} continuation reused the saved pending revision`);
     const evidence = commonEvidence({
       writerSession: clients.writerSession,
       schema: activation.schema,
@@ -1999,7 +2387,7 @@ async function runPartialCell(context, caseId) {
       baseline: batchBaseline,
       peerCompletion: restoredAfterPeer,
       nativeLocal,
-      nativeSettlement: restoredSettlementWindow,
+      nativeSettlement: restoredSettled,
       witnessCompletion: witnessAfterSettlement,
       upstreamPeerCompletion: upstreamAfterSettlement,
       upstreamFinalCompletion: upstreamAfterSettlement,
@@ -2007,8 +2395,11 @@ async function runPartialCell(context, caseId) {
       nativeSubmissionOccurrences: matchingOccurrences.length,
       nativeSubmissionIdentity: checkpointBatchId,
       settledSubmissionIdentity: checkpointBatchId,
-      settlementActionId: restoredLocalCommit.actionId,
       pendingPositionsAfter: await pendingChunkStreamCount(restored),
+      settlementProof: {
+        revision: originalPendingRevision,
+        sequenceNumber: acknowledgement.sequenceNumber,
+      },
     });
     evidence.checkpoint = {
       artifact: checkpointPath,
@@ -2034,6 +2425,16 @@ async function runPartialCell(context, caseId) {
         && sha256(JSON.stringify(continuedRestored.wholeTree))
           !== sha256(JSON.stringify(restoredSettled.wholeTree)),
       restoredTreeSha256: sha256(JSON.stringify(restoredSettled.wholeTree)),
+      originalPendingRevision,
+      settledRevision: settledHistoryPoint.revision,
+      pendingBatchId: checkpointBatchId,
+      acknowledgementBatchId: messageBatchId(acknowledgement),
+      acknowledgementSequenceNumber: acknowledgement.sequenceNumber,
+      settledHistoryPoint,
+      liveSettlementEvents: restoredSettled.commits.filter(
+        ({ type }) => type === "settlement",
+      ).length,
+      continuationRevision: continuationCommit.revision,
     };
     return liveCellResult({
       runDirectory, target, restoreTarget, caseId, runId, identities,
@@ -2045,7 +2446,8 @@ async function runPartialCell(context, caseId) {
         restoredNative: restoredEvidence, activation,
         initialNative, batchBaseline, nativeLocal, upstreamAfterPeer,
         checkpoint, checkpointStreams, crash, restoredAfterPeer,
-        restoredSettled, restoredSettlementWindow,
+        restoredSettled, settlementHistory, acknowledgement,
+        originalPendingRevision, settledHistoryPoint,
         upstreamAfterSettlement, witnessAfterSettlement,
         continuedRestored, continuedUpstream,
         checkpointBatchId, matchingOccurrences,
@@ -2081,6 +2483,7 @@ async function runReconnectCell(context) {
     );
     natives.push(clients.native);
     const baselineNative = await clients.native.checkpoint();
+    baselineNative.compressorSha256 = await compressorSha256(clients.native);
     await clients.witness.checkpoint();
     const before = (await clients.writer.checkpoint()).sequenceNumber;
     await clients.native.holdInbound();
@@ -2091,6 +2494,7 @@ async function runReconnectCell(context) {
       ({ direction, kind }) => direction === "inbound" && kind === "op",
     ), `${target} held native acknowledgement`);
     const pending = await clients.native.checkpoint();
+    pending.compressorSha256 = await compressorSha256(clients.native);
     assert(pending.pendingTreeCount > 0, `${target} native work was not pending`);
     await clients.native.client.gate.disconnect();
     const sourceText = deterministicText(`${target}:${caseId}`, 640_000);
@@ -2133,7 +2537,7 @@ async function runReconnectCell(context) {
         after: settled.pendingTreeCount,
       },
       witnessContent,
-      baseline: baselineNative,
+      baseline: pending,
       peerCompletion: settled,
       nativeLocal: pending,
       nativeSettlement: settled,

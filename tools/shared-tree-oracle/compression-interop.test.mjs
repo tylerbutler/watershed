@@ -93,20 +93,24 @@ function syntheticCell(target, caseId) {
         sourceSha256: "e".repeat(64),
       },
       deliveredSequences: {
-        held: caseId === "checkpoint-partial" ? sequences.slice(1) : [],
-        delivered: caseId === "checkpoint-partial" ? sequences.slice(0, 1) : sequences,
+        held: caseId === "checkpoint-partial" ? sequences.slice(-1) : [],
+        delivered:
+          caseId === "checkpoint-partial" ? sequences.slice(0, -1) : sequences,
         final: sequences.at(-1),
         complete: caseId !== "checkpoint-partial",
       },
       pendingCounts: { before: 1, held: 1, after: 0 },
       commitCounts: {
         peerLogicalBatches: 1,
-        peerTreeEvents: 1,
-        peerCommitEvents: 1,
-        peerRevisions: ["peer-edit"],
+        peerTreeEvents:
+          ["history-catchup", "checkpoint-partial"].includes(caseId) ? 0 : 1,
+        peerCommitEvents:
+          ["history-catchup", "checkpoint-partial"].includes(caseId) ? 0 : 1,
+        peerRevisions: [`${target}-${caseId}-peer`],
         nativeSubmissionOccurrences: 1,
         nativeLocalCommits: 1,
-        nativeSettlements: 1,
+        nativeSettlements: caseId === "checkpoint-partial" ? 0 : 1,
+        nativeHistorySettlements: caseId === "checkpoint-partial" ? 1 : 0,
         nativeActionId: `native-${target}-${caseId}`,
         settledActionId: `native-${target}-${caseId}`,
         nativeSubmissionIdentity: `submission-${target}-${caseId}`,
@@ -117,12 +121,43 @@ function syntheticCell(target, caseId) {
         baselineSequenceNumber: 99,
         completedSequenceNumber: sequences.at(-1),
         pendingPositionsAfter: 0,
-        prefixObservations: sequences.slice(0, -1).map((sequenceNumber) => ({
+        baselineHistory: [{
+          revision: `${target}-${caseId}-baseline`,
+          sequenceNumber: 90,
+          indexInBatch: 0,
+        }],
+        baselinePendingRevisions:
+          ["reconnect-pending", "checkpoint-partial"].includes(caseId)
+            ? [`${target}-${caseId}-pending`]
+            : [],
+        completedHistory: [{
+          revision: `${target}-${caseId}-baseline`,
+          sequenceNumber: 90,
+          indexInBatch: 0,
+        }, {
+          revision: `${target}-${caseId}-peer`,
+          sequenceNumber: sequences.at(-1),
+          indexInBatch: 0,
+        }],
+        newPeerHistory: [{
+          revision: `${target}-${caseId}-peer`,
+          sequenceNumber: sequences.at(-1),
+          indexInBatch: 0,
+        }],
+        prefixObservations:
+          ["default-chunked", "summary-continuation", "checkpoint-partial"]
+            .includes(caseId)
+          ? sequences.slice(0, -1).map((sequenceNumber) => ({
           sequenceNumber,
           treeSha256: "1".repeat(64),
           events: 0,
           commits: 0,
-        })),
+          historySha256: "3".repeat(64),
+          compressorSha256: "4".repeat(64),
+          }))
+          : [],
+        baselineHistorySha256: "3".repeat(64),
+        baselineCompressorSha256: "4".repeat(64),
         baselineTreeSha256: "1".repeat(64),
         completedTreeSha256: "2".repeat(64),
       },
@@ -168,6 +203,9 @@ function syntheticCell(target, caseId) {
       },
       summary: {
         nativeHandle: "summary-validator",
+        storedVersion: "summary-validator",
+        storedSnapshotSha256: "5".repeat(64),
+        freshNativeFetchedVersion: "summary-validator",
         snapshotSequenceNumber: sequences.at(-2),
         capabilityRetained: true,
         chunksPath: "/.chunks",
@@ -193,13 +231,14 @@ function syntheticCell(target, caseId) {
       },
       checkpoint: {
         artifact: `${target}-${caseId}.checkpoint.json`,
-        strictPrefix: sequences.slice(0, 1),
-        heldSuffix: sequences.slice(1),
-        summarySequenceNumber: sequences[0],
-        consumedWatermark: sequences[0],
+        strictPrefix: sequences.slice(0, -1),
+        heldSuffix: sequences.slice(-1),
+        summarySequenceNumber: sequences.at(-2),
+        consumedWatermark: sequences.at(-2),
         chunkStreams: [{
           clientId: `upstream-${target}-${caseId}`,
-          pieceSha256: [physicalMessages[0].chunkPieceSha256],
+          pieceSha256: physicalMessages.slice(0, -1)
+            .map(({ chunkPieceSha256 }) => chunkPieceSha256),
         }],
         prefixEndsBeforeFinalChunk: true,
         processSignal: "SIGKILL",
@@ -211,6 +250,17 @@ function syntheticCell(target, caseId) {
         pendingSettled: true,
         continuedEditing: true,
         restoredTreeSha256: "2".repeat(64),
+        originalPendingRevision: `${target}-pending-revision`,
+        settledRevision: `${target}-pending-revision`,
+        pendingBatchId: `${target}-pending-batch`,
+        acknowledgementBatchId: `${target}-pending-batch`,
+        acknowledgementSequenceNumber: sequences.at(-1) + 4,
+        settledHistoryPoint: {
+          sequenceNumber: sequences.at(-1) + 4,
+          indexInBatch: 0,
+        },
+        liveSettlementEvents: 0,
+        continuationRevision: `${target}-continuation-revision`,
       },
     },
   };
@@ -401,6 +451,7 @@ test("rejects contradictory delivery, history, reconnect, summary, and checkpoin
       cell.evidence.deliveredSequences.delivered = [];
       cell.evidence.deliveredSequences.held =
         cell.evidence.physicalMessages.map(({ sequenceNumber }) => sequenceNumber);
+      cell.evidence.deliveredSequences.complete = false;
     }, /complete|delivered|held/i],
     ["default-chunked", (cell) => {
       cell.evidence.deliveredSequences.delivered.push(
@@ -413,6 +464,12 @@ test("rejects contradictory delivery, history, reconnect, summary, and checkpoin
     ["history-catchup", (cell) => {
       cell.evidence.history.requests[0].responseEnvelopes = [];
     }, /response|sequence/i],
+    ["history-catchup", (cell) => {
+      cell.evidence.history.requestedFrom = 1;
+      cell.evidence.history.requestedTo = 2;
+      cell.evidence.history.requests[0].path =
+        "/deltas/fluid/document?from=1&to=2";
+    }, /bounds|range|response|compressed/i],
     ["reconnect-pending", (cell) => {
       cell.evidence.reconnect.caughtUpThrough =
         cell.evidence.physicalMessages[0].sequenceNumber;
@@ -423,6 +480,9 @@ test("rejects contradictory delivery, history, reconnect, summary, and checkpoin
     ["summary-continuation", (cell) => {
       cell.evidence.summary.publishedChunkStreams[0].pieceSha256 = ["0".repeat(64)];
     }, /published|piece|prefix/i],
+    ["summary-continuation", (cell) => {
+      cell.evidence.summary.nativeHandle = "not-the-published-snapshot";
+    }, /handle|version|snapshot/i],
     ["checkpoint-partial", (cell) => {
       cell.evidence.checkpoint.summarySequenceNumber =
         cell.evidence.checkpoint.strictPrefix[0] - 1;
@@ -436,5 +496,52 @@ test("rejects contradictory delivery, history, reconnect, summary, and checkpoin
     assert.throws(() => validateCompressionFixtureResults(
       results, validatorRunId, validatorProfileDigest,
     ), pattern);
+  }
+});
+
+test("derives logical completion from exact native history and every held prefix", () => {
+  const mutations = [
+    (cell) => {
+      cell.evidence.logicalBatch.baselineHistory[0].sequenceNumber =
+        cell.evidence.physicalMessages[0].sequenceNumber;
+    },
+    (cell) => {
+      cell.evidence.logicalBatch.newPeerHistory[0].sequenceNumber =
+        cell.evidence.physicalMessages.at(-1).sequenceNumber - 1;
+    },
+    (cell) => {
+      cell.evidence.logicalBatch.prefixObservations = [];
+    },
+    (cell) => {
+      cell.evidence.logicalBatch.prefixObservations[0].compressorSha256 =
+        "9".repeat(64);
+    },
+  ];
+  for (const mutate of mutations) {
+    const results = syntheticCompleteResults();
+    const cell = results.find(({ target, caseId }) =>
+      target === "javascript" && caseId === "default-chunked");
+    mutate(cell);
+    assert.throws(() => validateCompressionFixtureResults(
+      results, validatorRunId, validatorProfileDigest,
+    ), /history|prefix|final|compressor|allocation|baseline/i);
+  }
+});
+
+test("checkpoint settlement keeps the saved pending identity separate from continuation", () => {
+  for (const mutate of [
+    (checkpoint) => checkpoint.settledRevision = "continuation-revision",
+    (checkpoint) => checkpoint.acknowledgementBatchId = "different-batch",
+    (checkpoint) => checkpoint.settledHistoryPoint.sequenceNumber -= 1,
+    (checkpoint) => checkpoint.continuationRevision =
+      checkpoint.originalPendingRevision,
+  ]) {
+    const results = syntheticCompleteResults();
+    const cell = results.find(({ target, caseId }) =>
+      target === "javascript" && caseId === "checkpoint-partial");
+    mutate(cell.evidence.checkpoint);
+    assert.throws(() => validateCompressionFixtureResults(
+      results, validatorRunId, validatorProfileDigest,
+    ), /pending|revision|batch|acknowledgement|history|continuation/i);
   }
 });
