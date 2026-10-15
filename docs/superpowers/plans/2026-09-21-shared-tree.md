@@ -24,6 +24,12 @@ service.
 
 ## Current roadmap
 
+The [client compatibility matrix](../../shared-tree-client-compatibility.md)
+is the current pinned upstream API inventory and gaps report. It separates
+client collaboration blockers from local API differences and missing proof.
+Milestone completion below applies to the published supported profile, not
+unrestricted SharedTree parity; dated acceptance records remain historical.
+
 The initial reconciliation compared the implementation at `dad2b680` with the
 eight SharedTree plans, committed profile/corpus, recipes, and workflow
 definitions. The M5 continuation started at `8194fbc5` and ran the local gates
@@ -2695,6 +2701,7 @@ new scope needs its own approved design and interoperability proof.
 
 | Remaining area | Prerequisite | Required work or proof |
 | --- | --- | --- |
+| Full pinned client-surface gaps | [Client compatibility matrix](../../shared-tree-client-compatibility.md) | Use its prioritized gaps and per-capability proof requirements; do not infer API coverage from completed milestone labels alone. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
 | Future container lifecycle extensions | Accepted default/declared-layout creation, live attachment, and native alias claims | Arbitrary factories/layouts, blob/cross-container handles, and production authentication need separate contracts and upstream/native loading proof. |

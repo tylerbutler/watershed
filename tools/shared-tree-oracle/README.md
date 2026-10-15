@@ -8,6 +8,16 @@ continuation by fresh clients.
 The `client:interop` gate uses the public SharedTree facades of both native
 targets with a byte-transparent, per-client TCP gate to exercise reconnect.
 
+The [client compatibility matrix](../../docs/shared-tree-client-compatibility.md)
+inventories the full pinned upstream surface and distinguishes implementation,
+proof, and collaboration impact. The generated profile's feature arrays remain
+the frozen interoperability contract, not a complete API inventory. Broad
+labels such as `pending-state-disk-recovery` and
+`richer-typed-handle-consumers` do not negate the accepted pending-tree
+checkpoint and typed-facade slices; the matrix records their exact boundaries.
+Gate source and workflow definitions describe reproducible checks, while dated
+acceptance records establish which checks actually ran.
+
 The public collaboration test uses an in-memory service. The source capture uses
 upstream's deterministic DDS test runtimes. Container fixtures use complete
 upstream containers on the local upstream service, with the same runtime

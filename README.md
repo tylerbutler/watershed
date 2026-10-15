@@ -98,6 +98,10 @@ loads and continues editing across object, map, and schema-evolution summary
 matrices. This claim applies to the declared profile, not arbitrary Fluid
 documents, services, or package versions.
 
+The [client compatibility matrix](docs/shared-tree-client-compatibility.md)
+compares the full pinned SharedTree API surface with both native targets,
+separating collaboration blockers, local API differences, and missing proof.
+
 Identifier fields contain ordinary strings. Omit an Identifier when you insert
 a new object and the document compressor generates one; provide a string when
 you need an external ID. Reads return that string unchanged. An attached
@@ -945,16 +949,22 @@ are not part of pending-tree checkpoints: settle them before capture.
 
 ### Limits
 
+See the [client compatibility matrix](docs/shared-tree-client-compatibility.md)
+for the upstream API inventory, evidence, and prioritized gaps.
+
 Native writers produce full summaries, not incremental summaries. Memory use
 depends on attached and retained detached content, pending edits, and the
 collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
-Map-wide clear, array schema evolution, staged upgrades,
+Native map-wide clear, array schema evolution, staged upgrades,
 unknown-field adapters, data migration, shared or persisted branching,
 persisted undo stacks, and incremental summaries remain deferred. Transaction,
 undo/redo, handle-valued leaves, and runtime-local branch support are limited as
 described above.
+The missing clear helper does not establish a distinct incompatible wire
+operation: upstream composes transactional per-key deletes, but that exact
+upstream scenario does not yet have dedicated interoperability proof.
 The compatibility claim also excludes additional upstream package versions.
 Default and declared-layout creation and the live attachment graph are available.
 Arbitrary container layouts, automatic application history management, and
