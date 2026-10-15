@@ -106,7 +106,9 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
       errors: [],
     )
   // docs:snippet-start item-counter-watershed-create
+  // Select create or load from the URL document ID, as loadFluidData does.
   case document_id {
+    // Create with the schema and empty root. No separate attach is needed.
     "" -> #(
       model,
       tree.create_dev(
@@ -152,6 +154,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case message {
     // docs:snippet-start item-counter-watershed-open
     Created(Ok(document_id)) -> {
+      // Keep the new ID in the URL, as the container.attach result is kept.
       replace_document(document_id)
       #(
         Model(..model, phase: Connecting, document_id: document_id),
@@ -173,6 +176,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       case model.document {
         Some(document) -> #(
           model,
+          // Open the view, as viewWith does. Creation initialized the root.
           tree.open(document, document_schema.declaration(), Opened),
         )
         None -> fail(model, "Connection completed without a document handle")
@@ -183,14 +187,17 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Opened(Ok(shared_tree)) -> #(
       Model(..model, tree: Some(shared_tree)),
       effect.batch([
+        // Register for changes, as Tree.on does, and read the initial count.
         tree.subscribe(shared_tree, Subscribed, Changed),
         tree.read_root(shared_tree, Read),
       ]),
     )
     Subscribed(subscription) -> #(
+      // Keep the token for unsubscribe when the view closes.
       Model(..model, subscription: Some(subscription)),
       effect.none(),
     )
+    // Refresh the snapshot on each tree event, as nodeChanged refreshes length.
     Changed(_) ->
       case model.tree {
         Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
@@ -199,6 +206,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Read(Error(detail)) -> fail(model, typed_error(detail))
     Read(Ok(None)) -> fail(model, "SharedTree root is absent")
     Read(Ok(Some(value))) ->
+      // Check the array shape, then derive the count as props.list.length does.
       case counter.decode(value) {
         Ok(values) -> #(
           Model(..model, phase: Ready, count: list.length(values)),
@@ -246,6 +254,7 @@ fn apply(
   shared_tree: watershed.SharedTree(document_schema.Counter, types.TreeValue),
   action: counter.Action,
 ) -> Result(Nil, typed.Error) {
+  // Read the current root before preparing the insertNew or removeFirst edit.
   use root <- result.try(watershed.tree_read_root(shared_tree))
   use value <- result.try(option.to_result(
     root,
@@ -255,7 +264,9 @@ fn apply(
     counter.prepare(value, action) |> result.map_error(typed.DecodeFailed),
   )
   case edit {
+    // Removing from an empty array makes no change.
     None -> Ok(Nil)
+    // Submit the prepared edit through the native SharedTree facade.
     Some(edit) -> {
       use root <- result.try(watershed.tree_root(shared_tree))
       use node <- result.try(option.to_result(
@@ -274,6 +285,7 @@ fn apply(
             document_schema.item_builder(),
             [value],
           )
+        // Removal uses a half-open range: [0, 1) removes the first item.
         types.ArrayRemove([], start, end) ->
           watershed.tree_array_remove(array, start, end)
         _ ->

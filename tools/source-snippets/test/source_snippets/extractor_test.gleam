@@ -107,6 +107,27 @@ pub fn extract_dedents_relative_indentation_test() {
   |> should.equal(MarkerRange(name: "rel", code: "outer\n  inner"))
 }
 
+pub fn extract_dedents_tabs_and_preserves_relative_indentation_test() {
+  "// docs:snippet-start tabs\n\touter {\n\t\tinner\n\t}\n// docs:snippet-end tabs"
+  |> extract("test.ts", "tabs")
+  |> should.be_ok
+  |> should.equal(MarkerRange(name: "tabs", code: "outer {\n\tinner\n}"))
+}
+
+pub fn extract_dedents_mixed_whitespace_and_ignores_blank_lines_test() {
+  "// docs:snippet-start mixed\n \touter {\n \t  inner\n \t\n \t}\n// docs:snippet-end mixed"
+  |> extract("test.ts", "mixed")
+  |> should.be_ok
+  |> should.equal(MarkerRange(name: "mixed", code: "outer {\n  inner\n\n}"))
+}
+
+pub fn extract_keeps_indentation_when_a_line_is_unindented_test() {
+  "// docs:snippet-start top\nouter {\n\tinner\n}\n// docs:snippet-end top"
+  |> extract("test.ts", "top")
+  |> should.be_ok
+  |> should.equal(MarkerRange(name: "top", code: "outer {\n\tinner\n}"))
+}
+
 // ---------------------------------------------------------------------------
 // extract — error cases
 // ---------------------------------------------------------------------------

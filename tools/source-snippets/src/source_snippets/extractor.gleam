@@ -237,13 +237,14 @@ fn check_range(
   })
 }
 
-fn count_leading_spaces(s: String) -> Int {
-  do_count_leading_spaces(string.to_graphemes(s), 0)
+fn count_leading_whitespace(s: String) -> Int {
+  do_count_leading_whitespace(string.to_graphemes(s), 0)
 }
 
-fn do_count_leading_spaces(chars: List(String), count: Int) -> Int {
+fn do_count_leading_whitespace(chars: List(String), count: Int) -> Int {
   case chars {
-    [" ", ..rest] -> do_count_leading_spaces(rest, count + 1)
+    [" ", ..rest] | ["\t", ..rest] ->
+      do_count_leading_whitespace(rest, count + 1)
     _ -> count
   }
 }
@@ -253,7 +254,7 @@ fn dedent(lines: List(String)) -> String {
   let indent = case non_blank {
     [] -> 0
     _ -> {
-      let indents = list.map(non_blank, count_leading_spaces)
+      let indents = list.map(non_blank, count_leading_whitespace)
       case indents {
         [] -> 0
         [first, ..rest] -> list.fold(rest, first, int.min)

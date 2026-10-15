@@ -18,13 +18,17 @@ pub fn decode(value: types.TreeValue) -> Result(List(String), String) {
 }
 
 // docs:snippet-start item-counter-watershed-edits
+// Prepare the edits that StringArray.insertNew and removeFirst apply directly.
 pub fn prepare(
   value: types.TreeValue,
   action: Action,
 ) -> Result(Option(types.Edit), String) {
+  // Check the snapshot before preparing an edit. [] addresses the root.
   use values <- result.try(decode(value))
   case action, values {
+    // Equivalent to insertAtStart("").
     Insert, _ -> Ok(Some(types.ArrayInsert([], 0, [types.StringValue("")])))
+    // Equivalent to the length guard followed by removeAt(0).
     Remove, [] -> Ok(None)
     Remove, [_, ..] -> Ok(Some(types.ArrayRemove([], 0, 1)))
   }

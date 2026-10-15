@@ -168,7 +168,9 @@ and another quotes part of it, split the block into adjacent ranges and let
 the wider snippet list them in order.
 
 Both marker lines are stripped from the extracted code. Leading whitespace
-is dedented uniformly. Trailing blank lines before the end marker are removed.
+is dedented uniformly, counting both spaces and tabs and preserving relative
+indentation. Blank lines do not limit dedenting. Trailing blank lines before
+the end marker are removed.
 
 Each marker id must be unique across all scanned files. Every discovered
 marker must be referenced by a snippet (orphan markers are an error). A marker
