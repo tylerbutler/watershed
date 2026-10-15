@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { decompress } from "./node_modules/lz4js/lz4.js";
 
 import {
   compressionSourceIdentity,
@@ -64,6 +65,30 @@ const negativeCases = [
   "future-schema-reference",
   "invalid-schema-reference",
 ];
+const upstreamObservedCases = negativeCases.slice(0, 6);
+const nonemptyCases = [
+  "plain-singleton",
+  "plain-group",
+  "default-compressed-singleton",
+  "default-compressed-group",
+  "default-chunked-group",
+  "interleaved-senders",
+  "empty-final-chunk",
+  "empty-group",
+  "id-allocation-before-tree-use",
+  "handle-valued-edits",
+  "partial-summary-prefix-tail",
+  "schema-activation",
+  "stale-competing-proposals",
+  "post-activation-compressed-operation",
+];
+const directCompressedCases = [
+  "default-compressed-singleton",
+  "default-compressed-group",
+  "id-allocation-before-tree-use",
+  "handle-valued-edits",
+  "post-activation-compressed-operation",
+];
 
 function fail(message) {
   throw new Error(`Invalid compression capture: ${message}`);
@@ -109,6 +134,66 @@ function decodedBase64Length(value, name) {
   return bytes.byteLength;
 }
 
+function lz4Frame(value, name) {
+  string(value, name);
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) fail(`${name} is not canonical base64`);
+  if (bytes.byteLength < 11
+    || bytes[0] !== 0x04
+    || bytes[1] !== 0x22
+    || bytes[2] !== 0x4d
+    || bytes[3] !== 0x18) {
+    fail(`${name} is not an LZ4 frame`);
+  }
+  const flagByte = bytes[4];
+  const blockDescriptorByte = bytes[5];
+  let offset = 7;
+  let blockCount = 0;
+  let hasUncompressedBlock = false;
+  while (offset + 4 <= bytes.byteLength) {
+    const size = bytes.readUInt32LE(offset);
+    offset += 4;
+    if (size === 0) break;
+    const blockSize = size & 0x7fffffff;
+    if (offset + blockSize > bytes.byteLength) fail(`${name} has a truncated LZ4 block`);
+    blockCount += 1;
+    hasUncompressedBlock ||= (size & 0x80000000) !== 0;
+    offset += blockSize;
+  }
+  if (offset !== bytes.byteLength) fail(`${name} has trailing or incomplete LZ4 frame bytes`);
+  let decoded;
+  try {
+    decoded = Buffer.from(decompress(bytes));
+  } catch {
+    fail(`${name} cannot be decompressed as an LZ4 frame`);
+  }
+  return {
+    decoded,
+    flags: {
+      flagByte,
+      blockDescriptorByte,
+      version: flagByte >>> 6,
+      blockIndependence: (flagByte & 0x20) !== 0,
+      blockChecksum: (flagByte & 0x10) !== 0,
+      contentSize: (flagByte & 0x08) !== 0,
+      contentChecksum: (flagByte & 0x04) !== 0,
+      dictionaryId: (flagByte & 0x01) !== 0,
+      maxBlockCode: blockDescriptorByte >>> 4,
+      blockCount,
+      hasUncompressedBlock,
+    },
+  };
+}
+
+function directCompressedBytes(entry) {
+  const messages = array(entry.messages, `${entry.id}.messages`);
+  if (messages.length !== 1) fail(`${entry.id} must contain one compressed envelope`);
+  const contents = object(messages[0], `${entry.id} message`).contents;
+  const envelope = object(contents, `${entry.id} compressed contents`);
+  const packed = string(envelope.packedContents, `${entry.id}.packedContents`);
+  return lz4Frame(packed, `${entry.id}.packedContents`).decoded.byteLength;
+}
+
 function observedChunkCount(entry) {
   return array(entry.messages, `${entry.id}.messages`).filter((message) => {
     const contents = object(message, `${entry.id} message`).contents;
@@ -132,7 +217,9 @@ export function validateCompressionCapture(value) {
 
   const probe = object(capture.probe, "probe");
   if (probe.path !== compressionSourceIdentity.path
-    || probe.digest !== compressionSourceIdentity.digest) {
+    || probe.digest !== compressionSourceIdentity.digest
+    || probe.treePath !== compressionSourceIdentity.treePath
+    || probe.treeDigest !== compressionSourceIdentity.treeDigest) {
     fail("probe source identity does not match the owned injection");
   }
   const bootstrap = object(probe.bootstrapSnapshot, "bootstrap snapshot");
@@ -144,6 +231,11 @@ export function validateCompressionCapture(value) {
   const rootBlobs = object(bootstrap.rootBlobs, "bootstrap snapshot root blobs");
   if (rootBlobs[".metadata"] === undefined || rootBlobs[".chunks"] === undefined) {
     fail("bootstrap snapshot must contain /.metadata and /.chunks observations");
+  }
+  const metadataBlob = object(rootBlobs[".metadata"], "bootstrap metadata blob");
+  object(metadataBlob.documentSchema, "bootstrap metadata document schema");
+  if (!Array.isArray(rootBlobs[".chunks"]) || rootBlobs[".chunks"].length === 0) {
+    fail("bootstrap chunks blob must contain a partial stream observation");
   }
   const activation = object(probe.schemaActivation, "schema activation");
   if (activation.accepted !== true
@@ -176,14 +268,23 @@ export function validateCompressionCapture(value) {
     if (!frames.has(id)) fail(`required frame ${id} is missing`);
   }
   for (const [id, frame] of frames) {
-    decodedBase64Length(frame.compressedBase64, `${id}.compressedBase64`);
+    const inspected = lz4Frame(frame.compressedBase64, `${id}.compressedBase64`);
     const decodedLength = decodedBase64Length(frame.decodedBase64, `${id}.decodedBase64`);
+    const decoded = Buffer.from(frame.decodedBase64, "base64");
+    if (!inspected.decoded.equals(decoded)) {
+      fail(`${id} LZ4 frame does not decode to its recorded bytes`);
+    }
     const measurements = object(frame.measurements, `${id}.measurements`);
+    if (measurements.compressedBytes !== Buffer.from(frame.compressedBase64, "base64").byteLength) {
+      fail(`${id} compressed byte measurement does not match its vector`);
+    }
     if (measurements.decodedBytes !== decodedLength) {
       fail(`${id} decoded byte measurement does not match its vector`);
     }
     const flags = object(frame.flags, `${id}.flags`);
-    integer(flags.blockCount, `${id}.flags.blockCount`);
+    for (const [field, expected] of Object.entries(inspected.flags)) {
+      if (flags[field] !== expected) fail(`${id}.flags.${field} does not match its frame`);
+    }
   }
   if (object(frames.get("benchmark-1mib").measurements, "benchmark-1mib measurements")
     .decodedBytes !== 1024 * 1024) {
@@ -207,8 +308,10 @@ export function validateCompressionCapture(value) {
     if (!cases.has(id)) fail(`required case ${id} is missing`);
   }
   for (const [id, entry] of cases) {
-    array(entry.messages, `${id}.messages`);
-    array(entry.expected, `${id}.expected`);
+    const messages = array(entry.messages, `${id}.messages`);
+    messages.forEach((message) => object(message, `${id} message`));
+    const expected = array(entry.expected, `${id}.expected`);
+    expected.forEach((result) => object(result, `${id} expected result`));
     const measurements = object(entry.measurements, `${id}.measurements`);
     for (const field of ["sourceBytes", "packedBytes", "decodedBytes", "chunkCount"]) {
       integer(measurements[field], `${id}.${field}`);
@@ -218,8 +321,30 @@ export function validateCompressionCapture(value) {
       fail(`${id} measured chunk count ${measurements.chunkCount} does not match ${actualChunks}`);
     }
   }
+  for (const id of nonemptyCases) {
+    const entry = cases.get(id);
+    if (entry.messages.length === 0 || entry.expected.length === 0) {
+      fail(`${id} must contain messages and expected output`);
+    }
+  }
   for (const id of negativeCases) {
     string(cases.get(id).expectedNativeError, `${id}.expectedNativeError`);
+  }
+  for (const id of upstreamObservedCases) {
+    const observation = object(cases.get(id).upstreamObservation, `${id}.upstreamObservation`);
+    if (observation.status === "accepted") {
+      array(observation.result, `${id}.upstreamObservation.result`);
+    } else if (observation.status === "rejected") {
+      string(observation.error, `${id}.upstreamObservation.error`);
+    } else {
+      fail(`${id}.upstreamObservation must record accepted or rejected status`);
+    }
+  }
+  for (const id of directCompressedCases) {
+    const entry = cases.get(id);
+    if (entry.measurements.decodedBytes !== directCompressedBytes(entry)) {
+      fail(`${id} decoded byte measurement does not match its compressed frame`);
+    }
   }
   if (cases.get("default-chunked-group").measurements.chunkCount < 2) {
     fail("default-chunked-group must contain multiple measured chunks");
@@ -232,6 +357,47 @@ export function validateCompressionCapture(value) {
   if (!Array.isArray(cases.get("partial-summary-prefix-tail").partialSummary)
     || cases.get("partial-summary-prefix-tail").partialSummary.length === 0) {
     fail("partial-summary-prefix-tail must carry a real partial summary");
+  }
+  const allocationMessages = cases.get("id-allocation-before-tree-use").expected
+    .flatMap((result) => array(result.messages, "allocation expected messages"));
+  if (allocationMessages.length !== 2
+    || allocationMessages[0].type !== "idAllocation"
+    || allocationMessages[1].type !== "component") {
+    fail("id-allocation-before-tree-use must normalize allocation before tree operation");
+  }
+  const range = object(allocationMessages[0].contents, "allocation range");
+  string(range.sessionId, "allocation range sessionId");
+  const ids = object(range.ids, "allocation range ids");
+  if (!Number.isInteger(ids.firstGenCount) || ids.firstGenCount < 1
+    || !Number.isInteger(ids.count) || ids.count < 1
+    || !Number.isInteger(ids.requestedClusterSize) || ids.requestedClusterSize < 1
+    || !Array.isArray(ids.localIdRanges)) {
+    fail("allocation range must be a valid IdCreationRange");
+  }
+  const componentContents = object(
+    object(allocationMessages[1].contents, "tree component contents").contents,
+    "tree channel envelope",
+  );
+  const treeOperation = object(
+    object(componentContents.content, "tree channel content").contents,
+    "tree operation",
+  );
+  string(treeOperation.originatorId, "tree operation originatorId");
+  if (!Array.isArray(treeOperation.changeset) || treeOperation.changeset.length === 0) {
+    fail("tree operation must contain real SharedTree changes");
+  }
+  const schemaCase = cases.get("schema-activation");
+  const operationCase = cases.get("post-activation-compressed-operation");
+  const association = object(operationCase.activation, "post-activation association");
+  const schemaMessage = object(schemaCase.messages[0], "schema activation message");
+  const schemaSummary = object(schemaCase.expected[0], "schema activation result");
+  const operationMessage = object(operationCase.messages[0], "post-activation message");
+  if (association.caseId !== schemaCase.id
+    || association.sequenceNumber !== schemaMessage.sequenceNumber
+    || association.schemaRefSeq !== schemaSummary.refSeq
+    || operationMessage.sequenceNumber <= association.sequenceNumber
+    || operationMessage.referenceSequenceNumber < association.schemaRefSeq) {
+    fail("post-activation operation must continue the accepted schema activation");
   }
   return value;
 }
@@ -273,6 +439,8 @@ async function generatedFiles() {
     probe: {
       path: capture.probe.path,
       sha256: capture.probe.digest,
+      treePath: capture.probe.treePath,
+      treeSha256: capture.probe.treeDigest,
     },
     legacyProfile: {
       path: "profile.json",

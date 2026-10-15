@@ -258,6 +258,7 @@ test("source runner registers the pinned lifecycle injection identity", () => {
 });
 
 test("source runner registers the pinned compression injection identity", () => {
+  const compressionTreeInjectedTestPath = source.compressionTreeInjectedTestPath;
   assert.equal(
     compressionInjectedTestPath,
     "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
@@ -267,8 +268,15 @@ test("source runner registers the pinned compression injection identity", () => 
     version: "3.1.0",
     commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
     digest: compressionSourceIdentity.digest,
+    treePath: compressionTreeInjectedTestPath,
+    treeDigest: compressionSourceIdentity.treeDigest,
   });
   assert.match(compressionSourceIdentity.digest, /^[0-9a-f]{64}$/);
+  assert.equal(
+    compressionTreeInjectedTestPath,
+    "packages/dds/tree/src/test/watershedCompressionTree.spec.ts",
+  );
+  assert.match(compressionSourceIdentity.treeDigest, /^[0-9a-f]{64}$/);
   assert.equal(typeof source.runCompressionSource, "function");
 });
 

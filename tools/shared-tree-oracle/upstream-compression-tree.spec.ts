@@ -1,0 +1,95 @@
+import { strict as assert } from "node:assert";
+import { mkdir, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+
+import {
+	createIdCompressor,
+} from "@fluidframework/id-compressor/internal";
+import type { ISequencedDocumentMessage } from "@fluidframework/driver-definitions/internal";
+import {
+	MockFluidDataStoreRuntime,
+	MockStorage,
+} from "@fluidframework/test-runtime-utils/internal";
+
+import { FluidClientVersion } from "../codec/index.js";
+import {
+	SchemaFactory,
+	TreeViewConfiguration,
+} from "../simple-tree/index.js";
+import { configuredSharedTreeInternal } from "../treeFactory.js";
+import {
+	MockContainerRuntimeFactoryWithOpBunching,
+	type MockContainerRuntimeWithOpBunching,
+} from "./mocksForOpBunching.js";
+import { assertIsSessionId } from "./utils.js";
+
+const expectedCommit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960";
+const sf = new SchemaFactory("org.watershed.shared-tree.compression");
+class Root extends sf.object("Root", {
+	id: sf.identifier,
+	label: sf.string,
+}) {}
+
+function copy<T>(value: T): T {
+	return JSON.parse(JSON.stringify(value));
+}
+
+describe("Watershed compression tree source capture", () => {
+	it("captures a real tree edit with its ID allocation", async () => {
+		assert.equal(process.env.WATERSHED_ORACLE_COMMIT, expectedCommit);
+		const output = process.env.WATERSHED_COMPRESSION_TREE_OUTPUT;
+		assert(output !== undefined && isAbsolute(output));
+
+		const compressor = createIdCompressor(
+			assertIsSessionId("10000000-0000-4000-8000-000000000001"),
+		);
+		const runtime = new MockFluidDataStoreRuntime({
+			clientId: "compression-tree-client",
+			id: "compression-tree-store",
+			idCompressor: compressor,
+		});
+		const factory = configuredSharedTreeInternal({
+			minVersionForCollab: FluidClientVersion.v2_117,
+		}).getFactory();
+		const tree = factory.create(runtime, "compression-tree") as ReturnType<typeof factory.create>;
+		const runtimeFactory = new MockContainerRuntimeFactoryWithOpBunching();
+		const containerRuntime: MockContainerRuntimeWithOpBunching =
+			runtimeFactory.createContainerRuntime(runtime);
+		tree.connect({
+			deltaConnection: runtime.createDeltaConnection(),
+			objectStorage: new MockStorage(),
+		});
+		Reflect.set(tree, "containerRuntime", containerRuntime);
+
+		const processed: ISequencedDocumentMessage[] = [];
+		const originalProcess = containerRuntime.process.bind(containerRuntime);
+		containerRuntime.process = (message) => {
+			processed.push(copy(message));
+			originalProcess(message);
+		};
+		const originalProcessMessages = containerRuntime.processMessages.bind(containerRuntime);
+		containerRuntime.processMessages = (messages) => {
+			processed.push(...copy(messages));
+			originalProcessMessages(messages);
+		};
+
+		const view = tree.viewWith(new TreeViewConfiguration({ schema: Root }));
+		view.initialize({ label: "allocation-before-tree-use" });
+		runtimeFactory.processAllMessages();
+
+		const allocation = processed.find((message) =>
+			(message.contents as { type?: string } | null)?.type === "idAllocation");
+		const operation = processed.find((message) =>
+			Array.isArray((message.contents as { changeset?: unknown } | null)?.changeset));
+		assert(allocation !== undefined, "Expected an ID allocation message");
+		assert(operation !== undefined, "Expected a SharedTree operation");
+
+		await mkdir(output, { recursive: true });
+		await writeFile(join(output, "compression-tree.json"), `${JSON.stringify({
+			allocation: allocation.contents,
+			operation: operation.contents,
+			dataStoreAddress: runtime.id,
+			channelAddress: tree.id,
+		}, null, 2)}\n`);
+	});
+});

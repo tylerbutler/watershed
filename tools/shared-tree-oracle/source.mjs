@@ -26,6 +26,7 @@ const undoRedoSource = join(directory, "upstream-undo-redo.spec.ts");
 const branchSource = join(directory, "upstream-branch.spec.ts");
 const lifecycleSource = join(directory, "upstream-lifecycle.spec.ts");
 const compressionSource = join(directory, "upstream-compression.spec.ts");
+const compressionTreeSource = join(directory, "upstream-compression-tree.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -71,6 +72,8 @@ export const lifecycleInjectedTestPath =
   "packages/dds/tree/src/test/watershedLifecycle.spec.ts";
 export const compressionInjectedTestPath =
   "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts";
+export const compressionTreeInjectedTestPath =
+  "packages/dds/tree/src/test/watershedCompressionTree.spec.ts";
 export const branchSourceIdentity = {
   path: branchInjectedTestPath,
   version: reference.version,
@@ -88,6 +91,8 @@ export const compressionSourceIdentity = {
   version: reference.version,
   commit: reference.commit,
   digest: createHash("sha256").update(await readFile(compressionSource)).digest("hex"),
+  treePath: compressionTreeInjectedTestPath,
+  treeDigest: createHash("sha256").update(await readFile(compressionTreeSource)).digest("hex"),
 };
 const injections = new Map([
   [injectedTestPath, oracleSource],
@@ -108,6 +113,7 @@ const injections = new Map([
   [branchInjectedTestPath, branchSource],
   [lifecycleInjectedTestPath, lifecycleSource],
   [compressionInjectedTestPath, compressionSource],
+  [compressionTreeInjectedTestPath, compressionTreeSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -372,10 +378,22 @@ export async function runLifecycleSource(output) {
 export async function runCompressionSource(output) {
   await verifyPackages();
   await injectSource();
+  const tree = join(checkout, "packages/dds/tree");
+  await pnpm(["run", "build:compile"], tree);
+  await pnpm(["run", "build:test:esm"], tree);
+  await mkdir(output, { recursive: true });
+  await pnpm([
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "lib/test/watershedCompressionTree.spec.js",
+  ], tree, {
+    ...process.env,
+    WATERSHED_COMPRESSION_TREE_OUTPUT: resolve(output),
+    WATERSHED_ORACLE_COMMIT: reference.commit,
+  }, 90_000);
   const runtime = join(checkout, "packages/runtime/container-runtime");
   await pnpm(["run", "build:compile"], runtime);
   await pnpm(["run", "build:test:esm"], runtime);
-  await mkdir(output, { recursive: true });
   await pnpm([
     "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
     "--node-option", "conditions=allow-ff-test-exports",
@@ -383,8 +401,10 @@ export async function runCompressionSource(output) {
   ], runtime, {
     ...process.env,
     WATERSHED_COMPRESSION_OUTPUT: resolve(output),
+    WATERSHED_COMPRESSION_TREE_INPUT: resolve(output, "compression-tree.json"),
     WATERSHED_ORACLE_COMMIT: reference.commit,
     WATERSHED_COMPRESSION_DIGEST: compressionSourceIdentity.digest,
+    WATERSHED_COMPRESSION_TREE_DIGEST: compressionSourceIdentity.treeDigest,
   }, 90_000);
   await verifyCheckout();
 }

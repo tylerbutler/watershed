@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { IBatchMessage } from "@fluidframework/container-definitions/internal";
@@ -12,7 +12,7 @@ import {
 	createMockLoggerExt,
 	MockLogger,
 } from "@fluidframework/telemetry-utils/internal";
-import { compress } from "lz4js";
+import { compress, decompress } from "lz4js";
 
 import { enabledCompressionConfig } from "../compressionDefinitions.js";
 import { ContainerMessageType } from "../messageTypes.js";
@@ -57,11 +57,18 @@ function base64(bytes: Uint8Array): string {
 }
 
 function runtimeMessage(id: string, value: unknown): OutboundBatchMessage {
+	return outboundRuntimeMessage(ContainerMessageType.FluidDataStoreOp, {
+		address: "A",
+		contents: { id, value },
+	});
+}
+
+function outboundRuntimeMessage(type: ContainerMessageType, contents: unknown): OutboundBatchMessage {
 	return {
 		referenceSequenceNumber: 7,
 		contents: JSON.stringify({
-			type: ContainerMessageType.FluidDataStoreOp,
-			contents: { address: "A", contents: { id, value } },
+			type,
+			contents,
 		}),
 	};
 }
@@ -90,6 +97,7 @@ function sequenced(
 	message: IBatchMessage,
 	clientId: string,
 	sequenceNumber: number,
+	referenceSequenceNumber = 7,
 ): ISequencedDocumentMessage {
 	const result = {
 		type: MessageType.Operation,
@@ -97,7 +105,7 @@ function sequenced(
 		sequenceNumber,
 		minimumSequenceNumber: 0,
 		clientSequenceNumber: sequenceNumber,
-		referenceSequenceNumber: 7,
+		referenceSequenceNumber,
 		timestamp: 1_700_000_000_000 + sequenceNumber,
 		contents: message.contents,
 		metadata: message.metadata,
@@ -175,22 +183,57 @@ function splitBatch(
 	return [...leading, ...trailing.messages];
 }
 
-function physical(messages: IBatchMessage[], clientId = "writer-a", firstSequence = 1) {
-	return messages.map((message, index) => sequenced(message, clientId, firstSequence + index));
+function physical(
+	messages: IBatchMessage[],
+	clientId = "writer-a",
+	firstSequence = 1,
+	referenceSequenceNumber = 7,
+) {
+	return messages.map((message, index) =>
+		sequenced(message, clientId, firstSequence + index, referenceSequenceNumber));
 }
 
-function measurements(
-	input: OutboundBatch,
-	output: IBatchMessage[],
-	decodedBytes?: number,
-): JsonRecord {
+function decodedOutputBytes(output: IBatchMessage[]): number {
+	let envelope: { packedContents?: string };
+	if (output.some((message) => {
+		const value = JSON.parse(message.contents ?? "null") as { type?: string } | null;
+		return value?.type === ContainerMessageType.ChunkedOp;
+	})) {
+		let decodedBytes = 0;
+		let serialized = "";
+		for (const message of output) {
+			const value = JSON.parse(message.contents ?? "null") as {
+				contents: { chunkId: number; totalChunks: number; contents: string };
+			};
+			if (value.contents.chunkId === 1) serialized = "";
+			serialized += value.contents.contents;
+			if (value.contents.chunkId === value.contents.totalChunks) {
+				envelope = JSON.parse(serialized) as { packedContents?: string };
+				assert(typeof envelope.packedContents === "string");
+				decodedBytes += decompress(Buffer.from(envelope.packedContents, "base64")).byteLength;
+			}
+		}
+		return decodedBytes;
+	} else {
+		envelope = JSON.parse(output[0]?.contents ?? "null") as { packedContents?: string };
+	}
+	if (typeof envelope.packedContents === "string") {
+		return decompress(Buffer.from(envelope.packedContents, "base64")).byteLength;
+	}
+	return output.reduce(
+		(total, message) => total + Buffer.byteLength(message.contents ?? "", "utf8"),
+		0,
+	);
+}
+
+function measurements(input: OutboundBatch, output: IBatchMessage[]): JsonRecord {
 	return {
 		sourceBytes: input.contentSizeInBytes,
 		packedBytes: output.reduce(
 			(total, message) => total + Buffer.byteLength(message.contents ?? "", "utf8"),
 			0,
 		),
-		decodedBytes: decodedBytes ?? input.contentSizeInBytes,
+		decodedBytes: decodedOutputBytes(output),
 		chunkCount: output.filter((message) => {
 			const value = JSON.parse(message.contents ?? "null") as { type?: string } | null;
 			return value?.type === ContainerMessageType.ChunkedOp;
@@ -203,8 +246,10 @@ function captureCase(
 	input: OutboundBatch,
 	output: IBatchMessage[],
 	clientId = "writer-a",
+	firstSequence = 1,
+	referenceSequenceNumber = 7,
 ): JsonRecord {
-	const messages = physical(output, clientId);
+	const messages = physical(output, clientId, firstSequence, referenceSequenceNumber);
 	return {
 		id,
 		messages: messages.map(simplifyMessage),
@@ -390,8 +435,17 @@ describe("Watershed compression source capture", () => {
 	it("captures the pinned compression and chunking contract", async () => {
 		assert.equal(process.env.WATERSHED_ORACLE_COMMIT, expectedCommit);
 		assert.match(process.env.WATERSHED_COMPRESSION_DIGEST ?? "", /^[0-9a-f]{64}$/);
+		assert.match(process.env.WATERSHED_COMPRESSION_TREE_DIGEST ?? "", /^[0-9a-f]{64}$/);
 		const output = process.env.WATERSHED_COMPRESSION_OUTPUT;
 		assert(output !== undefined, "WATERSHED_COMPRESSION_OUTPUT is required");
+		const treeInputPath = process.env.WATERSHED_COMPRESSION_TREE_INPUT;
+		assert(treeInputPath !== undefined, "WATERSHED_COMPRESSION_TREE_INPUT is required");
+		const treeInput = JSON.parse(await readFile(treeInputPath, "utf8")) as {
+			allocation: { type: ContainerMessageType; contents: unknown };
+			operation: unknown;
+			dataStoreAddress: string;
+			channelAddress: string;
+		};
 
 		const plainSingletonInput = batch([runtimeMessage("plain", "singleton")]);
 		const plainGroupInput = batch([
@@ -468,9 +522,20 @@ describe("Watershed compression source capture", () => {
 		).createEmptyGroupedBatch("empty-batch", 7).outboundBatch;
 		cases.push(captureCase("empty-group", empty, empty.messages));
 
+		assert.equal(treeInput.allocation.type, ContainerMessageType.IdAllocation);
+		assert.equal(typeof treeInput.operation, "object");
 		const allocationInput = batch([
-			runtimeMessage("id-allocation", { range: { first: -1, count: 2 } }),
-			runtimeMessage("tree-use", { identifiers: [-1, -2] }),
+			outboundRuntimeMessage(ContainerMessageType.IdAllocation, treeInput.allocation.contents),
+			outboundRuntimeMessage(ContainerMessageType.FluidDataStoreOp, {
+				address: treeInput.dataStoreAddress,
+				contents: {
+					type: "op",
+					content: {
+						address: treeInput.channelAddress,
+						contents: treeInput.operation,
+					},
+				},
+			}),
 		]);
 		cases.push(captureCase(
 			"id-allocation-before-tree-use",
@@ -610,12 +675,20 @@ describe("Watershed compression source capture", () => {
 			measurements: { sourceBytes: 0, packedBytes: 0, decodedBytes: 0, chunkCount: 0 },
 			expectedNativeError: "Schema proposal reference must be an integer",
 		});
-		cases.push(captureCase(
+		const postActivationOperation = captureCase(
 			"post-activation-compressed-operation",
 			groupedInput,
 			compressedGroup.messages,
 			"activated-writer",
-		));
+			11,
+			10,
+		);
+		postActivationOperation.activation = {
+			caseId: "schema-activation",
+			sequenceNumber: 10,
+			schemaRefSeq: (activation.postActivationSummary as IDocumentSchema).refSeq,
+		};
+		cases.push(postActivationOperation);
 
 		const frames = [
 			frame("literal-block", deterministicBytes(8 * 1024, 3)),
@@ -639,6 +712,8 @@ describe("Watershed compression source capture", () => {
 			probe: {
 				path: "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
 				digest: process.env.WATERSHED_COMPRESSION_DIGEST,
+				treePath: "packages/dds/tree/src/test/watershedCompressionTree.spec.ts",
+				treeDigest: process.env.WATERSHED_COMPRESSION_TREE_DIGEST,
 				bootstrapSnapshot: {
 					kind: "container-runtime-root-blob-context",
 					blobEncoding: "utf8-json",

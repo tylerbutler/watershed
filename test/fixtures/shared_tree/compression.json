@@ -98,7 +98,7 @@
       "id": "plain-group",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 182,
+        "decodedBytes": 246,
         "packedBytes": 246,
         "sourceBytes": 182
       },
@@ -174,7 +174,7 @@
       "id": "default-compressed-singleton",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 614531,
+        "decodedBytes": 614533,
         "packedBytes": 3377,
         "sourceBytes": 614531
       },
@@ -238,7 +238,7 @@
       "id": "default-compressed-group",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 640194,
+        "decodedBytes": 640260,
         "packedBytes": 3661,
         "sourceBytes": 640194
       },
@@ -305,7 +305,7 @@
       "id": "default-chunked-group",
       "measurements": {
         "chunkCount": 5,
-        "decodedBytes": 746844,
+        "decodedBytes": 746910,
         "packedBytes": 996395,
         "sourceBytes": 746844
       },
@@ -455,7 +455,7 @@
       "id": "interleaved-senders",
       "measurements": {
         "chunkCount": 30,
-        "decodedBytes": 11014,
+        "decodedBytes": 22032,
         "packedBytes": 31868,
         "sourceBytes": 11014
       },
@@ -1006,7 +1006,7 @@
       "id": "empty-final-chunk",
       "measurements": {
         "chunkCount": 16,
-        "decodedBytes": 11014,
+        "decodedBytes": 11016,
         "packedBytes": 16011,
         "sourceBytes": 11014
       },
@@ -1299,7 +1299,7 @@
       "id": "empty-group",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 0,
+        "decodedBytes": 37,
         "packedBytes": 37,
         "sourceBytes": 0
       },
@@ -1332,36 +1332,233 @@
               "clientId": "writer-a",
               "clientSequenceNumber": 1,
               "contents": {
-                "address": "A",
-                "contents": {
-                  "id": "id-allocation",
-                  "value": {
-                    "range": {
-                      "count": 2,
-                      "first": -1
-                    }
-                  }
-                }
+                "ids": {
+                  "count": 2,
+                  "firstGenCount": 1,
+                  "localIdRanges": [
+                    [
+                      1,
+                      2
+                    ]
+                  ],
+                  "requestedClusterSize": 512
+                },
+                "sessionId": "10000000-0000-4000-8000-000000000001"
               },
               "minimumSequenceNumber": 0,
               "referenceSequenceNumber": 7,
               "sequenceNumber": 1,
               "timestamp": 1700000000001,
-              "type": "component"
+              "type": "idAllocation"
             },
             {
               "clientId": "writer-a",
               "clientSequenceNumber": 2,
               "contents": {
-                "address": "A",
+                "address": "compression-tree-store",
                 "contents": {
-                  "id": "tree-use",
-                  "value": {
-                    "identifiers": [
-                      -1,
-                      -2
-                    ]
-                  }
+                  "content": {
+                    "address": "compression-tree",
+                    "contents": {
+                      "changeset": [
+                        {
+                          "schema": {
+                            "new": {
+                              "nodes": {
+                                "com.fluidframework.leaf.string": {
+                                  "kind": {
+                                    "leaf": 1
+                                  }
+                                },
+                                "org.watershed.shared-tree.compression.Root": {
+                                  "kind": {
+                                    "object": {
+                                      "id": {
+                                        "kind": "Identifier",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      },
+                                      "label": {
+                                        "kind": "Value",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "root": {
+                                "kind": "Optional",
+                                "types": [
+                                  "org.watershed.shared-tree.compression.Root"
+                                ]
+                              },
+                              "version": 2
+                            },
+                            "old": {
+                              "nodes": {},
+                              "root": {
+                                "kind": "Forbidden",
+                                "types": []
+                              },
+                              "version": 2
+                            }
+                          }
+                        },
+                        {
+                          "data": {
+                            "builds": {
+                              "builds": [
+                                [
+                                  [
+                                    [
+                                      1,
+                                      0
+                                    ]
+                                  ]
+                                ]
+                              ],
+                              "trees": {
+                                "data": [
+                                  [
+                                    0,
+                                    -1,
+                                    "allocation-before-tree-use"
+                                  ]
+                                ],
+                                "identifiers": [
+                                  "com.fluidframework.leaf.string"
+                                ],
+                                "shapes": [
+                                  {
+                                    "c": {
+                                      "fields": [
+                                        [
+                                          "id",
+                                          1
+                                        ],
+                                        [
+                                          "label",
+                                          2
+                                        ]
+                                      ],
+                                      "type": "org.watershed.shared-tree.compression.Root",
+                                      "value": false
+                                    }
+                                  },
+                                  {
+                                    "c": {
+                                      "type": 0,
+                                      "value": 0
+                                    }
+                                  },
+                                  {
+                                    "c": {
+                                      "type": 0,
+                                      "value": true
+                                    }
+                                  }
+                                ],
+                                "version": 2
+                              }
+                            },
+                            "changes": [
+                              {
+                                "change": {
+                                  "r": {
+                                    "d": 0,
+                                    "e": true,
+                                    "s": 1
+                                  }
+                                },
+                                "fieldKey": "rootFieldKey",
+                                "fieldKind": "Optional"
+                              }
+                            ],
+                            "maxId": 1
+                          }
+                        },
+                        {
+                          "schema": {
+                            "new": {
+                              "nodes": {
+                                "com.fluidframework.leaf.string": {
+                                  "kind": {
+                                    "leaf": 1
+                                  }
+                                },
+                                "org.watershed.shared-tree.compression.Root": {
+                                  "kind": {
+                                    "object": {
+                                      "id": {
+                                        "kind": "Identifier",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      },
+                                      "label": {
+                                        "kind": "Value",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "root": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.compression.Root"
+                                ]
+                              },
+                              "version": 2
+                            },
+                            "old": {
+                              "nodes": {
+                                "com.fluidframework.leaf.string": {
+                                  "kind": {
+                                    "leaf": 1
+                                  }
+                                },
+                                "org.watershed.shared-tree.compression.Root": {
+                                  "kind": {
+                                    "object": {
+                                      "id": {
+                                        "kind": "Identifier",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      },
+                                      "label": {
+                                        "kind": "Value",
+                                        "types": [
+                                          "com.fluidframework.leaf.string"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "root": {
+                                "kind": "Optional",
+                                "types": [
+                                  "org.watershed.shared-tree.compression.Root"
+                                ]
+                              },
+                              "version": 2
+                            }
+                          }
+                        }
+                      ],
+                      "originatorId": "10000000-0000-4000-8000-000000000001",
+                      "revision": -2,
+                      "version": 7
+                    }
+                  },
+                  "type": "op"
                 }
               },
               "minimumSequenceNumber": 0,
@@ -1377,9 +1574,9 @@
       "id": "id-allocation-before-tree-use",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 230,
-        "packedBytes": 277,
-        "sourceBytes": 230
+        "decodedBytes": 2128,
+        "packedBytes": 1153,
+        "sourceBytes": 2062
       },
       "messages": [
         {
@@ -1387,7 +1584,7 @@
           "clientSequenceNumber": 1,
           "compression": "lz4",
           "contents": {
-            "packedContents": "BCJNGEBw37AAAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgDxE2lkIjoiaWQtYWxsb2NhdGlvbiIsInZhbHVlIjp7InJhbmcJAJBmaXJzdCI6LTGEAHF1bnQiOjJ9AQAfLIgAOYh0cmVlLXVzZYMAoGlkZW50aWZpZXL2AOAtMSwtMl19fX19fV19XQAAAAA="
+            "packedContents": "BCJNGEBw30IDAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAMlpZEFsbG9jYXRpb24vAPIBeyJzZXNzaW9uSWQiOiIxMAEAEC0HAHAtNDAwMC04BQAADwADBADwDDEiLCJpZHMiOnsiZmlyc3RHZW5Db3VudCI6MYcAAQoA8A8yLCJyZXF1ZXN0ZWRDbHVzdGVyU2l6ZSI6NTEyLCKIAIBsSWRSYW5nZbEAv1sxLDJdXX19fX0svAACm2NvbXBvbmVudLkAoGFkZHJlc3MiOiIiAAALAOtpb24tdHJlZS1zdG9yZS8AAzkBJm9wGAAAxQAPRgAHBigAAe4AQHJldmkpAf8BIjotMiwib3JpZ2luYXRvcjkBGSFjaPUAIWV0qAFgc2NoZW1hhQAwbmV3BwAydmVyYgBgMiwibm9kHgEAEgHwDW0uZmx1aWRmcmFtZXdvcmsubGVhZi5zdHJpbmc3AEBraW5kCAAAFwBQIjoxfX2fAPEDZy53YXRlcnNoZWQuc2hhcmVkGwEXLiwBUC5Sb290OQAEQQBRb2JqZWMSABFpUQACGADRIklkZW50aWZpZXIiLIACALYBAHUBD5gACZZdfSwibGFiZWxhAFAiVmFsdZcBAIsBD0QAEwEWAikicqgAMCJPcMcCKGFsjgAvb3LxABYRXSEBEWziAA9yAQEsfSxxAIBGb3JiaWRkZTsDBLwABLECMWRhdMMBMG1heAoCAAUDAuUBAeMBoWZpZWxkS2V5IjpUABRGDwAiLCIaAAG6AQjRAAIiAgA0ARByBQDxAWUiOnRydWUsImQiOjAsInPfAYJ9XSwiYnVpbIYDBAoA0FtbW1sxLDBdXV1dLCIGAwG2AgjhABVpyAEPfQESYCwic2hhcIUCAFQEAI4AAPwAPyI6ImwBGDEsInb0AWM6ZmFsc2X2AAB+AKNbImlkIiwxXSxbJgICBAQAAgQGagAVMD8AEjAdBA8bAAEAIAEQfRMBAooBlVtbMCwtMSwiYfAEcS1iZWZvcmX/AlUtdXNlIm0ED4ED/yYNyAMPEgIYD34DDQ9YBA0yOnsilwQveyLwBP8YASADBQsEoDd9fX19fX1dfV0AAAAA"
           },
           "metadata": {
             "groupedOpCount": 2
@@ -1431,7 +1628,7 @@
       "id": "handle-valued-edits",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 138,
+        "decodedBytes": 140,
         "packedBytes": 205,
         "sourceBytes": 138
       },
@@ -1505,7 +1702,7 @@
       ],
       "measurements": {
         "chunkCount": 15,
-        "decodedBytes": 11014,
+        "decodedBytes": 11016,
         "packedBytes": 15934,
         "sourceBytes": 11014
       },
@@ -2236,6 +2433,11 @@
       ]
     },
     {
+      "activation": {
+        "caseId": "schema-activation",
+        "schemaRefSeq": 10,
+        "sequenceNumber": 10
+      },
       "expected": [
         {
           "groupedBatch": true,
@@ -2251,9 +2453,9 @@
                 }
               },
               "minimumSequenceNumber": 0,
-              "referenceSequenceNumber": 7,
-              "sequenceNumber": 1,
-              "timestamp": 1700000000001,
+              "referenceSequenceNumber": 10,
+              "sequenceNumber": 11,
+              "timestamp": 1700000000011,
               "type": "component"
             },
             {
@@ -2267,9 +2469,9 @@
                 }
               },
               "minimumSequenceNumber": 0,
-              "referenceSequenceNumber": 7,
-              "sequenceNumber": 1,
-              "timestamp": 1700000000001,
+              "referenceSequenceNumber": 10,
+              "sequenceNumber": 11,
+              "timestamp": 1700000000011,
               "type": "component"
             }
           ],
@@ -2279,14 +2481,14 @@
       "id": "post-activation-compressed-operation",
       "measurements": {
         "chunkCount": 0,
-        "decodedBytes": 640194,
+        "decodedBytes": 640260,
         "packedBytes": 3661,
         "sourceBytes": 640194
       },
       "messages": [
         {
           "clientId": "activated-writer",
-          "clientSequenceNumber": 1,
+          "clientSequenceNumber": 11,
           "compression": "lz4",
           "contents": {
             "packedContents": "BCJNGEBw35kKAAD3Flt7InR5cGUiOiJncm91cGVkQmF0Y2giLCJjb250ZW50cyI6W3sNAAUvAJljb21wb25lbnQsANt7ImFkZHJlc3MiOiJBGgBQaWQiOiI3AAAgADFlZC1xAJAtYSIsInZhbHWDAB9hAQD////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////S+RcifX19fSx7ImNvbnRlbnRzIjp7InR5cGUiOiJjb21wb25lbnQiLB8Au2FkZHJlc3MiOiJBGgAjaWQ3AAAgAPACZWQtZ3JvdXAtYiIsInZhbHVUAB9iAQD////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////SgCJ9fX19XX1dAAAAAA=="
@@ -2295,9 +2497,9 @@
             "groupedOpCount": 2
           },
           "minimumSequenceNumber": 0,
-          "referenceSequenceNumber": 7,
-          "sequenceNumber": 1,
-          "timestamp": 1700000000001,
+          "referenceSequenceNumber": 10,
+          "sequenceNumber": 11,
+          "timestamp": 1700000000011,
           "type": "op"
         }
       ]
@@ -2495,7 +2697,7 @@
       },
       "sequenceNumber": 10
     },
-    "digest": "9a6c7b0a7d879187f73afd2bfdaf13d3f180cd2bbec584a5a2b8e7d2b7e47296",
+    "digest": "c0d97e73b56f157edf22e4b154fcf4ce188f476db8c109c23ffdc2c570af26c7",
     "path": "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
     "schemaActivation": {
       "accepted": true,
@@ -2616,7 +2818,9 @@
         },
         "version": 1
       }
-    }
+    },
+    "treeDigest": "9398f496ad1bdcaca91498e9c4d50a46e2008706faa5e1950e7b904ce14ff053",
+    "treePath": "packages/dds/tree/src/test/watershedCompressionTree.spec.ts"
   },
   "upstream": {
     "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
