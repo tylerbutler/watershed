@@ -199,6 +199,19 @@ pub fn shared_tree_compression_lz4_supports_linked_block_history_test() -> Nil {
   |> expect.to_equal(Ok(<<"abcdabcdabcd">>))
 }
 
+pub fn shared_tree_compression_lz4_retains_maximum_distance_history_test() -> Nil {
+  let prefix = bit_array.from_string(string.repeat("a", 65_536))
+  let frame =
+    bit_array.concat([
+      frame_from_hex("04224d184040c000000180"),
+      prefix,
+      frame_from_hex("0900000004ffff507461696c2100000000"),
+    ])
+  let expected = bit_array.append(prefix, <<"aaaaaaaatail!">>)
+  lz4.decompress(frame, 65_549)
+  |> expect.to_equal(Ok(expected))
+}
+
 pub fn shared_tree_compression_lz4_resets_independent_block_history_test() -> Nil {
   frame_from_hex("04224d186040820400008061626364040000000404000000000000")
   |> lz4.decompress(12)

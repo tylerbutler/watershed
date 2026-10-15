@@ -479,7 +479,9 @@ fn seal_current(output: Output) -> Output {
   let chunk = reversed_bytes(output.current_reversed)
   let chunk_index = output.total / output_chunk_bytes - 1
   let history = dict.insert(output.history, chunk_index, chunk)
-  let first_history_chunk = chunk_index - history_bytes / output_chunk_bytes + 1
+  let retained_chunks =
+    { history_bytes + output_chunk_bytes - 1 } / output_chunk_bytes
+  let first_history_chunk = chunk_index - retained_chunks + 1
   let history = case first_history_chunk > output.first_history_chunk {
     True -> dict.delete(history, output.first_history_chunk)
     False -> history
