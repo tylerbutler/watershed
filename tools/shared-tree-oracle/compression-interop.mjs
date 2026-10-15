@@ -399,6 +399,7 @@ function validateCommonSemantics(evidence, label, caseId) {
   if (baselineHistory.some(({ sequenceNumber }) =>
     sequenceNumber >= evidence.physicalMessages[0].sequenceNumber)
     || newPeerHistory.length !== 1
+    || newPeerHistory[0].indexInBatch !== 0
     || newPeerHistory[0].sequenceNumber
       !== evidence.physicalMessages.at(-1).sequenceNumber
     || completedSequence !== newPeerHistory[0].sequenceNumber
@@ -590,6 +591,9 @@ function validateSummary(evidence, label, physical) {
       !== digestString(summary.nativeTreeSha256, 64, `${label} native tree hash`)) {
     fail(`${label} summary readers did not load the same completed tree`);
   }
+  if (summary.nativeTreeSha256 !== evidence.logicalBatch.completedTreeSha256) {
+    fail(`${label} fresh reader tree differs from the logical peer result`);
+  }
 }
 
 function validateCheckpoint(result, evidence, label, physical) {
@@ -637,6 +641,9 @@ function validateCheckpoint(result, evidence, label, physical) {
     exactTrue(checkpoint[field], `${label} checkpoint ${field}`);
   }
   digestString(checkpoint.restoredTreeSha256, 64, `${label} restored tree hash`);
+  if (checkpoint.restoredTreeSha256 !== evidence.logicalBatch.completedTreeSha256) {
+    fail(`${label} restored tree differs from the logical peer result`);
+  }
   const pendingRevision = string(
     checkpoint.originalPendingRevision,
     `${label} original pending revision`,
@@ -674,6 +681,245 @@ function validateCheckpoint(result, evidence, label, physical) {
   }
 }
 
+function treeSha256(checkpoint, label) {
+  return sha256(JSON.stringify(object(checkpoint, label).wholeTree));
+}
+
+function lifecycleObservations(raw, caseId, label) {
+  const observations = {
+    "default-compressed": {
+      baseline: raw.baselineNative,
+      completion: raw.nativeAfterPeer,
+      expectedPeer: raw.upstreamAfterPeer,
+      upstreamFinal: raw.upstreamFinal,
+      nativeLocal: raw.nativeAfterEdit,
+      nativeSettlement: raw.nativeAfterEdit,
+      witness: raw.witnessFinal,
+      submissions: raw.nativeEvidence?.outboundOccurrences,
+    },
+    "default-chunked": {
+      baseline: raw.baselineNative,
+      completion: raw.nativeAfterPeer,
+      expectedPeer: raw.upstreamAfterPeer,
+      upstreamFinal: raw.upstreamFinal,
+      nativeLocal: raw.nativeAfterEdit,
+      nativeSettlement: raw.nativeAfterEdit,
+      witness: raw.witnessFinal,
+      submissions: raw.nativeEvidence?.outboundOccurrences,
+    },
+    "history-catchup": {
+      baseline: raw.baselineNative,
+      completion: raw.freshAfterPeer,
+      expectedPeer: raw.upstreamAfterPeer,
+      upstreamFinal: raw.upstreamFinal,
+      nativeLocal: raw.freshAfterEdit,
+      nativeSettlement: raw.freshAfterEdit,
+      witness: raw.witnessFinal,
+      submissions: raw.nativeEvidence?.outboundOccurrences,
+    },
+    "reconnect-pending": {
+      baseline: raw.pending,
+      completion: raw.settled,
+      expectedPeer: raw.upstreamAfterPeer,
+      upstreamFinal: raw.upstreamFinal,
+      nativeLocal: raw.pending,
+      nativeSettlement: raw.settled,
+      witness: raw.witnessFinal,
+      submissions: raw.nativeEvidence?.outboundOccurrences,
+    },
+    "summary-continuation": {
+      baseline: raw.initialNative,
+      completion: raw.sourceAfterPeer,
+      expectedPeer: raw.upstreamAfterPeer,
+      upstreamFinal: raw.upstreamAfterNative,
+      nativeLocal: raw.freshNativeAfterEdit,
+      nativeSettlement: raw.freshNativeAfterEdit,
+      witness: raw.witnessAfterNative,
+      submissions: raw.freshNative?.outboundOccurrences,
+    },
+    "checkpoint-partial": {
+      baseline: raw.batchBaseline,
+      completion: raw.restoredAfterPeer,
+      expectedPeer: raw.upstreamAfterSettlement,
+      upstreamFinal: raw.upstreamAfterSettlement,
+      nativeLocal: raw.nativeLocal,
+      nativeSettlement: raw.restoredSettled,
+      witness: raw.witnessAfterSettlement,
+      submissions: raw.matchingOccurrences,
+    },
+  }[caseId];
+  if (!observations
+    || !observations.baseline
+    || !observations.completion
+    || !observations.expectedPeer
+    || !observations.upstreamFinal
+    || !observations.nativeLocal
+    || !observations.nativeSettlement
+    || !observations.witness
+    || !Array.isArray(observations.submissions)) {
+    fail(`${label} raw lifecycle observations are incomplete`);
+  }
+  return observations;
+}
+
+function validateLifecycleBindings(evidence, raw, caseId, label) {
+  const same = (actual, expected, claim) => {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      fail(`${label} ${claim} differs from the raw lifecycle observations`);
+    }
+  };
+  const observations = lifecycleObservations(raw, caseId, label);
+  const {
+    baseline, completion, expectedPeer, upstreamFinal,
+    nativeLocal, nativeSettlement, witness,
+  } = observations;
+  const completedTreeSha256 = treeSha256(completion, `${label} completion`);
+  same(
+    evidence.logicalBatch.baselineTreeSha256,
+    treeSha256(baseline, `${label} baseline`),
+    "baseline tree hash",
+  );
+  same(evidence.logicalBatch.completedTreeSha256, completedTreeSha256,
+    "completed tree hash");
+  same(completedTreeSha256, treeSha256(expectedPeer, `${label} expected peer tree`),
+    "completed tree and independent upstream tree");
+
+  const peerCommits = completion.commits.filter(
+    ({ type, local }) => type === "commit" && local === false,
+  );
+  const localCommits = nativeLocal.commits.filter(
+    ({ type, local }) => type === "commit" && local === true,
+  );
+  const settlements = nativeSettlement.commits.filter(
+    ({ type, actionId }) =>
+      type === "settlement" && actionId === localCommits[0]?.actionId,
+  );
+  const pendingRevision = baseline.history.pending?.[0]?.revision;
+  const settledHistoryPoint = caseId === "checkpoint-partial"
+    ? nativeHistoryPoints(nativeSettlement.history)
+      .find(({ revision }) => revision === pendingRevision)
+    : undefined;
+  const acknowledgementBatchId = caseId === "checkpoint-partial"
+    ? messageBatchId(raw.acknowledgement)
+    : undefined;
+  const historySettlements = settledHistoryPoint
+    && settledHistoryPoint.sequenceNumber === raw.acknowledgement?.sequenceNumber
+    && raw.checkpointBatchId === acknowledgementBatchId
+    ? 1
+    : 0;
+  const expectedPending = {
+    before: baseline.pendingTreeCount,
+    held: baseline.inflightSubmissionCount,
+    after: nativeSettlement.pendingTreeCount,
+  };
+  const expectedCommits = {
+    peerLogicalBatches: evidence.logicalBatch.newPeerHistory.length,
+    peerTreeEvents: completion.events.filter(
+      ({ kind, local }) => kind === "data" && local === false,
+    ).length,
+    peerCommitEvents: peerCommits.length,
+    peerRevisions: evidence.logicalBatch.newPeerHistory.map(({ revision }) => revision),
+    nativeSubmissionOccurrences: observations.submissions.length,
+    nativeLocalCommits: localCommits.length,
+    nativeSettlements: settlements.length,
+    nativeHistorySettlements: historySettlements,
+    nativeActionId: localCommits[0]?.actionId,
+    settledActionId: settlements[0]?.actionId ?? settledHistoryPoint?.revision,
+    nativeSubmissionIdentity:
+      caseId === "checkpoint-partial"
+        ? raw.checkpointBatchId
+        : localCommits[0]?.actionId,
+    settledSubmissionIdentity:
+      caseId === "checkpoint-partial"
+        ? acknowledgementBatchId
+        : settlements[0]?.actionId,
+    witnessCommitEvents: witness.commits.filter(
+      ({ type, local }) => type === "commit" && local === false,
+    ).length,
+  };
+  same(evidence.pendingCounts, expectedPending, "pending counts");
+  same(evidence.commitCounts, expectedCommits,
+    "commit counts and settlement identities");
+  const nativeFinalTreeSha256 = treeSha256(
+    nativeSettlement,
+    `${label} native final tree`,
+  );
+  const upstreamFinalTreeSha256 = treeSha256(
+    upstreamFinal,
+    `${label} upstream final tree`,
+  );
+  const witnessTreeSha256 = treeSha256(witness, `${label} witness final tree`);
+  same(evidence.bidirectionalEdits, {
+    peerObservedByNative:
+      completedTreeSha256 === treeSha256(expectedPeer, `${label} expected peer tree`),
+    nativeObservedByWitness: witnessTreeSha256 === upstreamFinalTreeSha256,
+    nativeTreeMatchesUpstream:
+      completedTreeSha256 === treeSha256(expectedPeer, `${label} expected peer tree`),
+    witnessTreeMatchesNative:
+      witnessTreeSha256 === nativeFinalTreeSha256
+      && witnessTreeSha256 === upstreamFinalTreeSha256,
+  }, "bidirectional tree claims");
+
+  if (caseId === "summary-continuation") {
+    const summary = evidence.summary;
+    same(
+      summary.upstreamTreeSha256,
+      treeSha256(raw.freshUpstreamAfterPeer, `${label} fresh upstream reader`),
+      "fresh upstream reader tree hash",
+    );
+    same(
+      summary.nativeTreeSha256,
+      treeSha256(raw.freshNativeAfterPeer, `${label} fresh native reader`),
+      "fresh native reader tree hash",
+    );
+    same(summary.nativeTreeSha256, treeSha256(expectedPeer, `${label} expected summary tree`),
+      "fresh reader and independent upstream tree");
+    same(summary.upstreamRead,
+      raw.freshUpstreamAfterPeer.sequenceNumber >= evidence.physicalMessages.at(-1).sequenceNumber,
+      "fresh upstream reader completion");
+    same(summary.nativeRead,
+      raw.freshNativeAfterPeer.sequenceNumber >= evidence.physicalMessages.at(-1).sequenceNumber,
+      "fresh native reader completion");
+    same(summary.tailConsumed, summary.nativeRead, "fresh native tail consumption");
+    same(summary.continuedEditing,
+      treeSha256(raw.continuedNative, `${label} continued native tree`)
+        === treeSha256(raw.continuedUpstream, `${label} continued upstream tree`)
+        && treeSha256(raw.continuedNative, `${label} continued native tree`)
+          !== treeSha256(raw.freshNativeAfterEdit, `${label} pre-continuation tree`),
+      "summary continuation");
+  }
+  if (caseId === "checkpoint-partial") {
+    const checkpoint = evidence.checkpoint;
+    same(
+      checkpoint.restoredTreeSha256,
+      treeSha256(raw.restoredSettled, `${label} restored settled tree`),
+      "restored tree hash",
+    );
+    same(
+      checkpoint.restoredTreeSha256,
+      treeSha256(raw.upstreamAfterSettlement, `${label} upstream settlement tree`),
+      "restored tree and independent upstream tree",
+    );
+    same(checkpoint.processSignal, raw.crash.signal, "killed process signal");
+    same(checkpoint.processExited, raw.crash.exited, "killed process exit status");
+    same(checkpoint.processPid, raw.crash.pid, "killed process PID");
+    same(checkpoint.processExitCode, raw.crash.exitCode, "killed process exit code");
+    same(checkpoint.tailConsumed,
+      raw.restoredAfterPeer.sequenceNumber >= evidence.physicalMessages.at(-1).sequenceNumber,
+      "restored tail consumption");
+    same(checkpoint.pendingSettled,
+      raw.restoredSettled.pendingTreeCount === 0
+        && raw.restoredSettled.inflightSubmissionCount === 0,
+      "restored pending settlement");
+    same(checkpoint.continuedEditing,
+      treeSha256(raw.continuedRestored, `${label} continued restored tree`)
+        === treeSha256(raw.continuedUpstream, `${label} continued upstream tree`)
+        && treeSha256(raw.continuedRestored, `${label} continued restored tree`)
+          !== treeSha256(raw.restoredSettled, `${label} restored settled tree`),
+      "checkpoint continuation");
+  }
+}
+
 function validateLiveProvenance(result, label) {
   const provenance = object(result.provenance, `${label} provenance`);
   if (provenance.kind !== "live-capture") {
@@ -698,6 +944,7 @@ function validateLiveProvenance(result, label) {
     fail(`${label} raw artifact hash differs from the captured bytes`);
   }
   const raw = JSON.parse(rawBytes);
+  validateLifecycleBindings(result.evidence, raw, result.caseId, label);
   const messages = array(raw.serverHistory, `${label} raw server history`);
   const actualPhysical = physicalMessages(messages);
   if (JSON.stringify(actualPhysical) !== JSON.stringify(result.evidence.physicalMessages)) {
@@ -715,16 +962,11 @@ function validateLiveProvenance(result, label) {
       fail(`${label} ${claim} differs from the hashed raw capture`);
     }
   };
-  const lifecycle = {
-    "default-compressed": [raw.baselineNative, raw.nativeAfterPeer],
-    "default-chunked": [raw.baselineNative, raw.nativeAfterPeer],
-    "history-catchup": [raw.baselineNative, raw.freshAfterPeer],
-    "reconnect-pending": [raw.pending, raw.settled],
-    "summary-continuation": [raw.initialNative, raw.sourceAfterPeer],
-    "checkpoint-partial": [raw.batchBaseline, raw.restoredAfterPeer],
-  }[result.caseId];
-  assert(lifecycle?.every(Boolean), `${label} raw lifecycle checkpoints are missing`);
-  const [baseline, completion] = lifecycle;
+  const { baseline, completion } = lifecycleObservations(
+    raw,
+    result.caseId,
+    label,
+  );
   const baselineHistory = nativeHistoryPoints(baseline.history);
   const baselinePendingRevisions = (baseline.history.pending ?? [])
     .map(({ revision }) => revision);
@@ -1496,6 +1738,12 @@ async function liveCellResult({
   raw,
   restoreTarget,
 }) {
+  validateLifecycleBindings(
+    evidence,
+    raw,
+    caseId,
+    `${target}:${caseId} capture`,
+  );
   const rawArtifact = await writeCellArtifact(
     runDirectory,
     target,
@@ -1638,6 +1886,11 @@ function commonEvidence({
     newPeerHistory[0].sequenceNumber,
     physical.at(-1).sequenceNumber,
     "Native history did not sequence the peer revision at the final chunk",
+  );
+  assert.equal(
+    newPeerHistory[0].indexInBatch,
+    0,
+    "Native history did not place the sole peer revision first in its batch",
   );
   const peerCommits = peerCompletion.commits.filter(
     ({ type, local }) => type === "commit" && local === false,

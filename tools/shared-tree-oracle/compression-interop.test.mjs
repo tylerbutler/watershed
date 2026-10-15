@@ -510,6 +510,10 @@ test("derives logical completion from exact native history and every held prefix
         cell.evidence.physicalMessages.at(-1).sequenceNumber - 1;
     },
     (cell) => {
+      cell.evidence.logicalBatch.newPeerHistory[0].indexInBatch = 1;
+      cell.evidence.logicalBatch.completedHistory.at(-1).indexInBatch = 1;
+    },
+    (cell) => {
       cell.evidence.logicalBatch.prefixObservations = [];
     },
     (cell) => {
@@ -525,6 +529,26 @@ test("derives logical completion from exact native history and every held prefix
     assert.throws(() => validateCompressionFixtureResults(
       results, validatorRunId, validatorProfileDigest,
     ), /history|prefix|final|compressor|allocation|baseline/i);
+  }
+});
+
+test("binds persisted lifecycle tree hashes to the logical peer result", () => {
+  for (const [caseId, mutate] of [
+    ["summary-continuation", (cell) => {
+      cell.evidence.summary.upstreamTreeSha256 = "0".repeat(64);
+      cell.evidence.summary.nativeTreeSha256 = "0".repeat(64);
+    }],
+    ["checkpoint-partial", (cell) => {
+      cell.evidence.checkpoint.restoredTreeSha256 = "0".repeat(64);
+    }],
+  ]) {
+    const results = syntheticCompleteResults();
+    const cell = results.find(({ target, caseId: current }) =>
+      target === "javascript" && current === caseId);
+    mutate(cell);
+    assert.throws(() => validateCompressionFixtureResults(
+      results, validatorRunId, validatorProfileDigest,
+    ), /tree|logical|restored|reader/i);
   }
 });
 
