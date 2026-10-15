@@ -199,6 +199,16 @@ pub fn shared_tree_container_preserves_group_boundaries_and_metadata_test() -> N
   json.to_string(payload) |> expect.to_equal("{\"revision\":1}")
 }
 
+pub fn shared_tree_container_accepts_markerless_group_without_batch_identity_test() -> Nil {
+  let contents =
+    parse(
+      "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"11111111-1111-4111-8111-111111111111\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":1}}}}}}]}",
+    )
+  let metadata = Some(json.object([#("groupedOpCount", json.int(2))]))
+  let assert Ok(batch) = fluid_container.decode(contents, metadata)
+  fluid_container.validate_profile_batch(batch) |> expect.to_equal(Ok(Nil))
+}
+
 pub fn shared_tree_container_keeps_empty_group_distinct_test() -> Nil {
   let contents = parse("{\"type\":\"groupedBatch\",\"contents\":[]}")
   let metadata = Some(json.object([#("groupedOpCount", json.int(0))]))

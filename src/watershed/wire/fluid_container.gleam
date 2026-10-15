@@ -364,12 +364,12 @@ fn validate_group_metadata(
       case item_metadata {
         None ->
           case outer, index {
-            Some(_), 0 ->
+            Some(#(Some(_), _)), 0 ->
               Error(MalformedMessage(
                 "groupedBatch",
                 "missing first batch marker",
               ))
-            Some(_), index if index == count - 1 ->
+            Some(#(Some(_), _)), index if index == count - 1 ->
               Error(MalformedMessage(
                 "groupedBatch",
                 "missing final batch marker",
