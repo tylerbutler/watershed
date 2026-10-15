@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
@@ -90,8 +91,13 @@ async function captureWorkload(
 	const initialSummary = (await tree.summarize(true)).summary;
 	const initialCompressor = serializeIdCompressor(compressor, false);
 	const workloadStart = processed.length;
+	const roots: { length: number; sha256: string }[] = [];
 	for (const label of labels) {
 		view.root.label = label;
+		roots.push({
+			length: view.root.label.length,
+			sha256: createHash("sha256").update(view.root.label).digest("hex"),
+		});
 	}
 	runtimeFactory.processAllMessages();
 	const messages = copy(processed.slice(workloadStart));
@@ -101,6 +107,15 @@ async function captureWorkload(
 			.length === labels.length,
 		`${id}: expected one real SharedTree edit per label`,
 	);
+	const revisions = messages.flatMap((message) => {
+		const contents = message.contents as { changeset?: unknown; revision?: number } | null;
+		return Array.isArray(contents?.changeset) && contents.revision !== undefined
+			? [{
+				opSpace: contents.revision,
+				stable: compressor.decompress(contents.revision as never),
+			}]
+			: [];
+	});
 
 	return {
 		id,
@@ -116,6 +131,7 @@ async function captureWorkload(
 			initializationMessages,
 		},
 		messages,
+		observations: { roots, revisions },
 	};
 }
 

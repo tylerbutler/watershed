@@ -23,6 +23,9 @@ const compressionCorpus = JSON.parse(await readFile(
 const compressedDelta = compressionCorpus.cases.find(
   ({ id }) => id === "default-compressed-singleton",
 ).messages;
+const actorReplayDeltas = compressionCorpus.cases.find(
+  ({ id }) => id === "partial-summary-prefix-tail",
+).messages;
 
 function json(response, status, value) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -214,9 +217,16 @@ const server = createServer(async (request, response) => {
       request.method === "GET"
       && url.pathname === `/deltas/${tenant}/compressed`
     ) {
-      assert.equal(url.searchParams.get("from"), "0");
-      assert.equal(url.searchParams.get("to"), "1");
-      return json(response, 200, { value: compressedDelta });
+      const from = url.searchParams.get("from");
+      const to = url.searchParams.get("to");
+      assert(
+        (from === "0" && to === "1")
+        || (from === "199" && to === "204"),
+        `unexpected delta range: ${from}-${to}`,
+      );
+      return json(response, 200, {
+        value: from === "0" ? compressedDelta : actorReplayDeltas,
+      });
     }
 
     if (request.method === "GET" && url.pathname.startsWith(`${prefix}/commits/`)) {
@@ -296,6 +306,8 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 const environment = {
   ...process.env,
   WATERSHED_TREE_STORAGE_URL: baseUrl,
+  WATERSHED_TREE_STORAGE_HOST: "127.0.0.1",
+  WATERSHED_TREE_STORAGE_PORT: String(address.port),
   WATERSHED_TREE_STORAGE_TENANT: tenant,
   WATERSHED_TREE_STORAGE_TOKEN: token,
 };

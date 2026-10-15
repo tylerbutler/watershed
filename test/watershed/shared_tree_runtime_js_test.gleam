@@ -2940,6 +2940,87 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
 }
 
 @target(javascript)
+pub fn reconnect_applies_initial_messages_without_checkpoint_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks = transport_js.new_cell(None)
+  let requests = transport_js.new_cell(0)
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "requestOps" ->
+                transport_js.set_cell(
+                  requests,
+                  transport_js.get_cell(requests) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  callbacks.on_close()
+  callbacks.on_join()
+  let reconnect =
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [
+        membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      ],
+      timestamp: 0,
+      presence_v1: False,
+    )
+  let assert Ok(fields) =
+    json.parse(
+      json.to_string(reconnect),
+      decode.dict(decode.string, wire.json_value_decoder()),
+    )
+  callbacks.on_event(
+    "connect_document_success",
+    json.object(dict.to_list(dict.delete(fields, "checkpointSequenceNumber")))
+      |> json.to_string,
+  )
+  runtime.diagnostics(owner).last_seen_sequence_number
+  |> expect.to_equal(Some(1))
+  runtime.connection_observation(owner).phase |> expect.to_equal("ready")
+  transport_js.get_cell(requests) |> expect.to_equal(0)
+  runtime.close(owner)
+}
+
+@target(javascript)
 pub fn bad_replayed_operation_retains_js_pending_tree_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)

@@ -462,6 +462,27 @@ export function validateCompressionCapture(value) {
         `${id} SharedTree operation ${index} allocation prelude`,
       );
     });
+    const observations = object(workload.observations, `${id} SharedTree observations`);
+    const roots = array(observations.roots, `${id} SharedTree root observations`);
+    const revisions = array(
+      observations.revisions,
+      `${id} SharedTree revision observations`,
+    );
+    if (roots.length !== operations.length || revisions.length !== operations.length) {
+      fail(`${id} SharedTree observations must cover every operation`);
+    }
+    roots.forEach((value, index) => {
+      const root = object(value, `${id} SharedTree root observation ${index}`);
+      integer(root.length, `${id} SharedTree root observation ${index} length`);
+      if (!/^[0-9a-f]{64}$/.test(root.sha256)) {
+        fail(`${id} SharedTree root observation ${index} has no source digest`);
+      }
+    });
+    revisions.forEach((value, index) => {
+      const revision = object(value, `${id} SharedTree revision observation ${index}`);
+      integer(revision.opSpace, `${id} SharedTree revision observation ${index} op space`);
+      string(revision.stable, `${id} SharedTree revision observation ${index} stable`);
+    });
   }
 
   const defaults = object(capture.defaults, "defaults");

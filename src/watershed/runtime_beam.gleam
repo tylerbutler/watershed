@@ -1240,7 +1240,7 @@ type State {
     summary_armed: Bool,
     pending_summary: Option(PendingSummary),
     active_tree_transaction: Option(ActiveTreeTransaction),
-    pending_reconnect: Option(message.ConnectedMessage),
+    pending_reconnect: Option(wire.ConnectionEnvelope),
     deferred_operations: List(List(wire.SequencedEnvelope)),
     /// Hold an attachment for the next actor command.
     /// A synchronous tree edit can join the same transport batch.
@@ -6073,8 +6073,10 @@ fn handle_inbound(
         Reconnecting(core) -> {
           case runtime_core.tree_transaction_depth(core) > 0 {
             True ->
-              actor.continue(State(..state, pending_reconnect: Some(connected)))
-            False -> adopt_reconnect_connection(state, core, connected)
+              actor.continue(
+                State(..state, pending_reconnect: Some(connection)),
+              )
+            False -> adopt_reconnect_connection(state, core, connection)
           }
         }
         // A late duplicate success; nothing to do.
@@ -6206,9 +6208,9 @@ fn handle_inbound(
 fn adopt_reconnect_connection(
   state: State,
   previous: runtime_core.Core,
-  connected: message.ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
 ) -> actor.Next(State, Msg) {
-  let #(state, _) = adopt_reconnect_state(state, previous, connected)
+  let #(state, _) = adopt_reconnect_state(state, previous, connection)
   actor.continue(state)
 }
 
@@ -6216,60 +6218,76 @@ fn adopt_reconnect_connection(
 fn adopt_reconnect_state(
   state: State,
   previous: runtime_core.Core,
-  connected: message.ConnectedMessage,
+  connection: wire.ConnectionEnvelope,
 ) -> #(State, Result(Nil, String)) {
   let state = State(..state, pending_reconnect: None)
+  let connected = connection.handshake
   case runtime_core.adopt_reconnect(previous, connected) {
     Error(error) -> {
       let reason = "reconnect failed: " <> string.inspect(error)
       #(fail(state, reason), Error(reason))
     }
     Ok(core) -> {
-      let checkpoint =
-        option.unwrap(
-          connected.checkpoint_sequence_number,
-          core.last_seen_sequence_number,
-        )
-      case runtime_core.reconnect_barrier_active(core) {
-        True -> {
-          let _ =
-            process.send_after(
-              state.self,
-              connect_timeout_milliseconds,
-              ReconnectTimedOut(core.client_id),
-            )
-          Nil
-        }
-        False -> Nil
+      let checkpoint = case connected.checkpoint_sequence_number {
+        Some(checkpoint) -> checkpoint
+        None ->
+          connection.initial_messages
+          |> list.last
+          |> result.map(fn(envelope) { envelope.message.sequence_number })
+          |> result.unwrap(core.last_seen_sequence_number)
       }
-      // Ask for the gap. Nothing else will: no server pushes it unprompted,
-      // and the reactive `requestOps` in the `"op"` handler below needs an
-      // operation to react to. See `runtime_core.catch_up_from`.
       let generation = state.generation
-      let #(state, request_outcome) =
-        request_operations(
+      let #(state, settle_outcome) =
+        settle_reconnect_state(
           State(..state, phase: Reconnecting(core)),
-          runtime_core.catch_up_from(core, checkpoint),
+          core,
+          checkpoint,
         )
-      case request_outcome {
+      case settle_outcome {
         Error(error) -> #(state, Error(error))
-        Ok(Nil) ->
-          // Presence is unsequenced, so it does not wait for the operation
-          // catch-up `settle_reconnect` may still be pending. Rejoining now is
-          // both correct and the fastest way back to a roster.
-          case state.phase {
-            Reconnecting(current)
-              if current.client_id == core.client_id
-              && state.generation == generation
-            -> {
-              notify_presence_session(state, core)
-              settle_reconnect_state(state, core, checkpoint)
-            }
-            _ -> #(
-              state,
-              Error("reconnect state changed during handshake adoption"),
-            )
+        Ok(Nil) -> {
+          let #(state, initial_outcome) =
+            handle_operation_delivery(state, connection.initial_messages)
+          case initial_outcome {
+            Error(error) -> #(state, Error(error))
+            Ok(Nil) ->
+              case state.phase {
+                Ready(current, _)
+                  if current.client_id == core.client_id
+                  && state.generation == generation
+                -> {
+                  case runtime_core.reconnect_barrier_active(current) {
+                    True -> {
+                      let _ =
+                        process.send_after(
+                          state.self,
+                          connect_timeout_milliseconds,
+                          ReconnectTimedOut(current.client_id),
+                        )
+                      Nil
+                    }
+                    False -> Nil
+                  }
+                  let #(state, request_outcome) =
+                    request_operations(
+                      state,
+                      runtime_core.catch_up_from(current, checkpoint),
+                    )
+                  case request_outcome {
+                    Error(error) -> #(state, Error(error))
+                    Ok(Nil) -> {
+                      notify_presence_session(state, current)
+                      #(state, Ok(Nil))
+                    }
+                  }
+                }
+                _ -> #(
+                  state,
+                  Error("reconnect state changed during handshake adoption"),
+                )
+              }
           }
+        }
       }
     }
   }

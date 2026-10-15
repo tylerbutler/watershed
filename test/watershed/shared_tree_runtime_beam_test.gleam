@@ -61,6 +61,8 @@ import watershed/tree/undo_acceptance
 @target(erlang)
 import watershed/tree_kernel
 @target(erlang)
+import watershed/wire
+@target(erlang)
 import watershed/wire/fluid_container
 @target(erlang)
 import watershed/wire/op as wire_op
@@ -3744,6 +3746,195 @@ fn pending_reconnect_actor() {
   |> expect.to_equal(Ok(Nil))
   first.on_close("transport lost")
   #(actor, connections)
+}
+
+@target(erlang)
+pub fn reconnect_applies_initial_messages_without_checkpoint_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let connections = process.new_subject()
+  let requests = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let assert Ok(first) = process.receive(connections, 1000)
+  first.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "requestOps" -> process.send(requests, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  first.on_close("transport lost")
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "requestOps" -> process.send(requests, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  let reconnect =
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [
+        membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      ],
+      timestamp: 0,
+      presence_v1: False,
+    )
+  let assert Ok(fields) =
+    json.parse(
+      json.to_string(reconnect),
+      decode.dict(decode.string, wire.json_value_decoder()),
+    )
+  second.on_event(
+    "connect_document_success",
+    json.object(dict.to_list(dict.delete(fields, "checkpointSequenceNumber"))),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"reader-2\""),
+    ]),
+  )
+  runtime_beam.connection_observation(actor).phase |> expect.to_equal("ready")
+  process.receive(requests, 0) |> expect.to_be_error()
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn deferred_reconnect_retains_initial_messages_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [tree_view, ..] = input.tree_views
+  let connections = process.new_subject()
+  let requests = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let assert Ok(first) = process.receive(connections, 1000)
+  first.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "requestOps" -> process.send(requests, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  runtime_beam.begin_tree_transaction(actor, "A/_C", tree_view.view, [])
+  |> expect.to_equal(Ok(Nil))
+  first.on_close("transport lost")
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "requestOps" -> process.send(requests, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [
+        membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      ],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.commit_tree_transaction(actor, "A/_C")
+  |> expect.to_equal(Error(
+    "tree transaction requires a ready document connection",
+  ))
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"reader-2\""),
+    ]),
+  )
+  runtime_beam.connection_observation(actor).phase |> expect.to_equal("ready")
+  process.receive(requests, 0) |> expect.to_be_error()
+  process.send(actor, runtime_beam.Shutdown)
 }
 
 @target(erlang)

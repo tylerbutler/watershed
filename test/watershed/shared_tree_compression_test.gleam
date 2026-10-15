@@ -4,14 +4,18 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import spillway/types.{type SequencedDocumentMessage, SequencedDocumentMessage}
 import startest/expect
 
+import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core
+import watershed/sha256
 import watershed/tree/compression_fixture
 import watershed/tree/runtime_fixture
+import watershed/tree/types as tree_types
 import watershed/wire
 import watershed/wire/fluid_container.{
   type DecodedBatch, ChannelOperation, ContainerMessage, DecodedBatch,
@@ -402,10 +406,21 @@ pub fn shared_tree_compression_complete_applies_once_test() -> Nil {
     unwrap_core_case(compression_fixture.core_case(
       "partial-summary-prefix-tail",
     ))
-  let #(after, completions) =
-    list.fold(envelopes, #(before, 0), fn(state, envelope) {
+  let address = "compression-tree-chunked-store/compression-tree-chunked-tree"
+  runtime_core.tree_read(before, address, ["label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("compression-baseline"))))
+  let #(after, completions, revisions) =
+    list.fold(envelopes, #(before, 0, []), fn(state, envelope) {
       let #(core, ingested) =
         unwrap_ingested(runtime_core.handle_envelope(state.0, envelope))
+      case envelope.message.sequence_number < 204 {
+        True ->
+          runtime_core.tree_read(core, address, ["label"])
+          |> expect.to_equal(
+            Ok(Some(tree_types.StringValue("compression-baseline"))),
+          )
+        False -> Nil
+      }
       #(
         core,
         state.1
@@ -413,11 +428,38 @@ pub fn shared_tree_compression_complete_applies_once_test() -> Nil {
           [] -> 0
           _ -> 1
         },
+        list.append(
+          state.2,
+          list.filter_map(ingested.events, fn(event) {
+            case event {
+              #(_, channel.TreeCommitApplied(revision, _, False, False)) ->
+                Ok(revision)
+              _ -> Error(Nil)
+            }
+          }),
+        ),
       )
     })
   after.last_seen_sequence_number |> expect.to_equal(204)
   fluid_inbound.partial_chunks(after.inbound) |> expect.to_equal([])
   completions |> expect.to_equal(1)
+  runtime_core.tree_read(after, address, ["label"])
+  |> result.map(fn(value) {
+    let assert Some(tree_types.StringValue(label)) = value
+    #(string.length(label), sha256.hex(label))
+  })
+  |> expect.to_equal(
+    Ok(#(
+      309_336,
+      "e361b46a219d786ffb2882059aa7b1a2ca490b0dd1c32663817143e2ca58773b",
+    )),
+  )
+  revisions
+  |> list.map(fluid_ids.stable_id_to_string)
+  |> expect.to_equal([
+    "20000000-0000-4000-8000-000000000004",
+    "20000000-0000-4000-8000-000000000005",
+  ])
   let assert Ok(final) = list.last(envelopes)
   runtime_core.handle_envelope(after, final)
   |> expect.to_equal(Ok(#(after, runtime_core.Ingested([], [], [], None, []))))

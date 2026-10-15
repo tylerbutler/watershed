@@ -14,6 +14,7 @@ import watershed/fluid_ids
 import watershed/handle
 import watershed/json_ot.{VArray, VObject, VString}
 import watershed/runtime_core
+import watershed/tree/compression_fixture
 import watershed/tree/document_summary_fixture
 import watershed/tree/fixtures
 import watershed/tree/identifier_fixture
@@ -25,6 +26,7 @@ import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_document
+import watershed/wire/fluid_inbound
 import watershed/wire/fluid_summary
 import watershed/wire/socket
 import watershed/wire/summary_blob
@@ -432,6 +434,150 @@ pub fn shared_tree_document_summary_applies_compression_schema_cas_test() {
       |> expect.to_equal(Ok(True))
     },
   )
+}
+
+pub fn shared_tree_document_summary_applies_native_compression_schema_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let assert Ok(runtime) =
+    json.parse(
+      json.to_string(current),
+      decode.at(
+        ["runtime"],
+        decode.dict(decode.string, wire.json_value_decoder()),
+      ),
+    )
+  let proposal =
+    json.object([
+      #("version", json.int(1)),
+      #("refSeq", json.int(reference)),
+      #(
+        "info",
+        json.object([
+          #("minVersionForCollab", json.string("2.117.0")),
+        ]),
+      ),
+      #(
+        "runtime",
+        json.object(
+          dict.to_list(dict.insert(runtime, "compressionLz4", json.bool(True))),
+        ),
+      ),
+    ])
+  let assert Ok(activated) =
+    fluid_document.apply_runtime_schema(summary, proposal, reference + 5)
+  let assert Ok(encoded) = fluid_document.encode(activated)
+  let assert Ok(session) =
+    fluid_ids.session_id("71000000-0000-4000-8000-000000000007")
+  let assert Ok(reloaded) =
+    fluid_document.decode(
+      encoded,
+      None,
+      session,
+      fluid_document.view_id(activated),
+    )
+  document_schema(reloaded)
+  |> json.to_string
+  |> expect.to_equal(json.to_string(document_schema(activated)))
+  let changed_mode =
+    json.object([
+      #("version", json.int(1)),
+      #("refSeq", json.int(reference)),
+      #(
+        "info",
+        json.object([
+          #("minVersionForCollab", json.string("2.117.0")),
+        ]),
+      ),
+      #(
+        "runtime",
+        json.object(dict.to_list(
+          runtime
+          |> dict.insert("compressionLz4", json.bool(True))
+          |> dict.insert("idCompressorMode", json.string("off")),
+        )),
+      ),
+    ])
+  fluid_document.apply_runtime_schema(summary, changed_mode, reference + 5)
+  |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_document_summary_stops_schema_array_after_failed_cas_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let assert Ok(activated) =
+    fluid_document.apply_runtime_schema(
+      summary,
+      runtime_schema_proposal(reference, []),
+      10,
+    )
+  let proposals =
+    json.array(
+      [
+        runtime_schema_proposal(reference, []),
+        runtime_schema_proposal(10, []),
+      ],
+      fn(value) { value },
+    )
+  fluid_document.apply_runtime_schema(activated, proposals, 20)
+  |> expect.to_equal(Ok(activated))
+}
+
+pub fn shared_tree_document_summary_plain_leave_clears_sender_prefix_test() {
+  let #(core, envelopes) = case
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  {
+    Ok(value) -> value
+    Error(error) -> panic as error
+  }
+  let assert [first, ..] = envelopes
+  let assert Some(sender) = first.message.client_id
+  let assert Ok(#(partial, _)) = runtime_core.handle_envelope(core, first)
+  let assert Ok(summary) = runtime_core.capture_summary(partial)
+  fluid_document.inbound_state(summary)
+  |> fluid_inbound.partial_chunks
+  |> list.length
+  |> expect.to_equal(1)
+  let join =
+    spillway_types.SequencedDocumentMessage(
+      ..first.message,
+      sequence_number: first.message.sequence_number + 1,
+      message_type: "join",
+      contents: first.message.contents,
+      data: Some(
+        json.object([
+          #("clientId", json.string(sender)),
+          #("detail", json.object([])),
+        ])
+        |> json.to_string,
+      ),
+    )
+  let assert Ok(summary) = fluid_document.advance(summary, join)
+  let leave =
+    spillway_types.SequencedDocumentMessage(
+      ..join,
+      sequence_number: join.sequence_number + 1,
+      message_type: "leave",
+      data: Some(json.to_string(json.string(sender))),
+    )
+  let assert Ok(left) = fluid_document.advance(summary, leave)
+  fluid_document.inbound_state(left)
+  |> fluid_inbound.partial_chunks
+  |> expect.to_equal([])
+  fluid_document.members(left) |> expect.to_equal([])
+  let assert Ok(encoded) = fluid_document.encode(left)
+  let assert Ok(session) =
+    fluid_ids.session_id("72000000-0000-4000-8000-000000000007")
+  let assert Ok(reloaded) =
+    fluid_document.decode(encoded, None, session, fluid_document.view_id(left))
+  fluid_document.inbound_state(reloaded)
+  |> fluid_inbound.partial_chunks
+  |> expect.to_equal([])
 }
 
 pub fn shared_tree_document_summary_schema_cas_rejects_invalid_proposals_test() {
@@ -908,7 +1054,7 @@ fn runtime_schema_proposal(
   json.object([
     #("version", json.int(1)),
     #("refSeq", json.int(reference)),
-    #("info", json.object([#("minVersionForCollab", json.string("2.0.0"))])),
+    #("info", json.object([#("minVersionForCollab", json.string("2.117.0"))])),
     #(
       "runtime",
       json.object([

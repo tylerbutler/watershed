@@ -16,9 +16,11 @@ import watershed/tree/codec
 import watershed/tree/codec/summary as summary_codec
 import watershed/tree/history
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
 import watershed/tree/summary as tree_summary
 import watershed/tree_kernel
 import watershed/wire.{type SequencedEnvelope}
+import watershed/wire/fluid_container
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/socket
@@ -347,6 +349,102 @@ pub fn core_case(
     runtime_core.MissingPrefix(_, _, _, _) ->
       Error("captured channel context did not produce a complete bootstrap")
   }
+}
+
+pub fn actor_seed_case(
+  id: String,
+) -> Result(
+  #(runtime_core.BootstrapSeed, List(SequencedEnvelope), String),
+  String,
+) {
+  use #(core, envelopes) <- result.try(core_case(id))
+  use summary <- result.try(
+    runtime_core.capture_summary(core) |> result.map_error(string.inspect),
+  )
+  let datastores =
+    fluid_document.datastores(summary)
+    |> list.map(fn(store) {
+      runtime_core.DatastoreSeed(store.id, store.package_path)
+    })
+  let channels =
+    fluid_document.datastores(summary)
+    |> list.flat_map(fn(store) {
+      list.map(store.channels, fn(item) {
+        runtime_core.ChannelSeed(
+          fluid_container.Route(store.id, item.id),
+          item.attributes,
+          item.snapshot,
+        )
+      })
+    })
+  use root_store <- result.try(
+    list.key_find(fluid_document.aliases(summary), "root")
+    |> result.map_error(fn(_) { "captured actor seed has no root alias" }),
+  )
+  use root <- result.try(
+    list.find(channels, fn(entry) {
+      let runtime_core.ChannelSeed(fluid_container.Route(store, _), _, snapshot) =
+        entry
+      store == root_store
+      && case snapshot {
+        channel.MapSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> result.map_error(fn(_) { "captured actor seed has no root map" }),
+  )
+  let runtime_core.ChannelSeed(root_route, _, _) = root
+  use tree <- result.try(
+    list.find(channels, fn(entry) {
+      let runtime_core.ChannelSeed(fluid_container.Route(store, _), _, snapshot) =
+        entry
+      store != root_store
+      && case snapshot {
+        channel.TreeSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> result.map_error(fn(_) { "captured actor seed has no tree" }),
+  )
+  let runtime_core.ChannelSeed(tree_route, _, _) = tree
+  use tree_views <- result.try(
+    channels
+    |> list.filter_map(fn(entry) {
+      case entry {
+        runtime_core.ChannelSeed(route, _, channel.TreeSnapshot(snapshot)) ->
+          Ok(#(route, snapshot))
+        _ -> Error(Nil)
+      }
+    })
+    |> list.try_map(fn(entry) {
+      let #(route, snapshot) = entry
+      let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+      use view <- result.try(
+        stored
+        |> tree_schema.stored_to_json
+        |> tree_schema.view_from_json
+        |> result.map_error(string.inspect),
+      )
+      Ok(runtime_core.TreeViewSeed(route, fluid_document.view_id(summary), view))
+    }),
+  )
+  use seed <- result.try(
+    runtime_core.bootstrap_seed(runtime_core.BootstrapSeedInput(
+      profile: runtime_core.RoutedSeed,
+      sequence_number: fluid_document.sequence_number(summary),
+      minimum_sequence_number: fluid_document.minimum_sequence_number(summary),
+      members: fluid_document.members(summary),
+      datastores:,
+      aliases: fluid_document.aliases(summary),
+      channels:,
+      bootstrap_map: root_route,
+      compressor: fluid_document.compressor(summary),
+      tree_views:,
+    ))
+    |> result.map_error(string.inspect),
+  )
+  let fluid_container.Route(store, tree) = tree_route
+  Ok(#(seed, envelopes, store <> "/" <> tree))
 }
 
 fn adapt_checkpoint(

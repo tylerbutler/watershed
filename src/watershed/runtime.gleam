@@ -4721,36 +4721,46 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
             Error(error) ->
               fail(cell, "reconnect failed: " <> string.inspect(error))
             Ok(core) -> {
-              let checkpoint =
-                option.unwrap(
-                  connected.checkpoint_sequence_number,
-                  core.last_seen_sequence_number,
-                )
-              // Ask for the gap. Nothing else will: no server pushes it unprompted,
-              // and the reactive `requestOps` in `on_operation` needs an operation
-              // to react to. See `runtime_core.catch_up_from`.
-              settle_reconnect(cell, core, checkpoint)
-              case runtime_core.reconnect_barrier_active(core) {
-                True -> {
-                  let _ =
-                    state.scheduler.schedule(
-                      fn() { reconnect_deadline(cell, core.client_id) },
-                      10_000,
-                    )
-                  Nil
-                }
-                False -> Nil
+              let checkpoint = case connected.checkpoint_sequence_number {
+                Some(checkpoint) -> checkpoint
+                None ->
+                  connection.initial_messages
+                  |> list.last
+                  |> result.map(fn(envelope) {
+                    envelope.message.sequence_number
+                  })
+                  |> result.unwrap(core.last_seen_sequence_number)
               }
-              maybe_request_operations(
-                state.channel,
-                runtime_core.catch_up_from(core, checkpoint),
-              )
-              // Presence is unsequenced, so it does not wait for the operation
-              // catch-up `settle_reconnect` may still be pending — rejoining now is
-              // both correct and the fastest way back to a roster.
-              case session_current(cell, state.bootstrap_generation) {
-                True -> notify_presence_session(cell, core)
-                False -> Nil
+              settle_reconnect(cell, core, checkpoint)
+              apply_received_operations(cell, connection.initial_messages)
+              case cell_get(cell).phase {
+                Ready(current, _) -> {
+                  case runtime_core.reconnect_barrier_active(current) {
+                    True -> {
+                      let _ =
+                        state.scheduler.schedule(
+                          fn() { reconnect_deadline(cell, current.client_id) },
+                          10_000,
+                        )
+                      Nil
+                    }
+                    False -> Nil
+                  }
+                  maybe_request_operations(
+                    state.channel,
+                    runtime_core.catch_up_from(current, checkpoint),
+                  )
+                  // Presence is unsequenced, so it does not wait for the
+                  // operation catch-up.
+                  case session_current(cell, state.bootstrap_generation) {
+                    True -> notify_presence_session(cell, current)
+                    False -> Nil
+                  }
+                }
+                Connecting
+                | Reconnecting(_)
+                | SuspendedPendingTree(_, _)
+                | Failed(_) -> Nil
               }
             }
           }

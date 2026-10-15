@@ -478,6 +478,10 @@ describe("Watershed compression source capture", () => {
 						initializationMessages: ISequencedDocumentMessage[];
 					};
 					messages: ISequencedDocumentMessage[];
+					observations: {
+						roots: { length: number; sha256: string }[];
+						revisions: { opSpace: number; stable: string }[];
+					};
 				}[];
 			};
 		};
@@ -548,6 +552,7 @@ describe("Watershed compression source capture", () => {
 					context: item.context,
 					allocationPreludes,
 					operations,
+					observations: item.observations,
 				};
 			}),
 		};

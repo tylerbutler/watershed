@@ -1536,11 +1536,15 @@ pub fn advance_inbound(
       check_batch(summary, representative)
     _ -> Ok(Nil)
   })
-  use #(protocol_members, member_ids) <- result.try(advance_members(
+  use #(protocol_members, member_ids, departed) <- result.try(advance_members(
     summary.protocol_members,
     summary.member_ids,
     message,
   ))
+  let inbound = case departed {
+    Some(id) -> fluid_inbound.remove_client(inbound, id)
+    None -> inbound
+  }
   use last_message <- result.try(last_message(message))
   use metadata <- result.try(replace_member(
     summary.metadata,
@@ -2036,16 +2040,36 @@ pub fn apply_runtime_schema(
     Ok(proposals) -> proposals
     Error(_) -> [contents]
   }
-  list.try_fold(proposals, summary, fn(summary, proposal) {
-    apply_runtime_schema_proposal(summary, proposal, sequence_number)
-  })
+  apply_runtime_schema_proposals(summary, proposals, sequence_number)
+}
+
+type SchemaProposalResult {
+  SchemaAccepted(DocumentSummary)
+  SchemaCasFailed
+}
+
+fn apply_runtime_schema_proposals(
+  summary: DocumentSummary,
+  proposals: List(Json),
+  sequence_number: Int,
+) -> Result(DocumentSummary, SummaryError) {
+  case proposals {
+    [] -> Ok(summary)
+    [proposal, ..rest] ->
+      case apply_runtime_schema_proposal(summary, proposal, sequence_number) {
+        Ok(SchemaAccepted(summary)) ->
+          apply_runtime_schema_proposals(summary, rest, sequence_number)
+        Ok(SchemaCasFailed) -> Ok(summary)
+        Error(error) -> Error(error)
+      }
+  }
 }
 
 fn apply_runtime_schema_proposal(
   summary: DocumentSummary,
   proposal: Json,
   sequence_number: Int,
-) -> Result(DocumentSummary, SummaryError) {
+) -> Result(SchemaProposalResult, SummaryError) {
   use version <- result.try(integer(
     proposal,
     ["version"],
@@ -2055,11 +2079,6 @@ fn apply_runtime_schema_proposal(
     proposal,
     ["refSeq"],
     "/.metadata/documentSchema",
-  ))
-  use minimum_version <- result.try(text(
-    proposal,
-    ["info", "minVersionForCollab"],
-    "/.metadata/documentSchema/info",
   ))
   use runtime <- result.try(
     json.parse(
@@ -2094,7 +2113,7 @@ fn apply_runtime_schema_proposal(
     "/.metadata/documentSchema",
   ))
   case reference < current_reference {
-    True -> Ok(summary)
+    True -> Ok(SchemaCasFailed)
     False -> {
       use _ <- result.try(require(
         reference == current_reference && reference <= sequence_number,
@@ -2106,12 +2125,6 @@ fn apply_runtime_schema_proposal(
         "/.metadata/documentSchema/version",
         "unsupported document schema version",
       ))
-      use _ <- result.try(require(
-        minimum_version == "2.0.0",
-        "/.metadata/documentSchema/info",
-        "unsupported compatibility information",
-      ))
-      use _ <- result.try(validate_runtime_schema_features(runtime))
       use current_runtime <- result.try(
         json.parse(
           json.to_string(current),
@@ -2127,74 +2140,112 @@ fn apply_runtime_schema_proposal(
           )
         }),
       )
-      let runtime =
-        current_runtime
-        |> dict.insert("explicitSchemaControl", json.bool(True))
-        |> dict.insert("compressionLz4", json.bool(True))
-        |> dict.insert("opGroupingEnabled", json.bool(True))
+      use _ <- result.try(validate_runtime_schema_features(
+        current,
+        current_runtime,
+        proposal,
+        runtime,
+      ))
+      use fields <- result.try(
+        json.parse(
+          json.to_string(proposal),
+          decode.dict(decode.string, wire.json_value_decoder()),
+        )
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/.metadata/documentSchema",
+            "invalid document schema",
+          )
+        }),
+      )
       let schema =
-        json.object([
-          #("version", json.int(1)),
-          #("refSeq", json.int(sequence_number)),
-          #(
-            "info",
-            json.object([
-              #("minVersionForCollab", json.string(minimum_version)),
-            ]),
-          ),
-          #("runtime", json.object(dict.to_list(runtime))),
-        ])
+        json.object(
+          dict.to_list(dict.insert(fields, "refSeq", json.int(sequence_number))),
+        )
       use metadata <- result.try(replace_member(
         summary.metadata,
         "documentSchema",
         schema,
         "/.metadata",
       ))
-      Ok(DocumentSummary(..summary, metadata:))
+      Ok(SchemaAccepted(DocumentSummary(..summary, metadata:)))
     }
   }
 }
 
 fn validate_runtime_schema_features(
+  current: Json,
+  current_runtime: Dict(String, Json),
+  proposal: Json,
   runtime: Dict(String, Json),
 ) -> Result(Nil, SummaryError) {
+  use current_minimum <- result.try(text(
+    current,
+    ["info", "minVersionForCollab"],
+    "/.metadata/documentSchema/info",
+  ))
+  use proposed_minimum <- result.try(text(
+    proposal,
+    ["info", "minVersionForCollab"],
+    "/.metadata/documentSchema/info",
+  ))
+  use _ <- result.try(require(
+    proposed_minimum == current_minimum,
+    "/.metadata/documentSchema/info",
+    "unsupported compatibility information",
+  ))
   use _ <- result.try(
-    list.try_each(dict.keys(runtime), fn(name) {
-      require(
-        name == "compressionLz4"
-          || name == "explicitSchemaControl"
-          || name == "opGroupingEnabled",
-        "/.metadata/documentSchema/runtime",
-        "unsupported runtime feature: " <> name,
-      )
-    }),
-  )
-  list.try_each(
-    ["compressionLz4", "explicitSchemaControl", "opGroupingEnabled"],
-    fn(name) {
-      use value <- result.try(
-        dict.get(runtime, name)
-        |> result.replace_error(fluid_summary.MalformedEntry(
-          "/.metadata/documentSchema/runtime",
-          "missing runtime feature: " <> name,
-        )),
-      )
-      use enabled <- result.try(
-        json.parse(json.to_string(value), decode.bool)
-        |> result.map_error(fn(_) {
-          fluid_summary.MalformedEntry(
+    list.try_each(
+      ["compressionLz4", "explicitSchemaControl", "opGroupingEnabled"],
+      fn(name) {
+        use value <- result.try(
+          dict.get(runtime, name)
+          |> result.replace_error(fluid_summary.MalformedEntry(
             "/.metadata/documentSchema/runtime",
-            "invalid runtime feature value: " <> name,
-          )
-        }),
-      )
-      require(
-        enabled,
-        "/.metadata/documentSchema/runtime",
-        "unsupported runtime feature value: " <> name,
-      )
-    },
+            "missing runtime feature: " <> name,
+          )),
+        )
+        use enabled <- result.try(
+          json.parse(json.to_string(value), decode.bool)
+          |> result.map_error(fn(_) {
+            fluid_summary.MalformedEntry(
+              "/.metadata/documentSchema/runtime",
+              "invalid runtime feature value: " <> name,
+            )
+          }),
+        )
+        require(
+          enabled,
+          "/.metadata/documentSchema/runtime",
+          "unsupported runtime feature value: " <> name,
+        )
+      },
+    ),
   )
+  list.try_each(dict.to_list(runtime), fn(entry) {
+    let #(name, value) = entry
+    case
+      name == "compressionLz4"
+      || name == "explicitSchemaControl"
+      || name == "opGroupingEnabled"
+    {
+      True -> Ok(Nil)
+      False -> {
+        use current_value <- result.try(
+          dict.get(current_runtime, name)
+          |> result.replace_error(fluid_summary.MalformedEntry(
+            "/.metadata/documentSchema/runtime",
+            "unsupported runtime feature: " <> name,
+          )),
+        )
+        require(
+          wire.json_semantically_equal(value, current_value),
+          "/.metadata/documentSchema/runtime",
+          "unsupported runtime feature change: " <> name,
+        )
+      }
+    }
+  })
 }
 
 fn validate_last_message(metadata: Json) -> Result(Nil, SummaryError) {
@@ -2415,7 +2466,7 @@ fn advance_members(
   members: Json,
   ids: List(String),
   message: SequencedDocumentMessage,
-) -> Result(#(Json, List(String)), SummaryError) {
+) -> Result(#(Json, List(String), Option(String)), SummaryError) {
   use entries <- result.try(
     json.parse(
       json.to_string(members),
@@ -2479,6 +2530,7 @@ fn advance_members(
           json.array(pair, fn(value) { value })
         }),
         list.append(ids, [id]),
+        None,
       ))
     }
     "leave" -> {
@@ -2518,9 +2570,10 @@ fn advance_members(
       Ok(#(
         json.array(remaining, fn(pair) { json.array(pair, fn(value) { value }) }),
         list.filter(ids, fn(member) { member != id }),
+        Some(id),
       ))
     }
-    _ -> Ok(#(members, ids))
+    _ -> Ok(#(members, ids, None))
   }
 }
 

@@ -3339,7 +3339,7 @@
       },
       "sequenceNumber": 10
     },
-    "digest": "d5e628e0fe657b8938a7de5b121fa69a02a48f98c4a3f85bb0fa52b9c95f09b9",
+    "digest": "9c25674c5dcc06ff9b6fc8049560d1b633fcbce6e29512b02de799df580277c0",
     "path": "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts",
     "schemaActivation": {
       "accepted": true,
@@ -3461,7 +3461,7 @@
         "version": 1
       }
     },
-    "treeDigest": "89e63ad88ac2f88c090f07c24bac390e793d40bf34be868922de320dcb06c191",
+    "treeDigest": "b2a7810db6698b1e1ebae6fcf8a82a329dc5178dd6b1d5a84798e8016fc2fca4",
     "treePath": "packages/dds/tree/src/test/watershedCompressionTree.spec.ts",
     "treeState": {
       "completeness": "channel-summary-contexts-not-full-container-snapshots",
@@ -3797,6 +3797,28 @@
             }
           },
           "id": "compression-tree",
+          "observations": {
+            "revisions": [
+              {
+                "opSpace": 2,
+                "stable": "10000000-0000-4000-8000-000000000003"
+              },
+              {
+                "opSpace": 3,
+                "stable": "10000000-0000-4000-8000-000000000004"
+              }
+            ],
+            "roots": [
+              {
+                "length": 615000,
+                "sha256": "3030879cca9c04ed90a6ffb104333fd71391bb89b42c077d1c675019e9a0f295"
+              },
+              {
+                "length": 28,
+                "sha256": "306a1005ebaa25d2a81886b931c15995b3dcd5bf9e7d97bcf0b4c8ac018f955d"
+              }
+            ]
+          },
           "operations": [
             {
               "hasAllocationPrelude": true,
@@ -4138,6 +4160,28 @@
             }
           },
           "id": "compression-tree-chunked",
+          "observations": {
+            "revisions": [
+              {
+                "opSpace": 2,
+                "stable": "20000000-0000-4000-8000-000000000004"
+              },
+              {
+                "opSpace": 3,
+                "stable": "20000000-0000-4000-8000-000000000005"
+              }
+            ],
+            "roots": [
+              {
+                "length": 309336,
+                "sha256": "004bc543965b52f7625ebb8f56fd173d35306c87664d2882bdef66322385cbe8"
+              },
+              {
+                "length": 309336,
+                "sha256": "e361b46a219d786ffb2882059aa7b1a2ca490b0dd1c32663817143e2ca58773b"
+              }
+            ]
+          },
           "operations": [
             {
               "hasAllocationPrelude": true,
