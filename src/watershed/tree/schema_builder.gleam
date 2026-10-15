@@ -3,7 +3,7 @@
 //// Snapshots are values, not live references. The stored schema validator
 //// checks declarations and content before codecs return a value.
 
-import gleam/dict
+import gleam/dict.{type Dict}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -12,6 +12,23 @@ import gleam/string
 import watershed/handle
 import watershed/tree/schema
 import watershed/tree/types.{type TreeError, type TreeValue}
+
+pub opaque type Factory {
+  Factory(scope: String)
+}
+
+pub fn factory(scope: String) -> Factory {
+  Factory(scope)
+}
+
+fn name_errors(factory: Factory, name: String) -> List(TreeError) {
+  case factory.scope, name {
+    "", _ | _, "" -> [
+      types.InvalidSchema("Schema scope and name must not be empty"),
+    ]
+    _, _ -> []
+  }
+}
 
 pub opaque type Node(a) {
   Node(
@@ -99,6 +116,76 @@ pub fn handle() -> Node(handle.Reference) {
       _ -> mismatch()
     }
   })
+}
+
+pub fn array(
+  factory: Factory,
+  name: String,
+  element: Node(a),
+) -> Node(List(a)) {
+  let identifier = factory.scope <> "." <> name
+  Node(
+    identifier,
+    [
+      #(
+        identifier,
+        schema.Array(schema.FieldSchema(schema.Sequence, [element.identifier])),
+      ),
+      ..element.definitions
+    ],
+    list.append(name_errors(factory, name), element.errors),
+    fn(values) {
+      types.ArrayValue(identifier, list.map(values, element.encode))
+    },
+    fn(value) {
+      case value {
+        types.ArrayValue(actual, values) if actual == identifier ->
+          list.try_map(values, element.decode)
+        _ -> mismatch()
+      }
+    },
+  )
+}
+
+pub fn map(
+  factory: Factory,
+  name: String,
+  value: Node(a),
+) -> Node(Dict(String, a)) {
+  let identifier = factory.scope <> "." <> name
+  Node(
+    identifier,
+    [
+      #(
+        identifier,
+        schema.Map(schema.FieldSchema(schema.Optional, [value.identifier])),
+      ),
+      ..value.definitions
+    ],
+    list.append(name_errors(factory, name), value.errors),
+    fn(values) {
+      types.MapValue(
+        identifier,
+        values
+          |> dict.to_list
+          |> sort_entries
+          |> list.map(fn(entry) { #(entry.0, value.encode(entry.1)) }),
+      )
+    },
+    fn(snapshot) {
+      case snapshot {
+        types.MapValue(actual, entries) if actual == identifier -> {
+          use entries <- result.try(
+            list.try_map(entries, fn(entry) {
+              result.map(value.decode(entry.1), fn(value) { #(entry.0, value) })
+            }),
+          )
+          Ok(dict.from_list(entries))
+        }
+        _ -> mismatch()
+      }
+    },
+  )
 }
 
 pub fn root(node: Node(a)) -> Root(a) {

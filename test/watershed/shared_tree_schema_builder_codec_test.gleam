@@ -6,9 +6,12 @@ import watershed/tree/types
 
 pub fn shared_tree_schema_builder_codec_wrong_leaf_test() {
   let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
-  let assert Error(types.InvalidEdit(path, _)) =
-    builder.decode(compiled, Some(types.BooleanValue(True)))
-  path |> expect.to_equal([])
+  [types.BooleanValue(True), types.NullValue, types.NumberValue(1.0)]
+  |> list.each(fn(value) {
+    let assert Error(types.InvalidEdit(path, _)) =
+      builder.decode(compiled, Some(value))
+    path |> expect.to_equal([])
+  })
 }
 
 @target(javascript)

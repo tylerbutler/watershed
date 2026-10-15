@@ -1,10 +1,110 @@
+import gleam/dict
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/handle
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
+
+pub fn shared_tree_schema_builder_array_round_trip_test() {
+  let assert Ok(compiled) =
+    builder.array(builder.factory("com.example"), "Words", builder.string())
+    |> builder.root
+    |> builder.compile
+  let expected =
+    Some(
+      types.ArrayValue("com.example.Words", [
+        types.StringValue("first"),
+        types.StringValue("second"),
+      ]),
+    )
+  builder.encode(compiled, ["first", "second"])
+  |> expect.to_equal(Ok(expected))
+  builder.decode(compiled, expected)
+  |> expect.to_equal(Ok(["first", "second"]))
+  builder.encode(compiled, [])
+  |> expect.to_equal(Ok(Some(types.ArrayValue("com.example.Words", []))))
+  builder.decode(compiled, Some(types.ArrayValue("Other", [])))
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_schema_builder_maps_round_trip_test() {
+  let assert Ok(compiled) =
+    builder.map(builder.factory("com.example"), "Numbers", builder.number())
+    |> builder.root
+    |> builder.compile
+  let value =
+    dict.from_list([#("2", 2.0), #("__proto__", 3.0), #("", 0.0), #("10", 1.0)])
+  let expected =
+    Some(
+      types.MapValue("com.example.Numbers", [
+        #("", types.NumberValue(0.0)),
+        #("10", types.NumberValue(1.0)),
+        #("2", types.NumberValue(2.0)),
+        #("__proto__", types.NumberValue(3.0)),
+      ]),
+    )
+  builder.encode(compiled, value) |> expect.to_equal(Ok(expected))
+  builder.decode(compiled, expected) |> expect.to_equal(Ok(value))
+  builder.encode(compiled, dict.new())
+  |> expect.to_equal(Ok(Some(types.MapValue("com.example.Numbers", []))))
+  builder.decode(compiled, Some(types.MapValue("Other", [])))
+  |> expect.to_be_error
+  builder.decode(
+    compiled,
+    Some(
+      types.MapValue("com.example.Numbers", [
+        #("x", types.NumberValue(1.0)),
+        #("x", types.NumberValue(2.0)),
+      ]),
+    ),
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_schema_builder_nested_collections_test() {
+  let factory = builder.factory("com.example.nested")
+  let assert Ok(arrays) =
+    builder.array(
+      factory,
+      "Rows",
+      builder.map(factory, "Row", builder.string()),
+    )
+    |> builder.root
+    |> builder.compile
+  let values = [dict.from_list([#("key", "value")]), dict.new()]
+  let assert Ok(snapshot) = builder.encode(arrays, values)
+  builder.decode(arrays, snapshot) |> expect.to_equal(Ok(values))
+  let assert Ok(maps) =
+    builder.map(
+      factory,
+      "Groups",
+      builder.array(factory, "Group", builder.string()),
+    )
+    |> builder.root
+    |> builder.compile
+  let values = dict.from_list([#("first", ["a", "b"]), #("empty", [])])
+  let assert Ok(snapshot) = builder.encode(maps, values)
+  builder.decode(maps, snapshot) |> expect.to_equal(Ok(values))
+}
+
+pub fn shared_tree_schema_builder_rejects_empty_names_test() {
+  [#("", "Words"), #("com.example", ""), #("", "")]
+  |> list.each(fn(names) {
+    builder.array(builder.factory(names.0), names.1, builder.string())
+    |> builder.root
+    |> builder.compile
+    |> expect.to_be_error
+    builder.map(builder.factory(names.0), names.1, builder.string())
+    |> builder.root
+    |> builder.compile
+    |> expect.to_be_error
+  })
+}
 
 pub fn shared_tree_schema_builder_string_root_test() {
   let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
