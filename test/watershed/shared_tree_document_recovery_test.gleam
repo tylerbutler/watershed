@@ -1,6 +1,7 @@
 //// Recovery acceptance. The main function checks fresh-process persistence.
 
 import envoy
+import gleam/bit_array
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/io
@@ -12,17 +13,22 @@ import simplifile
 import spillway/message
 import spillway/types
 import startest/expect
+import watershed/channel
 import watershed/fluid_ids
 import watershed/id
 import watershed/recovery
 import watershed/runtime_core
 import watershed/sluice/frame
+import watershed/tree/compression_fixture
+import watershed/tree/history
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/types as tree_types
+import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/fluid_document
+import watershed/wire/fluid_inbound
 import watershed/wire/socket
 
 @target(erlang)
@@ -148,6 +154,250 @@ fn roundtrip(core: runtime_core.Core) -> runtime_core.Core {
     view_id: fluid_ids.stable_id(id.uuid_v4()) |> expect.to_be_ok(),
   )
   |> expect.to_be_ok()
+}
+
+const compressed_tree = "compression-tree-chunked-store/compression-tree-chunked-tree"
+
+fn apply_envelopes(
+  core: runtime_core.Core,
+  envelopes: List(wire.SequencedEnvelope),
+) -> runtime_core.Core {
+  list.fold(envelopes, core, fn(core, envelope) {
+    runtime_core.handle_envelope(core, envelope)
+    |> expect.to_be_ok()
+    |> fn(pair) { pair.0 }
+  })
+}
+
+fn compressed_history(core: runtime_core.Core) {
+  let assert Ok(channel.TreeState(tree)) =
+    dict.get(core.channels, compressed_tree)
+  let view = tree_kernel.history_view(tree)
+  #(
+    list.map(view.sequenced.trunk, fn(item) {
+      let history.SequencedCommit(commit, point) = item
+      #(fluid_ids.stable_id_to_string(commit.revision), point)
+    }),
+    list.map(view.pending, fn(commit) {
+      fluid_ids.stable_id_to_string(commit.revision)
+    }),
+  )
+}
+
+fn serialized_compressor(core: runtime_core.Core) {
+  let assert Some(compressor) = core.compressor
+  fluid_ids.serialize(compressor, True) |> expect.to_be_ok()
+}
+
+pub fn document_recovery_retains_partial_peer_prefix_test() {
+  let assert Ok(#(base, envelopes)) =
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  let assert #(expected_prefix, 4, 1) =
+    compression_fixture.summary_prefix("partial-summary-prefix-tail")
+    |> expect.to_be_ok()
+  let prefix = list.take(envelopes, 4)
+  let tail = list.drop(envelopes, 4)
+  let partial = apply_envelopes(base, prefix)
+  let checkpoint =
+    recovery.capture(partial, tenant: "default", document: "tree")
+    |> expect.to_be_ok()
+  let restored =
+    recovery.restore(
+      checkpoint,
+      tenant: "default",
+      document: "tree",
+      view_id: view_id(),
+    )
+    |> expect.to_be_ok()
+  fluid_inbound.partial_chunks(restored.inbound)
+  |> expect.to_equal(expected_prefix)
+  let assert Some(runtime_core.RecoveryReplay(sequenced, _)) =
+    restored.recovery_replay
+  fluid_inbound.partial_chunks(sequenced.inbound)
+  |> expect.to_equal(expected_prefix)
+
+  let uninterrupted = apply_envelopes(partial, tail)
+  let recovered = apply_envelopes(restored, tail)
+  runtime_core.tree_read(recovered, compressed_tree, [])
+  |> expect.to_equal(runtime_core.tree_read(uninterrupted, compressed_tree, []))
+  compressed_history(recovered)
+  |> expect.to_equal(compressed_history(uninterrupted))
+  recovered.in_flight |> expect.to_equal(uninterrupted.in_flight)
+  serialized_compressor(recovered)
+  |> expect.to_equal(serialized_compressor(uninterrupted))
+  fluid_inbound.partial_chunks(recovered.inbound) |> expect.to_equal([])
+}
+
+pub fn document_recovery_partial_peer_prefix_preserves_pending_native_edits_test() {
+  let assert Ok(#(base, envelopes)) =
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  let assert [first, second, third, fourth, tail] = envelopes
+  let assert Ok(#(pending, _, [first_native])) =
+    runtime_core.submit_tree_edits(base, compressed_tree, [
+      tree_types.SetField(["label"], tree_types.StringValue("native-first")),
+    ])
+  let compressor_before_prefix = serialized_compressor(pending)
+  let pending = apply_envelopes(pending, [first, second])
+  serialized_compressor(pending) |> expect.to_equal(compressor_before_prefix)
+  let assert Ok(#(pending, _, [second_native])) =
+    runtime_core.submit_tree_edits(pending, compressed_tree, [
+      tree_types.SetField(["label"], tree_types.StringValue("native-second")),
+    ])
+  let compressor_before_more_prefix = serialized_compressor(pending)
+  let partial = apply_envelopes(pending, [third, fourth])
+  partial.in_flight |> list.length |> expect.to_equal(2)
+  serialized_compressor(partial)
+  |> expect.to_equal(compressor_before_more_prefix)
+
+  let checkpoint =
+    recovery.capture(partial, tenant: "default", document: "tree")
+    |> expect.to_be_ok()
+  let once =
+    recovery.restore(
+      checkpoint,
+      tenant: "default",
+      document: "tree",
+      view_id: view_id(),
+    )
+    |> expect.to_be_ok()
+  let repeated =
+    recovery.capture(once, tenant: "default", document: "tree")
+    |> expect.to_be_ok()
+    |> recovery.restore(
+      tenant: "default",
+      document: "tree",
+      view_id: fluid_ids.stable_id("70000000-0000-4000-8000-000000000008")
+        |> expect.to_be_ok(),
+    )
+    |> expect.to_be_ok()
+  fluid_inbound.partial_chunks(repeated.inbound)
+  |> expect.to_equal(fluid_inbound.partial_chunks(partial.inbound))
+
+  let uninterrupted = apply_envelopes(partial, [tail])
+  let recovered = apply_envelopes(repeated, [tail])
+  recovered.in_flight |> list.length |> expect.to_equal(2)
+  runtime_core.tree_read(recovered, compressed_tree, [])
+  |> expect.to_equal(runtime_core.tree_read(uninterrupted, compressed_tree, []))
+  compressed_history(recovered)
+  |> expect.to_equal(compressed_history(uninterrupted))
+  serialized_compressor(recovered)
+  |> expect.to_equal(serialized_compressor(uninterrupted))
+
+  let accepted_first = sequenced(first_native, "compression-reader", 205)
+  let recovered =
+    runtime_core.handle_sequenced(recovered, accepted_first)
+    |> expect.to_be_ok()
+    |> fn(pair) { pair.0 }
+  recovered.in_flight |> list.length |> expect.to_equal(1)
+  let assert Ok(#(resubmitted, [remaining])) = runtime_core.resubmit(recovered)
+  let assert Some(expected_metadata) = second_native.metadata
+  let assert Some(actual_metadata) = remaining.metadata
+  json_field(actual_metadata, "batchId")
+  |> expect.to_equal(json_field(expected_metadata, "batchId"))
+  let accepted_second = sequenced(remaining, resubmitted.client_id, 206)
+  let settled =
+    runtime_core.handle_sequenced(resubmitted, accepted_second)
+    |> expect.to_be_ok()
+    |> fn(pair) { pair.0 }
+  settled.in_flight |> expect.to_equal([])
+  let assert Some(compressor) = settled.compressor
+  let _ = fluid_ids.generate(compressor) |> expect.to_be_ok()
+  Nil
+}
+
+pub fn document_recovery_sender_leave_clears_restored_prefix_test() {
+  let assert Ok(#(base, envelopes)) =
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  let joined =
+    types.SequencedDocumentMessage(
+      ..sequenced(
+        wire.OutboundOperation(0, 0, "op", json.null(), None),
+        "summary-sender",
+        200,
+      ),
+      client_id: None,
+      message_type: "join",
+      data: Some(frame.system_join_data("summary-sender")),
+    )
+  let base =
+    runtime_core.handle_sequenced(base, joined)
+    |> expect.to_be_ok()
+    |> fn(pair) { pair.0 }
+  let shifted =
+    list.map(envelopes, fn(envelope) {
+      wire.SequencedEnvelope(
+        ..envelope,
+        message: types.SequencedDocumentMessage(
+          ..envelope.message,
+          sequence_number: envelope.message.sequence_number + 1,
+        ),
+      )
+    })
+  let partial = apply_envelopes(base, list.take(shifted, 4))
+  let restored = roundtrip(partial)
+  let leave =
+    types.SequencedDocumentMessage(
+      ..sequenced(
+        wire.OutboundOperation(0, 0, "op", json.null(), None),
+        "summary-sender",
+        205,
+      ),
+      client_id: None,
+      message_type: "leave",
+      data: Some(frame.system_leave_data("summary-sender")),
+    )
+  let cleared =
+    runtime_core.handle_sequenced(restored, leave)
+    |> expect.to_be_ok()
+    |> fn(pair) { pair.0 }
+  fluid_inbound.partial_chunks(cleared.inbound) |> expect.to_equal([])
+  cleared.recovery_replay |> expect.to_equal(None)
+}
+
+pub fn document_recovery_rejects_malformed_and_overlimit_peer_prefix_test() {
+  let assert Ok(#(base, envelopes)) =
+    compression_fixture.core_case("partial-summary-prefix-tail")
+  let partial = apply_envelopes(base, list.take(envelopes, 4))
+  let checkpoint =
+    recovery.capture(partial, tenant: "default", document: "tree")
+    |> expect.to_be_ok()
+  checkpoint_chunk_blob(checkpoint) |> expect.to_be_some()
+
+  recovery.restore(
+    replace_checkpoint_chunk_blob(
+      checkpoint,
+      bit_array.base64_encode(<<"not json":utf8>>, True),
+    ),
+    tenant: "default",
+    document: "tree",
+    view_id: view_id(),
+  )
+  |> expect.to_be_error()
+
+  let too_many =
+    json.array(
+      [
+        json.array(
+          [
+            json.string("summary-sender"),
+            json.array(list.repeat("x", times: 129), json.string),
+          ],
+          fn(value) { value },
+        ),
+      ],
+      fn(value) { value },
+    )
+  recovery.restore(
+    replace_checkpoint_chunk_blob(
+      checkpoint,
+      bit_array.base64_encode(<<json.to_string(too_many):utf8>>, True),
+    ),
+    tenant: "default",
+    document: "tree",
+    view_id: view_id(),
+  )
+  |> expect.to_be_error()
+  Nil
 }
 
 pub fn document_recovery_pending_move_and_edit_survive_file_restart_test() {
@@ -640,6 +890,132 @@ fn replace_field(data: json.Json, key: String, value: json.Json) -> json.Json {
 fn json_field(data: json.Json, key: String) -> json.Json {
   json.parse(json.to_string(data), decode.at([key], wire.json_value_decoder()))
   |> expect.to_be_ok()
+}
+
+fn checkpoint_chunk_blob(checkpoint: json.Json) {
+  checkpoint
+  |> json_field("summary")
+  |> json_field("tree")
+  |> summary_evidence_blob(".chunks")
+}
+
+fn summary_evidence_blob(entry: json.Json, name: String) {
+  let kind =
+    json.parse(json.to_string(entry), decode.at(["type"], decode.string))
+    |> expect.to_be_ok()
+  case kind {
+    "blob" -> None
+    "tree" -> {
+      let entries =
+        json.parse(
+          json.to_string(entry),
+          decode.at(
+            ["entries"],
+            decode.list(decode.list(wire.json_value_decoder())),
+          ),
+        )
+        |> expect.to_be_ok()
+      entries
+      |> list.filter_map(fn(pair) {
+        case pair {
+          [key, value] -> {
+            let key =
+              json.parse(json.to_string(key), decode.string)
+              |> expect.to_be_ok()
+            case key == name {
+              True ->
+                json.parse(
+                  json.to_string(value),
+                  decode.at(["base64"], decode.string),
+                )
+                |> expect.to_be_ok()
+                |> Ok
+              False ->
+                case summary_evidence_blob(value, name) {
+                  Some(found) -> Ok(found)
+                  None -> Error(Nil)
+                }
+            }
+          }
+          _ -> Error(Nil)
+        }
+      })
+      |> list.first
+      |> fn(found) {
+        case found {
+          Ok(value) -> Some(value)
+          Error(_) -> None
+        }
+      }
+    }
+    _ -> None
+  }
+}
+
+fn replace_checkpoint_chunk_blob(
+  checkpoint: json.Json,
+  replacement: String,
+) -> json.Json {
+  let summary = json_field(checkpoint, "summary")
+  replace_field(
+    checkpoint,
+    "summary",
+    replace_field(
+      summary,
+      "tree",
+      replace_summary_evidence_blob(
+        json_field(summary, "tree"),
+        ".chunks",
+        replacement,
+      ),
+    ),
+  )
+}
+
+fn replace_summary_evidence_blob(
+  entry: json.Json,
+  name: String,
+  replacement: String,
+) -> json.Json {
+  let kind =
+    json.parse(json.to_string(entry), decode.at(["type"], decode.string))
+    |> expect.to_be_ok()
+  case kind {
+    "tree" -> {
+      let entries =
+        json.parse(
+          json.to_string(entry),
+          decode.at(
+            ["entries"],
+            decode.list(decode.list(wire.json_value_decoder())),
+          ),
+        )
+        |> expect.to_be_ok()
+      replace_field(
+        entry,
+        "entries",
+        json.array(entries, fn(pair) {
+          case pair {
+            [key, value] -> {
+              let value = case
+                json.to_string(key) == json.to_string(json.string(name))
+              {
+                True ->
+                  json.object([
+                    #("type", json.string("blob")),
+                    #("base64", json.string(replacement)),
+                  ])
+                False -> replace_summary_evidence_blob(value, name, replacement)
+              }
+              json.array([key, value], fn(value) { value })
+            }
+            _ -> json.array(pair, fn(value) { value })
+          }
+        }),
+      )
+    }
+    _ -> entry
+  }
 }
 
 pub fn document_recovery_rejects_unretained_local_ancestry_test() {
