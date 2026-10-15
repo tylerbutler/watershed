@@ -27,6 +27,7 @@ const branchSource = join(directory, "upstream-branch.spec.ts");
 const lifecycleSource = join(directory, "upstream-lifecycle.spec.ts");
 const compressionSource = join(directory, "upstream-compression.spec.ts");
 const compressionTreeSource = join(directory, "upstream-compression-tree.spec.ts");
+const typedApiSource = join(directory, "upstream-typed-api.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -74,6 +75,8 @@ export const compressionInjectedTestPath =
   "packages/runtime/container-runtime/src/test/watershedCompression.spec.ts";
 export const compressionTreeInjectedTestPath =
   "packages/dds/tree/src/test/watershedCompressionTree.spec.ts";
+export const typedApiInjectedTestPath =
+  "packages/dds/tree/src/test/watershedTypedApi.spec.ts";
 export const branchSourceIdentity = {
   path: branchInjectedTestPath,
   version: reference.version,
@@ -114,6 +117,7 @@ const injections = new Map([
   [lifecycleInjectedTestPath, lifecycleSource],
   [compressionInjectedTestPath, compressionSource],
   [compressionTreeInjectedTestPath, compressionTreeSource],
+  [typedApiInjectedTestPath, typedApiSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -315,6 +319,7 @@ export function sourceTestBatches(corpus) {
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
     ["lib/test/watershedBranch.spec.js"],
+    ["lib/test/watershedTypedApi.spec.js"],
   ];
 }
 

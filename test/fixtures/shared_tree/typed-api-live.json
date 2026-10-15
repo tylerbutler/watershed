@@ -1,0 +1,671 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "scenarios": [
+    {
+      "id": "insert-before",
+      "input": {
+        "operations": [
+          {
+            "op": "insert-before"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": true
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "inserted",
+              "label": "new"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "reorder",
+      "input": {
+        "operations": [
+          {
+            "op": "reorder"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": true
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "cross-parent",
+      "input": {
+        "operations": [
+          {
+            "op": "cross-parent"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": true
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            }
+          ],
+          "right": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "remove-undo",
+      "input": {
+        "operations": [
+          {
+            "op": "remove"
+          },
+          {
+            "op": "undo"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "status": "Removed",
+            "read": "B",
+            "edit": {
+              "accepted": false,
+              "category": "UsageError"
+            },
+            "projection": "typed-api-refuses-removed-read-and-edit"
+          },
+          {
+            "status": "InDocument",
+            "same": true
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "equal-content-replacement",
+      "input": {
+        "operations": [
+          {
+            "op": "replace",
+            "equalIdentifier": false
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": false,
+            "sameIdentifier": false,
+            "status": "Removed"
+          }
+        ],
+        "savedStatus": "Removed",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "replacement",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "equal-identifier-replacement",
+      "input": {
+        "operations": [
+          {
+            "op": "replace",
+            "equalIdentifier": true
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": false,
+            "sameIdentifier": true,
+            "status": "Removed"
+          }
+        ],
+        "savedStatus": "Removed",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "replacement"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "root-replacement",
+      "input": {
+        "operations": [
+          {
+            "op": "replace-root"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": false,
+            "status": "Removed"
+          }
+        ],
+        "savedStatus": "Removed",
+        "otherStatus": "Removed",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "transaction-commit",
+      "input": {
+        "operations": [
+          {
+            "op": "transaction",
+            "abort": false
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "phase": "preview",
+            "originalSame": true,
+            "generated": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+          },
+          {
+            "phase": "after",
+            "originalSame": true,
+            "previewSame": true,
+            "previewStatus": "InDocument"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "preview"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "transaction-abort",
+      "input": {
+        "operations": [
+          {
+            "op": "transaction",
+            "abort": true
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "phase": "preview",
+            "originalSame": true,
+            "generated": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+          },
+          {
+            "phase": "after",
+            "originalSame": true,
+            "previewSame": false,
+            "previewStatus": "Deleted"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "B"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "reconciliation",
+      "input": {
+        "operations": [
+          {
+            "op": "competing-edit",
+            "reconnect": false
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": true,
+            "label": "local",
+            "peerLabel": "local",
+            "remoteId": "a0693eac-892a-4396-86f7-ad20dc1cade2"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+              "label": "remote"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "local"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "reconnect",
+      "input": {
+        "operations": [
+          {
+            "op": "competing-edit",
+            "reconnect": true
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "same": true,
+            "label": "local",
+            "peerLabel": "local",
+            "remoteId": "a0693eac-892a-4396-86f7-ad20dc1cade2"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+              "label": "remote"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "local"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "fork-rebase-merge-retained",
+      "input": {
+        "operations": [
+          {
+            "op": "fork-rebase-merge",
+            "dispose": false
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "phase": "rebase",
+            "same": true,
+            "foreignObject": true
+          },
+          {
+            "phase": "merge",
+            "same": true,
+            "label": "branch",
+            "branchRead": {
+              "accepted": true
+            },
+            "branchStatus": "InDocument"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "main"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "branch"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "fork-rebase-merge-disposed",
+      "input": {
+        "operations": [
+          {
+            "op": "fork-rebase-merge",
+            "dispose": true
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "phase": "rebase",
+            "same": true,
+            "foreignObject": true
+          },
+          {
+            "phase": "merge",
+            "same": true,
+            "label": "branch",
+            "branchRead": {
+              "accepted": false,
+              "category": "UsageError"
+            },
+            "branchStatus": "Deleted"
+          }
+        ],
+        "savedStatus": "InDocument",
+        "otherStatus": "InDocument",
+        "duplicateIdentifiers": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "featured",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "main"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "A"
+            },
+            {
+              "kind": "Point",
+              "id": "duplicate",
+              "label": "branch"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        }
+      }
+    },
+    {
+      "id": "schema-invalidation",
+      "input": {
+        "operations": [
+          {
+            "op": "invalidate-schema"
+          }
+        ]
+      },
+      "observations": {
+        "states": [
+          {
+            "canView": false,
+            "read": {
+              "accepted": false,
+              "category": "UsageError"
+            },
+            "savedStatus": "Deleted"
+          }
+        ],
+        "savedStatus": "Deleted",
+        "otherStatus": "Deleted",
+        "duplicateIdentifiers": true,
+        "visible": null
+      }
+    }
+  ]
+}

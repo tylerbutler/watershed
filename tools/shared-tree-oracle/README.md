@@ -1611,3 +1611,36 @@ cmp test/fixtures/shared_tree/schema-authoring.json tools/shared-tree-oracle/.ou
 Use `runSource` with `corpus: true`; the smoke publication command does not
 publish this file. If prerequisites are missing, restore the pinned packages
 and use `source:prepare` before capturing.
+
+## Typed API contract capture
+
+The isolated final corpus batch writes `typed-api-authoring.json` and
+`typed-api-live.json`. The former records persisted union/recursive/Identifier
+schemas, actual union variants and finite recursive values, and compressor
+allocations for nested initialization, transactions, and reconciliation.
+The latter retains actual Fluid node objects across moves, replacements,
+undo, transactions, reconciliation, reconnect, forks, and schema invalidation.
+Its identity observations use object equality, not labels or Identifier values.
+Removed-node access differences are named explicitly.
+
+Run from the repository root:
+
+```sh
+npm --prefix tools/shared-tree-oracle run source:verify
+node --test tools/shared-tree-oracle/source.test.mjs
+node --input-type=module -e 'import { runSource } from "./tools/shared-tree-oracle/source.mjs"; await runSource("tools/shared-tree-oracle/.output/typed-api", { corpus: true });'
+cp tools/shared-tree-oracle/.output/typed-api/typed-api-authoring.json test/fixtures/shared_tree/typed-api-authoring.json
+cp tools/shared-tree-oracle/.output/typed-api/typed-api-live.json test/fixtures/shared_tree/typed-api-live.json
+```
+
+Repeat the capture, then compare both files:
+
+```sh
+cmp test/fixtures/shared_tree/typed-api-authoring.json tools/shared-tree-oracle/.output/typed-api/typed-api-authoring.json
+cmp test/fixtures/shared_tree/typed-api-live.json tools/shared-tree-oracle/.output/typed-api/typed-api-live.json
+```
+
+These captures require `corpus: true`. Default smoke publication remains
+unchanged. Scenario inputs describe operations independently of their captured
+observations; native runners must execute the inputs rather than infer actions
+from expected results.

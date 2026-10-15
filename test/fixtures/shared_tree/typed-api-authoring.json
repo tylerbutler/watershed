@@ -1,0 +1,1159 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "schemas": [
+    {
+      "id": "union-root",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.Point",
+            "com.fluidframework.leaf.string"
+          ]
+        }
+      }
+    },
+    {
+      "id": "union-root-reversed",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.Point",
+            "com.fluidframework.leaf.string"
+          ]
+        }
+      }
+    },
+    {
+      "id": "union-object",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.typed.UnionObject": {
+            "kind": {
+              "object": {
+                "value": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.typed.Point",
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.UnionObject"
+          ]
+        }
+      }
+    },
+    {
+      "id": "union-array",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Items": {
+            "kind": {
+              "object": {
+                "": {
+                  "kind": "Sequence",
+                  "types": [
+                    "com.example.typed.Point",
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.Items"
+          ]
+        }
+      }
+    },
+    {
+      "id": "union-map",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.ByKey": {
+            "kind": {
+              "map": {
+                "kind": "Optional",
+                "types": [
+                  "com.example.typed.Point",
+                  "com.fluidframework.leaf.string"
+                ]
+              }
+            }
+          },
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.ByKey"
+          ]
+        }
+      }
+    },
+    {
+      "id": "recursive-outline",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Children": {
+            "kind": {
+              "object": {
+                "": {
+                  "kind": "Sequence",
+                  "types": [
+                    "com.example.typed.Outline"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.typed.Outline": {
+            "kind": {
+              "object": {
+                "children": {
+                  "kind": "Value",
+                  "types": [
+                    "com.example.typed.Children"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.Outline"
+          ]
+        }
+      }
+    },
+    {
+      "id": "mutual-recursion",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.MutualA": {
+            "kind": {
+              "object": {
+                "next": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.example.typed.MutualB"
+                  ]
+                }
+              }
+            }
+          },
+          "com.example.typed.MutualB": {
+            "kind": {
+              "object": {
+                "next": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.example.typed.MutualA"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.MutualA"
+          ]
+        }
+      }
+    },
+    {
+      "id": "optional-recursive-null",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.OptionalNode": {
+            "kind": {
+              "object": {
+                "child": {
+                  "kind": "Optional",
+                  "types": [
+                    "com.example.typed.OptionalNode",
+                    "com.fluidframework.leaf.null"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.null": {
+            "kind": {
+              "leaf": 4
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.OptionalNode"
+          ]
+        }
+      }
+    },
+    {
+      "id": "identifier-point",
+      "schema": {
+        "version": 2,
+        "nodes": {
+          "com.example.typed.Point": {
+            "kind": {
+              "object": {
+                "id": {
+                  "kind": "Identifier",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                },
+                "label": {
+                  "kind": "Value",
+                  "types": [
+                    "com.fluidframework.leaf.string"
+                  ]
+                }
+              }
+            }
+          },
+          "com.fluidframework.leaf.string": {
+            "kind": {
+              "leaf": 1
+            }
+          }
+        },
+        "root": {
+          "kind": "Value",
+          "types": [
+            "com.example.typed.Point"
+          ]
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "union-collections-identifiers",
+      "input": {
+        "operations": [
+          {
+            "op": "array-insert",
+            "values": [
+              {
+                "kind": "string",
+                "value": "text"
+              },
+              {
+                "kind": "Point",
+                "label": "generated",
+                "id": "generate"
+              }
+            ]
+          },
+          {
+            "op": "map-set",
+            "key": "text",
+            "value": {
+              "kind": "string",
+              "value": "text"
+            }
+          },
+          {
+            "op": "map-set",
+            "key": "point",
+            "value": {
+              "kind": "Point",
+              "label": "assigned",
+              "id": "custom"
+            }
+          }
+        ]
+      },
+      "observations": {
+        "variantKinds": [
+          "Point",
+          "Point",
+          "string",
+          "Point"
+        ],
+        "mapVariantKinds": [
+          {
+            "key": "text",
+            "kind": "string"
+          },
+          {
+            "key": "point",
+            "kind": "Point"
+          }
+        ],
+        "generated": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+        "assigned": "custom",
+        "distinctDuplicateNodes": true,
+        "equalCustomIdentifiers": true
+      }
+    },
+    {
+      "id": "union-root-object",
+      "input": {
+        "values": [
+          "text",
+          {
+            "kind": "Point",
+            "id": "custom",
+            "label": "object"
+          }
+        ]
+      },
+      "observations": {
+        "rootValues": [
+          {
+            "kind": "string",
+            "value": "text"
+          },
+          {
+            "kind": "Point",
+            "id": "custom",
+            "label": "object"
+          }
+        ],
+        "objectValues": [
+          {
+            "kind": "string",
+            "value": "text"
+          },
+          {
+            "kind": "Point",
+            "id": "custom",
+            "label": "object"
+          }
+        ]
+      }
+    },
+    {
+      "id": "finite-recursion",
+      "input": {
+        "outline": {
+          "label": "parent",
+          "children": [
+            {
+              "label": "child",
+              "children": []
+            }
+          ]
+        },
+        "optional": [
+          {},
+          {
+            "child": null
+          },
+          {
+            "child": {}
+          }
+        ],
+        "mutual": {
+          "next": {
+            "next": {}
+          }
+        }
+      },
+      "observations": {
+        "outline": {
+          "label": "parent",
+          "children": [
+            {
+              "label": "child",
+              "children": []
+            }
+          ]
+        },
+        "optionalAbsent": true,
+        "optionalNull": true,
+        "optionalPresent": true,
+        "mutualPresent": true,
+        "mutualAbsent": true
+      }
+    },
+    {
+      "id": "generated-identifiers-initialize",
+      "input": {
+        "action": "initialize",
+        "initial": {
+          "featured": {
+            "label": "featured"
+          },
+          "left": [
+            "text",
+            {
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      },
+      "observations": {
+        "initial": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "initialAllocationCount": 4,
+        "allocations": [
+          {
+            "compressed": -1,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -2,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -3,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "kind": "revision"
+          }
+        ],
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "peerVisible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "generated-identifiers-commit",
+      "input": {
+        "action": "commit",
+        "initial": {
+          "featured": {
+            "label": "featured"
+          },
+          "left": [
+            "text",
+            {
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      },
+      "observations": {
+        "initial": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "initialAllocationCount": 4,
+        "allocations": [
+          {
+            "compressed": -1,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -2,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -3,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "kind": "revision"
+          },
+          {
+            "compressed": 4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "kind": "identifier"
+          },
+          {
+            "compressed": 5,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+            "kind": "revision"
+          }
+        ],
+        "generatedId": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+        "generatedStatus": "InDocument",
+        "survives": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+              "label": "commit"
+            }
+          ],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "peerVisible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+              "label": "commit"
+            }
+          ],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "generated-identifiers-abort",
+      "input": {
+        "action": "abort",
+        "initial": {
+          "featured": {
+            "label": "featured"
+          },
+          "left": [
+            "text",
+            {
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      },
+      "observations": {
+        "initial": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "initialAllocationCount": 4,
+        "allocations": [
+          {
+            "compressed": -1,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -2,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -3,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "kind": "revision"
+          },
+          {
+            "compressed": 4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "kind": "identifier"
+          },
+          {
+            "compressed": 5,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+            "kind": "revision"
+          }
+        ],
+        "generatedId": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+        "generatedStatus": "Deleted",
+        "survives": false,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "peerVisible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "generated-identifiers-reconciliation",
+      "input": {
+        "action": "reconciliation",
+        "initial": {
+          "featured": {
+            "label": "featured"
+          },
+          "left": [
+            "text",
+            {
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      },
+      "observations": {
+        "initial": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "initialAllocationCount": 4,
+        "allocations": [
+          {
+            "compressed": -1,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -2,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -3,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "kind": "identifier"
+          },
+          {
+            "compressed": -4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "kind": "revision"
+          },
+          {
+            "compressed": 4,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "kind": "identifier"
+          },
+          {
+            "compressed": 5,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+            "kind": "revision"
+          },
+          {
+            "compressed": 6,
+            "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0c",
+            "kind": "revision"
+          }
+        ],
+        "generatedId": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+        "generatedStatus": "InDocument",
+        "survives": true,
+        "visible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+              "label": "local"
+            },
+            {
+              "kind": "string",
+              "value": "peer"
+            },
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        },
+        "peerVisible": {
+          "featured": {
+            "kind": "Point",
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+              "label": "local"
+            },
+            {
+              "kind": "string",
+              "value": "peer"
+            },
+            {
+              "kind": "string",
+              "value": "text"
+            },
+            {
+              "kind": "Point",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "nested-array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "nested",
+              {
+                "kind": "Point",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "nested-map"
+              }
+            ]
+          ]
+        }
+      }
+    }
+  ]
+}
