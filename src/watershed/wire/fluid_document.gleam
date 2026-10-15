@@ -2112,6 +2112,13 @@ fn apply_runtime_schema_proposal(
     ["refSeq"],
     "/.metadata/documentSchema",
   ))
+  use _ <- result.try(require(
+    reference >= 0
+      && reference <= current_reference
+      && current_reference < sequence_number,
+    "/.metadata/documentSchema/refSeq",
+    "incorrect schema operation sequence",
+  ))
   case reference < current_reference {
     True -> Ok(SchemaCasFailed)
     False -> {
@@ -2194,6 +2201,15 @@ fn validate_runtime_schema_features(
     "/.metadata/documentSchema/info",
     "unsupported compatibility information",
   ))
+  use _ <- result.try(
+    list.try_each(dict.keys(current_runtime), fn(name) {
+      require(
+        dict.has_key(runtime, name),
+        "/.metadata/documentSchema/runtime",
+        "missing stored runtime feature: " <> name,
+      )
+    }),
+  )
   use _ <- result.try(
     list.try_each(
       ["compressionLz4", "explicitSchemaControl", "opGroupingEnabled"],

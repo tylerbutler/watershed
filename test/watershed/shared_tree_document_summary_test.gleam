@@ -528,6 +528,52 @@ pub fn shared_tree_document_summary_stops_schema_array_after_failed_cas_test() {
   |> expect.to_equal(Ok(activated))
 }
 
+pub fn shared_tree_document_summary_rejects_schema_runtime_field_removal_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let assert Ok(fields) =
+    json.parse(
+      json.to_string(runtime_schema_proposal(reference, [])),
+      decode.dict(decode.string, wire.json_value_decoder()),
+    )
+  let assert Ok(runtime) =
+    json.parse(
+      json.to_string(runtime_schema_proposal(reference, [])),
+      decode.at(
+        ["runtime"],
+        decode.dict(decode.string, wire.json_value_decoder()),
+      ),
+    )
+  let proposal =
+    fields
+    |> dict.insert(
+      "runtime",
+      json.object(dict.to_list(dict.delete(runtime, "idCompressorMode"))),
+    )
+    |> dict.to_list()
+    |> json.object()
+  fluid_document.apply_runtime_schema(summary, proposal, reference + 5)
+  |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_document_summary_rejects_second_proposal_after_acceptance_test() {
+  let summary = retained_publication("fresh-load")
+  let current = document_schema(summary)
+  let assert Ok(reference) =
+    json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let proposal = runtime_schema_proposal(reference, [])
+  fluid_document.apply_runtime_schema(
+    summary,
+    json.array([proposal, proposal], fn(value) { value }),
+    reference + 5,
+  )
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn shared_tree_document_summary_plain_leave_clears_sender_prefix_test() {
   let #(core, envelopes) = case
     compression_fixture.core_case("partial-summary-prefix-tail")
@@ -585,12 +631,24 @@ pub fn shared_tree_document_summary_schema_cas_rejects_invalid_proposals_test() 
   let current = document_schema(summary)
   let assert Ok(reference) =
     json.parse(json.to_string(current), decode.at(["refSeq"], decode.int))
+  let assert Ok(activated) =
+    fluid_document.apply_runtime_schema(
+      summary,
+      runtime_schema_proposal(reference, []),
+      reference + 5,
+    )
+  fluid_document.apply_runtime_schema(
+    activated,
+    runtime_schema_proposal(reference, []),
+    reference + 10,
+  )
+  |> expect.to_equal(Ok(activated))
   fluid_document.apply_runtime_schema(
     summary,
-    runtime_schema_proposal(reference - 1, []),
+    runtime_schema_proposal(-1, []),
     reference + 5,
   )
-  |> expect.to_equal(Ok(summary))
+  |> expect.to_be_error()
   fluid_document.apply_runtime_schema(
     summary,
     runtime_schema_proposal(reference + 1, []),
@@ -1061,6 +1119,7 @@ fn runtime_schema_proposal(
         #("compressionLz4", json.bool(True)),
         #("explicitSchemaControl", json.bool(True)),
         #("opGroupingEnabled", json.bool(True)),
+        #("idCompressorMode", json.string("on")),
         ..extra
       ]),
     ),
