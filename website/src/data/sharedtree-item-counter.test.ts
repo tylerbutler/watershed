@@ -54,3 +54,16 @@ test("each comparison task quotes real, attributed source in both languages", ()
     }
   }
 });
+
+test("the generated schema snippet quotes the typed array declaration", () => {
+  const row = itemCounterRows.find(row => row.id === "schema");
+  assert.ok(row);
+  const snippet = row.watershed[0];
+  assert.match(snippet.code, /builder\.array\(/);
+  assert.match(snippet.code, /"shared_tree_item_counter"/);
+  assert.match(snippet.code, /"StringArray"/);
+  assert.deepEqual(snippet.origin, {
+    kind: "source",
+    markers: ["item-counter-watershed-definition", "item-counter-watershed-schema"],
+  });
+});

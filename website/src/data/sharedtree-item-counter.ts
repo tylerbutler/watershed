@@ -29,7 +29,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "schema",
     title: "Start with the same array.",
     explanation:
-      "Fluid derives a typed StringArray class from SchemaFactory. watershed declares a checked stored schema and a view schema, then reads TreeValue snapshots. The serialized schema below is real application code, not hidden setup.",
+      "Fluid derives a typed StringArray class from SchemaFactory. watershed declares the array once with typed Gleam descriptors, then derives its stored schema, view schema, and checked snapshot codecs. No serialized schema to keep in step with a second decoder.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-schema"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-schema"))],
   },
@@ -51,7 +51,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "observe",
     title: "Let the tree tell the view.",
     explanation:
-      "Both apps derive the count from the array, not from button clicks. React listens for nodeChanged and reads length. Lustre subscribes to the native tree, reads a snapshot, checks its shape, and counts its entries. Both unsubscribe when their view closes; the complete Gleam app also handles a subscription delivered after Close.",
+      "Both apps derive the count from the array, not from button clicks. React listens for nodeChanged and reads length. Lustre subscribes to the native tree, decodes a typed list snapshot, and counts its entries. That list is a value, not a live Fluid node. Both unsubscribe when their view closes; the complete Gleam app also handles a subscription delivered after Close.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-observe"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-observe"))],
   },

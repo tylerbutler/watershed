@@ -977,6 +977,12 @@ remove the regression requirement for existing DDS APIs and behavior.
 
 ### Create a SharedTree container
 
+Use [typed schema authoring](docs/shared-tree-schema-authoring.md) to derive
+stored/view schemas and checked Gleam snapshot codecs from one declaration.
+The schema builder supports named collections, objects with up to eight
+properties, and required/optional roots on JavaScript and BEAM. Native live
+operations keep their existing API.
+
 `watershed.create_tree_container` returns a
 `Promise(Result(String, typed.Error))`;
 `watershed_beam.create_tree_container` returns

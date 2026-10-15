@@ -3,6 +3,7 @@ import gleeunit
 import shared_tree_item_counter_lustre/counter
 import shared_tree_item_counter_lustre/schema as document_schema
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -14,6 +15,27 @@ pub fn initial_root_is_a_valid_empty_string_array_test() {
   let assert Ok(Nil) =
     schema.validate_root(document_schema.stored(), document_schema.initial())
   let assert Ok([]) = counter.decode(document_schema.initial())
+}
+
+pub fn compiled_schema_preserves_persisted_identity_test() {
+  let assert Ok(compiled) = document_schema.definition()
+  let assert Ok(previous) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"shared_tree_item_counter.StringArray\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"shared_tree_item_counter.StringArray\"]}}",
+    )
+  let assert Ok(True) =
+    schema.allows_superset(previous, builder.stored(compiled))
+  let assert Ok(True) =
+    schema.allows_superset(builder.stored(compiled), previous)
+  let assert Ok(["first"]) =
+    builder.decode(
+      compiled,
+      Some(
+        types.ArrayValue("shared_tree_item_counter.StringArray", [
+          types.StringValue("first"),
+        ]),
+      ),
+    )
 }
 
 pub fn typed_creation_preserves_the_original_root_schema_test() {

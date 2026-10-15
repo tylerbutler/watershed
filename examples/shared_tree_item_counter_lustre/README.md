@@ -10,6 +10,9 @@ walks through the schema, lifecycle, subscriptions, and edits. This app uses
 watershed's **native SharedTree** API, not its typed-map schema layer.
 Schema-scoped handles and builders wrap the checked `TreeValue` snapshots;
 the counter's data model and edit rules stay unchanged.
+The [schema declaration](../../docs/shared-tree-schema-authoring.md) derives
+the stored schema, view schema, and `List(String)` snapshot codec from one
+typed array descriptor.
 
 ## Run
 

@@ -1,4 +1,6 @@
+import gleam/option.{Some}
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -9,23 +11,35 @@ pub type Item
 // docs:snippet-start item-counter-watershed-definition
 pub const array_type = "shared_tree_item_counter.StringArray"
 
-const definition = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"shared_tree_item_counter.StringArray\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"shared_tree_item_counter.StringArray\"]}}"
-
 // docs:snippet-end item-counter-watershed-definition
 
 // docs:snippet-start item-counter-watershed-schema
-pub fn stored() -> schema.StoredSchema {
-  let assert Ok(value) = schema.stored_from_string(definition)
+pub fn definition() -> Result(builder.Compiled(List(String)), types.TreeError) {
+  builder.array(
+    builder.factory("shared_tree_item_counter"),
+    "StringArray",
+    builder.string(),
+  )
+  |> builder.root
+  |> builder.compile
+}
+
+fn compiled() -> builder.Compiled(List(String)) {
+  let assert Ok(value) = definition()
   value
+}
+
+pub fn stored() -> schema.StoredSchema {
+  builder.stored(compiled())
 }
 
 pub fn view() -> schema.ViewSchema {
-  let assert Ok(value) = schema.view_from_string(definition)
-  value
+  builder.view(compiled())
 }
 
 pub fn initial() -> types.TreeValue {
-  types.ArrayValue(array_type, [])
+  let assert Ok(Some(value)) = builder.encode(compiled(), [])
+  value
 }
 
 pub fn declaration() -> typed.Schema(Counter, types.TreeValue) {

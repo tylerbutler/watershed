@@ -1,7 +1,8 @@
-import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import shared_tree_item_counter_lustre/schema as document_schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/types
 
 pub type Action {
@@ -10,18 +11,10 @@ pub type Action {
 }
 
 pub fn decode(value: types.TreeValue) -> Result(List(String), String) {
-  case value {
-    types.ArrayValue(identifier, values)
-      if identifier == document_schema.array_type
-    ->
-      list.try_map(values, fn(value) {
-        case value {
-          types.StringValue(text) -> Ok(text)
-          _ -> Error("SharedTree array contains a non-string value")
-        }
-      })
-    _ -> Error("SharedTree root is not the expected string array")
-  }
+  use compiled <- result.try(
+    document_schema.definition() |> result.map_error(string.inspect),
+  )
+  builder.decode(compiled, Some(value)) |> result.map_error(string.inspect)
 }
 
 // docs:snippet-start item-counter-watershed-edits
