@@ -71,6 +71,7 @@ Prepare and verify the pinned source before regeneration or service acceptance:
 npm --prefix tools/shared-tree-oracle run source:prepare
 npm --prefix tools/shared-tree-oracle run source:verify
 npm --prefix tools/shared-tree-oracle run source:capture
+node tools/shared-tree-oracle/source.mjs compression-capture tools/shared-tree-oracle/.output/compression-source
 npm --prefix tools/shared-tree-oracle run codec:interop
 npm --prefix tools/shared-tree-oracle run runtime:interop
 npm --prefix tools/shared-tree-oracle run summary:interop
@@ -503,9 +504,17 @@ handle lifecycle profile's seven sections and 27 reload cells.
 
 ### Runtime compression acceptance
 
+After `source:prepare` and `source:verify`, capture the pinned compression
+source before running the gate:
+
 ```sh
+node tools/shared-tree-oracle/source.mjs compression-capture tools/shared-tree-oracle/.output/compression-source
 just shared-tree-compression-interop
 ```
+
+The capture writes the ignored `.output/compression-source/compression.json`
+input required by the corpus check. The manual workflow captures it too;
+the legacy `source:capture` command does not produce it.
 
 This non-skipping gate verifies the generated compression corpus, then starts
 its own pinned Floodgate and runs six cases on each native target:

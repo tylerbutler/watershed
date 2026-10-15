@@ -29,6 +29,8 @@ jobs:
       - name: SharedTree native acceptance
         run: just shared-tree-test
       - run: npm --prefix tools/shared-tree-oracle run source:capture
+      - name: Capture pinned runtime compression source
+        run: node tools/shared-tree-oracle/source.mjs compression-capture tools/shared-tree-oracle/.output/compression-source
       - name: SharedTree complete Node acceptance
         run: npm --prefix tools/shared-tree-oracle test
       - name: SharedTree runtime compression acceptance

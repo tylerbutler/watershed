@@ -145,6 +145,27 @@ test("oracle compression script runs the owned live gate", () => {
   );
 });
 
+test("manual compression gate captures its source before checking the corpus", () => {
+  const workflow = readFileSync(
+    resolve(repository, ".github/workflows/shared-tree-interop.yml"),
+    "utf8",
+  );
+  const sourceVerify = workflow.indexOf(
+    "run: npm --prefix tools/shared-tree-oracle run source:verify",
+  );
+  const compressionCapture = workflow.indexOf(
+    "run: node tools/shared-tree-oracle/source.mjs compression-capture tools/shared-tree-oracle/.output/compression-source",
+  );
+  const compressionGate = workflow.indexOf(
+    "run: just shared-tree-compression-interop",
+  );
+  assert(sourceVerify > 0);
+  assert(compressionCapture > sourceVerify,
+    "fresh runners must capture the pinned compression source after verification");
+  assert(compressionGate > compressionCapture,
+    "the compression corpus check requires its source capture");
+});
+
 test("layout acceptance checks native creation before the owned-service matrix", () => {
   assert.deepEqual(recipeCommands("shared-tree-layout-interop"), [
     "gleam test --target erlang -- shared_tree_creation git_storage facade_parity",
