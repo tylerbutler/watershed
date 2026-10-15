@@ -327,6 +327,44 @@ the commands and required outputs for each gate.
 | M7: application and container lifecycle | Native document creation, broader declared container layouts, Fluid handles, richer typed APIs, Lustre bindings/examples, and crash-recoverable pending state. Split these into individual plans when scheduled. |
 | M8: scale and supported versions | Measured forest/history performance, safe reclamation, incremental summary writing, additional upstream versions, and automated compatibility regression runs. |
 
+### Current sequencing after M7 (2026-10-15)
+
+Runtime operation compression/chunking is implemented and locally accepted.
+The [focused design](2026-10-14-shared-tree-compression-design.md) and
+[implementation plan](../plans/2026-10-14-shared-tree-compression.md) record
+bounded inbound Fluid 3.1.0 LZ4/chunk support, per-sender reassembly, physical
+sequencing, partial-stream summaries and reconnect/checkpoint recovery on
+both targets. The separate extension profile leaves the legacy profile frozen;
+native writes remain uncompressed.
+
+Keep the milestone numbering and accepted history above. The next work is
+ordered by ordinary client compatibility, not by moving directly from M7 to
+every optimization in M8:
+
+1. **Ordinary upstream snapshot consumption**, including actual storage
+   bootstrap of summary tree/blob references, fresh load and continued edits.
+   This does not require incremental native summary writing.
+2. **Common schema access and proof**: typed unions, record access, and targeted
+   upstream/native JSON and domain-helper scenarios.
+3. **Array schema evolution**, followed by richer policies required by an
+   identified consumer.
+4. **Measurement-led scale/persistence**, then generated schema ergonomics and
+   broader automatic durability. Baseline measurements can begin now;
+   reclamation, incremental writing and opt-in incremental FieldBatch encoding
+   each need a measured reason and separate proof.
+
+Runtime operation compression is enabled by the pinned client's default
+options at 600 KiB, with 200 KiB chunks if the compressed payload is still
+large. The accepted extension covers this ordinary size-triggered traffic;
+opt-in incremental FieldBatch encoding remains separate. Native outbound
+compression remains a later optimization. The
+[compatibility matrix](../../shared-tree-client-compatibility.md)
+tracks current support separately from this schedule.
+
+Shared branches, arbitrary factories/layouts, exotic handles and additional
+client versions remain demand-driven extensions. Production authentication is
+still required before a production release; no backlog order waives it.
+
 M7 is complete for the published supported profile with local acceptance.
 The native creator and the SharedTree Lustre
 checklist cover application-owned local undo/redo, grouped bulk transactions,
