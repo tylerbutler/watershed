@@ -135,6 +135,11 @@ pub fn live_anchor_registry_tombstones_and_conflicts_test() {
     |> expect.to_equal(Ok(pair.1))
     anchors.resolve(changed, origin(), types.DocumentCheckout, token, forest)
     |> expect.to_equal(Error(live.InvalidReference(pair.1)))
+    let assert Ok(#(changed, replacement)) =
+      anchors.acquire(changed, view, first)
+    replacement |> expect.to_not_equal(token)
+    anchors.status(changed, origin(), types.DocumentCheckout, token, forest)
+    |> expect.to_equal(Ok(pair.1))
   })
   [
     [live.Promote(first, second), live.Promote(first, third)],

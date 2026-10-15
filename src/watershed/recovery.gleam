@@ -18,6 +18,7 @@ import watershed/handle
 import watershed/runtime_core
 import watershed/tree/branch
 import watershed/tree/codec as tree_codec
+import watershed/tree/live_anchor
 import watershed/tree/recovery as tree_recovery
 import watershed/tree/shared_change
 import watershed/tree_kernel
@@ -342,6 +343,9 @@ pub fn restore(
         )
       }),
       tree_publication_scopes: dict.new(),
+      live_anchors: live_anchor.new(),
+      live_views: dict.new(),
+      live_namespace: None,
       active_tree_transaction: None,
       active_tree_transaction_checkouts: None,
       persistence: Some(summary),

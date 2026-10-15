@@ -121,9 +121,15 @@ import watershed/text_kernel
 @target(erlang)
 import watershed/tree/forest
 @target(erlang)
+import watershed/tree/live as tree_live
+@target(erlang)
+import watershed/tree/live_types
+@target(erlang)
 import watershed/tree/node as tree_node
 @target(erlang)
 import watershed/tree/schema as tree_schema
+@target(erlang)
+import watershed/tree/schema_builder as tree_builder
 @target(erlang)
 import watershed/tree/typed
 @target(erlang)
@@ -1004,6 +1010,45 @@ pub fn open_tree(
     )
   })
   |> result.map_error(typed.AccessFailed)
+}
+
+@target(erlang)
+/// Bind typed snapshots and references to this checkout.
+pub fn tree_typed(
+  tree: SharedTree(s, r),
+  compiled: tree_builder.Compiled(a),
+) -> Result(tree_live.View(a), live_types.LiveError) {
+  let request = fn(value) {
+    runtime_beam.live_request(
+      tree.runtime,
+      tree.address,
+      tree.selector,
+      tree.view,
+      value,
+    )
+  }
+  use response <- result.try(
+    request(live_types.Bind(tree_builder.view(compiled))),
+  )
+  case response {
+    live_types.Bound(token) ->
+      Ok(tree_live.from_bound(
+        compiled,
+        tree_live.Backend(request, fn(handler) {
+          runtime_beam.subscribe_live_tree(
+            tree.runtime,
+            tree.address,
+            tree.selector,
+            tree.view,
+            token,
+            handler,
+          )
+        }),
+        token,
+      ))
+    _ ->
+      Error(live_types.RuntimeFailure("Unexpected typed tree binding response"))
+  }
 }
 
 @target(erlang)

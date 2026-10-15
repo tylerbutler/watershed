@@ -860,6 +860,36 @@ pub fn view(compiled: Compiled(a)) -> schema.ViewSchema {
   compiled.view
 }
 
+@internal
+pub fn property_root(property: Property(record, a)) -> Root(a) {
+  let root = property.root
+  case root.field.cardinality {
+    schema.Identifier ->
+      Root(
+        ..root,
+        field: schema.FieldSchema(schema.Required, root.field.allowed_types),
+      )
+    _ -> root
+  }
+}
+
+@internal
+pub fn property_definition(
+  property: Property(record, a),
+) -> #(String, schema.FieldSchema) {
+  #(property.key, property.root.field)
+}
+
+@internal
+pub fn allowed_types(node: Node(a)) -> List(String) {
+  node.identifiers
+}
+
+@internal
+pub fn root_cardinality(compiled: Compiled(a)) -> schema.Cardinality {
+  schema.root_field_schema(compiled.stored).cardinality
+}
+
 pub fn encode(
   compiled: Compiled(a),
   value: a,

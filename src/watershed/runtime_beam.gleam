@@ -151,24 +151,37 @@ fn call_runtime(
   runtime: Subject(Msg),
   sending: fn(Subject(Result(value, String))) -> Msg,
 ) -> Result(value, String) {
+  call_runtime_with_errors(
+    runtime,
+    sending,
+    "document runtime is closed",
+    "document runtime request timed out",
+  )
+}
+
+@target(erlang)
+fn call_runtime_with_errors(
+  runtime: Subject(Msg),
+  sending: fn(Subject(Result(value, error))) -> Msg,
+  closed: error,
+  timed_out: error,
+) -> Result(value, error) {
   use owner <- result.try(
     process.subject_owner(runtime)
-    |> result.map_error(fn(_) { "document runtime is closed" }),
+    |> result.map_error(fn(_) { closed }),
   )
   let monitor = process.monitor(owner)
   let reply = process.new_subject()
   let selector =
     process.new_selector()
     |> process.select(reply)
-    |> process.select_specific_monitor(monitor, fn(_) {
-      Error("document runtime is closed")
-    })
+    |> process.select_specific_monitor(monitor, fn(_) { Error(closed) })
   process.send(runtime, sending(reply))
   let outcome = process.selector_receive(selector, connect_timeout_milliseconds)
   process.demonitor_process(monitor)
   case outcome {
     Ok(result) -> result
-    Error(Nil) -> Error("document runtime request timed out")
+    Error(Nil) -> Error(timed_out)
   }
 }
 
@@ -222,6 +235,8 @@ import watershed/task_manager_kernel
 import watershed/text_kernel
 @target(erlang)
 import watershed/tree/forest
+@target(erlang)
+import watershed/tree/live_types as tree_live
 @target(erlang)
 import watershed/tree/node
 @target(erlang)
@@ -786,6 +801,21 @@ pub type Msg {
     edit: node.Edit,
     reply: Subject(Result(Nil, String)),
   )
+  LiveTreeRequest(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    request: tree_live.Request,
+    reply: Subject(Result(tree_live.Response, tree_live.LiveError)),
+  )
+  SubscribeLiveTree(
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    view: tree_schema.ViewSchema,
+    token: tree_live.ViewToken,
+    handler: fn() -> Nil,
+    reply: Subject(Result(SubscriptionToken, tree_live.LiveError)),
+  )
   TreeTransactionBegin(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -1159,6 +1189,7 @@ type TreeCommitSubscriber {
     address: String,
     selector: tree_types.CheckoutSelector,
     handler: fn(TreeCommitEvent) -> Nil,
+    typed_view: Option(tree_live.ViewToken),
   )
 }
 
@@ -2067,6 +2098,43 @@ pub fn tree_node_edit_view_on(
 }
 
 @target(erlang)
+pub fn live_request(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  request: tree_live.Request,
+) -> Result(tree_live.Response, tree_live.LiveError) {
+  call_runtime_with_errors(
+    runtime,
+    fn(reply) { LiveTreeRequest(address, selector, view, request, reply) },
+    tree_live.ClosedRuntime,
+    tree_live.RuntimeFailure("Typed tree request timed out"),
+  )
+}
+
+@target(erlang)
+@internal
+pub fn subscribe_live_tree(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: fn() -> Nil,
+) -> Result(fn() -> Nil, tree_live.LiveError) {
+  use subscription <- result.try(call_runtime_with_errors(
+    runtime,
+    fn(reply) {
+      SubscribeLiveTree(address, selector, view, token, handler, reply)
+    },
+    tree_live.ClosedRuntime,
+    tree_live.RuntimeFailure("Typed tree subscription timed out"),
+  ))
+  Ok(fn() { unsubscribe(subscription) })
+}
+
+@target(erlang)
 pub fn begin_tree_transaction(
   runtime: Subject(Msg),
   address: String,
@@ -2819,6 +2887,14 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
 @target(erlang)
 fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
+    LiveTreeRequest(_, _, _, _, reply) -> {
+      process.send(reply, Error(tree_live.ClosedRuntime))
+      actor.continue(state)
+    }
+    SubscribeLiveTree(_, _, _, _, _, reply) -> {
+      process.send(reply, Error(tree_live.ClosedRuntime))
+      actor.continue(state)
+    }
     Shutdown -> handle_message(state, msg)
     ReplayDeferred -> actor.continue(state)
     TreeBranchStatus(_, _, reply) -> {
@@ -3113,6 +3189,20 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | SubscribeTreeEvents(_, _, _)
         | TreeRevertibleStatusRequested(_, _, _, _)
         | TreeBranchStatus(_, _, _) -> handle_message(state, msg)
+        SubscribeLiveTree(_, _, _, _, _, _) -> handle_message(state, msg)
+        LiveTreeRequest(_, _, _, request, reply) ->
+          case tree_live.writes(request) {
+            False -> handle_message(state, msg)
+            True -> {
+              process.send(
+                reply,
+                Error(tree_live.RuntimeFailure(
+                  "Typed tree edit is not allowed during commit delivery",
+                )),
+              )
+              actor.continue(state)
+            }
+          }
         ForkTree(_, _, _, reply) -> {
           process.send(
             reply,
@@ -4089,6 +4179,55 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
             }
           }
       }
+    LiveTreeRequest(address, selector, view, request, reply) ->
+      handle_live_tree_request(state, address, selector, view, request, reply)
+    SubscribeLiveTree(address, selector, view, token, handler, reply) -> {
+      let checked = {
+        use _ <- result.try(
+          transaction_tree_access(state, address, reply)
+          |> result.map_error(tree_live.RuntimeFailure),
+        )
+        read(
+          state,
+          Error(tree_live.RuntimeFailure("Typed tree has no current core")),
+          fn(core) {
+            runtime_core.live_request(
+              core,
+              address,
+              selector,
+              view,
+              tree_live.RootRead(token),
+            )
+          },
+        )
+      }
+      case checked {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(_) -> {
+          let id = state.next_tree_commit_subscription_id
+          process.send(reply, Ok(SubscriptionToken(state.self, id)))
+          actor.continue(
+            State(
+              ..state,
+              tree_commit_subscribers: [
+                TreeCommitSubscriber(
+                  id,
+                  address,
+                  selector,
+                  fn(_) { handler() },
+                  Some(token),
+                ),
+                ..state.tree_commit_subscribers
+              ],
+              next_tree_commit_subscription_id: id + 1,
+            ),
+          )
+        }
+      }
+    }
     TreeTransactionBegin(address, selector, view, constraints, reply) ->
       handle_tree_transaction_begin(
         state,
@@ -4113,7 +4252,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         State(
           ..state,
           tree_commit_subscribers: [
-            TreeCommitSubscriber(id, address, selector, handler),
+            TreeCommitSubscriber(id, address, selector, handler, None),
             ..state.tree_commit_subscribers
           ],
           next_tree_commit_subscription_id: id + 1,
@@ -5177,6 +5316,84 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         None -> Nil
       }
       actor.stop()
+    }
+  }
+}
+
+@target(erlang)
+fn handle_live_tree_request(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  request: tree_live.Request,
+  reply: Subject(Result(tree_live.Response, tree_live.LiveError)),
+) -> actor.Next(State, Msg) {
+  let writes = tree_live.writes(request)
+  let prepared = {
+    use _ <- result.try(
+      transaction_tree_access(state, address, reply)
+      |> result.map_error(tree_live.RuntimeFailure),
+    )
+    use #(core, install, writable) <- result.try(case state.phase {
+      Ready(core, marker) -> Ok(#(core, Ready(_, marker), marker == None))
+      Reconnecting(core) -> Ok(#(core, Reconnecting, False))
+      SuspendedPendingTree(core, reason) ->
+        Ok(#(core, SuspendedPendingTree(_, reason), False))
+      Connecting(_) ->
+        Error(tree_live.RuntimeFailure(
+          "Typed tree requires a ready document connection",
+        ))
+      Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+    })
+    use _ <- result.try(case writes && !writable {
+      True ->
+        Error(tree_live.RuntimeFailure(
+          "Typed tree edit requires a ready document connection",
+        ))
+      False -> Ok(Nil)
+    })
+    let core = case core.live_namespace {
+      None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+      Some(_) -> core
+    }
+    use transition <- result.try(runtime_core.live_request(
+      core,
+      address,
+      selector,
+      view,
+      request,
+    ))
+    Ok(#(install, transition))
+  }
+  case prepared {
+    Error(error) -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(#(install, #(core, response, events, outbound))) -> {
+      let subscribers = case request {
+        tree_live.Close(token) ->
+          list.filter(state.tree_commit_subscribers, fn(subscriber) {
+            subscriber.typed_view != Some(token)
+          })
+        _ -> state.tree_commit_subscribers
+      }
+      let next =
+        State(
+          ..state,
+          phase: install(core),
+          tree_commit_subscribers: subscribers,
+        )
+      let #(next, outcome) = case writes {
+        True -> queue_or_send(next, core, None, outbound)
+        False -> #(next, Ok(Nil))
+      }
+      process.send(reply, case next.phase, outcome {
+        Reconnecting(_), _ | _, Ok(Nil) -> Ok(response)
+        _, Error(reason) -> Error(tree_live.RuntimeFailure(reason))
+      })
+      actor.continue(fan_out_scoped(next, events))
     }
   }
 }

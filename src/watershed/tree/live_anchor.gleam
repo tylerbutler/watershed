@@ -64,7 +64,9 @@ pub fn acquire(
   use _ <- result.try(require_view(registry, view))
   case
     list.find(dict.to_list(registry.entries), fn(entry) {
-      live.anchor_view(entry.0) == view && entry.1.reference == reference
+      live.anchor_view(entry.0) == view
+      && entry.1.reference == reference
+      && entry.1.tombstone == None
     })
   {
     Ok(entry) -> Ok(#(registry, entry.0))

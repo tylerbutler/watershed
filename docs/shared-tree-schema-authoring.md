@@ -266,9 +266,54 @@ shows the corresponding Lustre effects, subscriptions, cleanup, and error
 handling. It retains the compiled descriptor in application state.
 
 Decoded records and lists are snapshots. Reconstructing a record or changing
-a local list does not submit an edit. Continue to use the native edit,
-transaction, and subscription APIs. Typed live references belong to a
-separate milestone.
+a local list does not submit an edit.
+
+## Typed live access
+
+Import `watershed/tree/live` and bind an existing native tree with
+`watershed.tree_typed(tree, compiled)`. On BEAM, use
+`watershed_beam.tree_typed` with the same compiled descriptor. Keep the
+property descriptors used to build your object so you can use them for reads
+and writes:
+
+```gleam
+let assert Ok(view) = watershed.tree_typed(tree, compiled)
+let assert Ok(item) = live.required_root(view)
+let assert Ok(Nil) = live.set(item, label_property, "Renamed")
+let assert Ok(label) = live.get(item, label_property)
+```
+
+`read_root` and `read` return snapshots. A `Ref(a)` instead identifies an
+object, array, or map in one runtime and checkout. Saved references follow
+surviving nodes through insertions and moves; they do not follow the old
+index or a matching Identifier string. Leaves remain values, not references.
+Use `optional_root` and `optional_child` for optional composite fields,
+`array_node` and `map_node` for collection entries, and `narrow` for a
+composite union branch.
+
+Explicit edits use `replace_root`, `set`, `array_insert`, `array_remove`,
+`array_move`, `map_set`, and `map_delete`. The construction variants
+`replace_root_new`, `set_new`, `array_insert_new`, and `map_set_new` accept
+`Generate` identifiers. Ordinary writes use strict snapshot encoding.
+Identifier properties themselves are read-only.
+
+Typed operations run inside the existing native tree transactions. An abort
+restores the content and invalidates references to preview-only nodes; it does
+not make those node identities available for later insertions. Existing native
+fork, merge, rebase, undo, and reconnect operations remain the history API.
+
+`status` reports `Attached`, `Removed`, `Deleted`, or `Invalidated`.
+Only attached references can be read or edited. Retained removed nodes can
+reattach on undo; references do not keep repair data alive.
+
+`observe` and `observe_node` re-read typed snapshots after native commits.
+Their callbacks receive `Result` values, including removal and schema errors,
+not a promise of Fluid's exact per-node event counts. `unsubscribe` cancels
+one observation; `dispose(view)` cancels that view's observations and releases
+its anchors without closing the native tree. Both cleanup operations are
+idempotent. Closed views, disposed checkouts, runtime shutdown, incompatible
+schemas, and foreign references return structured `LiveError` values from
+`watershed/tree/live_types`.
 
 ## Fluid mapping and scope
 

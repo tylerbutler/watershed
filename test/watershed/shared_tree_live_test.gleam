@@ -1,13 +1,16 @@
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/runtime_core as core
+import watershed/tree/branch
 import watershed/tree/identifier_fixture
 import watershed/tree/live_types as live
 import watershed/tree/runtime_fixture
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
+import watershed/tree_kernel
 import watershed/wire/fluid_container
 
 const address = "A/_C"
@@ -204,6 +207,12 @@ pub fn live_core_aborted_preview_is_invalidated_test() {
     )
   let assert #(core, live.Acquired(Some(preview))) =
     request(core, live.ArrayAcquire(left, 2))
+  let assert Some(#(_, _, _, transaction)) = core.active_tree_transaction
+  let assert Ok(preview_physical) =
+    tree_kernel.reference_at(branch.transaction_state(transaction), [
+      "left",
+      "2",
+    ])
   let assert Ok(#(core, _)) = core.abort_tree_transaction(core, address)
   let #(core, status) = request(core, live.Status(preview.anchor))
   status |> expect.to_equal(live.ReferenceState(live.Invalidated))
@@ -216,6 +225,17 @@ pub fn live_core_aborted_preview_is_invalidated_test() {
         identifier_fixture.point("replacement", "replacement"),
       ]),
     )
+  let assert #(core, live.Acquired(Some(replacement))) =
+    request(core, live.ArrayAcquire(left, 2))
+  replacement.anchor |> expect.to_not_equal(preview.anchor)
+  let #(core, state) = request(core, live.Status(replacement.anchor))
+  state |> expect.to_equal(live.ReferenceState(live.Attached))
+  let assert Ok(checkouts) = dict.get(core.tree_checkouts, address)
+  let assert Ok(current) =
+    branch.checkout_state(checkouts, branch.document(checkouts))
+  let assert Ok(replacement_physical) =
+    tree_kernel.reference_at(current, ["left", "2"])
+  replacement_physical |> expect.to_not_equal(preview_physical)
   let #(_, status) = request(core, live.Status(preview.anchor))
   status |> expect.to_equal(live.ReferenceState(live.Invalidated))
 }
@@ -287,6 +307,7 @@ pub fn live_core_checks_runtime_tree_checkout_and_disposed_scope_test() {
       live.Bind(identifier_fixture.full_view()),
     )
   let assert Ok(core) = core.dispose_tree_branch(core, address, selector)
+  dict.has_key(core.live_views, view) |> expect.to_equal(False)
   core.live_request(
     core,
     address,

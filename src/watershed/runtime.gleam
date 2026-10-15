@@ -98,6 +98,8 @@ import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/tree/forest
 @target(javascript)
+import watershed/tree/live_types as tree_live
+@target(javascript)
 import watershed/tree/node
 @target(javascript)
 import watershed/tree/schema as tree_schema
@@ -235,6 +237,7 @@ type TreeCommitSubscriber {
     address: String,
     selector: tree_types.CheckoutSelector,
     handler: fn(TreeCommitEvent) -> Nil,
+    typed_view: Option(tree_live.ViewToken),
   )
 }
 
@@ -282,6 +285,7 @@ type TreeRevertibleDisposal {
 @target(javascript)
 type State {
   State(
+    closed: Bool,
     connect_message: ConnectMessage,
     seed: Option(runtime_core.BootstrapSeed),
     /// The base HTTP or HTTPS URL for the git-storage calls, which the
@@ -634,6 +638,7 @@ fn start_with_optional_seed(
 ) -> Runtime {
   let cell =
     transport_js.new_cell(State(
+      closed: False,
       connect_message: connect_message,
       seed: seed,
       http_base_url: http_base_url,
@@ -3255,6 +3260,7 @@ pub fn tree_edit_view_on(
               )
               Ok(Nil)
             }
+
             Failed(reason) -> Error(reason)
             SuspendedPendingTree(_, reason) -> Error(reason)
             Connecting ->
@@ -3321,6 +3327,114 @@ pub fn tree_node_edit_view_on(
       Error("tree node edit requires a ready document connection")
     SuspendedPendingTree(_, reason), _ -> Error(reason)
   }
+}
+
+@target(javascript)
+@internal
+pub fn live_request(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  request: tree_live.Request,
+) -> Result(tree_live.Response, tree_live.LiveError) {
+  let state = cell_get(runtime.cell)
+  let writes = tree_live.writes(request)
+  use _ <- result.try(case state.closed {
+    True -> Error(tree_live.ClosedRuntime)
+    False -> Ok(Nil)
+  })
+  use core <- result.try(case state.phase {
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
+      Ok(core)
+    Connecting ->
+      Error(tree_live.RuntimeFailure(
+        "Typed tree requires a ready document connection",
+      ))
+    Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+  })
+  let core = case core.live_namespace {
+    None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+    Some(_) -> core
+  }
+  let writable = case state.phase, state.bootstrap {
+    Ready(_, None), None -> True
+    _, _ -> False
+  }
+  use _ <- result.try(case tree_live.writes(request) && !writable {
+    True ->
+      Error(tree_live.RuntimeFailure(
+        "Typed tree edit requires a ready document connection",
+      ))
+    False -> Ok(Nil)
+  })
+  use #(core, response, events, outbound) <- result.try(
+    runtime_core.live_request(core, address, selector, view, request),
+  )
+  use phase <- result.try(case state.phase {
+    Ready(_, marker) -> Ok(Ready(core, marker))
+    Reconnecting(_) -> Ok(Reconnecting(core))
+    SuspendedPendingTree(_, reason) -> Ok(SuspendedPendingTree(core, reason))
+    Connecting | Failed(_) ->
+      Error(tree_live.RuntimeFailure("Typed tree has no current core"))
+  })
+  let subscribers = case request {
+    tree_live.Close(token) ->
+      list.filter(state.tree_commit_subscribers, fn(subscriber) {
+        subscriber.typed_view != Some(token)
+      })
+    _ -> state.tree_commit_subscribers
+  }
+  cell_set(
+    runtime.cell,
+    State(..state, phase: phase, tree_commit_subscribers: subscribers),
+  )
+  prime_scoped_tree_commit_deliveries(runtime.cell, events)
+  queue_outbound(runtime.cell, outbound)
+  use _ <- result.try(case cell_get(runtime.cell).phase {
+    Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+    SuspendedPendingTree(_, reason) if writes ->
+      Error(tree_live.RuntimeFailure(reason))
+    _ -> Ok(Nil)
+  })
+  fan_out_scoped(runtime.cell, state.subscribers, subscribers, events)
+  Ok(response)
+}
+
+@target(javascript)
+@internal
+pub fn subscribe_live_tree(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: fn() -> Nil,
+) -> Result(fn() -> Nil, tree_live.LiveError) {
+  use _ <- result.try(live_request(
+    runtime,
+    address,
+    selector,
+    view,
+    tree_live.RootRead(token),
+  ))
+  let state = cell_get(runtime.cell)
+  let id = id.uuid_v4()
+  cell_set(
+    runtime.cell,
+    State(..state, tree_commit_subscribers: [
+      TreeCommitSubscriber(
+        id,
+        address,
+        selector,
+        fn(_) { handler() },
+        Some(token),
+      ),
+      ..state.tree_commit_subscribers
+    ]),
+  )
+  let subscription = SubscriptionToken(runtime, id)
+  Ok(fn() { unsubscribe(subscription) })
 }
 
 @target(javascript)
@@ -3712,6 +3826,7 @@ pub fn subscribe_tree_commits_on(
         address: address,
         selector: selector,
         handler: handler,
+        typed_view: None,
       ),
       ..state.tree_commit_subscribers
     ]),
@@ -4064,11 +4179,12 @@ pub fn go_online(runtime: Runtime) -> Nil {
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
-  use <- bool.guard(state.channel == None, Nil)
+  use <- bool.guard(state.closed, Nil)
   cell_set(
     runtime.cell,
     State(
       ..state,
+      closed: True,
       phase: Failed("runtime closed"),
       channel: None,
       subscribers: [],

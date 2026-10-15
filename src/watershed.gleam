@@ -138,9 +138,15 @@ import watershed/transport_js
 @target(javascript)
 import watershed/tree/forest
 @target(javascript)
+import watershed/tree/live as tree_live
+@target(javascript)
+import watershed/tree/live_types
+@target(javascript)
 import watershed/tree/node as tree_node
 @target(javascript)
 import watershed/tree/schema as tree_schema
+@target(javascript)
+import watershed/tree/schema_builder as tree_builder
 @target(javascript)
 import watershed/tree/typed
 @target(javascript)
@@ -852,6 +858,45 @@ pub fn open_tree(
     )
   })
   |> result.map_error(typed.AccessFailed)
+}
+
+@target(javascript)
+/// Bind typed snapshots and references to this checkout.
+pub fn tree_typed(
+  tree: SharedTree(s, r),
+  compiled: tree_builder.Compiled(a),
+) -> Result(tree_live.View(a), live_types.LiveError) {
+  let request = fn(value) {
+    runtime.live_request(
+      tree.runtime,
+      tree.address,
+      tree.selector,
+      tree.view,
+      value,
+    )
+  }
+  use response <- result.try(
+    request(live_types.Bind(tree_builder.view(compiled))),
+  )
+  case response {
+    live_types.Bound(token) ->
+      Ok(tree_live.from_bound(
+        compiled,
+        tree_live.Backend(request, fn(handler) {
+          runtime.subscribe_live_tree(
+            tree.runtime,
+            tree.address,
+            tree.selector,
+            tree.view,
+            token,
+            handler,
+          )
+        }),
+        token,
+      ))
+    _ ->
+      Error(live_types.RuntimeFailure("Unexpected typed tree binding response"))
+  }
 }
 
 @target(javascript)

@@ -49,6 +49,20 @@ pub type Response {
   ReferenceState(ReferenceStatus)
 }
 
+@internal
+pub fn writes(request: Request) -> Bool {
+  case request {
+    RootReplace(_, _)
+    | PropertySet(_, _, _)
+    | ArrayInsert(_, _, _)
+    | ArrayRemove(_, _, _)
+    | ArrayMove(_, _, _, _, _)
+    | MapSet(_, _, _)
+    | MapDelete(_, _) -> True
+    _ -> False
+  }
+}
+
 pub type ReferenceStatus {
   Attached
   Removed

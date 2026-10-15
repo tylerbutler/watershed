@@ -103,7 +103,11 @@ pub type Core {
     compressor: Option(fluid_ids.Compressor),
     tree_checkouts: Dict(String, tree_branch.Forest),
     live_anchors: live_anchor.Registry,
-    live_views: Dict(tree_live.ViewToken, tree_schema.ViewSchema),
+    live_views: Dict(
+      tree_live.ViewToken,
+      #(String, tree_types.CheckoutSelector, tree_schema.ViewSchema),
+    ),
+    live_namespace: Option(String),
     tree_publication_scopes: Dict(
       String,
       List(#(fluid_ids.StableId, List(tree_types.CheckoutSelector))),
@@ -970,6 +974,7 @@ fn start_core(
       tree_checkouts: initial_tree_checkouts(connected.client_id, channels),
       live_anchors: live_anchor.new(),
       live_views: dict.new(),
+      live_namespace: None,
       tree_publication_scopes: dict.new(),
       active_tree_transaction: None,
       active_tree_transaction_checkouts: None,
@@ -4937,7 +4942,7 @@ fn sync_tree_checkouts(core: Core) -> Result(Core, CoreError) {
   )
   Ok(
     Core(..core, tree_checkouts: checkouts)
-    |> prune_tree_publication_scopes,
+    |> prune_tree_scopes,
   )
 }
 
@@ -5031,7 +5036,7 @@ fn install_checkout_forest_state(
           tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
         )
     }
-    |> prune_tree_publication_scopes,
+    |> prune_tree_scopes,
   )
 }
 
@@ -5177,7 +5182,7 @@ pub fn live_request(
     LiveContext(
       address,
       selector,
-      tree_branch.forest_origin(forest),
+      live_origin(core, address, forest),
       state,
       handle_view,
     )
@@ -5199,7 +5204,11 @@ pub fn live_request(
         Core(
           ..core,
           live_anchors: anchors,
-          live_views: dict.insert(core.live_views, token, view),
+          live_views: dict.insert(core.live_views, token, #(
+            address,
+            selector,
+            view,
+          )),
         ),
         tree_live.Bound(token),
       )
@@ -5220,6 +5229,17 @@ pub fn live_request(
       use _ <- result.try(live_check_view(core, context, view))
       live_dispatch(core, context, request)
     }
+  }
+}
+
+fn live_origin(
+  core: Core,
+  address: String,
+  forest: tree_branch.Forest,
+) -> tree_branch.Origin {
+  case core.live_namespace {
+    Some(namespace) -> tree_branch.origin(namespace, "document", address)
+    None -> tree_branch.forest_origin(forest)
   }
 }
 
@@ -5265,7 +5285,7 @@ fn live_check_view(
   view: tree_live.ViewToken,
 ) -> Result(Nil, tree_live.LiveError) {
   use _ <- result.try(live_owner(context, view))
-  use schema <- result.try(
+  use #(_, _, schema) <- result.try(
     dict.get(core.live_views, view)
     |> result.map_error(fn(_) { tree_live.ClosedView }),
   )
@@ -5531,7 +5551,7 @@ fn live_finish_preview(
   use anchors <- result.try(
     live_anchor.finish_preview(
       core.live_anchors,
-      tree_branch.forest_origin(forest),
+      live_origin(core, address, forest),
       selector,
       tree_kernel.visible_forest(state),
       core.active_tree_transaction == None,
@@ -6395,7 +6415,7 @@ fn remove_tree_publication_scope(
   })
 }
 
-fn prune_tree_publication_scopes(core: Core) -> Core {
+fn prune_tree_scopes(core: Core) -> Core {
   let scopes =
     list.fold(
       core.channel_order,
@@ -6429,7 +6449,28 @@ fn prune_tree_publication_scopes(core: Core) -> Core {
         }
       },
     )
-  Core(..core, tree_publication_scopes: scopes)
+  let #(views, anchors) =
+    list.fold(
+      dict.to_list(core.live_views),
+      #(core.live_views, core.live_anchors),
+      fn(acc, entry) {
+        let #(views, anchors) = acc
+        let #(address, selector, _) = entry.1
+        case tree_branch_status(core, address, selector) {
+          BranchDisposed -> #(
+            dict.delete(views, entry.0),
+            live_anchor.close(anchors, entry.0),
+          )
+          DocumentBranch | BranchValid -> acc
+        }
+      },
+    )
+  Core(
+    ..core,
+    tree_publication_scopes: scopes,
+    live_views: views,
+    live_anchors: anchors,
+  )
 }
 
 fn registered_checkout_revisions(
@@ -7149,17 +7190,18 @@ fn do_abort_tree_transaction_on(
                     Error(Nil) -> core.tree_checkouts
                   }
               }
-              Ok(
-                #(
-                  Core(
-                    ..core,
-                    active_tree_transaction: None,
-                    active_tree_transaction_checkouts: None,
-                    tree_checkouts: tree_checkouts,
-                  ),
-                  [],
+              use core <- result.try(install_checkout_forest(
+                Core(
+                  ..core,
+                  active_tree_transaction: None,
+                  active_tree_transaction_checkouts: None,
+                  tree_checkouts: tree_checkouts,
                 ),
-              )
+                address,
+                aborted,
+                compressor,
+              ))
+              Ok(#(core, []))
             }
             None ->
               transaction_error(
