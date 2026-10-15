@@ -8,6 +8,8 @@ Removing from an empty array does nothing.
 The [side-by-side source comparison](https://watershed.tylerbutler.com/sharedtree/item-counter)
 walks through the schema, lifecycle, subscriptions, and edits. This app uses
 watershed's **native SharedTree** API, not its typed-map schema layer.
+Schema-scoped handles and builders wrap the checked `TreeValue` snapshots;
+the counter's data model and edit rules stay unchanged.
 
 ## Run
 
