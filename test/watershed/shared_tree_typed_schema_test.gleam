@@ -175,6 +175,34 @@ pub fn shared_tree_typed_schema_rejects_optional_root_wrong_identifier_test() {
   )
 }
 
+pub fn shared_tree_typed_schema_checks_complete_union_root_test() {
+  let string_type = "com.fluidframework.leaf.string"
+  let number_type = "com.fluidframework.leaf.number"
+  list.each(["Value", "Optional"], fn(kind) {
+    let raw =
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}}},\"root\":{\"kind\":\""
+      <> kind
+      <> "\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\"]}}"
+    let view = tree_schema.view_from_string(raw) |> expect.to_be_ok
+    list.each(
+      [[string_type, number_type], [number_type, string_type]],
+      fn(identifiers) {
+        let codec = typed.dynamic_union_node(identifiers) |> expect.to_be_ok
+        let definition = typed.schema(view, codec) |> expect.to_be_ok
+        typed.decode_node(
+          typed.schema_root(definition),
+          types.StringValue("water"),
+        )
+        |> expect.to_equal(Ok(types.StringValue("water")))
+        typed.decode_node(typed.schema_root(definition), types.NumberValue(1.0))
+        |> expect.to_equal(Ok(types.NumberValue(1.0)))
+      },
+    )
+    let incomplete = typed.dynamic_node(string_type) |> expect.to_be_ok
+    typed.schema(view, incomplete) |> expect.to_be_error
+  })
+}
+
 pub fn shared_tree_typed_schema_cannot_accept_sequence_root_test() {
   let identifier = "com.fluidframework.leaf.string"
   let raw =

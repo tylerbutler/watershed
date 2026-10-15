@@ -235,7 +235,7 @@ pub fn schema(
       Error(InvalidDeclaration("root node is absent: " <> root.identifier))
   })
   let definition = tree_schema.root_field_schema(stored)
-  case root_field_matches(definition, root.identifier) {
+  case root_field_matches(definition, root.identifiers) {
     True -> Ok(Schema(view, root))
     False ->
       Error(InvalidDeclaration("root does not allow " <> root.identifier))
@@ -604,11 +604,11 @@ fn check_object_field(
 
 fn root_field_matches(
   definition: tree_schema.FieldSchema,
-  identifier: String,
+  identifiers: List(String),
 ) -> Bool {
   case definition.cardinality {
     tree_schema.Required | tree_schema.Optional ->
-      definition.allowed_types == [identifier]
+      field_allows_all(definition, definition.cardinality, identifiers)
     tree_schema.Sequence | tree_schema.Identifier -> False
   }
 }

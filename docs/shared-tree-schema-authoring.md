@@ -235,35 +235,43 @@ collection entry declarations.
 
 ## Native create, open, and read
 
-The native facade APIs keep their signatures:
+The native facades accept a schema-scoped `typed.Schema(s, r)` and a matching
+`typed.Builder(s, input)`, not raw stored and view schemas. The item-counter
+example supplies these adapters through `document_schema.declaration()` and
+`document_schema.builder()`:
 
 ```gleam
-// After checking builder.encode(compiled, initial_value):
+import gleam/option.{Some}
+import shared_tree_item_counter_lustre/schema as document_schema
+
 watershed.create_tree_container(
   create_config,
-  builder.stored(compiled),
-  initial_root,
+  document_schema.declaration(),
+  document_schema.builder(),
+  Some(document_schema.initial()),
 )
 
 // On an already connected document:
 watershed.create_tree(
   document,
-  builder.stored(compiled),
-  initial_root,
-  builder.view(compiled),
+  document_schema.declaration(),
+  document_schema.builder(),
+  Some(document_schema.initial()),
 )
 ```
 
 `create_tree_container` on JavaScript returns a promise of the creation
 result; the BEAM facade returns the result. Creation does not connect the
 document. To open an existing document, connect, resolve the root, get its
-`"tree"` handle, and call `resolve_tree` with `builder.view(compiled)`.
+`"tree"` handle, and call `resolve_tree` with
+`document_schema.declaration()` as its final argument.
 
-After `tree_get(tree, [])` succeeds, pass its `Option(TreeValue)` result to
-`builder.decode(compiled, snapshot)`. The
-[item-counter application](../examples/shared_tree_item_counter_lustre)
+The example's native record is `TreeValue`, so `tree_read_root(tree)` returns
+an `Option(TreeValue)` that `builder.decode(compiled, snapshot)` can decode.
+Other native declarations can decode their own application record directly.
+The [item-counter application](../examples/shared_tree_item_counter_lustre)
 shows the corresponding Lustre effects, subscriptions, cleanup, and error
-handling. It retains the compiled descriptor in application state.
+handling.
 
 Decoded records and lists are snapshots. Reconstructing a record or changing
 a local list does not submit an edit.

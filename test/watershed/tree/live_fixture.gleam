@@ -28,9 +28,9 @@ pub type NativeRoot
 pub fn definition(
   compiled: builder.Compiled(a),
 ) -> typed.Schema(NativeRoot, types.TreeValue) {
-  let assert [identifier, ..] =
+  let identifiers =
     schema.root_field_schema(builder.stored(compiled)).allowed_types
-  let assert Ok(root) = typed.node(identifier, fn(value) { Ok(value) })
+  let assert Ok(root) = typed.dynamic_union_node(identifiers)
   let assert Ok(value) = typed.schema(builder.view(compiled), root)
   value
 }
@@ -133,6 +133,7 @@ pub fn remote_edit(
     metadata: operation.metadata,
     timestamp: 0,
     data: None,
+    compression: None,
   )
 }
 
