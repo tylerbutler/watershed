@@ -116,7 +116,7 @@ _test-compile-fail:
         'SharedTree(Item, ItemState)' \
         'The old raw tree edit surface is available again.'
     done
-    for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root; do
+    for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root incompatible_tree_union; do
       out=$(cd "tools/compile-fail/$fixture" && gleam build --target javascript 2>&1)
       if [ $? -eq 0 ]; then
         echo "FAIL: $fixture compiled. Typed tree authoring accepted an invalid value."
@@ -126,6 +126,7 @@ _test-compile-fail:
         incompatible_tree_property) expected='fn(Note) -> String'; found='fn(Note) -> Int' ;;
         incompatible_tree_constructor) expected='builder.Property(Note, Int)'; found='builder.Property(Note, String)' ;;
         incompatible_tree_root) expected='    String'; found='    Int' ;;
+        incompatible_tree_union) expected='    String'; found='    Float' ;;
       esac
       if ! grep -q 'error: Type mismatch' <<<"$out" || ! grep -Fq "$expected" <<<"$out" || ! grep -Fq "$found" <<<"$out"; then
         echo "FAIL: $fixture failed without its expected type diagnostic:"

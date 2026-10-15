@@ -32,10 +32,10 @@ fn name_errors(factory: Factory, name: String) -> List(TreeError) {
 
 pub opaque type Node(a) {
   Node(
-    identifier: String,
+    identifiers: List(String),
     definitions: List(#(String, schema.NodeSchema)),
     errors: List(TreeError),
-    encode: fn(a) -> TreeValue,
+    encode: fn(a) -> Result(TreeValue, TreeError),
     decode: fn(TreeValue) -> Result(a, TreeError),
   )
 }
@@ -45,7 +45,7 @@ pub opaque type Root(a) {
     field: schema.FieldSchema,
     definitions: List(#(String, schema.NodeSchema)),
     errors: List(TreeError),
-    encode: fn(a) -> Option(TreeValue),
+    encode: fn(a) -> Result(Option(TreeValue), TreeError),
     decode: fn(Option(TreeValue)) -> Result(a, TreeError),
   )
 }
@@ -54,13 +54,17 @@ pub opaque type Compiled(a) {
   Compiled(
     stored: schema.StoredSchema,
     view: schema.ViewSchema,
-    encode: fn(a) -> Option(TreeValue),
+    encode: fn(a) -> Result(Option(TreeValue), TreeError),
     decode: fn(Option(TreeValue)) -> Result(a, TreeError),
   )
 }
 
 pub opaque type Property(record, a) {
-  Property(key: String, root: Root(a), encode: fn(record) -> Option(TreeValue))
+  Property(
+    key: String,
+    root: Root(a),
+    encode: fn(record) -> Result(Option(TreeValue), TreeError),
+  )
 }
 
 type ObjectProperty(record) {
@@ -69,7 +73,7 @@ type ObjectProperty(record) {
     field: schema.FieldSchema,
     definitions: List(#(String, schema.NodeSchema)),
     errors: List(TreeError),
-    encode: fn(record) -> Option(TreeValue),
+    encode: fn(record) -> Result(Option(TreeValue), TreeError),
   )
 }
 
@@ -78,7 +82,8 @@ pub fn required(
   node: Node(a),
   get: fn(record) -> a,
 ) -> Property(record, a) {
-  Property(key, root(node), fn(record) { Some(node.encode(get(record))) })
+  let root = root(node)
+  Property(key, root, fn(record) { root.encode(get(record)) })
 }
 
 pub fn optional(
@@ -86,9 +91,8 @@ pub fn optional(
   node: Node(a),
   get: fn(record) -> Option(a),
 ) -> Property(record, Option(a)) {
-  Property(key, optional_root(node), fn(record) {
-    option.map(get(record), node.encode)
-  })
+  let root = optional_root(node)
+  Property(key, root, fn(record) { root.encode(get(record)) })
 }
 
 fn object_property(property: Property(record, a)) -> ObjectProperty(record) {
@@ -128,7 +132,7 @@ fn object(
     False -> [types.InvalidSchema("Duplicate object property")]
   }
   Node(
-    identifier,
+    [identifier],
     [
       #(identifier, schema.Object(fields)),
       ..list.flat_map(properties, fn(p) { p.definitions })
@@ -139,17 +143,18 @@ fn object(
       list.flat_map(properties, fn(p) { p.errors }),
     ]),
     fn(value) {
-      types.ObjectValue(
-        identifier,
+      use fields <- result.try(
         properties
-          |> list.filter_map(fn(p) {
-            case p.encode(value) {
-              None -> Error(Nil)
-              Some(encoded) -> Ok(#(p.key, encoded))
-            }
+        |> list.try_map(fn(p) {
+          result.map(p.encode(value), fn(encoded) {
+            option.map(encoded, fn(encoded) { #(p.key, encoded) })
           })
-          |> sort_entries,
+        }),
       )
+      Ok(types.ObjectValue(
+        identifier,
+        fields |> list.filter_map(option.to_result(_, Nil)) |> sort_entries,
+      ))
     },
     fn(value) {
       case value {
@@ -398,7 +403,82 @@ fn leaf(
   decode: fn(TreeValue) -> Result(a, TreeError),
 ) -> Node(a) {
   let identifier = "com.fluidframework.leaf." <> name
-  Node(identifier, [#(identifier, schema.Leaf(kind))], [], encode, decode)
+  Node(
+    [identifier],
+    [#(identifier, schema.Leaf(kind))],
+    [],
+    fn(value) { Ok(encode(value)) },
+    decode,
+  )
+}
+
+pub opaque type Variant(sum) {
+  Variant(
+    identifiers: List(String),
+    definitions: List(#(String, schema.NodeSchema)),
+    errors: List(TreeError),
+    encode: fn(sum) -> Result(Option(TreeValue), TreeError),
+    decode: fn(TreeValue) -> Result(sum, TreeError),
+  )
+}
+
+pub fn variant(
+  node: Node(a),
+  inject: fn(a) -> sum,
+  project: fn(sum) -> Option(a),
+) -> Variant(sum) {
+  Variant(
+    node.identifiers,
+    node.definitions,
+    node.errors,
+    fn(value) {
+      case project(value) {
+        None -> Ok(None)
+        Some(value) -> result.map(node.encode(value), Some)
+      }
+    },
+    fn(value) { result.map(node.decode(value), inject) },
+  )
+}
+
+pub fn union(variants: List(Variant(sum))) -> Node(sum) {
+  let identifiers = list.flat_map(variants, fn(v) { v.identifiers })
+  let errors = case variants {
+    [] -> [types.InvalidSchema("Union must have at least one variant")]
+    _ ->
+      case list.length(identifiers) == list.length(list.unique(identifiers)) {
+        True -> []
+        False -> [types.InvalidSchema("Union variants have overlapping types")]
+      }
+  }
+  Node(
+    list.sort(identifiers, string.compare),
+    list.flat_map(variants, fn(v) { v.definitions }),
+    list.append(errors, list.flat_map(variants, fn(v) { v.errors })),
+    fn(value) {
+      use matches <- result.try(
+        list.try_map(variants, fn(v) { v.encode(value) }),
+      )
+      case list.filter_map(matches, option.to_result(_, Nil)) {
+        [value] -> Ok(value)
+        _ ->
+          Error(types.InvalidEdit(
+            [],
+            "Union value must match exactly one variant",
+          ))
+      }
+    },
+    fn(value) {
+      let identifier = schema.value_identifier(value)
+      use variant <- result.try(
+        list.find(variants, fn(v) { list.contains(v.identifiers, identifier) })
+        |> result.map_error(fn(_) {
+          types.CorruptData("typed snapshot", "Unknown union variant")
+        }),
+      )
+      variant.decode(value)
+    },
+  )
 }
 
 pub fn string() -> Node(String) {
@@ -453,17 +533,20 @@ pub fn array(
 ) -> Node(List(a)) {
   let identifier = factory.scope <> "." <> name
   Node(
-    identifier,
+    [identifier],
     [
       #(
         identifier,
-        schema.Array(schema.FieldSchema(schema.Sequence, [element.identifier])),
+        schema.Array(schema.FieldSchema(schema.Sequence, element.identifiers)),
       ),
       ..element.definitions
     ],
     list.append(name_errors(factory, name), element.errors),
     fn(values) {
-      types.ArrayValue(identifier, list.map(values, element.encode))
+      result.map(list.try_map(values, element.encode), types.ArrayValue(
+        identifier,
+        _,
+      ))
     },
     fn(value) {
       case value {
@@ -482,23 +565,25 @@ pub fn map(
 ) -> Node(Dict(String, a)) {
   let identifier = factory.scope <> "." <> name
   Node(
-    identifier,
+    [identifier],
     [
       #(
         identifier,
-        schema.Map(schema.FieldSchema(schema.Optional, [value.identifier])),
+        schema.Map(schema.FieldSchema(schema.Optional, value.identifiers)),
       ),
       ..value.definitions
     ],
     list.append(name_errors(factory, name), value.errors),
     fn(values) {
-      types.MapValue(
-        identifier,
+      use entries <- result.try(
         values
-          |> dict.to_list
-          |> sort_entries
-          |> list.map(fn(entry) { #(entry.0, value.encode(entry.1)) }),
+        |> dict.to_list
+        |> sort_entries
+        |> list.try_map(fn(entry) {
+          result.map(value.encode(entry.1), fn(value) { #(entry.0, value) })
+        }),
       )
+      Ok(types.MapValue(identifier, entries))
     },
     fn(snapshot) {
       case snapshot {
@@ -518,10 +603,10 @@ pub fn map(
 
 pub fn root(node: Node(a)) -> Root(a) {
   Root(
-    schema.FieldSchema(schema.Required, [node.identifier]),
+    schema.FieldSchema(schema.Required, node.identifiers),
     node.definitions,
     node.errors,
-    fn(value) { Some(node.encode(value)) },
+    fn(value) { result.map(node.encode(value), Some) },
     fn(value) {
       case value {
         Some(value) -> node.decode(value)
@@ -533,10 +618,15 @@ pub fn root(node: Node(a)) -> Root(a) {
 
 pub fn optional_root(node: Node(a)) -> Root(Option(a)) {
   Root(
-    schema.FieldSchema(schema.Optional, [node.identifier]),
+    schema.FieldSchema(schema.Optional, node.identifiers),
     node.definitions,
     node.errors,
-    fn(value) { option.map(value, node.encode) },
+    fn(value) {
+      case value {
+        None -> Ok(None)
+        Some(value) -> result.map(node.encode(value), Some)
+      }
+    },
     fn(value) {
       case value {
         Some(value) -> result.map(node.decode(value), Some)
@@ -596,7 +686,7 @@ pub fn encode(
   compiled: Compiled(a),
   value: a,
 ) -> Result(Option(TreeValue), TreeError) {
-  let encoded = compiled.encode(value)
+  use encoded <- result.try(compiled.encode(value))
   use _ <- result.try(schema.validate_root_field(compiled.stored, encoded))
   Ok(encoded)
 }

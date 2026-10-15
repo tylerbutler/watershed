@@ -113,6 +113,42 @@ The leaf descriptors are `string`, `number` (`Float`), `boolean`, `null`, and
 resolving or attaching them. Document runtimes retain responsibility for
 handle attachment.
 
+## Heterogeneous unions
+
+`union` combines typed branches without adding a persisted node type. Each
+`variant(node, inject, project)` supplies a constructor into an application
+sum type and a projector back to that branch:
+
+```gleam
+pub type Choice {
+  Text(String)
+  Count(Float)
+}
+
+pub fn choice() -> builder.Node(Choice) {
+  builder.union([
+    builder.variant(builder.string(), Text, fn(value) {
+      case value { Text(text) -> Some(text) Count(_) -> None }
+    }),
+    builder.variant(builder.number(), Count, fn(value) {
+      case value { Count(number) -> Some(number) Text(_) -> None }
+    }),
+  ])
+}
+```
+
+Unions work in roots, properties, arrays, and maps. Nested unions flatten their
+allowed type sets; reordering alternatives does not change the stored schema.
+Compilation rejects empty unions and overlapping branch type identifiers.
+Branches cannot distinguish two values with the same persisted type by
+inspecting their contents.
+
+Encoding requires exactly one matching projector. Decoding selects the branch
+by persisted type identifier. For each branch, `project(inject(value))` must
+return `Some(value)`, and all other branch projectors must return `None`.
+Gleam checks the function types, not these laws; test the pairs with application
+values. Missing or ambiguous projections return errors, never a default branch.
+
 ## Native create, open, and read
 
 The native facade APIs keep their signatures:
@@ -161,9 +197,10 @@ separate milestone.
 | `sf.object("Name", fields)` | `object0` through `object8` |
 | Implicit required field | `required(key, node, getter)` |
 | `sf.optional(node)` | `optional(key, node, getter)` or `optional_root(node)` |
+| Allowed-type array | `union([variant(node, inject, project), ...])` |
 | View configuration | `view(compiled)` plus the existing native open API |
 
-This milestone excludes heterogeneous unions, recursive declarations,
+This milestone excludes recursive declarations,
 Identifier defaults, anonymous names, custom codecs, schema migration,
 code generation, and typed live node references. The low-level native schema
 API retains its existing capabilities. Object descriptors support at most

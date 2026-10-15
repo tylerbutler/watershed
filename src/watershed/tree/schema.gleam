@@ -246,7 +246,8 @@ pub fn validate_subtree(
   }
 }
 
-fn value_identifier(value: TreeValue) -> String {
+/// Read the persisted type identifier of a snapshot node.
+pub fn value_identifier(value: TreeValue) -> String {
   case value {
     StringValue(_) -> leaf_identifier(StringLeaf)
     NumberValue(_) -> leaf_identifier(NumberLeaf)
