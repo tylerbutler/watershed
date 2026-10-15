@@ -10,7 +10,11 @@ import watershed/tree/live_types as live
 import watershed/tree/types
 
 type Entry {
-  Entry(reference: forest.NodeRef, tombstone: Option(live.ReferenceStatus))
+  Entry(
+    reference: forest.NodeRef,
+    tombstone: Option(live.ReferenceStatus),
+    preview: Bool,
+  )
 }
 
 pub opaque type Registry {
@@ -69,13 +73,83 @@ pub fn acquire(
       Ok(#(
         Registry(
           ..registry,
-          entries: dict.insert(registry.entries, token, Entry(reference, None)),
+          entries: dict.insert(
+            registry.entries,
+            token,
+            Entry(reference, None, False),
+          ),
           next_anchor: registry.next_anchor + 1,
         ),
         token,
       ))
     }
   }
+}
+
+@internal
+pub fn mark_preview(
+  registry: Registry,
+  token: live.AnchorToken,
+) -> Result(Registry, live.LiveError) {
+  use _ <- result.try(require_view(registry, live.anchor_view(token)))
+  use entry <- result.try(
+    dict.get(registry.entries, token)
+    |> result.map_error(fn(_) { live.InvalidReference(live.Invalidated) }),
+  )
+  Ok(
+    Registry(
+      ..registry,
+      entries: dict.insert(
+        registry.entries,
+        token,
+        Entry(..entry, preview: True),
+      ),
+    ),
+  )
+}
+
+@internal
+pub fn finish_preview(
+  registry: Registry,
+  origin: branch.Origin,
+  checkout: types.CheckoutSelector,
+  visible: forest.Forest,
+  complete: Bool,
+) -> Result(Registry, live.LiveError) {
+  use entries <- result.try(
+    dict.to_list(registry.entries)
+    |> list.try_map(fn(pair) {
+      let #(token, entry) = pair
+      case
+        live.view_matches(live.anchor_view(token), origin, checkout)
+        && entry.preview
+        && entry.tombstone == None
+      {
+        False -> Ok(pair)
+        True -> {
+          use status <- result.try(
+            forest.reference_status(visible, entry.reference)
+            |> result.map_error(live.InvalidValue),
+          )
+          case status {
+            forest.DeletedNode ->
+              Ok(#(
+                token,
+                Entry(
+                  ..entry,
+                  tombstone: Some(live.Invalidated),
+                  preview: False,
+                ),
+              ))
+            forest.ForeignNode -> Error(live.ForeignOrigin)
+            forest.AttachedNode | forest.RemovedNode ->
+              Ok(#(token, Entry(..entry, preview: !complete)))
+          }
+        }
+      }
+    }),
+  )
+  Ok(Registry(..registry, entries: dict.from_list(entries)))
 }
 
 fn require_view(
@@ -185,14 +259,17 @@ pub fn apply_changes(
             list.find(changes, fn(change) { source(change) == entry.reference })
           {
             Error(Nil) -> pair
-            Ok(live.Promote(_, after)) -> #(token, Entry(after, None))
+            Ok(live.Promote(_, after)) -> #(
+              token,
+              Entry(..entry, reference: after),
+            )
             Ok(live.Discard(_)) -> #(
               token,
-              Entry(entry.reference, Some(live.Invalidated)),
+              Entry(..entry, tombstone: Some(live.Invalidated), preview: False),
             )
             Ok(live.Forget(_)) -> #(
               token,
-              Entry(entry.reference, Some(live.Deleted)),
+              Entry(..entry, tombstone: Some(live.Deleted), preview: False),
             )
           }
         _, _ -> pair

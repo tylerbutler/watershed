@@ -1,8 +1,53 @@
 //// Runtime-local identity and errors for typed tree access.
 
+import gleam/option.{type Option}
 import watershed/tree/branch
 import watershed/tree/forest
+import watershed/tree/schema
 import watershed/tree/types
+
+pub type FieldProof {
+  FieldProof(key: String, definition: schema.FieldSchema)
+}
+
+pub type Request {
+  Bind(schema.ViewSchema)
+  Close(ViewToken)
+  RootRead(ViewToken)
+  RootReplace(ViewToken, Option(types.TreeValue))
+  RootAcquire(ViewToken, schema.Cardinality)
+  Read(AnchorToken)
+  Status(AnchorToken)
+  PropertyRead(AnchorToken, FieldProof)
+  PropertySet(AnchorToken, FieldProof, Option(types.TreeValue))
+  ChildAcquire(AnchorToken, FieldProof)
+  ArrayRead(AnchorToken, Int)
+  ArrayAcquire(AnchorToken, Int)
+  ArrayInsert(AnchorToken, Int, List(types.TreeValue))
+  ArrayRemove(AnchorToken, Int, Int)
+  ArrayMove(AnchorToken, Int, Int, AnchorToken, Int)
+  MapRead(AnchorToken, String)
+  MapAcquire(AnchorToken, String)
+  MapSet(AnchorToken, String, types.TreeValue)
+  MapDelete(AnchorToken, String)
+  Narrow(AnchorToken, List(String))
+}
+
+pub type NodeEvidence {
+  NodeEvidence(
+    anchor: AnchorToken,
+    identifier: String,
+    snapshot: types.TreeValue,
+  )
+}
+
+pub type Response {
+  Bound(ViewToken)
+  Done
+  Snapshot(Option(types.TreeValue))
+  Acquired(Option(NodeEvidence))
+  ReferenceState(ReferenceStatus)
+}
 
 pub type ReferenceStatus {
   Attached

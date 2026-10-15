@@ -115,6 +115,10 @@ pub fn document(state: Forest) -> Checkout {
   Checkout(state.origin, DocumentCheckout)
 }
 
+pub fn forest_origin(state: Forest) -> Origin {
+  state.origin
+}
+
 pub fn checkout(
   state: Forest,
   selector: CheckoutSelector,
