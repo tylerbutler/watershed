@@ -59,6 +59,334 @@ pub opaque type Compiled(a) {
   )
 }
 
+pub opaque type Property(record, a) {
+  Property(key: String, root: Root(a), encode: fn(record) -> Option(TreeValue))
+}
+
+type ObjectProperty(record) {
+  ObjectProperty(
+    key: String,
+    field: schema.FieldSchema,
+    definitions: List(#(String, schema.NodeSchema)),
+    errors: List(TreeError),
+    encode: fn(record) -> Option(TreeValue),
+  )
+}
+
+pub fn required(
+  key: String,
+  node: Node(a),
+  get: fn(record) -> a,
+) -> Property(record, a) {
+  Property(key, root(node), fn(record) { Some(node.encode(get(record))) })
+}
+
+pub fn optional(
+  key: String,
+  node: Node(a),
+  get: fn(record) -> Option(a),
+) -> Property(record, Option(a)) {
+  Property(key, optional_root(node), fn(record) {
+    option.map(get(record), node.encode)
+  })
+}
+
+fn object_property(property: Property(record, a)) -> ObjectProperty(record) {
+  ObjectProperty(
+    property.key,
+    property.root.field,
+    property.root.definitions,
+    property.root.errors,
+    property.encode,
+  )
+}
+
+fn read_property(
+  property: Property(record, a),
+  fields: List(#(String, TreeValue)),
+) -> Result(a, TreeError) {
+  let value = case list.key_find(fields, property.key) {
+    Ok(value) -> Some(value)
+    Error(Nil) -> None
+  }
+  property.root.decode(value)
+}
+
+fn object(
+  factory: Factory,
+  name: String,
+  properties: List(ObjectProperty(record)),
+  decode: fn(List(#(String, TreeValue))) -> Result(record, TreeError),
+) -> Node(record) {
+  let identifier = factory.scope <> "." <> name
+  let fields = list.map(properties, fn(p) { #(p.key, p.field) }) |> sort_entries
+  let duplicate_errors = case
+    list.length(list.unique(list.map(fields, fn(f) { f.0 })))
+    == list.length(fields)
+  {
+    True -> []
+    False -> [types.InvalidSchema("Duplicate object property")]
+  }
+  Node(
+    identifier,
+    [
+      #(identifier, schema.Object(fields)),
+      ..list.flat_map(properties, fn(p) { p.definitions })
+    ],
+    list.flatten([
+      name_errors(factory, name),
+      duplicate_errors,
+      list.flat_map(properties, fn(p) { p.errors }),
+    ]),
+    fn(value) {
+      types.ObjectValue(
+        identifier,
+        properties
+          |> list.filter_map(fn(p) {
+            case p.encode(value) {
+              None -> Error(Nil)
+              Some(encoded) -> Ok(#(p.key, encoded))
+            }
+          })
+          |> sort_entries,
+      )
+    },
+    fn(value) {
+      case value {
+        types.ObjectValue(actual, fields) if actual == identifier ->
+          decode(fields)
+        _ -> mismatch()
+      }
+    },
+  )
+}
+
+pub fn object0(factory: Factory, name: String) -> Node(Nil) {
+  object(factory, name, [], fn(fields) {
+    case fields {
+      [] -> Ok(Nil)
+      _ -> mismatch()
+    }
+  })
+}
+
+pub fn object1(
+  factory: Factory,
+  name: String,
+  construct: fn(a) -> record,
+  p1: Property(record, a),
+) -> Node(record) {
+  object(factory, name, [object_property(p1)], fn(fields) {
+    use a <- result.try(read_property(p1, fields))
+    Ok(construct(a))
+  })
+}
+
+pub fn object2(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+) -> Node(record) {
+  object(factory, name, [object_property(p1), object_property(p2)], fn(fields) {
+    use a <- result.try(read_property(p1, fields))
+    use b <- result.try(read_property(p2, fields))
+    Ok(construct(a, b))
+  })
+}
+
+pub fn object3(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [object_property(p1), object_property(p2), object_property(p3)],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      Ok(construct(a, b, c))
+    },
+  )
+}
+
+pub fn object4(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c, d) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+  p4: Property(record, d),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [
+      object_property(p1),
+      object_property(p2),
+      object_property(p3),
+      object_property(p4),
+    ],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      use d <- result.try(read_property(p4, fields))
+      Ok(construct(a, b, c, d))
+    },
+  )
+}
+
+pub fn object5(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c, d, e) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+  p4: Property(record, d),
+  p5: Property(record, e),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [
+      object_property(p1),
+      object_property(p2),
+      object_property(p3),
+      object_property(p4),
+      object_property(p5),
+    ],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      use d <- result.try(read_property(p4, fields))
+      use e <- result.try(read_property(p5, fields))
+      Ok(construct(a, b, c, d, e))
+    },
+  )
+}
+
+pub fn object6(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c, d, e, f) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+  p4: Property(record, d),
+  p5: Property(record, e),
+  p6: Property(record, f),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [
+      object_property(p1),
+      object_property(p2),
+      object_property(p3),
+      object_property(p4),
+      object_property(p5),
+      object_property(p6),
+    ],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      use d <- result.try(read_property(p4, fields))
+      use e <- result.try(read_property(p5, fields))
+      use f <- result.try(read_property(p6, fields))
+      Ok(construct(a, b, c, d, e, f))
+    },
+  )
+}
+
+pub fn object7(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c, d, e, f, g) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+  p4: Property(record, d),
+  p5: Property(record, e),
+  p6: Property(record, f),
+  p7: Property(record, g),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [
+      object_property(p1),
+      object_property(p2),
+      object_property(p3),
+      object_property(p4),
+      object_property(p5),
+      object_property(p6),
+      object_property(p7),
+    ],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      use d <- result.try(read_property(p4, fields))
+      use e <- result.try(read_property(p5, fields))
+      use f <- result.try(read_property(p6, fields))
+      use g <- result.try(read_property(p7, fields))
+      Ok(construct(a, b, c, d, e, f, g))
+    },
+  )
+}
+
+pub fn object8(
+  factory: Factory,
+  name: String,
+  construct: fn(a, b, c, d, e, f, g, h) -> record,
+  p1: Property(record, a),
+  p2: Property(record, b),
+  p3: Property(record, c),
+  p4: Property(record, d),
+  p5: Property(record, e),
+  p6: Property(record, f),
+  p7: Property(record, g),
+  p8: Property(record, h),
+) -> Node(record) {
+  object(
+    factory,
+    name,
+    [
+      object_property(p1),
+      object_property(p2),
+      object_property(p3),
+      object_property(p4),
+      object_property(p5),
+      object_property(p6),
+      object_property(p7),
+      object_property(p8),
+    ],
+    fn(fields) {
+      use a <- result.try(read_property(p1, fields))
+      use b <- result.try(read_property(p2, fields))
+      use c <- result.try(read_property(p3, fields))
+      use d <- result.try(read_property(p4, fields))
+      use e <- result.try(read_property(p5, fields))
+      use f <- result.try(read_property(p6, fields))
+      use g <- result.try(read_property(p7, fields))
+      use h <- result.try(read_property(p8, fields))
+      Ok(construct(a, b, c, d, e, f, g, h))
+    },
+  )
+}
+
 fn mismatch() -> Result(a, TreeError) {
   Error(types.CorruptData("typed snapshot", "Unexpected node value"))
 }
