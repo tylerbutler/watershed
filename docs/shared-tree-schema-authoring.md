@@ -61,6 +61,26 @@ field names. Duplicate property names and conflicting definitions of the same
 node identifier cause compilation errors. Equivalent repeated definitions
 coalesce, so you can reuse a child descriptor in several fields.
 
+For larger records, `object` accepts a list of `property` descriptors and a
+typed reader callback, with no fixed property count:
+
+```gleam
+let title = builder.required("title", builder.string(), fn(v: Card) { v.title })
+let owner = builder.optional("owner", builder.string(), fn(v: Card) { v.owner })
+builder.object(factory, "Card", [
+  builder.property(title),
+  builder.property(owner),
+], fn(reader) {
+  use title <- result.try(builder.read_property(reader, title))
+  use owner <- result.try(builder.read_property(reader, owner))
+  Ok(Card(title, owner))
+})
+```
+
+`read_property` checks the property against the declaration. A property from
+another record is a type error; an undeclared key or mismatched field
+definition returns a schema error. The callback never handles raw tree values.
+
 Gleam checks the constructor/getter types, not their meaning. Supply getters
 that return the corresponding constructor arguments. Swapping two getters
 with the same value type can compile while changing your data.
@@ -342,9 +362,9 @@ shutdown, incompatible schemas, and foreign references return structured `LiveEr
 
 This milestone excludes anonymous names, custom codecs, schema migration,
 code generation, and typed live node references. The low-level native schema
-API retains its existing capabilities. Object descriptors support at most
-eight properties. This layer uses the same Schema V2 format and does not
-expand the accepted interoperability profile.
+API retains its existing capabilities. The arity constructors support up to
+eight properties; `object` has no fixed property limit. This layer uses the
+same Schema V2 format and does not expand the accepted interoperability profile.
 
 The independent [authoring oracle](../tools/shared-tree-oracle/README.md#typed-schema-authoring-capture)
 compares generated schemas with `@fluidframework/tree` 3.1.0 at commit

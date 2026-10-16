@@ -94,13 +94,20 @@ pub opaque type Property(record, a) {
   )
 }
 
-type ObjectProperty(record) {
+pub opaque type ObjectProperty(record) {
   ObjectProperty(
     key: String,
     field: schema.FieldSchema,
     definitions: List(Definition),
     errors: List(TreeError),
     encode: fn(EncodeMode, record) -> Result(Option(TreeValue), TreeError),
+  )
+}
+
+pub opaque type ObjectReader(record) {
+  ObjectReader(
+    fields: List(#(String, TreeValue)),
+    properties: List(#(String, schema.FieldSchema)),
   )
 }
 
@@ -163,7 +170,30 @@ fn object_property(property: Property(record, a)) -> ObjectProperty(record) {
   )
 }
 
-fn read_property(
+pub fn property(property: Property(record, a)) -> ObjectProperty(record) {
+  object_property(property)
+}
+
+pub fn read_property(
+  reader: ObjectReader(record),
+  property: Property(record, a),
+) -> Result(a, TreeError) {
+  use definition <- result.try(
+    list.key_find(reader.properties, property.key)
+    |> result.map_error(fn(_) {
+      types.InvalidSchema("Undeclared object property: " <> property.key)
+    }),
+  )
+  case definition == property.root.field {
+    True -> decode_property(property, reader.fields)
+    False ->
+      Error(types.InvalidSchema(
+        "Object property definition does not match: " <> property.key,
+      ))
+  }
+}
+
+fn decode_property(
   property: Property(record, a),
   fields: List(#(String, TreeValue)),
 ) -> Result(a, TreeError) {
@@ -174,7 +204,21 @@ fn read_property(
   property.root.decode(value)
 }
 
-fn object(
+pub fn object(
+  factory: Factory,
+  name: String,
+  properties: List(ObjectProperty(record)),
+  construct: fn(ObjectReader(record)) -> Result(record, TreeError),
+) -> Node(record) {
+  object_codec(factory, name, properties, fn(fields) {
+    construct(ObjectReader(
+      fields,
+      list.map(properties, fn(property) { #(property.key, property.field) }),
+    ))
+  })
+}
+
+fn object_codec(
   factory: Factory,
   name: String,
   properties: List(ObjectProperty(record)),
@@ -228,7 +272,7 @@ fn object(
 }
 
 pub fn object0(factory: Factory, name: String) -> Node(Nil) {
-  object(factory, name, [], fn(fields) {
+  object_codec(factory, name, [], fn(fields) {
     case fields {
       [] -> Ok(Nil)
       _ -> mismatch()
@@ -242,8 +286,8 @@ pub fn object1(
   construct: fn(a) -> record,
   p1: Property(record, a),
 ) -> Node(record) {
-  object(factory, name, [object_property(p1)], fn(fields) {
-    use a <- result.try(read_property(p1, fields))
+  object_codec(factory, name, [object_property(p1)], fn(fields) {
+    use a <- result.try(decode_property(p1, fields))
     Ok(construct(a))
   })
 }
@@ -255,11 +299,16 @@ pub fn object2(
   p1: Property(record, a),
   p2: Property(record, b),
 ) -> Node(record) {
-  object(factory, name, [object_property(p1), object_property(p2)], fn(fields) {
-    use a <- result.try(read_property(p1, fields))
-    use b <- result.try(read_property(p2, fields))
-    Ok(construct(a, b))
-  })
+  object_codec(
+    factory,
+    name,
+    [object_property(p1), object_property(p2)],
+    fn(fields) {
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      Ok(construct(a, b))
+    },
+  )
 }
 
 pub fn object3(
@@ -270,14 +319,14 @@ pub fn object3(
   p2: Property(record, b),
   p3: Property(record, c),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [object_property(p1), object_property(p2), object_property(p3)],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
       Ok(construct(a, b, c))
     },
   )
@@ -292,7 +341,7 @@ pub fn object4(
   p3: Property(record, c),
   p4: Property(record, d),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [
@@ -302,10 +351,10 @@ pub fn object4(
       object_property(p4),
     ],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
-      use d <- result.try(read_property(p4, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
+      use d <- result.try(decode_property(p4, fields))
       Ok(construct(a, b, c, d))
     },
   )
@@ -321,7 +370,7 @@ pub fn object5(
   p4: Property(record, d),
   p5: Property(record, e),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [
@@ -332,11 +381,11 @@ pub fn object5(
       object_property(p5),
     ],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
-      use d <- result.try(read_property(p4, fields))
-      use e <- result.try(read_property(p5, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
+      use d <- result.try(decode_property(p4, fields))
+      use e <- result.try(decode_property(p5, fields))
       Ok(construct(a, b, c, d, e))
     },
   )
@@ -353,7 +402,7 @@ pub fn object6(
   p5: Property(record, e),
   p6: Property(record, f),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [
@@ -365,12 +414,12 @@ pub fn object6(
       object_property(p6),
     ],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
-      use d <- result.try(read_property(p4, fields))
-      use e <- result.try(read_property(p5, fields))
-      use f <- result.try(read_property(p6, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
+      use d <- result.try(decode_property(p4, fields))
+      use e <- result.try(decode_property(p5, fields))
+      use f <- result.try(decode_property(p6, fields))
       Ok(construct(a, b, c, d, e, f))
     },
   )
@@ -388,7 +437,7 @@ pub fn object7(
   p6: Property(record, f),
   p7: Property(record, g),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [
@@ -401,13 +450,13 @@ pub fn object7(
       object_property(p7),
     ],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
-      use d <- result.try(read_property(p4, fields))
-      use e <- result.try(read_property(p5, fields))
-      use f <- result.try(read_property(p6, fields))
-      use g <- result.try(read_property(p7, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
+      use d <- result.try(decode_property(p4, fields))
+      use e <- result.try(decode_property(p5, fields))
+      use f <- result.try(decode_property(p6, fields))
+      use g <- result.try(decode_property(p7, fields))
       Ok(construct(a, b, c, d, e, f, g))
     },
   )
@@ -426,7 +475,7 @@ pub fn object8(
   p7: Property(record, g),
   p8: Property(record, h),
 ) -> Node(record) {
-  object(
+  object_codec(
     factory,
     name,
     [
@@ -440,14 +489,14 @@ pub fn object8(
       object_property(p8),
     ],
     fn(fields) {
-      use a <- result.try(read_property(p1, fields))
-      use b <- result.try(read_property(p2, fields))
-      use c <- result.try(read_property(p3, fields))
-      use d <- result.try(read_property(p4, fields))
-      use e <- result.try(read_property(p5, fields))
-      use f <- result.try(read_property(p6, fields))
-      use g <- result.try(read_property(p7, fields))
-      use h <- result.try(read_property(p8, fields))
+      use a <- result.try(decode_property(p1, fields))
+      use b <- result.try(decode_property(p2, fields))
+      use c <- result.try(decode_property(p3, fields))
+      use d <- result.try(decode_property(p4, fields))
+      use e <- result.try(decode_property(p5, fields))
+      use f <- result.try(decode_property(p6, fields))
+      use g <- result.try(decode_property(p7, fields))
+      use h <- result.try(decode_property(p8, fields))
       Ok(construct(a, b, c, d, e, f, g, h))
     },
   )

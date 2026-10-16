@@ -115,6 +115,9 @@ _test-compile-fail:
       check_typed_tree_failure shared_tree_raw_edit "$target" \
         'SharedTree(Item, ItemState)' \
         'The old raw tree edit surface is available again.'
+      check_typed_tree_failure incompatible_tree_object_reader "$target" \
+        'builder.Property(Card, String)' \
+        'An object reader now accepts a property from another record.'
     done
     for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root incompatible_tree_union incompatible_tree_recursive incompatible_tree_live_property incompatible_tree_live_insert; do
       out=$(cd "tools/compile-fail/$fixture" && gleam build --target javascript 2>&1)
