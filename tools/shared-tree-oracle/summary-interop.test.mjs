@@ -44,6 +44,49 @@ const retentionScenarios = [
   "fresh-load",
 ];
 
+test("upstream incremental summaries bootstrap native readers through reused trees and blobs", async () => {
+  const output = join(import.meta.dirname, ".output");
+  await mkdir(output, { recursive: true });
+  const artifactDirectory = await mkdtemp(join(output, "snapshot-reference-test-"));
+  try {
+    const fixture = JSON.parse(await readFile(new URL(
+      "../../test/fixtures/shared_tree/cases/schema-profile.json",
+      import.meta.url,
+    ), "utf8"));
+    const { profileDigest } = await loadInteropProfile(join(
+      import.meta.dirname, "../../test/fixtures/shared_tree/profile.json",
+    ));
+    const matrix = await withLocalFloodgate((config) => runReloadMatrix(config, {
+      runId: randomUUID(),
+      profileDigest,
+      viewSchema: fixture.input.summary.tree.indexes.tree.Schema.tree.SchemaString.content,
+      artifactDirectory,
+    }));
+    for (const reader of ["javascript", "erlang"]) {
+      const cell = matrix.upstream[reader];
+      const artifact = JSON.parse(await readFile(
+        join(artifactDirectory, cell.artifacts[0]), "utf8",
+      ));
+      const references = artifact.raw.summaryReferences;
+      assert(references?.some(({ kind }) => kind === "tree"),
+        "Upstream publication did not prove tree reference consumption");
+      assert(references.some(({ kind }) => kind === "blob"),
+        "Upstream publication did not prove blob reference consumption");
+      for (const { kind, id } of references) {
+        assert(artifact.raw.load.http.some(({ method, path, status }) =>
+          method === "GET" && status === 200
+            && path.endsWith(`/git/${kind}s/${id}`)),
+        `${reader} did not fetch the reused ${kind} ${id}`);
+      }
+      assert.equal(cell.pendingTreeCount, 0);
+      assert.equal(cell.inflightSubmissionCount, 0);
+      assert(cell.replayWatermark > cell.publicationSequenceNumber);
+    }
+  } finally {
+    await rm(artifactDirectory, { recursive: true, force: true });
+  }
+});
+
 test("array reload readers capture retained roots before another reader continues", async () => {
   const output = join(import.meta.dirname, ".output");
   await mkdir(output, { recursive: true });

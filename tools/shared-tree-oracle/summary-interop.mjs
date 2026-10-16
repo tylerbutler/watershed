@@ -2119,6 +2119,48 @@ function continuationIdentity(history, adapter, sequenceNumber) {
   };
 }
 
+export function summaryReferenceEvidence(summary, previous, current) {
+  function objectId(snapshot, path, kind) {
+    const components = path.split("/").filter(Boolean).map(decodeURIComponent);
+    let tree = snapshot;
+    for (const name of components.slice(0, -1)) {
+      const child = tree.trees[name];
+      assert(child, `Summary reference lacks parent tree: ${path}; `
+        + `missing ${name} in ${Object.keys(tree.trees).join(",")}`);
+      tree = child;
+    }
+    const name = components.at(-1);
+    const id = kind === "tree"
+      ? (name === undefined ? tree.id : tree.trees[name]?.id)
+      : tree.blobs[name];
+    assert(typeof id === "string" && id.length > 0,
+      `Summary reference lacks ${kind}: ${path}`);
+    return id;
+  }
+  const references = [];
+  function visit(entry, path) {
+    if (entry.type === SummaryType.Handle) {
+      assert([SummaryType.Tree, SummaryType.Blob].includes(entry.handleType),
+        `Unsupported summary reference kind: ${path}`);
+      const kind = entry.handleType === SummaryType.Tree ? "tree" : "blob";
+      const id = objectId(previous, entry.handle, kind);
+      assert.equal(objectId(current, path, kind), id,
+        `Published summary did not reuse referenced ${kind}: ${path}`);
+      references.push({ path, handle: entry.handle, kind, id });
+    } else if (entry.type === SummaryType.Tree) {
+      for (const [name, child] of Object.entries(entry.tree)) {
+        visit(child, `${path}/${encodeURIComponent(name)}`);
+      }
+    }
+  }
+  visit(summary, "");
+  assert(references.some(({ kind }) => kind === "tree"),
+    "Upstream summary lacks tree references");
+  assert(references.some(({ kind }) => kind === "blob"),
+    "Upstream summary lacks blob references");
+  return references;
+}
+
 async function publishWriterSummary(
   config,
   containers,
@@ -2137,6 +2179,7 @@ async function publishWriterSummary(
   let version;
   let snapshotSequenceNumber;
   let dataEdit;
+  let referencePublication;
   if (writer === "upstream") {
     const summarizer = await openSession(
       config,
@@ -2146,31 +2189,60 @@ async function publishWriterSummary(
       store ? { store } : undefined,
     );
     assert(summarizer.data.ISummarizer, "Missing upstream summarizer");
-    await summarizer.container.deltaManager.outbound.pause();
-    const result = summarizer.data.ISummarizer.summarizeOnDemand({
-      reason: "Task 4 selected upstream writer",
-      fullTree: true,
-    });
-    const submitted = await result.summarySubmitted;
-    assert(submitted.success, `Summary submission failed: ${submitted.error}`);
-    snapshotSequenceNumber = submitted.data.referenceSequenceNumber;
-    assert(summarizer.container.deltaManager.outbound.length > 0,
-      "Upstream summarize operation was not held after upload");
-    await tailEdit(adapters[tailAuthor], `between-${writer}-${randomUUID()}`);
-    await adapters[tailAuthor].awaitSynced();
-    dataEdit = await acknowledgedSubmission(
-      creator,
-      adapters[tailAuthor],
-      tailBaseline.sequenceNumber,
-      tailAuthor,
+    const service = await summarizer.documentServiceFactory.createDocumentService(
+      summarizer.container.resolvedUrl,
     );
-    summarizer.container.deltaManager.outbound.resume();
-    const broadcast = await result.summaryOpBroadcasted;
-    assert(broadcast.success, `Summary broadcast failed: ${broadcast.error}`);
-    const acknowledged = await result.receivedSummaryAckOrNack;
-    assert(acknowledged.success, `Summary acknowledgement failed: ${acknowledged.error}`);
-    version = acknowledged.data.summaryAckOp.contents.handle;
-    summarizer.container.dispose();
+    try {
+      const storage = await service.connectToStorage();
+      const previousVersion = await publishedVersion(config, documentId, jwt);
+      const [previous] = await storage.getVersions(previousVersion, 1);
+      assert.equal(previous?.id, previousVersion, "Previous summary version changed");
+      const previousSnapshot = await storage.getSnapshotTree(previous);
+      assert(previousSnapshot, "Previous upstream snapshot is missing");
+      await summarizer.container.deltaManager.outbound.pause();
+      const result = summarizer.data.ISummarizer.summarizeOnDemand({
+        reason: "Task 4 selected upstream writer",
+        fullTree: false,
+      });
+      const submitted = await result.summarySubmitted;
+      assert(submitted.success, `Summary submission failed: ${submitted.error}`);
+      snapshotSequenceNumber = submitted.data.referenceSequenceNumber;
+      assert(summarizer.container.deltaManager.outbound.length > 0,
+        "Upstream summarize operation was not held after upload");
+      await tailEdit(adapters[tailAuthor], `between-${writer}-${randomUUID()}`);
+      await adapters[tailAuthor].awaitSynced();
+      dataEdit = await acknowledgedSubmission(
+        creator,
+        adapters[tailAuthor],
+        tailBaseline.sequenceNumber,
+        tailAuthor,
+      );
+      summarizer.container.deltaManager.outbound.resume();
+      const broadcast = await result.summaryOpBroadcasted;
+      assert(broadcast.success, `Summary broadcast failed: ${broadcast.error}`);
+      const acknowledged = await result.receivedSummaryAckOrNack;
+      assert(acknowledged.success, `Summary acknowledgement failed: ${acknowledged.error}`);
+      version = acknowledged.data.summaryAckOp.contents.handle;
+      const [published] = await storage.getVersions(version, 1);
+      assert.equal(published?.id, version, "Reference-backed summary version changed");
+      const snapshot = await storage.getSnapshotTree(published);
+      assert(snapshot, "Reference-backed upstream snapshot is missing");
+      const references = summaryReferenceEvidence(
+        submitted.data.summaryTree,
+        previousSnapshot,
+        snapshot,
+      );
+      referencePublication = {
+        previousVersion,
+        previousSnapshot,
+        snapshot,
+        summary: submitted.data.summaryTree,
+        references,
+      };
+    } finally {
+      service.dispose();
+      summarizer.container.dispose();
+    }
   } else {
     const adapter = adapters[writer];
     const before = adapter.evidence().http.length;
@@ -2233,6 +2305,7 @@ async function publishWriterSummary(
     snapshotSequenceNumber,
     dataEditSequenceNumber: dataEdit.outerSequenceNumber,
     publicationSequenceNumber,
+    ...(referencePublication === undefined ? {} : { referencePublication }),
   };
 }
 
@@ -2415,10 +2488,27 @@ export async function readCell(config, context, row, reader, {
       ),
       artifacts: [],
     };
+    if (row.referencePublication !== undefined) {
+      const references = row.referencePublication.references;
+      if (reader !== "upstream") {
+        for (const { kind, id } of references) {
+          const requests = kind === "tree"
+            ? load.selectedTreeRequests
+            : load.selectedBlobRequests;
+          assert(requests.includes(id),
+            `${reader} did not consume the referenced ${kind}: ${id}`);
+        }
+      }
+      item.summaryReferences = references;
+    }
     item.artifacts = [await writeReloadArtifact(context, item, {
       load: rawLoad,
       history,
       retainedLoad: row.retainedLoad,
+      ...(row.referencePublication === undefined ? {} : {
+        referencePublication: row.referencePublication,
+        summaryReferences: row.referencePublication.references,
+      }),
     })];
     return item;
   } catch (error) {
