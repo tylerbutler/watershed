@@ -46,8 +46,10 @@ measurements alongside compatibility work, but
 schedule incremental FieldBatch encoding, incremental writing, and reclamation
 from measured need. Generated schema declarations and broader automatic
 durability follow those ordinary collaboration gaps. Shared branches,
-arbitrary factories, exotic handles, and additional versions remain
-demand-driven. Production authentication is a shipping requirement, not an
+broader declared layouts, exotic handles, and additional versions remain
+demand-driven. A general application factory/plugin framework is out of scope
+for now; see the dated scope decision in section 6.
+Production authentication is a shipping requirement, not an
 optional feature to defer past a production release.
 
 The initial reconciliation compared the implementation at `dad2b680` with the
@@ -2786,8 +2788,26 @@ Reproduce the focused regression with the command in the
 | 3. Array schema evolution and selected policies | Published M3/M4 contracts and preceding ordinary-client boundaries | Separate array-evolution schema/data races and reload matrices; add richer schema policies only for an identified consumer. |
 | 4. Measurement-led scale and persistence | Representative object/map/array/transaction/undo workloads; measurements may start now | Measure retained forests/history and live handles, then schedule safe reclamation, incremental writing and opt-in incremental FieldBatch chunks independently. Do not bundle these with runtime-op compression. |
 | 5. Generated schema ergonomics and broader durability | Accepted hand-authored typed API and explicit pending-tree checkpoint contract | Optional schema-to-Gleam generation, automatic journaling, mixed-DDS pending edits and detached graph persistence, each with separate ownership/lifecycle proof. |
-| Demand-driven extensions | [Client compatibility matrix](../../shared-tree-client-compatibility.md) and an identified application requirement | Shared branches need a version/profile decision; arbitrary factories/layouts, blob/cross-container handles and additional versions each need their own contract and interoperability proof. |
+| Out of scope for now: general factory/plugin framework | A concrete application requirement, if one arises | No scheduled milestone. Revisit application runtime/datastore factories only if needed; assess a narrow adapter or declared-layout extension first. See the scope decision below. |
+| Demand-driven extensions | [Client compatibility matrix](../../shared-tree-client-compatibility.md) and an identified application requirement | Shared branches need a version/profile decision; broader declared layouts, blob/cross-container handles and additional versions each need their own contract and interoperability proof. |
 | Production release prerequisite | Accepted development-service lifecycle | Production authentication and token refresh need explicit ownership and proof before shipping; this sequencing does not waive that requirement. |
+
+### General application factory/plugin framework: out of scope — 2026-10-16
+
+Upstream Fluid can load application-supplied runtime factories, resolve
+datastore package paths through registries, and execute their initialization
+and entry-point behavior. It still needs the matching application code and DDS
+implementations. Watershed instead reads supported map/tree storage and routing
+without executing those JavaScript factories. Custom tree schemas, multiple
+trees, and declared connected datastore graphs do not require that framework.
+
+We have decided not to schedule a general factory/plugin framework now. It is
+not an unfinished M7 deliverable or a prerequisite for M8. Revisit it if an
+application needs loading or object-discovery behavior outside the supported
+conventions; first assess a narrow adapter or declared-layout extension.
+Supporting another DDS would also require its codecs and semantics. The
+[compatibility matrix](../../shared-tree-client-compatibility.md#container-factory-scope-decision--2026-10-16)
+records the upstream mechanism, current limits, and examples.
 
 ### Current parallel opportunities
 
@@ -2813,8 +2833,9 @@ a two-context Chromium gate. The later handle/attachment and typed-API slices
 extend that work with handle-valued leaves, declared-datastore live attachment,
 checked declarations, and captured-node actions. Explicit pending-tree restart
 checkpoints are now available in both native facades. Production token services,
-arbitrary layouts and broader pending-state durability
-remain open. The example's local pending counter measures effect completion, not
+broader declared layouts and broader pending-state durability
+remain open; a general factory/plugin framework is out of scope for now.
+The example's local pending counter measures effect completion, not
 sequenced acknowledgement.
 
 The fixed-layout creation slice now has a standalone dual-target example at
@@ -2829,7 +2850,7 @@ field kinds. Transactions/undo, branching, crash recovery, and reclamation
 share history or runtime state; do not assign concurrent owners to the same
 reconciliation and retention paths. M8 reclamation must preserve live
 revertibles as well as collaboration history; measurements can use the
-implemented M3/M5 workloads now. Arbitrary factories/layouts, incremental
+implemented M3/M5 workloads now. Broader declared layouts, incremental
 summaries, and additional supported versions each need
 their own approved scope and interoperability proof. Independent design or
 oracle work does not remove those implementation dependencies.

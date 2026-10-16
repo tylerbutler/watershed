@@ -641,6 +641,18 @@ the request. Creation still sends one POST without starting a runtime.
 Arbitrary executable factories and cross-container or blob handles remain
 excluded.
 
+**Factory scope decision (2026-10-16):** A general application runtime/datastore
+factory and plugin framework is out of scope for now, with no scheduled
+milestone. Upstream Fluid supports host-supplied code loaders and registered
+factories; our upstream harness uses that mechanism. Native Watershed reads
+supported map/tree storage and routing without executing those JavaScript
+factories. This does not restrict tree schema declaration or remove the
+declared multi-tree graphs above. Revisit factory support if an application
+needs it, starting with a narrow adapter or declared-layout extension. See the
+[compatibility decision](../../docs/shared-tree-client-compatibility.md#container-factory-scope-decision--2026-10-16)
+for the distinction between application factories, stored layouts, and
+additional DDS implementations.
+
 Current-run results, initial and edited summaries, final transport/checkpoint
 evidence, and failures go under `.output/layouts/<run-id>/`. The report records
 the validated profile digest and compatibility pins. The manual service

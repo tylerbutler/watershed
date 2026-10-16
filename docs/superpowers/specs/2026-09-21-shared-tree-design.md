@@ -361,9 +361,34 @@ compression remains a later optimization. The
 [compatibility matrix](../../shared-tree-client-compatibility.md)
 tracks current support separately from this schedule.
 
-Shared branches, arbitrary factories/layouts, exotic handles and additional
-client versions remain demand-driven extensions. Production authentication is
+Shared branches, broader declared layouts, exotic handles and additional
+client versions remain demand-driven extensions. A general application
+factory/plugin framework is out of scope for now, as recorded below.
+Production authentication is
 still required before a production release; no backlog order waives it.
+
+### Application factory/plugin scope decision (2026-10-16)
+
+Upstream Fluid provides host-supplied code loading, runtime/datastore factories,
+and registries. Those factories implement application initialization,
+object discovery, and entry points; the host must supply the application code
+and required DDS implementations. This mechanism is separate from SharedTree
+schema declaration and from reading persisted tree/blob references.
+
+Watershed reads supported map/tree storage and routing without running
+upstream JavaScript factories. The supported scope already includes multiple
+trees, independent schemas, aliases, and declared connected datastore graphs.
+An unfamiliar but compatible layout may decode without providing the
+application's executable entry-point behavior.
+
+**Decision:** Do not schedule a general application runtime/datastore factory
+or plugin framework now. It has no assigned milestone, is not an incomplete M7
+deliverable, and does not block M8. Revisit it if a concrete application needs
+it, starting with a narrow adapter or declared-layout extension. Additional DDS
+types would still require separate codec and collaboration support; this
+decision does not propose running arbitrary JavaScript on BEAM.
+See the [compatibility matrix](../../shared-tree-client-compatibility.md#container-factory-scope-decision--2026-10-16)
+for the upstream source references and an object-discovery example.
 
 M7 is complete for the published supported profile with local acceptance.
 The native creator and the SharedTree Lustre

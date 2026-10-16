@@ -176,7 +176,7 @@ be confused with rejection of every document authored using that option.
 | R02 | Runtime ID compressor, allocation order, Identifier strings (internal contract) | Implemented within slice | Implemented within slice | N/O/L [ID tests][id-tests], [Identifier cases][identifier-evidence] | Finalize allocation ranges on sequenced delivery; use receiver compressor identity order, not UUID sorting. Contextual message compression and stored summary compressor state are supported; `Tree.shortId`/indexes are separate local APIs. |
 | R03 | Grouped batches versus compressed/chunked operations (internal contract) | Implemented within extension | Implemented within extension | N/O/L [compression profile][compression-profile], [compression gate][compression-gate] | Inbound Fluid 3.1.0 plain singleton/grouped, LZ4 singleton/grouped, per-sender chunked LZ4, empty-final-chunk, and partial-prefix continuation are supported within the published limits. Native outbound remains plain. Unmarked packed contents, non-LZ4, legacy multi-message arrays, nested compression, and missing prefixes are refused. |
 | R04 | Nonincremental FieldBatch V2 versus incremental chunks (alpha/internal) | Partial | Partial | N/O/L [field-batch codec][field-batch], [codec gate][codec-gate] | Blocker when a peer/summary uses incremental chunk shapes: the native decoder explicitly rejects discriminator `e`. Nonincremental uncompressed/schema-aware forms are supported. `TreeCompressionStrategy.Compressed` alone is not the unsupported runtime-op compression of R03. |
-| R05 | Bootstrap routing, factories, initial and attached layouts (alpha/internal) | Partial | Partial | N/O/L [document runtime][document], [layout gate][layout-gate] | Default and declared map/tree graphs are supported. Blocker for required unsupported channel types/layout contracts. Some metadata/layouts may decode, but this is not arbitrary factory execution or an unrestricted Fluid application loader. |
+| R05 | Bootstrap routing, factories, initial and attached layouts (alpha/internal) | Partial | Partial | N/O/L [document runtime][document], [layout gate][layout-gate] | Default and declared map/tree graphs are supported. Blocker for required unsupported channel types/layout contracts. Some metadata/layouts may decode. A general application factory/plugin framework is [out of scope for now](#container-factory-scope-decision--2026-10-16), with no scheduled milestone. |
 | R06 | Same-container map/tree handle leaves and attachment graphs (public/internal) | Implemented within slice | Implemented within slice | N/O/L [handle implementation][handles], [lifecycle gate][lifecycle-gate] | Supported relative/source-context binding, escaped routes, cycles, cross-datastore references, retained routes, transactions/branches, reconnect, and reload. Detached targets attach through the runtime before the referring edit. |
 | R07 | Blob, external/cross-container, pending-payload handles (public/internal) | Unsupported | Unsupported | I/N/O [handles][handles], [lifecycle cases][lifecycle-evidence] | Blocker when content requires a non-channel or external target. Ordinary supported handle leaves are not excluded; neither are summary-level blob/tree references, which are a different concept. |
 | R08 | Native creation and datastore alias publication (alpha/internal) | Implemented within slice | Implemented within slice | N/O/L [creation gate][creation-gate], [alias gate][alias-gate] | Native creators produce loadable documents; aliases settle on their own acknowledgements and survive reconnect/reload. JS alias claims return a promise; BEAM waits for a Result and has a bounded call timeout, not cancellation of accepted claims. Production token-service integration is not proved by development credentials. |
@@ -186,6 +186,43 @@ be confused with rejection of every document authored using that option.
 | R12 | Explicit pending-tree restart checkpoints (native lifecycle) | Implemented within slice | Implemented within slice | N/L [recovery gate][recovery-gate], [recovery tests][recovery-tests], [compression gate][compression-gate] | Application-stored JSON supports target-switch/process-kill recovery, accepted native prefixes, retained peer chunk prefixes, later accepted edits, and continued allocation. The compression matrix kills the writer and restores each checkpoint on the opposite target before consuming the tail and settling the original pending edit. No automatic journal, mixed-DDS pending recovery, detached graph persistence, or restoration of subscriptions/branches/undo handles. Pending attachment/alias work must settle before capture. |
 | R13 | Offline edits and portable local application history (lifecycle) | Unsupported | Unsupported | I/N [facades][js], [recovery documentation][readme-recovery] | Operational: new tree edits require readiness; reconnect retaining existing edits is not offline authoring. No persisted/shared undo stack or portable branch/revertible handles. |
 | R14 | Capacity, throughput, bounded memory, safe reclamation (implementation) | Unassessed guarantees | Unassessed guarantees | I [limits][readme-limits], [M8 scope][roadmap] | Operational: no published capacity/throughput/bounded-memory guarantee. Existing schedules are not capacity measurements. Measure realistic workloads and retained-state lifetimes before setting limits. |
+
+### Container factory scope decision — 2026-10-16
+
+**Decision:** A general application runtime/datastore factory and plugin
+framework is out of scope for now. It has no assigned milestone or delivery
+commitment. Revisit it if a concrete application needs it.
+
+This refers to Fluid container and datastore factories, not SharedTree's
+`SchemaFactory` for declaring tree schemas. Upstream Fluid supports the general
+mechanism: its [container loader][up-container-loader] calls the host's
+`codeLoader.load(codeDetails)` to obtain a runtime factory; its
+[datastore context][up-datastore-factory] resolves stored package paths through
+registered factories and instantiates the selected datastore. The application
+supplies those implementations, their DDS registrations, initialization logic,
+and entry points. Upstream also fails when a required factory is absent; it is
+not a universal viewer for unknown Fluid applications.
+
+Snapshots contain persisted data and type/package identifiers, not the
+application's executable factory code. Watershed reads supported storage and
+routing directly without executing upstream JavaScript factories. Multiple
+trees, independent schemas, aliases, and connected or cyclic declared map/tree
+graphs already work within the published profile.
+
+Broader factory support would let a host supply application-specific loading,
+lazy creation, object discovery, and entry-point behavior for existing Fluid
+applications outside those conventions. For example, Watershed does not invoke
+an application's `getBoard()` entry point to discover its task tree. An explicit
+adapter or broader declared layout might suffice when the underlying channels
+are supported maps and trees; compatible unfamiliar metadata may already
+decode, without a general interoperability guarantee. Other DDS types or
+custom collaboration protocols would also need their own codecs and semantics.
+Factory support alone would not supply those.
+
+If a consumer requires this, assess a narrow application adapter or declared
+layout extension before designing a general plugin framework. This decision
+does not propose executing arbitrary JavaScript on BEAM, expand current layout
+support, or make factory support a prerequisite for M8 persistence work.
 
 ## Upstream domain helpers
 
@@ -294,7 +331,8 @@ encoding restrictions.
 | 3 | S09-S10 | A consumer needs array evolution or a richer schema policy. Use strict object/map upgrades meanwhile. | Array schema/data races and reload matrices first; choose additional policies by consumer need. |
 | 4; measure now | R04, R09-R10, R14 | Opt-in incremental FieldBatch chunks, incremental writing, or retained-state scale. Keep the current encoding/full-summary/no-sweep boundaries. | Baseline realistic workloads now; schedule each codec/persistence/reclamation change from measured need and prove retained handle/history safety. R04 is not bundled with default runtime compression. |
 | 5; demand-driven | A02-A07, A10-A13, R12-R13 | Missing native observation/traversal/index/builder/import/export or generated declarations and broader durability. | Add requested ergonomics behind the ordinary-client gaps; broaden persistence with explicit ownership/lifetimes. Preserve the implemented typed API and explicit pending-tree checkpoint slice. |
-| Demand-driven | R05, R07, H02-H03, H05, H07-H09 | An application actually needs undeclared factories/layouts, exotic handles, shared branches, or richer transaction/history behavior. | Define each selected loading/wire/lifetime contract and prove it; these can be blockers for that application without outranking ordinary supported-client traffic by default. |
+| Out of scope for now; revisit on concrete need | R05 | A general application runtime/datastore factory and plugin framework. | No scheduled phase. Start with an application adapter or declared-layout extension if a consumer requires it; see the factory scope decision above. |
+| Demand-driven | R05, R07, H02-H03, H05, H07-H09 | An application actually needs a broader declared layout, exotic handles, shared branches, or richer transaction/history behavior. | Define each selected loading/wire/lifetime contract and prove it; these can be blockers for that application without outranking ordinary supported-client traffic by default. |
 | Demand-driven | R01 | A collaborator upgrades packages or changes codec write settings. Pin Fluid 3.1.0. | Explicit additional-version/configuration matrices and format validation; metadata version floors alone do not establish support. |
 
 Production authentication remains a release prerequisite (R08), not a deferred
@@ -434,6 +472,8 @@ Keep historical acceptance records intact and identify the profile they prove.
 [field-batch]: ../src/watershed/tree/codec/field_batch.gleam
 [summary-codec]: ../src/watershed/tree/codec/summary.gleam
 [document]: ../src/watershed/wire/fluid_document.gleam
+[up-container-loader]: https://github.com/microsoft/FluidFramework/blob/c3c5bf0ecd313362e83fe8a02b7d39e7e0736960/packages/loader/container-loader/src/container.ts#L2412-L2491
+[up-datastore-factory]: https://github.com/microsoft/FluidFramework/blob/c3c5bf0ecd313362e83fe8a02b7d39e7e0736960/packages/runtime/container-runtime/src/dataStoreContext.ts#L602-L695
 [typed-tests]: ../test/watershed/shared_tree_typed_schema_test.gleam
 [typed-facade-tests]: ../test/watershed/shared_tree_typed_facade_test.gleam
 [node-tests]: ../test/watershed/shared_tree_node_test.gleam
