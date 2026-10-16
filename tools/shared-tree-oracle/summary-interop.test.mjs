@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import { SummaryType } from "@fluidframework/driver-definitions/internal";
 import { decodeTreeSubmissions } from "./interop-scenarios.mjs";
 import { loadInteropProfile } from "./interop.mjs";
 import { withLocalFloodgate } from "./service.mjs";
@@ -12,6 +13,7 @@ import {
   loadRequests,
   nativeStorageLoad,
   storageLoad,
+  summaryReferenceEvidence,
   mapEntryMatches,
   readCell,
   runArrayReloadMatrix,
@@ -489,6 +491,12 @@ const cells = Object.fromEntries(implementations.map((writer, writerIndex) => [
         : "native-handshake",
       selectedSummaryRequests: [`${writer}-commit`],
       scenarioId: "summary-tail",
+      ...(writer === "upstream" ? {
+        summaryReferences: [
+          { path: "/unchanged", handle: "/unchanged", kind: "tree", id: "reused-tree" },
+          { path: "/schema", handle: "/schema", kind: "blob", id: "reused-blob" },
+        ],
+      } : {}),
       loaded: true,
       continuedEditing: true,
       peerObservedEdit: true,
@@ -745,6 +753,65 @@ test("reload matrix rejects unmeasured selected-summary loads", () => {
     mutation(copy);
     assert.throws(() => validateResults(copy), undefined, label);
   }
+});
+
+test("reload matrix requires both upstream reference kinds", () => {
+  for (const references of [
+    undefined,
+    [],
+    cells.upstream.javascript.summaryReferences.slice(0, 1),
+    cells.upstream.javascript.summaryReferences.slice(1),
+    [
+      { path: "/unchanged", handle: "/unchanged", kind: "tree", id: "" },
+      { path: "/schema", handle: "/schema", kind: "blob", id: "reused-blob" },
+    ],
+  ]) {
+    const copy = structuredClone(cells);
+    copy.upstream.javascript.summaryReferences = references;
+    assert.throws(() => validateResults(copy), /reference/);
+  }
+});
+
+test("summary references bind encoded paths and kinds to reused storage objects", () => {
+  const snapshot = {
+    id: "root",
+    trees: {
+      "slash/name": { id: "tree-id", trees: {}, blobs: {} },
+    },
+    blobs: { "plus+水": "blob-id" },
+  };
+  const summary = {
+    type: SummaryType.Tree,
+    tree: {
+      "slash/name": {
+        type: SummaryType.Handle,
+        handleType: SummaryType.Tree,
+        handle: "/slash%2Fname",
+      },
+      "plus+水": {
+        type: SummaryType.Handle,
+        handleType: SummaryType.Blob,
+        handle: "/plus%2B%E6%B0%B4",
+      },
+    },
+  };
+  assert.deepEqual(summaryReferenceEvidence(summary, snapshot, snapshot), [
+    { path: "/slash%2Fname", handle: "/slash%2Fname", kind: "tree", id: "tree-id" },
+    { path: "/plus%2B%E6%B0%B4", handle: "/plus%2B%E6%B0%B4", kind: "blob", id: "blob-id" },
+  ]);
+  for (const mutate of [
+    (copy) => { copy.blobs["plus+水"] = "another-blob"; },
+    (copy) => { copy.trees["slash/name"].id = "another-tree"; },
+    (copy) => { delete copy.blobs["plus+水"]; },
+    (copy) => { delete copy.trees["slash/name"]; },
+  ]) {
+    const current = structuredClone(snapshot);
+    mutate(current);
+    assert.throws(() => summaryReferenceEvidence(summary, snapshot, current), /reference/);
+  }
+  const wrongKind = structuredClone(summary);
+  wrongKind.tree["plus+水"].handleType = SummaryType.Tree;
+  assert.throws(() => summaryReferenceEvidence(wrongKind, snapshot, snapshot), /reference/);
 });
 
 test("reload matrix proves detached identity from fresh restored content", () => {

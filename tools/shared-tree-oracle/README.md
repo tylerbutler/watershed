@@ -717,6 +717,28 @@ It also sets a zero-jitter automatic policy on an ordinarily loaded BEAM tree:
 an acknowledged edit must not publish a checkpoint, while explicit BEAM
 publication in the nine-cell matrix remains available.
 
+The selected-summary reload matrix in `just shared-tree-interop` also tests
+ordinary upstream reference-backed publication. Its upstream writer uses
+`fullTree: false`; the gate requires both tree and blob handles in the submitted
+summary and checks that storage reuses the corresponding previous-snapshot
+object IDs. Fresh JavaScript and BEAM readers must fetch those IDs through
+their production storage bootstrap, replay the snapshot's tail, and author an
+edit that the upstream peer observes. The reload artifacts retain the submitted
+summary, previous and published snapshots, and each reader's HTTP responses.
+Native writers still publish full summaries.
+
+Run that reload matrix without the rest of the three-client acceptance run:
+
+```sh
+node --test --test-name-pattern='upstream incremental summaries' tools/shared-tree-oracle/summary-interop.test.mjs
+```
+
+The focused test starts the pinned local Floodgate service and removes its
+temporary artifacts. The combined acceptance run keeps evidence under
+`.output/interop/<run-id>/reload/`. These checks cover the declared layouts and
+ordinary schema-blob/unchanged-subtree references, not arbitrary container
+factories, opt-in incremental FieldBatch chunks, or incremental native writing.
+
 The capture is written to `.output/source/source-smoke.json`. To choose an output
 directory, pass an absolute path:
 

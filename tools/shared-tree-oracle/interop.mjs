@@ -75,6 +75,7 @@ import {
   validateArrayResults,
   validateIdentifierReloadResults,
   validateMapResults,
+  validateResults,
   validateSchemaReloadResults,
   validateSchemaTailReloadResults,
   validateTransactionReloadResults,
@@ -2295,6 +2296,7 @@ function validateFailures(report, expected, evidence) {
 }
 
 function validateReload(report, expected, evidence) {
+  validateResults(report.reload);
   exactImplementations(Object.keys(report.reload), "Reload writers");
   const readerInstances = new Set();
   for (const writer of implementations) {

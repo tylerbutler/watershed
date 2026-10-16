@@ -2396,6 +2396,12 @@ async function validFixture() {
           ? "upstream-delta-storage"
           : "native-handshake",
         selectedSummaryRequests: [`${writer}-version`],
+        ...(writer === "upstream" ? {
+          summaryReferences: [
+            { path: "/unchanged", handle: "/unchanged", kind: "tree", id: "reused-tree" },
+            { path: "/schema", handle: "/schema", kind: "blob", id: "reused-blob" },
+          ],
+        } : {}),
         loaded: true,
         continuedEditing: true,
         scenarioId: "summary-tail",
@@ -4372,6 +4378,14 @@ test("an empty result cannot prove interoperability", async () => {
 test("a complete current-run report satisfies the Task 15 coverage gate", async () => {
   const { expected, report } = await validFixture();
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("completion rejects upstream reload claims without both reference kinds", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.reload.upstream.javascript;
+  item.summaryReferences = [];
+  expected.artifacts.get(item.artifacts[0]).claim.measured.summaryReferences = [];
+  assert.throws(() => validateInteropReport(report, expected), /reference/);
 });
 
 test("branch sections reject copied prior-run and prior-profile evidence", async () => {

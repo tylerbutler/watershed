@@ -30,7 +30,7 @@ client collaboration blockers from local API differences and missing proof.
 Milestone completion below applies to the published supported profile, not
 unrestricted SharedTree parity; dated acceptance records remain historical.
 
-**Next sequence (2026-10-15):** Close ordinary client-consumption gaps before
+**Next sequence (2026-10-16):** Close ordinary client-consumption gaps before
 adding more native ergonomics or treating all remaining work as M8. The
 [runtime operation compression/chunking slice](2026-10-14-shared-tree-compression.md),
 with its [focused design](../specs/2026-10-14-shared-tree-compression-design.md),
@@ -38,10 +38,11 @@ is implemented and locally accepted. It supports bounded inbound Fluid 3.1.0
 LZ4/chunk traffic, partial-stream summaries, and checkpoint/reconnect
 continuation; native writes remain uncompressed.
 
-Next, prioritize ordinary upstream snapshot/reference consumption through
-storage bootstrap, common typed union/record access and targeted
-JSON/domain-helper proof, then array schema evolution and selected schema
-policies. Begin representative measurements alongside compatibility work, but
+Ordinary upstream snapshot/reference consumption now has local storage-bootstrap
+proof on both native targets; see the dated acceptance below. Next, prioritize
+common typed union/record access and targeted JSON/domain-helper proof, then
+array schema evolution and selected schema policies. Begin representative
+measurements alongside compatibility work, but
 schedule incremental FieldBatch encoding, incremental writing, and reclamation
 from measured need. Generated schema declarations and broader automatic
 durability follow those ordinary collaboration gaps. Shared branches,
@@ -2746,9 +2747,41 @@ Keep the original specification's milestone numbering, but use this roadmap
 and each feature plan's dated reconciliation for implementation status. Each
 new scope needs its own approved design and interoperability proof.
 
+### Storage bootstrap/reference consumption acceptance — 2026-10-16
+
+The upstream writer in the retained-summary reload matrix now publishes with
+`fullTree: false`. The gate checks actual tree and blob handles in the submitted
+summary against the previous and published snapshots. Both native readers must
+request the reused Git object IDs through production storage bootstrap, replay
+the snapshot's tail, and author an acknowledged edit that an upstream peer
+observes. The matrix also preserves detached content and includes a data edit
+between snapshot capture and summary publication.
+
+The existing Git hierarchy reader handles these ordinary references without
+runtime changes. Native writing stays full-summary; declared-layout limits,
+opt-in incremental FieldBatch exclusions, and automatic-summary limits remain.
+The combined acceptance report requires both reference kinds, and its reload
+artifacts retain publication and raw native HTTP evidence.
+
+Local acceptance:
+
+- The focused upstream-reference regression passed with all nine writer/reader
+  cells, including fresh JavaScript and BEAM readers.
+- `node tools/shared-tree-oracle/summary-interop.mjs --retained-graph` regenerated
+  the retained-graph artifacts needed by the existing summary tests.
+- `node --test tools/shared-tree-oracle/summary-interop.test.mjs`: 57 passed.
+- `node --test tools/shared-tree-oracle/interop.test.mjs`: 138 passed.
+- `gleam test --target <target> -- git_storage shared_tree_summary shared_tree_document_summary`:
+  82 passed on each of Erlang and JavaScript; `node smoke/shared_tree_storage.mjs`
+  also passed.
+
+These results do not claim a new full release run or hosted service acceptance.
+Reproduce the focused regression with the command in the
+[oracle README](../../../tools/shared-tree-oracle/README.md).
+
 | Remaining area, in scheduling order | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| 1. Ordinary upstream snapshot consumption | Accepted chunk-aware persistence; existing reference resolver | Prove actual storage bootstrap of upstream tree/blob summary references, fresh native load and continuation. Fix consumption gaps without requiring an incremental native writer or claiming arbitrary container loading. |
+| Accepted ordinary upstream snapshot consumption | Accepted chunk-aware persistence; existing Git hierarchy reader | Local reference-backed reload proof now covers ordinary upstream tree/blob handles, fresh native load, tail replay and continuation. Keep the gate permanent; incremental native writing and arbitrary container loading remain separate. |
 | 2. Common schema access and domain proof | Accepted typed API and stored object/map/array codecs | Public typed unions and record access where needed; targeted upstream/native JSON and domain-helper author/read/reload scenarios. Distinguish missing local APIs from incompatible persisted content. |
 | 3. Array schema evolution and selected policies | Published M3/M4 contracts and preceding ordinary-client boundaries | Separate array-evolution schema/data races and reload matrices; add richer schema policies only for an identified consumer. |
 | 4. Measurement-led scale and persistence | Representative object/map/array/transaction/undo workloads; measurements may start now | Measure retained forests/history and live handles, then schedule safe reclamation, incremental writing and opt-in incremental FieldBatch chunks independently. Do not bundle these with runtime-op compression. |
@@ -2764,7 +2797,7 @@ is complete. Broader work can proceed from that accepted boundary:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| Compatibility integration | Execute ordinary snapshot consumption, then common schema proof. | Keep one owner for any follow-on bootstrap/history changes; do not reopen compression as a substitute for snapshot work. |
+| Compatibility integration | Preserve accepted ordinary snapshot consumption; proceed with common schema proof. | Keep one owner for any follow-on bootstrap/history changes; do not reopen compression as a substitute for snapshot work. |
 | Measurements | Baseline representative retained-state and operation costs using existing consumers. | Read/measure current behavior; coordinate any instrumentation that touches core/history. Measurements do not authorize reclamation or incremental codecs. |
 | Consumers and later-scope design | Consumer feedback, schema-access/domain scenarios, and design/oracle research for later rows. | Use the single typed API; no overlapping bootstrap/history changes. Generated declarations and broad durability remain behind the higher-priority ordinary-client gaps. |
 

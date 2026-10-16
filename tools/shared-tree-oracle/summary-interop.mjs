@@ -827,6 +827,7 @@ export function validateResults(results) {
     assert.equal(cell.peerObservedEdit, true);
       assert.equal(cell.pendingTreeCount, 0);
       assert.equal(cell.inflightSubmissionCount, 0);
+      if (writer === "upstream") validateSummaryReferences(cell.summaryReferences);
       assert(cell.wholeTree && typeof cell.wholeTree === "object",
         "Missing typed root observation");
       assert(cell.retained && typeof cell.retained === "object",
@@ -2154,11 +2155,22 @@ export function summaryReferenceEvidence(summary, previous, current) {
     }
   }
   visit(summary, "");
+  validateSummaryReferences(references);
+  return references;
+}
+
+function validateSummaryReferences(references) {
+  assert(Array.isArray(references), "Upstream summary lacks reference evidence");
+  assert(references.every((entry) =>
+    entry !== null && typeof entry === "object"
+      && ["tree", "blob"].includes(entry.kind)
+      && ["path", "handle", "id"].every((name) =>
+        typeof entry[name] === "string" && entry[name].length > 0)),
+  "Upstream summary has invalid reference evidence");
   assert(references.some(({ kind }) => kind === "tree"),
     "Upstream summary lacks tree references");
   assert(references.some(({ kind }) => kind === "blob"),
     "Upstream summary lacks blob references");
-  return references;
 }
 
 async function publishWriterSummary(
