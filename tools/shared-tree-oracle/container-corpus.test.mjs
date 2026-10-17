@@ -243,7 +243,7 @@ test("container corpus preserves full runtime cases alongside scoped foundation 
     sequenceNumber > matrix.input.upstreamWriterInput.publicationSequenceNumber));
 });
 
-test("container corpus is byte-reproducible in fresh deterministic processes", {
+test("container corpus reproduces pinned fixtures in fresh deterministic processes", {
   timeout: 180_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "watershed-container-determinism-"));
@@ -251,8 +251,9 @@ test("container corpus is byte-reproducible in fresh deterministic processes", {
   const first = join(root, "first");
   const second = join(root, "second");
   const program = [
-    'Object.defineProperty(globalThis.performance,"now",{value:()=>0});',
     'const { captureContainers } = await import("./container-corpus.mjs");',
+    'const { freezePerformanceClock } = await import("./determinism.mjs");',
+    "freezePerformanceClock();",
     "await captureContainers(process.argv[1]);",
   ].join("");
   const options = {
@@ -271,6 +272,17 @@ test("container corpus is byte-reproducible in fresh deterministic processes", {
     readFile(join(second, "container-cases.json")),
   ]);
   assert(firstBytes.equals(secondBytes));
+  for (const value of JSON.parse(firstBytes)) {
+    const expected = await readFile(new URL(
+      `../../test/fixtures/shared_tree/cases/${value.id}.json`,
+      import.meta.url,
+    ), "utf8");
+    assert.equal(
+      `${JSON.stringify(value, null, 2)}\n` === expected,
+      true,
+      `Container corpus differs from pinned fixture: ${value.id}`,
+    );
+  }
 });
 
 test("container producer supplies separate foundation cases without claiming runtime replay", async (t) => {

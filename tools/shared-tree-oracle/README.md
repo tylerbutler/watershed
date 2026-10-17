@@ -30,7 +30,8 @@ configuration as the separately verified real Floodgate preflight.
 | Item | Pin |
 | --- | --- |
 | `fluid-framework`, `@fluidframework/tree`, `@fluidframework/local-driver` | `3.1.0` |
-| Other direct `@fluidframework/*` service dependencies | `3.1.0` |
+| Other direct Fluid client dependencies | `3.1.0` |
+| `@fluidframework/server-local-server` | `7.0.1` |
 | Source tag | `client_v3.1.0` |
 | Source commit | `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` |
 | Source package manager | `pnpm@11.15.1`, from the pinned manifest |
@@ -55,6 +56,11 @@ npm --prefix tools/shared-tree-oracle ci
 npm --prefix tools/shared-tree-oracle test
 just shared-tree-test
 ```
+
+Use npm for the oracle's dependencies, not pnpm. If installations have been
+mixed, run `npm --prefix tools/shared-tree-oracle ci` again. Loading duplicate
+dependency copies consumes extra deterministic entropy and changes fixture
+identities even when package versions match.
 
 The Node tests register temporary-directory cleanup before fixture setup and
 remove their own fixtures when a test passes, fails, or cannot finish setup.

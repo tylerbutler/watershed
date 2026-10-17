@@ -32,6 +32,7 @@
     "@fluidframework/map": "3.1.0",
     "@fluidframework/routerlicious-driver": "3.1.0",
     "@fluidframework/runtime-utils": "3.1.0",
+    "@fluidframework/server-local-server": "7.0.1",
     "@fluidframework/shared-object-base": "3.1.0",
     "@fluidframework/tree": "3.1.0",
     "fluid-framework": "3.1.0"
