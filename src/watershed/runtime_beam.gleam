@@ -806,6 +806,13 @@ pub type Msg {
     edit: node.Edit,
     reply: Subject(Result(Nil, String)),
   )
+  CreateLiveTree(
+    store: Option(String),
+    stored: tree_schema.StoredSchema,
+    initial: Option(tree_types.TreeValue),
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(#(String, tree_live.ViewToken), tree_error.Error)),
+  )
   OpenLiveTree(
     marker: Option(Json),
     view: tree_schema.ViewSchema,
@@ -2123,6 +2130,23 @@ pub fn tree_node_edit_view_on(
 
 @target(erlang)
 @internal
+pub fn create_live_tree(
+  runtime: Subject(Msg),
+  store: Option(String),
+  stored: tree_schema.StoredSchema,
+  initial: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+  call_runtime_with_errors(
+    runtime,
+    fn(reply) { CreateLiveTree(store, stored, initial, view, reply) },
+    tree_error.ClosedRuntime,
+    tree_error.RequestTimeout,
+  )
+}
+
+@target(erlang)
+@internal
 pub fn open_live_tree(
   runtime: Subject(Msg),
   marker: Option(Json),
@@ -2973,7 +2997,7 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
 @target(erlang)
 fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
-    OpenLiveTree(_, _, _, reply) -> {
+    CreateLiveTree(_, _, _, _, reply) | OpenLiveTree(_, _, _, reply) -> {
       process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
@@ -3282,6 +3306,20 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | TreeBranchStatus(_, _, _) -> handle_message(state, msg)
         OpenLiveTree(_, _, _, _) | SubscribeLiveTree(_, _, _, _, _, _) ->
           handle_message(state, msg)
+        CreateLiveTree(_, _, _, _, reply) ->
+          case process.subject_owner(reply) == Ok(active.worker) {
+            True -> {
+              process.send(reply, Error(tree_error.ReentrantEdit))
+              actor.continue(state)
+            }
+            False ->
+              actor.continue(
+                State(..state, deferred_messages: [
+                  msg,
+                  ..state.deferred_messages
+                ]),
+              )
+          }
         LiveTreeRequest(_, _, _, request, reply) ->
           case
             tree_live.writes(request),
@@ -4276,6 +4314,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
             }
           }
       }
+    CreateLiveTree(store, stored, initial, view, reply) ->
+      handle_create_live_tree(state, store, stored, initial, view, reply)
     OpenLiveTree(marker, view, inspect, reply) -> {
       let opened = {
         use core <- result.try(case state.phase {
@@ -5447,6 +5487,54 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         None -> Nil
       }
       actor.stop()
+    }
+  }
+}
+
+@target(erlang)
+fn handle_create_live_tree(
+  state: State,
+  store: Option(String),
+  stored: tree_schema.StoredSchema,
+  initial: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+  reply: Subject(Result(#(String, tree_live.ViewToken), tree_error.Error)),
+) -> actor.Next(State, Msg) {
+  let created = {
+    use core <- result.try(case state.phase, state.writable {
+      Ready(core, None), True -> Ok(core)
+      Failed(reason), _ -> Error(tree_error.TransportFailed(reason))
+      _, _ -> Error(tree_error.NotReady)
+    })
+    use _ <- result.try(case core.active_tree_transaction {
+      None -> Ok(Nil)
+      Some(_) ->
+        Error(tree_error.TransactionConflict(
+          "Tree creation is not allowed during a transaction",
+        ))
+    })
+    let core = case core.live_namespace {
+      None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+      Some(_) -> core
+    }
+    runtime_core.create_live_tree(
+      core,
+      store,
+      id.uuid_v4(),
+      stored,
+      initial,
+      view,
+    )
+  }
+  case created {
+    Error(error) -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(#(core, address, token, events)) -> {
+      let state = fan_out(State(..state, phase: Ready(core, None)), events)
+      process.send(reply, Ok(#(address, token)))
+      actor.continue(state)
     }
   }
 }

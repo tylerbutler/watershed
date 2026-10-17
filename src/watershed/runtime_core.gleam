@@ -4836,6 +4836,70 @@ pub fn create_detached(
   }
 }
 
+@internal
+pub fn create_live_tree(
+  core: Core,
+  store: Option(String),
+  channel_id: String,
+  stored: tree_schema.StoredSchema,
+  initial: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(
+  #(Core, String, tree_live.ViewToken, List(#(String, ChannelEvent))),
+  tree_error.Error,
+) {
+  use _ <- result.try(
+    tree_schema.can_view(stored, view)
+    |> result.map_error(fn(_) { tree_error.IncompatibleView }),
+  )
+  use _ <- result.try(
+    tree_schema.validate_root_construction(stored, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
+  use address <- result.try(
+    case store {
+      None -> new_channel_address(core, channel_id)
+      Some(store) -> new_channel_address_in(core, store, channel_id)
+    }
+    |> result.map_error(live_core_error),
+  )
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(tree_error.RuntimeFailure(
+      "Tree creation requires a document compressor",
+    )),
+  )
+  use #(compressor, generated) <- result.try(
+    fluid_ids.generate(compressor)
+    |> result.map_error(fn(error) {
+      tree_error.RuntimeFailure(string.inspect(error))
+    }),
+  )
+  use revision <- result.try(
+    fluid_ids.decompress(compressor, generated)
+    |> result.map_error(fn(error) {
+      tree_error.RuntimeFailure(string.inspect(error))
+    }),
+  )
+  use #(core, events) <- result.try(
+    create_detached_tree_with_events(
+      Core(..core, compressor: Some(compressor)),
+      address,
+      stored,
+      initial,
+      revision,
+    )
+    |> result.map_error(live_core_error),
+  )
+  use #(core, address, token) <- result.try(open_live_tree(
+    core,
+    Some(handle.encode_handle(address)),
+    view,
+    False,
+  ))
+  Ok(#(core, address, token, events))
+}
+
 pub fn create_detached_tree(
   core: Core,
   address: String,

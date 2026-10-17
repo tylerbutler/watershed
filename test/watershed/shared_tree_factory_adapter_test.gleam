@@ -12,6 +12,7 @@ import watershed/tree
 import watershed/tree/error
 import watershed/tree/live_fixture as fixture
 import watershed/tree/live_types as protocol
+import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
 @target(erlang)
@@ -76,6 +77,14 @@ pub fn tree_api_factory_adapter_binds_and_preserves_closed_runtime_test() {
   facade.close(document)
   runtime.open_live_tree(runtime, None, builder.view(compiled), False)
   |> expect.to_equal(Error(error.ClosedRuntime))
+  runtime.create_live_tree(
+    runtime,
+    None,
+    builder.stored(compiled),
+    Some(types.StringValue("Rejected")),
+    builder.view(compiled),
+  )
+  |> expect.to_equal(Error(error.ClosedRuntime))
 }
 
 pub fn tree_api_factory_adapter_distinguishes_not_ready_test() {
@@ -86,6 +95,14 @@ pub fn tree_api_factory_adapter_distinguishes_not_ready_test() {
     None,
     builder.view(compiled),
     False,
+  )
+  |> expect.to_equal(Error(error.NotReady))
+  runtime.create_live_tree(
+    connection(document),
+    None,
+    builder.stored(compiled),
+    Some(types.StringValue("Rejected")),
+    builder.view(compiled),
   )
   |> expect.to_equal(Error(error.NotReady))
   facade.close(document)
@@ -115,6 +132,93 @@ pub fn tree_api_factory_adapter_can_open_during_commit_delivery_test() {
     Ok(protocol.Snapshot(Some(types.StringValue("Updated")))),
   ])
   tree.unsubscribe(subscription)
+  facade.close(document)
+}
+
+pub fn tree_api_factory_adapter_creates_bound_content_without_submitting_test() {
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let #(send, receive) = fixture.capture()
+  let #(document, _, _) =
+    fixture.tree_with_submissions(compiled, "Initial", send)
+  let runtime = connection(document)
+  let assert Ok(#(address, token)) =
+    runtime.create_live_tree(
+      runtime,
+      Some("A"),
+      builder.stored(compiled),
+      Some(types.StringValue("Created")),
+      builder.view(compiled),
+    )
+  runtime.live_request(
+    runtime,
+    address,
+    types.DocumentCheckout,
+    builder.view(compiled),
+    protocol.RootRead(token),
+  )
+  |> expect.to_equal(Ok(protocol.Snapshot(Some(types.StringValue("Created")))))
+  receive(0) |> expect.to_equal([])
+  facade.close(document)
+}
+
+pub fn tree_api_factory_adapter_rejects_reentrant_creation_test() {
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let #(document, native) = fixture.tree(compiled, "Initial")
+  let runtime = connection(document)
+  let assert Ok(value) = facade.tree_typed(native, compiled)
+  let #(send, receive) = fixture.capture()
+  let assert Ok(subscription) =
+    tree.subscribe_commits(value, fn(_) {
+      send(runtime.create_live_tree(
+        runtime,
+        None,
+        builder.stored(compiled),
+        Some(types.StringValue("Rejected")),
+        builder.view(compiled),
+      ))
+    })
+  tree.replace_root(value, "Updated") |> expect.to_equal(Ok(Nil))
+  receive(1) |> expect.to_equal([Error(error.ReentrantEdit)])
+  tree.unsubscribe(subscription)
+  facade.close(document)
+}
+
+pub fn tree_api_factory_adapter_preserves_invalid_value_without_submitting_test() {
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let #(send, receive) = fixture.capture()
+  let #(document, _, _) =
+    fixture.tree_with_submissions(compiled, "Initial", send)
+  let initial = Some(types.BooleanValue(True))
+  let assert Error(original) =
+    schema.validate_root_construction(builder.stored(compiled), initial)
+  runtime.create_live_tree(
+    connection(document),
+    None,
+    builder.stored(compiled),
+    initial,
+    builder.view(compiled),
+  )
+  |> expect.to_equal(Error(error.InvalidValue(original)))
+  receive(0) |> expect.to_equal([])
+  facade.close(document)
+}
+
+pub fn tree_api_factory_adapter_does_not_create_outside_the_active_transaction_test() {
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let #(document, native) = fixture.tree(compiled, "Initial")
+  let runtime = connection(document)
+  let assert Ok(value) = facade.tree_typed(native, compiled)
+  let assert Error(tree.Aborted(error.TransactionConflict(_))) =
+    tree.transaction(value, [], fn(_) {
+      runtime.create_live_tree(
+        runtime,
+        None,
+        builder.stored(compiled),
+        Some(types.StringValue("Rejected")),
+        builder.view(compiled),
+      )
+    })
+  tree.read_root(value) |> expect.to_equal(Ok("Initial"))
   facade.close(document)
 }
 

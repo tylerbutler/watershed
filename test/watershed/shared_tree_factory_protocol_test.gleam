@@ -6,8 +6,10 @@ import watershed/channel
 import watershed/handle
 import watershed/runtime_core as core
 import watershed/tree/error
+import watershed/tree/live_fixture
 import watershed/tree/live_types as protocol
 import watershed/tree/runtime_fixture
+import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
 import watershed/wire/fluid_container
@@ -129,4 +131,83 @@ pub fn tree_api_factory_protocol_inspects_before_explicit_schema_upgrade_test() 
       protocol.RootRead(token),
     )
   builder.decode(compiled, root) |> expect.to_equal(Ok(Some("First")))
+}
+
+pub fn tree_api_factory_protocol_creates_required_optional_and_array_roots_test() {
+  let #(state, string) = fixture(Some(relative_marker()))
+  let assert Ok(array) =
+    builder.array(builder.factory("factory"), "Items", builder.string())
+    |> builder.root
+    |> builder.compile
+  let assert Ok(optional) =
+    builder.string() |> builder.optional_root |> builder.compile
+  let assert Ok(array_root) = builder.encode_new(array, ["One", "Two"])
+  let assert Ok(optional_root) = builder.encode_new(optional, None)
+  let assert Ok(string_root) = builder.encode_new(string, "Created")
+  [
+    #(builder.stored(string), builder.view(string), string_root),
+    #(builder.stored(array), builder.view(array), array_root),
+    #(builder.stored(optional), builder.view(optional), optional_root),
+  ]
+  |> list.each(fn(definition) {
+    let #(stored, view, initial) = definition
+    let assert Ok(#(created, address, token, _)) =
+      core.create_live_tree(state, None, "created", stored, initial, view)
+    address |> expect.to_equal("A/created")
+    let assert Ok(#(_, protocol.Snapshot(value), [], [])) =
+      core.live_request(
+        created,
+        address,
+        types.DocumentCheckout,
+        view,
+        protocol.RootRead(token),
+      )
+    value |> expect.to_equal(initial)
+    created.in_flight |> expect.to_equal(state.in_flight)
+  })
+}
+
+pub fn tree_api_factory_protocol_materializes_generated_identifiers_test() {
+  let #(state, _) = fixture(Some(relative_marker()))
+  let definition = live_fixture.card_schema()
+  let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
+  let assert Ok(initial) =
+    builder.encode_new(compiled, live_fixture.Card(builder.Generate, "New"))
+  let assert Ok(#(created, address, token, _)) =
+    core.create_live_tree(
+      state,
+      Some("A"),
+      "created",
+      builder.stored(compiled),
+      initial,
+      builder.view(compiled),
+    )
+  let assert Ok(#(_, protocol.Snapshot(value), [], [])) =
+    core.live_request(
+      created,
+      address,
+      types.DocumentCheckout,
+      builder.view(compiled),
+      protocol.RootRead(token),
+    )
+  let assert Ok(live_fixture.Card(builder.Assigned(id), "New")) =
+    builder.decode(compiled, value)
+  expect.to_equal(id == "", False)
+}
+
+pub fn tree_api_factory_protocol_preserves_invalid_creation_payload_test() {
+  let #(state, compiled) = fixture(Some(relative_marker()))
+  let initial = Some(types.BooleanValue(True))
+  let assert Error(original) =
+    schema.validate_root_construction(builder.stored(compiled), initial)
+  core.create_live_tree(
+    state,
+    None,
+    "rejected",
+    builder.stored(compiled),
+    initial,
+    builder.view(compiled),
+  )
+  |> expect.to_equal(Error(error.InvalidValue(original)))
+  core.has_channel(state, "A/rejected") |> expect.to_be_false
 }

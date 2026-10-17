@@ -3344,6 +3344,66 @@ pub fn tree_node_edit_view_on(
 
 @target(javascript)
 @internal
+pub fn create_live_tree(
+  runtime: Runtime,
+  store: Option(String),
+  stored: tree_schema.StoredSchema,
+  initial: Option(tree_types.TreeValue),
+  view: tree_schema.ViewSchema,
+) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+  let state = cell_get(runtime.cell)
+  use _ <- result.try(case state.closed {
+    True -> Error(tree_error.ClosedRuntime)
+    False -> Ok(Nil)
+  })
+  use _ <- result.try(
+    case
+      dict.size(state.tree_commit_deliveries) > 0
+      || !list.is_empty(state.tree_change_deliveries)
+    {
+      True -> Error(tree_error.ReentrantEdit)
+      False -> Ok(Nil)
+    },
+  )
+  use core <- result.try(case state.phase, state.writable, state.bootstrap {
+    Ready(core, None), True, None -> Ok(core)
+    Failed(reason), _, _ -> Error(tree_error.TransportFailed(reason))
+    _, _, _ -> Error(tree_error.NotReady)
+  })
+  use _ <- result.try(case core.active_tree_transaction {
+    None -> Ok(Nil)
+    Some(_) ->
+      Error(tree_error.TransactionConflict(
+        "Tree creation is not allowed during a transaction",
+      ))
+  })
+  let core = case core.live_namespace {
+    None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+    Some(_) -> core
+  }
+  use #(core, address, token, events) <- result.try(
+    runtime_core.create_live_tree(
+      core,
+      store,
+      id.uuid_v4(),
+      stored,
+      initial,
+      view,
+    ),
+  )
+  cell_set(runtime.cell, State(..state, phase: Ready(core, None)))
+  prime_tree_commit_deliveries(runtime.cell, events)
+  fan_out(
+    runtime.cell,
+    state.subscribers,
+    state.tree_commit_subscribers,
+    events,
+  )
+  Ok(#(address, token))
+}
+
+@target(javascript)
+@internal
 pub fn open_live_tree(
   runtime: Runtime,
   marker: Option(Json),
