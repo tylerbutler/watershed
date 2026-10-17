@@ -2,13 +2,12 @@ import gleam/option.{None, Some}
 import gleeunit
 import shared_tree_checklist_lustre
 import shared_tree_checklist_lustre/checklist
-import shared_tree_checklist_lustre/history
 import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/schema as document_schema
-import shared_tree_checklist_lustre/typed_schema
+import watershed/tree as shared_tree
+import watershed/tree/history_stack as history
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
-import watershed/tree/typed
 import watershed/tree/types
 
 pub fn main() -> Nil {
@@ -16,14 +15,16 @@ pub fn main() -> Nil {
 }
 
 pub fn typed_initial_tree_matches_the_unchanged_stored_schema_test() {
-  let assert Ok(initial) =
-    typed.build(typed_schema.builder(), typed_schema.initial())
-  let assert True = initial == document_schema.initial()
+  let compiled = document_schema.compiled()
+  let assert Ok(Some(initial)) =
+    builder.encode_new(compiled, document_schema.initial())
   let assert Ok(Nil) = schema.validate_root(document_schema.stored(), initial)
+  let assert Ok(decoded) = builder.decode(compiled, Some(initial))
+  let assert True = decoded == checklist.empty()
 }
 
 pub fn compiled_creation_preserves_application_records_and_stored_schema_test() {
-  let compiled = typed_schema.compiled()
+  let compiled = document_schema.compiled()
   let initial =
     checklist.Checklist("SharedTree checklist", [
       checklist.Item("one", "First", False),
@@ -40,24 +41,29 @@ pub fn compiled_creation_preserves_application_records_and_stored_schema_test() 
 pub fn local_commit_kinds_route_handles_and_default_clears_redo_test() {
   let initial = history.new()
   let assert history.Routed(after_default, []) =
-    history.route(initial, types.DefaultCommit, True, Some("A"))
+    history.route(initial, shared_tree.DefaultCommit, True, Some("A"))
   let assert history.History(["A"], []) = after_default
 
   let assert history.Routed(after_undo, []) =
-    history.route(after_default, types.UndoCommit, True, Some("B"))
+    history.route(after_default, shared_tree.UndoCommit, True, Some("B"))
   let assert history.History(["A"], ["B"]) = after_undo
 
   let assert history.Routed(after_redo, []) =
-    history.route(after_undo, types.RedoCommit, True, Some("C"))
+    history.route(after_undo, shared_tree.RedoCommit, True, Some("C"))
   let assert history.History(["C", "A"], ["B"]) = after_redo
 
   let history.Routed(after_new_default, dispose) =
-    history.route(after_redo, types.DefaultCommit, True, Some("D"))
+    history.route(after_redo, shared_tree.DefaultCommit, True, Some("D"))
   let assert history.History(["D", "C", "A"], []) = after_new_default
   let assert ["B"] = dispose
 
   let assert history.Routed(after_remote, []) =
-    history.route(after_new_default, types.DefaultCommit, False, Some("remote"))
+    history.route(
+      after_new_default,
+      shared_tree.DefaultCommit,
+      False,
+      Some("remote"),
+    )
   let assert history.History(["D", "C", "A"], []) = after_remote
 }
 
@@ -120,9 +126,9 @@ pub fn capture_settlement_and_disposal_failures_are_visible_and_drain_test() {
   let assert Some("Commit settlement failed: registration refused") =
     lifecycle.settled(Error("registration refused"))
   let assert Some("Commit settlement dropped the full change") =
-    lifecycle.settled(Ok(types.FullyDropped))
+    lifecycle.settled(Ok(shared_tree.FullyDropped))
   let assert Some("Commit settlement applied only new content") =
-    lifecycle.settled(Ok(types.NewContentOnly))
+    lifecycle.settled(Ok(shared_tree.NewContentOnly))
 
   let closing =
     lifecycle.State(history: history.new(), action: None, pending: 2)
@@ -136,29 +142,27 @@ pub fn capture_settlement_and_disposal_failures_are_visible_and_drain_test() {
   let assert 0 = after_second.pending
 }
 
-pub fn typed_builders_trim_text_and_reject_empty_text_test() {
-  let assert Ok(value) =
-    typed.build(
-      typed_schema.item_builder(),
-      typed_schema.ItemInput("a", "  first  ", False),
-    )
+pub fn new_items_trim_text_and_reject_empty_text_test() {
   let assert Ok(checklist.Item("a", "first", False)) =
-    typed.decode_node(typed_schema.item_decoder(), value)
-  let assert Error(typed.DecodeFailed("checklist item text is empty")) =
-    typed.build(
-      typed_schema.item_builder(),
-      typed_schema.ItemInput("a", "  ", False),
-    )
+    checklist.new_item("a", "  first  ", False)
+  let assert Error("checklist item text is empty") =
+    checklist.new_item("a", "  ", False)
 }
 
-pub fn typed_decoder_rejects_duplicate_ids_and_malformed_items_test() {
-  let duplicate =
-    document_schema.checklist_value([
-      #("same", "first", False),
-      #("same", "second", True),
-    ])
-  let assert Error(typed.DecodeFailed("duplicate checklist item id same")) =
-    typed.decode_node(typed_schema.decoder(), duplicate)
+pub fn compiled_decoder_rejects_duplicate_ids_and_malformed_items_test() {
+  let compiled = document_schema.compiled()
+  let assert Ok(duplicate) =
+    builder.encode(
+      compiled,
+      checklist.Checklist("SharedTree checklist", [
+        checklist.Item("same", "first", False),
+        checklist.Item("same", "second", True),
+      ]),
+    )
+  let assert Error(types.InvalidEdit(
+    ["items"],
+    "duplicate checklist item id same",
+  )) = builder.decode(compiled, duplicate)
   let malformed =
     types.ObjectValue("shared_tree_checklist.Checklist", [
       #("title", types.StringValue("SharedTree checklist")),
@@ -172,7 +176,7 @@ pub fn typed_decoder_rejects_duplicate_ids_and_malformed_items_test() {
         ]),
       ),
     ])
-  let assert Error(_) = typed.decode_node(typed_schema.decoder(), malformed)
+  let assert Error(_) = builder.decode(compiled, Some(malformed))
 }
 
 pub fn browser_configuration_and_creation_uncertainty_are_explicit_test() {

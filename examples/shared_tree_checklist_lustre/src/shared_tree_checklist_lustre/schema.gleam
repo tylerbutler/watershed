@@ -1,52 +1,83 @@
-import gleam/list
+import gleam/result
+import shared_tree_checklist_lustre/checklist
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/types
 
-const checklist_type = "shared_tree_checklist.Checklist"
+fn factory() -> builder.Factory {
+  builder.factory("shared_tree_checklist")
+}
 
-const items_type = "shared_tree_checklist.Items"
+pub fn text() -> builder.Property(checklist.Item, String) {
+  builder.required("text", builder.string(), fn(item: checklist.Item) {
+    item.text
+  })
+}
 
-const item_type = "shared_tree_checklist.Item"
+pub fn completed() -> builder.Property(checklist.Item, Bool) {
+  builder.required("completed", builder.boolean(), fn(item: checklist.Item) {
+    item.completed
+  })
+}
 
-const definition = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"shared_tree_checklist.Checklist\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"shared_tree_checklist.Items\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"shared_tree_checklist.Item\":{\"kind\":{\"object\":{\"completed\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.boolean\"]},\"id\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"text\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"shared_tree_checklist.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"shared_tree_checklist.Item\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"shared_tree_checklist.Checklist\"]}}"
+pub fn item() -> builder.Node(checklist.Item) {
+  builder.object3(
+    factory(),
+    "Item",
+    checklist.Item,
+    builder.required("id", builder.string(), fn(item: checklist.Item) {
+      item.id
+    }),
+    text(),
+    completed(),
+  )
+}
+
+pub fn title() -> builder.Property(checklist.Checklist, String) {
+  builder.required("title", builder.string(), fn(value: checklist.Checklist) {
+    value.title
+  })
+}
+
+pub fn items() -> builder.Property(checklist.Checklist, List(checklist.Item)) {
+  builder.required(
+    "items",
+    builder.array(factory(), "Items", item()),
+    fn(value: checklist.Checklist) { value.items },
+  )
+}
+
+pub fn compiled() -> builder.Compiled(checklist.Checklist) {
+  let assert Ok(compiled) =
+    builder.object(
+      factory(),
+      "Checklist",
+      [builder.property(title()), builder.property(items())],
+      fn(reader) {
+        use title <- result.try(builder.read_property(reader, title()))
+        use items <- result.try(builder.read_property(reader, items()))
+        use _ <- result.try(
+          checklist.validate_unique_ids(items)
+          |> result.map_error(fn(detail) {
+            types.InvalidEdit(["items"], detail)
+          }),
+        )
+        Ok(checklist.Checklist(title, items))
+      },
+    )
+    |> builder.root
+    |> builder.compile
+  compiled
+}
 
 pub fn stored() -> schema.StoredSchema {
-  let assert Ok(value) = schema.stored_from_string(definition)
-  value
+  builder.stored(compiled())
 }
 
 pub fn view() -> schema.ViewSchema {
-  let assert Ok(value) = schema.view_from_string(definition)
-  value
+  builder.view(compiled())
 }
 
-pub fn initial() -> types.TreeValue {
-  checklist_value([])
-}
-
-pub fn checklist_value(
-  items: List(#(String, String, Bool)),
-) -> types.TreeValue {
-  types.ObjectValue(checklist_type, [
-    #("title", types.StringValue("SharedTree checklist")),
-    #(
-      "items",
-      types.ArrayValue(
-        items_type,
-        list.map(items, fn(item) { item_value(item.0, item.1, item.2) }),
-      ),
-    ),
-  ])
-}
-
-pub fn item_value(
-  id: String,
-  text: String,
-  completed: Bool,
-) -> types.TreeValue {
-  types.ObjectValue(item_type, [
-    #("id", types.StringValue(id)),
-    #("text", types.StringValue(text)),
-    #("completed", types.BooleanValue(completed)),
-  ])
+pub fn initial() -> checklist.Checklist {
+  checklist.empty()
 }

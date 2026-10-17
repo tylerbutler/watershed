@@ -13,8 +13,8 @@ import shared_tree_cli/schema
 @target(javascript)
 import watershed as client
 import watershed/container
+import watershed/tree
 import watershed/tree/error as tree_error
-import watershed/tree/typed
 @target(erlang)
 import watershed_beam as client
 
@@ -239,56 +239,30 @@ fn open(
 fn edit(
   document: client.Document(root),
   title: Option(String),
-) -> Result(client.SharedTree(schema.NoteSchema, schema.Note), String) {
-  use root <- result.try(client.resolve_root(document))
-  use handle <- result.try(
-    client.get(root, "tree") |> result.replace_error("tree handle is absent"),
-  )
+) -> Result(tree.Tree(schema.Note), String) {
   use tree <- result.try(
-    client.resolve_tree(document, handle, schema.definition())
-    |> result.map_error(typed_error),
+    client.open_tree(document, schema.compiled())
+    |> result.map_error(tree_error.to_string),
   )
   use _ <- result.try(case title {
     None -> Ok(Nil)
     Some(title) -> {
-      use root <- result.try(required_root(tree))
-      client.tree_set(root, schema.title(), title)
-      |> result.map_error(typed_error)
+      use root <- result.try(
+        tree.required_root(tree) |> result.map_error(tree_error.to_string),
+      )
+      tree.set(root, schema.title(), title)
+      |> result.map_error(tree_error.to_string)
     }
   })
   Ok(tree)
 }
 
-fn print_tree(
-  tree: client.SharedTree(schema.NoteSchema, schema.Note),
-) -> Result(Nil, String) {
+fn print_tree(tree: tree.Tree(schema.Note)) -> Result(Nil, String) {
   use root <- result.try(
-    client.tree_read_root(tree) |> result.map_error(typed_error),
+    tree.read_root(tree) |> result.map_error(tree_error.to_string),
   )
-  use root <- result.try(root |> option.to_result("tree root is absent"))
-  use value <- result.try(
-    typed.build(schema.builder(), root) |> result.map_error(typed_error),
-  )
-  io.println(string.inspect(value))
+  io.println(string.inspect(root))
   Ok(Nil)
-}
-
-fn required_root(
-  tree: client.SharedTree(schema.NoteSchema, schema.Note),
-) -> Result(client.TreeNode(schema.NoteSchema, schema.Note), String) {
-  use root <- result.try(
-    client.tree_root(tree) |> result.map_error(typed_error),
-  )
-  root |> option.to_result("tree root is absent")
-}
-
-fn typed_error(error: typed.Error) -> String {
-  case error {
-    typed.AccessFailed(reason)
-    | typed.DecodeFailed(reason)
-    | typed.InvalidDeclaration(reason) -> reason
-    typed.MissingRequired(field) -> "required field " <> field <> " is absent"
-  }
 }
 
 @target(erlang)

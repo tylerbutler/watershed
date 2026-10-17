@@ -29,7 +29,7 @@ pub fn open(
   document: facade.Document(root),
   compiled: builder.Compiled(a),
 ) -> Result(tree_api.Tree(a), error.Error) {
-  runtime.open_live_tree(facade.runtime_of(document), None, compiled, False)
+  facade.open_tree(document, compiled)
 }
 
 @target(erlang)
@@ -37,12 +37,7 @@ pub fn open(
   document: facade.Document(root),
   compiled: builder.Compiled(a),
 ) -> Result(tree_api.Tree(a), error.Error) {
-  runtime_beam.open_live_tree(
-    facade.runtime_subject(document),
-    None,
-    compiled,
-    False,
-  )
+  facade.open_tree(document, compiled)
 }
 
 @target(javascript)
@@ -51,12 +46,7 @@ pub fn inspect(
   marker: json.Json,
   compiled: builder.Compiled(a),
 ) -> Result(tree_api.Tree(a), error.Error) {
-  runtime.open_live_tree(
-    facade.runtime_of(document),
-    Some(marker),
-    compiled,
-    True,
-  )
+  facade.inspect_tree(document, marker, compiled)
 }
 
 @target(erlang)
@@ -65,12 +55,7 @@ pub fn inspect(
   marker: json.Json,
   compiled: builder.Compiled(a),
 ) -> Result(tree_api.Tree(a), error.Error) {
-  runtime_beam.open_live_tree(
-    facade.runtime_subject(document),
-    Some(marker),
-    compiled,
-    True,
-  )
+  facade.inspect_tree(document, marker, compiled)
 }
 
 pub type Card {

@@ -100,46 +100,60 @@ _test-compile-fail:
         echo "$out"
         exit 1
       fi
+      if [ "$package" = typed_tree_required_clear ] \
+        && { ! grep -Fq 'Some(42)' <<<"$out" || ! grep -Fq '    Option(Int)' <<<"$out"; }; then
+        echo "FAIL: $package did not reject the invalid optional property value:"
+        echo "$out"
+        exit 1
+      fi
       echo "ok  $package is rejected for $target"
     }
     for target in javascript erlang; do
       check_typed_tree_failure typed_tree_wrong_schema "$target" \
-        'Field(Other, String, Required)' \
-        'A field from another schema now applies to this node.'
+        'builder.Property(Other, String)' \
+        'A property from another record now applies to this node.'
       check_typed_tree_failure typed_tree_wrong_value "$target" \
         'Found type:'$'\n''    Int' \
         'A field now accepts a value of the wrong type.'
       check_typed_tree_failure typed_tree_required_clear "$target" \
-        'Field(Item, String, Required)' \
+        'Option(' \
         'A required field can now be cleared.'
       check_typed_tree_failure shared_tree_raw_edit "$target" \
-        'SharedTree(Item, ItemState)' \
-        'The old raw tree edit surface is available again.'
+        'List(String)' \
+        'A raw path now applies to a typed node.'
       check_typed_tree_failure incompatible_tree_object_reader "$target" \
         'builder.Property(Card, String)' \
         'An object reader now accepts a property from another record.'
     done
-    for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root incompatible_tree_union incompatible_tree_recursive incompatible_tree_live_property incompatible_tree_live_insert; do
-      out=$(cd "tools/compile-fail/$fixture" && gleam build --target javascript 2>&1)
-      if [ $? -eq 0 ]; then
-        echo "FAIL: $fixture compiled. The typed tree API accepted an invalid value."
-        exit 1
-      fi
-      case "$fixture" in
-        incompatible_tree_property) expected='fn(Note) -> String'; found='fn(Note) -> Int' ;;
-        incompatible_tree_constructor) expected='builder.Property(Note, Int)'; found='builder.Property(Note, String)' ;;
-        incompatible_tree_root) expected='    String'; found='    Int' ;;
-        incompatible_tree_union) expected='    String'; found='    Float' ;;
-        incompatible_tree_recursive) expected='builder.Node(String)'; found='builder.Node(Float)' ;;
-        incompatible_tree_live_property) expected='builder.Property(Card, String)'; found='builder.Property(Person, String)' ;;
-        incompatible_tree_live_insert) expected='    List(Card)'; found='    List(live.Ref(Card))' ;;
-      esac
-      if ! grep -q 'error: Type mismatch' <<<"$out" || ! grep -Fq "$expected" <<<"$out" || ! grep -Fq "$found" <<<"$out"; then
-        echo "FAIL: $fixture failed without its expected type diagnostic:"
-        echo "$out"
-        exit 1
-      fi
-      echo "ok  $fixture is rejected for its intended type mismatch"
+    for target in javascript erlang; do
+      for fixture in incompatible_tree_property incompatible_tree_constructor incompatible_tree_root incompatible_tree_union incompatible_tree_recursive incompatible_tree_live_property incompatible_tree_live_insert; do
+        out=$(cd "tools/compile-fail/$fixture" && gleam build --target "$target" 2>&1)
+        if [ $? -eq 0 ]; then
+          echo "FAIL: $fixture compiled. The typed tree API accepted an invalid value."
+          exit 1
+        fi
+        case "$fixture" in
+          incompatible_tree_property) expected='fn(Note) -> String'; found='fn(Note) -> Int' ;;
+          incompatible_tree_constructor) expected='builder.Property(Note, Int)'; found='builder.Property(Note, String)' ;;
+          incompatible_tree_root) expected='    String'; found='    Int' ;;
+          incompatible_tree_union) expected='    String'; found='    Float' ;;
+          incompatible_tree_recursive) expected='builder.Node(String)'; found='builder.Node(Float)' ;;
+          incompatible_tree_live_property) expected='builder.Property(Card, String)'; found='builder.Property(Person, String)' ;;
+          incompatible_tree_live_insert) expected='    List(Card)'; found='    List(live.Ref(Card))' ;;
+        esac
+        if ! grep -q 'error: Type mismatch' <<<"$out" || ! grep -Fq "$expected" <<<"$out" || ! grep -Fq "$found" <<<"$out"; then
+          echo "FAIL: $fixture failed without its expected type diagnostic:"
+          echo "$out"
+          exit 1
+        fi
+        if [ "$fixture" = incompatible_tree_live_insert ] \
+          && { ! grep -Fq '"not a card"' <<<"$out" || ! grep -Fq '    List(Card)' <<<"$out" || ! grep -Fq '    List(String)' <<<"$out"; }; then
+          echo "FAIL: $fixture did not reject the wrong collection element value:"
+          echo "$out"
+          exit 1
+        fi
+        echo "ok  $fixture is rejected for its intended type mismatch on $target"
+      done
     done
 
 # Build the source-backed snippets, then run every registered website test.

@@ -409,22 +409,32 @@ test("watershed_lustre SharedTree examples compile against its public API", () =
 });
 
 test("application facades expose one typed SharedTree surface", () => {
+  const application = readFileSync(
+    resolve(repository, "src/watershed/tree.gleam"), "utf8",
+  );
+  assert.match(application, /pub opaque type Tree\(a\)/);
+  assert.match(application, /pub opaque type Ref\(a\)/);
+  assert.match(
+    application,
+    /pub fn get\(\s*reference: Ref\(record\),\s*property: builder\.Property\(record, a\),/s,
+  );
+  assert.match(
+    application,
+    /pub fn set\(\s*reference: Ref\(record\),\s*property: builder\.Property\(record, a\),\s*value: a,/s,
+  );
   for (const path of ["src/watershed.gleam", "src/watershed_beam.gleam"]) {
     const source = readFileSync(resolve(repository, path), "utf8");
-    assert.match(source, /pub opaque type SharedTree\(schema, record\)/);
     assert.match(
       source,
-      /pub fn tree_get\(\s*node: TreeNode\(s, r\),\s*field: typed\.Field\(s, a, typed\.Required\),/s,
+      /pub fn create_tree\(\s*document: Document\(root\),\s*compiled: tree_builder\.Compiled\(a\),\s*initial: a,\s*\) -> Result\(tree_live\.Tree\(a\), tree_error\.Error\)/s,
     );
     assert.match(
       source,
-      /pub fn tree_set\(\s*node: TreeNode\(s, r\),\s*field: typed\.Field\(s, a, c\),\s*value: a,/s,
+      /pub fn open_tree\(\s*document: Document\(root\),\s*compiled: tree_builder\.Compiled\(a\),\s*\) -> Result\(tree_live\.Tree\(a\), tree_error\.Error\)/s,
     );
-    assert.doesNotMatch(source, /pub (?:opaque )?type TypedTree\b/);
-    assert.doesNotMatch(source, /pub fn tree_typed_/);
-    assert.doesNotMatch(
-      source,
-      /pub fn tree_(?:get|set|clear)\(\s*tree: SharedTree[^,]*,\s*path: tree_types\.FieldPath/s,
-    );
+    assert.doesNotMatch(source, /pub (?:opaque )?type (?:SharedTree|TypedTree|TreeNode|TreeArray|TreeMap)\b/);
+    assert.doesNotMatch(source, /pub fn (?:tree_|subscribe_tree)/);
   }
+  assert.equal(existsSync(resolve(repository, "src/watershed/tree/typed.gleam")), false);
+  assert.equal(existsSync(resolve(repository, "src/watershed/tree/live.gleam")), false);
 });

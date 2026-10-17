@@ -1,26 +1,18 @@
-import watershed/tree/typed.{type Field, type Required}
+import gleam/option.{type Option, None, Some}
+import watershed/tree
+import watershed/tree/schema_builder as builder
 
-@target(javascript)
-import watershed
-@target(erlang)
-import watershed_beam
-
-pub type Item
-
-pub type ItemState
-
-@target(javascript)
-pub fn javascript(
-  node: watershed.TreeNode(Item, ItemState),
-  field: Field(Item, String, Required),
-) {
-  watershed.tree_clear(node, field)
+pub type Item {
+  Item(text: String)
 }
 
-@target(erlang)
-pub fn erlang(
-  node: watershed_beam.TreeNode(Item, ItemState),
-  field: Field(Item, String, Required),
+pub fn invalid(node: tree.Ref(Item), field: builder.Property(Item, String)) {
+  tree.set(node, field, None)
+}
+
+pub fn invalid_optional_value(
+  node: tree.Ref(Item),
+  field: builder.Property(Item, Option(String)),
 ) {
-  watershed_beam.tree_clear(node, field)
+  tree.set(node, field, Some(42))
 }

@@ -9,8 +9,8 @@ import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core as core
 import watershed/tree/branch
-import watershed/tree/identifier_fixture
 import watershed/tree/error as tree_error
+import watershed/tree/identifier_fixture
 import watershed/tree/live_types as live
 import watershed/tree/runtime_fixture
 import watershed/tree/schema

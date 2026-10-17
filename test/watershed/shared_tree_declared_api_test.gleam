@@ -6,10 +6,6 @@ import gleam/option.{None, Some}
 import startest/expect
 @target(javascript)
 import watershed as facade
-@target(javascript)
-import watershed/runtime
-@target(erlang)
-import watershed/runtime_beam
 import watershed/tree
 import watershed/tree/error
 import watershed/tree/live_fixture as live
@@ -26,27 +22,12 @@ fn object() {
   live.tree(compiled(fixture.node()), fixture.initial())
 }
 
-@target(javascript)
 fn create(
   document: facade.Document(root),
   compiled: builder.Compiled(a),
   initial: a,
 ) -> Result(tree.Tree(a), error.Error) {
-  runtime.create_live_tree(facade.runtime_of(document), None, compiled, initial)
-}
-
-@target(erlang)
-fn create(
-  document: facade.Document(root),
-  compiled: builder.Compiled(a),
-  initial: a,
-) -> Result(tree.Tree(a), error.Error) {
-  runtime_beam.create_live_tree(
-    facade.runtime_subject(document),
-    None,
-    compiled,
-    initial,
-  )
+  facade.create_tree(document, compiled, initial)
 }
 
 @target(javascript)

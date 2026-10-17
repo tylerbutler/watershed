@@ -4,20 +4,18 @@ import gleam/result
 import lustre/effect.{type Effect}
 import watershed
 import watershed/container
+import watershed/tree
 import watershed/tree/error
 import watershed/tree/schema_builder as builder
-import watershed/tree/typed
-import watershed/tree/types as tree_types
-import watershed/tree_kernel
 
 @external(javascript, "../watershed_lustre_ffi.mjs", "queue_microtask")
 fn queue_microtask(action: fn() -> Nil) -> Nil
 
 pub type CommitEvent {
   CommitEvent(
-    kind: tree_types.TreeCommitKind,
+    kind: tree.CommitKind,
     local: Bool,
-    revertible: Option(watershed.TreeRevertible),
+    revertible: Option(tree.Revertible),
   )
 }
 
@@ -67,53 +65,39 @@ pub fn create_dev(
 
 pub fn open(
   document: watershed.Document(root),
-  definition: typed.Schema(s, r),
-  opened: fn(Result(watershed.SharedTree(s, r), typed.Error)) -> msg,
+  compiled: builder.Compiled(a),
+  opened: fn(Result(tree.Tree(a), error.Error)) -> msg,
 ) -> Effect(msg) {
-  use dispatch <- effect.from
-  let outcome = {
-    use root <- result.try(
-      watershed.resolve_root(document)
-      |> result.map_error(typed.AccessFailed),
-    )
-    use handle <- result.try(
-      watershed.get(root, "tree")
-      |> result.replace_error("tree handle is absent")
-      |> result.map_error(typed.AccessFailed),
-    )
-    watershed.resolve_tree(document, handle, definition)
-  }
-  queue_microtask(fn() { dispatch(opened(outcome)) })
+  perform(fn() { watershed.open_tree(document, compiled) }, opened)
 }
 
-pub fn subscribe(
-  tree: watershed.SharedTree(s, r),
-  subscribed: fn(watershed.SubscriptionToken) -> msg,
-  changed: fn(tree_kernel.TreeEvent) -> msg,
+pub fn subscribe_changes(
+  handle: tree.Tree(a),
+  subscribed: fn(Result(tree.Subscription, error.Error)) -> msg,
+  changed: fn(tree.ChangeEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let subscription =
-    watershed.subscribe_tree(tree, fn(event) {
+    tree.subscribe_changes(handle, fn(event) {
       queue_microtask(fn() { dispatch(changed(event)) })
     })
   queue_microtask(fn() { dispatch(subscribed(subscription)) })
 }
 
 pub fn subscribe_commits(
-  tree: watershed.SharedTree(s, r),
-  subscribed: fn(watershed.SubscriptionToken) -> msg,
+  handle: tree.Tree(a),
+  subscribed: fn(Result(tree.Subscription, error.Error)) -> msg,
   committed: fn(Result(CommitEvent, error.Error)) -> msg,
-  settled: fn(Result(tree_types.TreeCommitOutcome, error.Error)) -> msg,
+  settled: fn(Result(tree.CommitOutcome, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let subscription =
-    watershed.subscribe_tree_commits(tree, fn(event) {
-      let watershed.TreeCommitEvent(kind, local, get_revertible, on_settled) =
-        event
+    tree.subscribe_commits(handle, fn(event) {
+      let tree.CommitEvent(kind, local, get_revertible, on_settled) = event
       let captured = case get_revertible {
         None -> Ok(CommitEvent(kind, local, None))
         Some(acquire) ->
-          acquire()
+          acquire(fn(_) { Nil })
           |> result.map(fn(revertible) {
             CommitEvent(kind, local, Some(revertible))
           })
@@ -136,45 +120,60 @@ pub fn subscribe_commits(
   queue_microtask(fn() { dispatch(subscribed(subscription)) })
 }
 
-pub fn unsubscribe(subscription: watershed.SubscriptionToken) -> Effect(msg) {
+pub fn unsubscribe(subscription: tree.Subscription) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed.unsubscribe(subscription)
+  tree.unsubscribe(subscription)
 }
 
 pub fn read_root(
-  tree: watershed.SharedTree(s, r),
-  read: fn(Result(Option(r), typed.Error)) -> msg,
+  handle: tree.Tree(a),
+  read: fn(Result(a, error.Error)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { tree.read_root(handle) }, read)
+}
+
+pub fn observe(
+  handle: tree.Tree(a),
+  subscribed: fn(Result(tree.Subscription, error.Error)) -> msg,
+  changed: fn(Result(a, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  let outcome = watershed.tree_read_root(tree)
-  queue_microtask(fn() { dispatch(read(outcome)) })
+  let subscription =
+    tree.observe(handle, fn(value) {
+      queue_microtask(fn() { dispatch(changed(value)) })
+    })
+  queue_microtask(fn() { dispatch(subscribed(subscription)) })
 }
 
 pub fn transaction(
-  tree: watershed.SharedTree(s, r),
-  constraints: List(watershed.TreeTransactionConstraint),
-  callback: fn(watershed.SharedTree(s, r)) -> Result(value, callback_error),
-  completed: fn(Result(value, watershed.TreeTransactionError(callback_error))) ->
-    msg,
+  handle: tree.Tree(a),
+  constraints: List(tree.Constraint),
+  callback: fn(tree.Tree(a)) -> Result(value, callback_error),
+  completed: fn(Result(value, tree.TransactionError(callback_error))) -> msg,
 ) -> Effect(msg) {
-  use dispatch <- effect.from
-  let outcome = watershed.tree_transaction(tree, constraints, callback)
-  queue_microtask(fn() { dispatch(completed(outcome)) })
+  perform(fn() { tree.transaction(handle, constraints, callback) }, completed)
 }
 
 pub fn revert(
-  revertible: watershed.TreeRevertible,
-  dispose: Bool,
-  completed: fn(Result(Nil, String)) -> msg,
+  revertible: tree.Revertible,
+  policy: tree.RevertPolicy,
+  completed: fn(Result(Nil, error.Error)) -> msg,
 ) -> Effect(msg) {
-  perform(fn() { watershed.tree_revert(revertible, dispose) }, completed)
+  perform(fn() { tree.revert(revertible, policy) }, completed)
 }
 
 pub fn dispose_revertible(
-  revertible: watershed.TreeRevertible,
-  completed: fn(Result(Nil, String)) -> msg,
+  revertible: tree.Revertible,
+  completed: fn(Result(Nil, error.Error)) -> msg,
 ) -> Effect(msg) {
-  perform(fn() { watershed.tree_dispose_revertible(revertible) }, completed)
+  perform(fn() { tree.dispose_revertible(revertible) }, completed)
+}
+
+pub fn dispose(
+  handle: tree.Tree(a),
+  completed: fn(Result(Nil, error.Error)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { tree.dispose(handle) }, completed)
 }
 
 pub fn perform(

@@ -6,19 +6,18 @@ import gleeunit
 import lustre/effect.{type Effect}
 import shared_tree_checklist_lustre
 import shared_tree_checklist_lustre/checklist
-import shared_tree_checklist_lustre/history
 import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/schema as document_schema
-import shared_tree_checklist_lustre/typed_schema
 import watershed
 import watershed/fluid_ids
 import watershed/runtime
 import watershed/runtime_core
 import watershed/sluice/frame
 import watershed/transport_js
+import watershed/tree as shared_tree
 import watershed/tree/error as tree_error
-import watershed/tree/typed
-import watershed/tree/types
+import watershed/tree/history_stack as history
+import watershed/tree/schema_builder as builder
 import watershed/wire/fluid_document
 import watershed_lustre/tree
 
@@ -31,7 +30,7 @@ fn invalid_operation(sequence_number: Int) -> String
 type Fixture(root) {
   Fixture(
     document: watershed.Document(root),
-    tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+    tree: shared_tree.Tree(checklist.Checklist),
     callbacks: runtime.TransportCallbacks,
     submissions: transport_js.Cell(Int),
     closes: transport_js.Cell(Int),
@@ -39,12 +38,12 @@ type Fixture(root) {
 }
 
 type RuntimeMsg {
-  ChangeSubscribed(watershed.SubscriptionToken)
+  ChangeSubscribed(Result(shared_tree.Subscription, tree_error.Error))
   Changed
-  CommitSubscribed(watershed.SubscriptionToken)
+  CommitSubscribed(Result(shared_tree.Subscription, tree_error.Error))
   Captured(Result(tree.CommitEvent, tree_error.Error))
-  Settled(Result(types.TreeCommitOutcome, tree_error.Error))
-  Disposed(Result(Nil, String))
+  Settled(Result(shared_tree.CommitOutcome, tree_error.Error))
+  Disposed(Result(Nil, tree_error.Error))
 }
 
 type CapturedAction {
@@ -66,46 +65,46 @@ pub fn complete_all_groups_latest_incomplete_items_into_one_undo_step_test() {
     ])
   let handles = transport_js.new_cell([])
   let commits = transport_js.new_cell(0)
-  let subscription =
-    watershed.subscribe_tree_commits(fixture.tree, fn(event) {
-      let assert watershed.TreeCommitEvent(_, True, Some(acquire), _) = event
-      let assert Ok(handle) = acquire()
+  let assert Ok(subscription) =
+    shared_tree.subscribe_commits(fixture.tree, fn(event) {
+      let assert shared_tree.CommitEvent(_, True, Some(acquire), _) = event
+      let assert Ok(handle) = acquire(fn(_) { Nil })
       transport_js.set_cell(handles, [handle, ..transport_js.get_cell(handles)])
       transport_js.set_cell(commits, transport_js.get_cell(commits) + 1)
     })
 
   let assert Ok(True) =
-    watershed.tree_transaction(fixture.tree, [], fn(tree) {
+    shared_tree.transaction(fixture.tree, [], fn(tree) {
       shared_tree_checklist_lustre.complete_all(tree)
     })
   let assert 1 = transport_js.get_cell(commits)
   let assert 1 = transport_js.get_cell(fixture.submissions)
-  let assert Ok(Some(checklist.Checklist(
+  let assert Ok(checklist.Checklist(
     items: [
       checklist.Item("a", "first", True),
       checklist.Item("b", "second", True),
     ],
     ..,
-  ))) = watershed.tree_read_root(fixture.tree)
+  )) = shared_tree.read_root(fixture.tree)
 
   let assert Ok(False) =
-    watershed.tree_transaction(fixture.tree, [], fn(tree) {
+    shared_tree.transaction(fixture.tree, [], fn(tree) {
       shared_tree_checklist_lustre.complete_all(tree)
     })
   let assert 1 = transport_js.get_cell(commits)
   let assert 1 = transport_js.get_cell(fixture.submissions)
 
   let assert [handle] = transport_js.get_cell(handles)
-  let assert Ok(Nil) = watershed.tree_revert(handle, True)
-  let assert Ok(Some(checklist.Checklist(
+  let assert Ok(Nil) = shared_tree.revert(handle, shared_tree.DisposeRevertible)
+  let assert Ok(checklist.Checklist(
     items: [
       checklist.Item("a", "first", False),
       checklist.Item("b", "second", False),
     ],
     ..,
-  ))) = watershed.tree_read_root(fixture.tree)
+  )) = shared_tree.read_root(fixture.tree)
 
-  watershed.unsubscribe(subscription)
+  shared_tree.unsubscribe(subscription)
   watershed.close(fixture.document)
 }
 
@@ -130,9 +129,9 @@ fn test_reordered_actions(actions: List(CapturedAction)) -> Promise(Nil) {
           #("b", "second", False),
           #("c", "third", False),
         ])
-      let assert Ok(Some(root)) = watershed.tree_root(fixture.tree)
-      let assert Ok(items) = watershed.tree_array(root, typed_schema.items())
-      let assert Ok([first, target, third]) = watershed.tree_array_nodes(items)
+      let assert Ok(root) = shared_tree.required_root(fixture.tree)
+      let assert Ok(items) = shared_tree.child(root, document_schema.items())
+      let assert Ok([first, target, third]) = checklist.nodes(items)
       let model = application_model(fixture.tree)
       let #(pending, lazy_action) =
         shared_tree_checklist_lustre.update(
@@ -141,12 +140,15 @@ fn test_reordered_actions(actions: List(CapturedAction)) -> Promise(Nil) {
         )
 
       let assert Ok(Nil) =
-        watershed.tree_array_move_before(items, target, items, Some(first))
+        shared_tree.array_move_before(items, target, items, Some(first))
       let assert Ok([reordered_target, reordered_first, reordered_third]) =
-        watershed.tree_array_nodes(items)
-      let assert True = target == reordered_target
-      let assert True = first == reordered_first
-      let assert True = third == reordered_third
+        checklist.nodes(items)
+      let assert Ok(checklist.Item("b", "second", False)) =
+        shared_tree.read(reordered_target)
+      let assert Ok(checklist.Item("a", "first", False)) =
+        shared_tree.read(reordered_first)
+      let assert Ok(checklist.Item("c", "third", False)) =
+        shared_tree.read(reordered_third)
 
       use updated <- promise.await(finish_action(pending, lazy_action))
       assert_reordered_result(action, updated, target)
@@ -177,9 +179,9 @@ fn test_replaced_actions(actions: List(CapturedAction)) -> Promise(Nil) {
           #("b", "second", False),
           #("c", "third", False),
         ])
-      let assert Ok(Some(root)) = watershed.tree_root(fixture.tree)
-      let assert Ok(items) = watershed.tree_array(root, typed_schema.items())
-      let assert Ok([first, removed, _]) = watershed.tree_array_nodes(items)
+      let assert Ok(root) = shared_tree.required_root(fixture.tree)
+      let assert Ok(items) = shared_tree.child(root, document_schema.items())
+      let assert Ok([first, removed, _]) = checklist.nodes(items)
       let model = application_model(fixture.tree)
       let #(pending, lazy_action) =
         shared_tree_checklist_lustre.update(
@@ -187,13 +189,14 @@ fn test_replaced_actions(actions: List(CapturedAction)) -> Promise(Nil) {
           captured_message(action, removed, Some(first)),
         )
 
-      let assert Ok(Nil) = watershed.tree_array_remove_node(items, removed)
+      let assert Ok(Nil) = shared_tree.array_remove_node(items, removed)
       let assert Ok(Nil) =
-        watershed.tree_array_insert(items, 1, typed_schema.item_builder(), [
-          typed_schema.ItemInput("b", "replacement", False),
+        shared_tree.array_insert(items, 1, [
+          checklist.Item("b", "replacement", False),
         ])
-      let assert Ok([_, replacement, _]) = watershed.tree_array_nodes(items)
-      let assert True = removed != replacement
+      let assert Ok([_, replacement, _]) = checklist.nodes(items)
+      let assert Error(tree_error.InvalidReference(_)) =
+        shared_tree.read(removed)
 
       use updated <- promise.await(finish_action(pending, lazy_action))
       let assert shared_tree_checklist_lustre.Model(
@@ -211,11 +214,14 @@ fn test_replaced_actions(actions: List(CapturedAction)) -> Promise(Nil) {
         ],
         ..,
       ) = displayed
-      let assert True = displayed_first == first
-      let assert True = displayed_replacement == replacement
-      let assert True = displayed_third != removed
+      let assert Ok(checklist.Item("a", "first", False)) =
+        shared_tree.read(displayed_first)
       let assert Ok(checklist.Item("b", "replacement", False)) =
-        watershed.tree_read(replacement)
+        shared_tree.read(displayed_replacement)
+      let assert Ok(checklist.Item("c", "third", False)) =
+        shared_tree.read(displayed_third)
+      let assert Ok(checklist.Item("b", "replacement", False)) =
+        shared_tree.read(replacement)
 
       watershed.close(fixture.document)
       test_replaced_actions(rest)
@@ -225,8 +231,8 @@ fn test_replaced_actions(actions: List(CapturedAction)) -> Promise(Nil) {
 
 fn captured_message(
   action: CapturedAction,
-  target: watershed.TreeNode(typed_schema.Item, checklist.Item),
-  before: Option(watershed.TreeNode(typed_schema.Item, checklist.Item)),
+  target: shared_tree.Ref(checklist.Item),
+  before: Option(shared_tree.Ref(checklist.Item)),
 ) -> shared_tree_checklist_lustre.Msg {
   case action {
     RenameAction ->
@@ -240,7 +246,7 @@ fn captured_message(
 fn assert_reordered_result(
   action: CapturedAction,
   model: shared_tree_checklist_lustre.Model,
-  target: watershed.TreeNode(typed_schema.Item, checklist.Item),
+  target: shared_tree.Ref(checklist.Item),
 ) -> Nil {
   let assert shared_tree_checklist_lustre.Model(
     checklist: checklist.Checklist(items: displayed, ..),
@@ -257,7 +263,10 @@ fn assert_reordered_result(
         checklist.Item("c", "third", False),
       ] = displayed
       let assert [live_target, _, _] = nodes
-      let assert True = live_target == target
+      let assert Ok(checklist.Item("b", "renamed", False)) =
+        shared_tree.read(target)
+      let assert Ok(checklist.Item("b", "renamed", False)) =
+        shared_tree.read(live_target)
       Nil
     }
     ToggleAction -> {
@@ -267,7 +276,10 @@ fn assert_reordered_result(
         checklist.Item("c", "third", False),
       ] = displayed
       let assert [live_target, _, _] = nodes
-      let assert True = live_target == target
+      let assert Ok(checklist.Item("b", "second", True)) =
+        shared_tree.read(target)
+      let assert Ok(checklist.Item("b", "second", True)) =
+        shared_tree.read(live_target)
       Nil
     }
     DeleteAction -> {
@@ -276,6 +288,8 @@ fn assert_reordered_result(
         checklist.Item("c", "third", False),
       ] = displayed
       let assert [_, _] = nodes
+      let assert Error(tree_error.InvalidReference(_)) =
+        shared_tree.read(target)
       Nil
     }
     MoveAction -> {
@@ -285,19 +299,22 @@ fn assert_reordered_result(
         checklist.Item("c", "third", False),
       ] = displayed
       let assert [_, live_target, _] = nodes
-      let assert True = live_target == target
+      let assert Ok(checklist.Item("b", "second", False)) =
+        shared_tree.read(target)
+      let assert Ok(checklist.Item("b", "second", False)) =
+        shared_tree.read(live_target)
       Nil
     }
   }
 }
 
 fn application_model(
-  tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+  tree: shared_tree.Tree(checklist.Checklist),
 ) -> shared_tree_checklist_lustre.Model {
-  let assert Ok(Some(checklist)) = watershed.tree_read_root(tree)
-  let assert Ok(Some(root)) = watershed.tree_root(tree)
-  let assert Ok(items) = watershed.tree_array(root, typed_schema.items())
-  let assert Ok(item_nodes) = watershed.tree_array_nodes(items)
+  let assert Ok(checklist) = shared_tree.read_root(tree)
+  let assert Ok(root) = shared_tree.required_root(tree)
+  let assert Ok(items) = shared_tree.child(root, document_schema.items())
+  let assert Ok(item_nodes) = checklist.nodes(items)
   shared_tree_checklist_lustre.Model(
     config: shared_tree_checklist_lustre.Config("", "", "", ""),
     phase: shared_tree_checklist_lustre.Ready,
@@ -340,30 +357,33 @@ pub fn captured_target_survives_peer_reorder_by_physical_identity_test() {
       #("b", "second", False),
       #("c", "third", False),
     ])
-  let assert Ok(Some(root)) = watershed.tree_root(fixture.tree)
-  let assert Ok(items) = watershed.tree_array(root, typed_schema.items())
-  let assert Ok([first, target, third]) = watershed.tree_array_nodes(items)
+  let assert Ok(root) = shared_tree.required_root(fixture.tree)
+  let assert Ok(items) = shared_tree.child(root, document_schema.items())
+  let assert Ok([first, target, third]) = checklist.nodes(items)
 
   let assert Ok(Nil) =
-    watershed.tree_array_move_before(items, target, items, Some(first))
+    shared_tree.array_move_before(items, target, items, Some(first))
   let assert Ok([reordered_target, reordered_first, reordered_third]) =
-    watershed.tree_array_nodes(items)
-  let assert True = target == reordered_target
-  let assert True = first == reordered_first
-  let assert True = third == reordered_third
+    checklist.nodes(items)
+  let assert Ok(checklist.Item("b", "second", False)) =
+    shared_tree.read(reordered_target)
+  let assert Ok(checklist.Item("a", "first", False)) =
+    shared_tree.read(reordered_first)
+  let assert Ok(checklist.Item("c", "third", False)) =
+    shared_tree.read(reordered_third)
+  let assert Ok(checklist.Item("c", "third", False)) = shared_tree.read(third)
 
   let assert Ok(Nil) =
     shared_tree_checklist_lustre.rename_item(target, "renamed")
   let assert Ok(Nil) = shared_tree_checklist_lustre.toggle_item(target, False)
   let assert Ok(Nil) =
     shared_tree_checklist_lustre.move_item(items, target, Some(reordered_third))
-  let assert Ok(checklist.Item("b", "renamed", True)) =
-    watershed.tree_read(target)
+  let assert Ok(checklist.Item("b", "renamed", True)) = shared_tree.read(target)
   let assert Ok([
     checklist.Item("a", "first", False),
     checklist.Item("b", "renamed", True),
     checklist.Item("c", "third", False),
-  ]) = watershed.tree_array_values(items)
+  ]) = shared_tree.read(items)
 
   watershed.close(fixture.document)
 }
@@ -374,31 +394,31 @@ pub fn removed_or_replaced_captured_target_refuses_without_retargeting_test() {
       #("a", "first", False),
       #("b", "second", False),
     ])
-  let assert Ok(Some(root)) = watershed.tree_root(fixture.tree)
-  let assert Ok(items) = watershed.tree_array(root, typed_schema.items())
-  let assert Ok([removed, _]) = watershed.tree_array_nodes(items)
-  let assert Ok(Nil) = watershed.tree_array_remove_node(items, removed)
+  let assert Ok(root) = shared_tree.required_root(fixture.tree)
+  let assert Ok(items) = shared_tree.child(root, document_schema.items())
+  let assert Ok([removed, _]) = checklist.nodes(items)
+  let assert Ok(Nil) = shared_tree.array_remove_node(items, removed)
   let assert Ok(Nil) =
-    watershed.tree_array_insert(items, 0, typed_schema.item_builder(), [
-      typed_schema.ItemInput("a", "replacement", False),
+    shared_tree.array_insert(items, 0, [
+      checklist.Item("a", "replacement", False),
     ])
-  let assert Ok([replacement, _]) = watershed.tree_array_nodes(items)
-  let assert True = removed != replacement
+  let assert Ok([replacement, _]) = checklist.nodes(items)
+  let assert Error(tree_error.InvalidReference(_)) = shared_tree.read(removed)
 
-  let assert Error(typed.AccessFailed(_)) =
+  let assert Error(tree_error.InvalidReference(_)) =
     shared_tree_checklist_lustre.rename_item(removed, "wrong target")
-  let assert Error(typed.AccessFailed(_)) =
+  let assert Error(tree_error.InvalidReference(_)) =
     shared_tree_checklist_lustre.toggle_item(removed, False)
-  let assert Error(typed.AccessFailed(_)) =
+  let assert Error(tree_error.InvalidReference(_)) =
     shared_tree_checklist_lustre.delete_item(items, removed)
-  let assert Error(typed.AccessFailed(_)) =
+  let assert Error(tree_error.InvalidReference(_)) =
     shared_tree_checklist_lustre.move_item(items, removed, None)
   let assert Ok(checklist.Item("a", "replacement", False)) =
-    watershed.tree_read(replacement)
+    shared_tree.read(replacement)
   let assert Ok([
     checklist.Item("a", "replacement", False),
     checklist.Item("b", "second", False),
-  ]) = watershed.tree_array_values(items)
+  ]) = shared_tree.read(items)
 
   watershed.close(fixture.document)
 }
@@ -414,15 +434,11 @@ pub fn application_lifecycle_surfaces_native_subscription_errors_test() -> Promi
   )
   use _ <- promise.await(promise.wait(0))
   clear_messages(sink)
-  let thief =
-    watershed.subscribe_tree_commits(fixture.tree, fn(event) {
-      let assert watershed.TreeCommitEvent(
-        _,
-        True,
-        Some(acquire),
-        Some(register),
-      ) = event
-      let assert Ok(_) = acquire()
+  let assert Ok(thief) =
+    shared_tree.subscribe_commits(fixture.tree, fn(event) {
+      let assert shared_tree.CommitEvent(_, True, Some(acquire), Some(register)) =
+        event
+      let assert Ok(_) = acquire(fn(_) { Nil })
       let assert Ok(Nil) = register(fn(_) { Nil })
       fixture.callbacks.on_event("op", invalid_operation(1))
     })
@@ -431,7 +447,7 @@ pub fn application_lifecycle_surfaces_native_subscription_errors_test() -> Promi
   use _ <- promise.await(promise.wait(0))
   let assert [Captured(Error(acquisition)), Settled(Error(registration))] =
     messages(sink)
-  let state: lifecycle.State(watershed.TreeRevertible) =
+  let state: lifecycle.State(shared_tree.Revertible) =
     lifecycle.State(history.new(), None, 0)
   let assert lifecycle.Transition(_, [], Some(capture_error)) =
     lifecycle.captured(state, True, Error(tree_error.to_string(acquisition)))
@@ -440,32 +456,35 @@ pub fn application_lifecycle_surfaces_native_subscription_errors_test() -> Promi
     lifecycle.settled(Error(tree_error.to_string(registration)))
   let assert True = settlement_error != ""
 
-  watershed.unsubscribe(thief)
+  shared_tree.unsubscribe(thief)
   watershed.close(fixture.document)
   promise.resolve(Nil)
 }
 
-pub fn close_unsubscribes_disposes_reports_failure_and_orders_close_test() -> Promise(
+pub fn close_unsubscribes_disposes_idempotently_and_orders_close_test() -> Promise(
   Nil,
 ) {
   let fixture = fixture([#("a", "first", False)])
   let sink = transport_js.new_cell([])
-  run(tree.subscribe(fixture.tree, ChangeSubscribed, fn(_) { Changed }), sink)
+  run(
+    tree.subscribe_changes(fixture.tree, ChangeSubscribed, fn(_) { Changed }),
+    sink,
+  )
   run(
     tree.subscribe_commits(fixture.tree, CommitSubscribed, Captured, Settled),
     sink,
   )
   use _ <- promise.await(promise.wait(0))
   let assert [
-    ChangeSubscribed(change_subscription),
-    CommitSubscribed(commit_subscription),
+    ChangeSubscribed(Ok(change_subscription)),
+    CommitSubscribed(Ok(commit_subscription)),
   ] = messages(sink)
   clear_messages(sink)
 
   let assert Ok(Nil) = set_title(fixture.tree, "changed")
   use _ <- promise.await(promise.wait(0))
   let assert [
-    Captured(Ok(tree.CommitEvent(types.DefaultCommit, True, Some(handle)))),
+    Captured(Ok(tree.CommitEvent(shared_tree.DefaultCommit, True, Some(handle)))),
     Changed,
   ] = messages(sink)
   clear_messages(sink)
@@ -481,8 +500,8 @@ pub fn close_unsubscribes_disposes_reports_failure_and_orders_close_test() -> Pr
     Some("History action failed: revert refused"),
   ) = lifecycle.history_finished(requested, Error("revert refused"))
   let assert True = retained == requested_handle
-  let assert watershed.RevertibleValid =
-    watershed.tree_revertible_status(retained)
+  let assert Ok(shared_tree.RevertibleValid) =
+    shared_tree.revertible_status(retained)
 
   let initial =
     lifecycle.State(
@@ -509,13 +528,17 @@ pub fn close_unsubscribes_disposes_reports_failure_and_orders_close_test() -> Pr
   let assert [Disposed(first), Disposed(second)] = messages(sink)
   let assert 0 = transport_js.get_cell(fixture.closes)
   let assert lifecycle.Disposal(after_first, first_error, False) =
-    lifecycle.disposal_finished(closing, first)
+    lifecycle.disposal_finished(
+      closing,
+      result.map_error(first, tree_error.to_string),
+    )
   let assert lifecycle.Disposal(after_second, second_error, True) =
-    lifecycle.disposal_finished(after_first, second)
-  case first_error, second_error {
-    Some(_), None | None, Some(_) -> Nil
-    _, _ -> panic as "one duplicate disposal must fail"
-  }
+    lifecycle.disposal_finished(
+      after_first,
+      result.map_error(second, tree_error.to_string),
+    )
+  let assert None = first_error
+  let assert None = second_error
   let assert 0 = after_second.pending
   clear_messages(sink)
   let assert Ok(Nil) = set_title(fixture.tree, "ignored")
@@ -530,11 +553,13 @@ pub fn queued_tokens_and_handles_after_close_are_released_test() -> Promise(Nil)
   let token_fixture = fixture([#("a", "first", False)])
   let token_sink = transport_js.new_cell([])
   run(
-    tree.subscribe(token_fixture.tree, ChangeSubscribed, fn(_) { Changed }),
+    tree.subscribe_changes(token_fixture.tree, ChangeSubscribed, fn(_) {
+      Changed
+    }),
     token_sink,
   )
   use _ <- promise.await(promise.wait(0))
-  let assert [ChangeSubscribed(token)] = messages(token_sink)
+  let assert [ChangeSubscribed(Ok(token))] = messages(token_sink)
   let assert lifecycle.Unsubscribe(token) = lifecycle.subscription(False, token)
   run(tree.unsubscribe(token), token_sink)
   let assert Ok(Nil) = set_title(token_fixture.tree, "ignored")
@@ -559,14 +584,14 @@ pub fn queued_tokens_and_handles_after_close_are_released_test() -> Promise(Nil)
   use _ <- promise.await(promise.wait(0))
   let assert [Captured(Ok(tree.CommitEvent(kind, local, Some(handle))))] =
     messages(handle_sink)
-  let state: lifecycle.State(watershed.TreeRevertible) =
+  let state: lifecycle.State(shared_tree.Revertible) =
     lifecycle.State(history.new(), None, 0)
   let assert lifecycle.Transition(_, [late_handle], None) =
     lifecycle.captured(state, False, Ok(#(kind, local, Some(handle))))
   run(tree.dispose_revertible(late_handle, Disposed), handle_sink)
   use _ <- promise.await(promise.wait(0))
-  let assert watershed.RevertibleDisposed =
-    watershed.tree_revertible_status(handle)
+  let assert Ok(shared_tree.RevertibleDisposed) =
+    shared_tree.revertible_status(handle)
   watershed.close(handle_fixture.document)
   promise.resolve(Nil)
 }
@@ -574,19 +599,17 @@ pub fn queued_tokens_and_handles_after_close_are_released_test() -> Promise(Nil)
 fn fixture(items: List(#(String, String, Bool))) -> Fixture(root) {
   let stored = document_schema.stored()
   let input =
-    typed_schema.ChecklistInput(
+    checklist.Checklist(
       "SharedTree checklist",
-      list.map(items, fn(item) {
-        typed_schema.ItemInput(item.0, item.1, item.2)
-      }),
+      list.map(items, fn(item) { checklist.Item(item.0, item.1, item.2) }),
     )
-  let assert Ok(initial) = typed.build(typed_schema.builder(), input)
+  let assert Ok(initial) = builder.encode_new(document_schema.compiled(), input)
   let assert Ok(session) =
     fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
   let assert Ok(view_id) =
     fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
   let assert Ok(summary) =
-    fluid_document.initial_tree(stored, Some(initial), session, view_id)
+    fluid_document.initial_tree(stored, initial, session, view_id)
   let assert Ok(seed) = runtime_core.document_seed(summary)
   let callbacks: transport_js.Cell(Option(runtime.TransportCallbacks)) =
     transport_js.new_cell(None)
@@ -637,23 +660,17 @@ fn fixture(items: List(#(String, String, Bool))) -> Fixture(root) {
     )
       |> stringify,
   )
-  let assert Ok(root) = watershed.resolve_root(document)
-  let assert Ok(marker) = watershed.get(root, "tree")
   let assert Ok(tree) =
-    watershed.resolve_tree(document, marker, typed_schema.definition())
+    watershed.open_tree(document, document_schema.compiled())
   Fixture(document:, tree:, callbacks:, submissions:, closes:)
 }
 
 fn set_title(
-  tree: watershed.SharedTree(typed_schema.Checklist, checklist.Checklist),
+  tree: shared_tree.Tree(checklist.Checklist),
   title: String,
-) -> Result(Nil, typed.Error) {
-  use root <- result.try(watershed.tree_root(tree))
-  use root <- result.try(
-    root
-    |> option.to_result(typed.AccessFailed("The SharedTree root is absent")),
-  )
-  watershed.tree_set(root, typed_schema.title(), title)
+) -> Result(Nil, tree_error.Error) {
+  use root <- result.try(shared_tree.required_root(tree))
+  shared_tree.set(root, document_schema.title(), title)
 }
 
 fn run(

@@ -1,7 +1,6 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
 import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -12,10 +11,8 @@ import shared_tree_item_counter_lustre/counter
 import shared_tree_item_counter_lustre/schema as document_schema
 import watershed
 import watershed/id
+import watershed/tree as shared_tree
 import watershed/tree/error as tree_error
-import watershed/tree/typed
-import watershed/tree/types
-import watershed/tree_kernel
 import watershed_lustre
 import watershed_lustre/tree
 
@@ -37,8 +34,8 @@ type Model {
     phase: Phase,
     document_id: String,
     document: Option(watershed.Document(Nil)),
-    tree: Option(watershed.SharedTree(document_schema.Counter, types.TreeValue)),
-    subscription: Option(watershed.SubscriptionToken),
+    tree: Option(shared_tree.Tree(List(String))),
+    subscription: Option(shared_tree.Subscription),
     count: Int,
     busy: Bool,
     errors: List(String),
@@ -49,17 +46,11 @@ type Msg {
   Created(Result(String, tree_error.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
-  Opened(
-    Result(
-      watershed.SharedTree(document_schema.Counter, types.TreeValue),
-      typed.Error,
-    ),
-  )
-  Subscribed(watershed.SubscriptionToken)
-  Changed(tree_kernel.TreeEvent)
-  Read(Result(Option(types.TreeValue), typed.Error))
+  Opened(Result(shared_tree.Tree(List(String)), tree_error.Error))
+  Subscribed(Result(shared_tree.Subscription, tree_error.Error))
+  Read(Result(List(String), tree_error.Error))
   Edit(counter.Action)
-  Edited(Result(Nil, typed.Error))
+  Edited(Result(Nil, tree_error.Error))
   Close
 }
 
@@ -140,7 +131,10 @@ fn connect(config: Config, document_id: String) -> Effect(Msg) {
 
 fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case model.phase, message {
-    Closed, Subscribed(subscription) -> #(model, tree.unsubscribe(subscription))
+    Closed, Subscribed(Ok(subscription)) -> #(
+      model,
+      tree.unsubscribe(subscription),
+    )
     Closed, GotDocument(document) -> #(
       model,
       effect.from(fn(_) { watershed.close(document) }),
@@ -177,55 +171,46 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Some(document) -> #(
           model,
           // Open the view, as viewWith does. Creation initialized the root.
-          tree.open(document, document_schema.declaration(), Opened),
+          tree.open(document, document_schema.compiled(), Opened),
         )
         None -> fail(model, "Connection completed without a document handle")
       }
     // docs:snippet-end item-counter-watershed-open
-    Opened(Error(detail)) -> fail(model, typed_error(detail))
+    Opened(Error(detail)) -> fail(model, tree_error.to_string(detail))
     // docs:snippet-start item-counter-watershed-observe
     Opened(Ok(shared_tree)) -> #(
       Model(..model, tree: Some(shared_tree)),
       effect.batch([
         // Register for changes, as Tree.on does, and read the initial count.
-        tree.subscribe(shared_tree, Subscribed, Changed),
+        tree.observe(shared_tree, Subscribed, Read),
         tree.read_root(shared_tree, Read),
       ]),
     )
-    Subscribed(subscription) -> #(
+    Subscribed(Error(detail)) -> fail(model, tree_error.to_string(detail))
+    Subscribed(Ok(subscription)) -> #(
       // Keep the token for unsubscribe when the view closes.
       Model(..model, subscription: Some(subscription)),
       effect.none(),
     )
-    // Refresh the snapshot on each tree event, as nodeChanged refreshes length.
-    Changed(_) ->
-      case model.tree {
-        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
-        None -> fail(model, "Tree changed before it was opened")
-      }
-    Read(Error(detail)) -> fail(model, typed_error(detail))
-    Read(Ok(None)) -> fail(model, "SharedTree root is absent")
-    Read(Ok(Some(value))) ->
-      // Check the array shape, then derive the count as props.list.length does.
-      case counter.decode(value) {
-        Ok(values) -> #(
-          Model(..model, phase: Ready, count: list.length(values)),
-          effect.none(),
-        )
-        Error(detail) -> fail(model, detail)
-      }
+    Read(Error(detail)) -> fail(model, tree_error.to_string(detail))
+    Read(Ok(values)) -> #(
+      Model(..model, phase: Ready, count: list.length(values)),
+      effect.none(),
+    )
     // docs:snippet-end item-counter-watershed-observe
+    // docs:snippet-start item-counter-watershed-apply
     Edit(action) ->
       case model.phase, model.busy, model.tree {
         Ready, False, Some(shared_tree) -> #(
           Model(..model, busy: True),
-          tree.perform(fn() { apply(shared_tree, action) }, Edited),
+          tree.perform(fn() { counter.apply(shared_tree, action) }, Edited),
         )
         _, _, _ -> #(model, effect.none())
       }
+    // docs:snippet-end item-counter-watershed-apply
     Edited(Ok(Nil)) -> #(Model(..model, busy: False), effect.none())
     Edited(Error(detail)) ->
-      fail(Model(..model, busy: False), typed_error(detail))
+      fail(Model(..model, busy: False), tree_error.to_string(detail))
     Close -> {
       let cleanup = case model.subscription {
         Some(subscription) -> tree.unsubscribe(subscription)
@@ -246,63 +231,6 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         effect.batch([cleanup, close]),
       )
     }
-  }
-}
-
-// docs:snippet-start item-counter-watershed-apply
-fn apply(
-  shared_tree: watershed.SharedTree(document_schema.Counter, types.TreeValue),
-  action: counter.Action,
-) -> Result(Nil, typed.Error) {
-  // Read the current root before preparing the insertNew or removeFirst edit.
-  use root <- result.try(watershed.tree_read_root(shared_tree))
-  use value <- result.try(option.to_result(
-    root,
-    typed.AccessFailed("SharedTree root is absent"),
-  ))
-  use edit <- result.try(
-    counter.prepare(value, action) |> result.map_error(typed.DecodeFailed),
-  )
-  case edit {
-    // Removing from an empty array makes no change.
-    None -> Ok(Nil)
-    // Submit the prepared edit through the native SharedTree facade.
-    Some(edit) -> {
-      use root <- result.try(watershed.tree_root(shared_tree))
-      use node <- result.try(option.to_result(
-        root,
-        typed.AccessFailed("SharedTree root is absent"),
-      ))
-      use array <- result.try(watershed.tree_as_array(
-        node,
-        document_schema.item_decoder(),
-      ))
-      case edit {
-        types.ArrayInsert([], index, [types.StringValue(value)]) ->
-          watershed.tree_array_insert(
-            array,
-            index,
-            document_schema.item_builder(),
-            [value],
-          )
-        // Removal uses a half-open range: [0, 1) removes the first item.
-        types.ArrayRemove([], start, end) ->
-          watershed.tree_array_remove(array, start, end)
-        _ ->
-          Error(typed.AccessFailed("Item counter prepared an unsupported edit"))
-      }
-    }
-  }
-}
-
-// docs:snippet-end item-counter-watershed-apply
-
-fn typed_error(error: typed.Error) -> String {
-  case error {
-    typed.AccessFailed(reason)
-    | typed.DecodeFailed(reason)
-    | typed.InvalidDeclaration(reason) -> reason
-    typed.MissingRequired(field) -> "Missing required field: " <> field
   }
 }
 

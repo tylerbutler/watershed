@@ -53,19 +53,12 @@ fn kinds() -> List(Kind) {
         "create_tree_in",
         "open_tree",
         "resolve_tree",
-        "tree_compatibility",
-        "tree_upgrade_schema",
-        "tree_handle_of",
+        "inspect_tree",
         "set_tree_field",
         "resolve_tree_field",
       ],
-      [
-        "tree_get", "tree_set", "tree_clear", "tree_map_get", "tree_map_set",
-        "tree_map_delete", "tree_map_keys", "tree_map_entries", "tree_array_get",
-        "tree_array_values", "tree_array_insert", "tree_array_remove",
-        "tree_array_move", "tree_transaction",
-      ],
-      ["subscribe_tree"],
+      [],
+      [],
     ),
     Kind(
       "data_store",
@@ -404,7 +397,7 @@ const js_only = [
 /// Empty is the invariant, and the test below is two-sided about it: a new kind
 /// that reaches the facades without Lustre bindings fails, and so does closing a
 /// gap without deleting its entry. Neither direction can rot into prose.
-const lustre_gaps: List(String) = ["subscribe_tree"]
+const lustre_gaps: List(String) = []
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -492,6 +485,43 @@ pub fn tree_container_creation_has_native_facade_parity_test() -> Nil {
       fn(name) { set.contains(exports, name) |> expect.to_be_true() },
     )
   })
+}
+
+pub fn tree_operations_have_one_target_independent_application_module_test() -> Nil {
+  let exports = exports_of("src/watershed/tree.gleam")
+  list.each(
+    [
+      "read_root", "required_root", "optional_root", "replace_root",
+      "replace_root_new", "read", "get", "set", "set_new", "child",
+      "optional_child", "narrow", "status", "array_get", "array_node",
+      "array_insert", "array_insert_new", "array_remove", "array_move",
+      "array_remove_node", "array_move_before", "map_get", "map_node", "map_set",
+      "map_set_new", "map_delete", "transaction", "node_in_document", "fork",
+      "merge", "rebase_onto", "branch_status", "compatibility", "upgrade_schema",
+      "handle_of", "observe", "observe_node", "subscribe_changes",
+      "subscribe_commits", "unsubscribe", "dispose", "revert",
+      "revertible_status", "revertible_revision", "dispose_revertible",
+    ],
+    fn(name) { set.contains(exports, name) |> expect.to_be_true() },
+  )
+  list.each(["src/watershed.gleam", "src/watershed_beam.gleam"], fn(path) {
+    exports_of(path)
+    |> set.to_list
+    |> list.filter(fn(name) {
+      string.starts_with(name, "tree_")
+      || string.starts_with(name, "subscribe_tree")
+    })
+    |> expect.to_equal([])
+  })
+  let effects = exports_of("watershed_lustre/src/watershed_lustre/tree.gleam")
+  list.each(
+    [
+      "open", "create", "create_dev", "read_root", "observe",
+      "subscribe_changes", "subscribe_commits", "transaction", "perform",
+      "revert", "dispose_revertible", "unsubscribe", "dispose",
+    ],
+    fn(name) { set.contains(effects, name) |> expect.to_be_true() },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

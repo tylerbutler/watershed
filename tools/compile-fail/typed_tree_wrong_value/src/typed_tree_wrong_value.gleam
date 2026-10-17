@@ -1,26 +1,10 @@
-import watershed/tree/typed.{type Field, type Required}
+import watershed/tree
+import watershed/tree/schema_builder as builder
 
-@target(javascript)
-import watershed
-@target(erlang)
-import watershed_beam
-
-pub type Item
-
-pub type ItemState
-
-@target(javascript)
-pub fn javascript(
-  node: watershed.TreeNode(Item, ItemState),
-  field: Field(Item, String, Required),
-) {
-  watershed.tree_set(node, field, 42)
+pub type Item {
+  Item(text: String)
 }
 
-@target(erlang)
-pub fn erlang(
-  node: watershed_beam.TreeNode(Item, ItemState),
-  field: Field(Item, String, Required),
-) {
-  watershed_beam.tree_set(node, field, 42)
+pub fn invalid(node: tree.Ref(Item), field: builder.Property(Item, String)) {
+  tree.set(node, field, 42)
 }

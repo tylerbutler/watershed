@@ -4,10 +4,10 @@ import startest/expect
 import watershed/fluid_ids
 import watershed/tree/branch
 import watershed/tree/change
+import watershed/tree/error as tree_error
 import watershed/tree/forest
 import watershed/tree/identifier_fixture
 import watershed/tree/live_anchor as anchors
-import watershed/tree/error as tree_error
 import watershed/tree/live_types as live
 import watershed/tree/types
 

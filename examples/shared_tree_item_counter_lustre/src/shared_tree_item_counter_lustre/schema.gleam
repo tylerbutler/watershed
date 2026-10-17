@@ -1,12 +1,6 @@
-import gleam/option.{Some}
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
-import watershed/tree/typed
 import watershed/tree/types
-
-pub type Counter
-
-pub type Item
 
 // docs:snippet-start item-counter-watershed-definition
 // This identifier names the array type, as SchemaFactory names StringArray.
@@ -41,35 +35,7 @@ pub fn view() -> schema.ViewSchema {
 }
 
 // Start with an empty array, as appData.initialize([]) does.
-pub fn initial() -> types.TreeValue {
-  let assert Ok(Some(value)) = builder.encode(compiled(), [])
-  value
-}
-
-pub fn declaration() -> typed.Schema(Counter, types.TreeValue) {
-  let assert Ok(root) = typed.node(array_type, fn(value) { Ok(value) })
-  let assert Ok(value) = typed.schema(view(), root)
-  value
-}
-
-pub fn builder() -> typed.Builder(Counter, types.TreeValue) {
-  let assert Ok(value) = typed.builder(array_type, fn(value) { Ok(value) })
-  value
-}
-
-pub fn item_decoder() -> typed.NodeCodec(Item, String) {
-  let assert Ok(value) =
-    typed.node("com.fluidframework.leaf.string", fn(value) {
-      typed.decode(typed.string(), value)
-    })
-  value
-}
-
-pub fn item_builder() -> typed.Builder(Item, String) {
-  let assert Ok(value) =
-    typed.builder("com.fluidframework.leaf.string", fn(value) {
-      typed.encode(typed.string(), value)
-    })
-  value
+pub fn initial() -> List(String) {
+  []
 }
 // docs:snippet-end item-counter-watershed-schema

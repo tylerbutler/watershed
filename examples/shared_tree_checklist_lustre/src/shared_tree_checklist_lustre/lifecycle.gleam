@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import shared_tree_checklist_lustre/history
-import watershed/tree/types
+import watershed/tree as shared_tree
+import watershed/tree/history_stack as history
 
 pub type Action {
   Undoing
@@ -50,7 +50,7 @@ pub fn request(
 pub fn captured(
   state: State(entry),
   accepting: Bool,
-  outcome: Result(#(types.TreeCommitKind, Bool, Option(entry)), String),
+  outcome: Result(#(shared_tree.CommitKind, Bool, Option(entry)), String),
 ) -> Transition(entry) {
   case outcome {
     Error(detail) ->
@@ -76,12 +76,13 @@ pub fn captured(
 }
 
 pub fn settled(
-  outcome: Result(types.TreeCommitOutcome, String),
+  outcome: Result(shared_tree.CommitOutcome, String),
 ) -> Option(String) {
   case outcome {
-    Ok(types.FullyApplied) -> None
-    Ok(types.FullyDropped) -> Some("Commit settlement dropped the full change")
-    Ok(types.NewContentOnly) ->
+    Ok(shared_tree.FullyApplied) -> None
+    Ok(shared_tree.FullyDropped) ->
+      Some("Commit settlement dropped the full change")
+    Ok(shared_tree.NewContentOnly) ->
       Some("Commit settlement applied only new content")
     Error(detail) -> Some("Commit settlement failed: " <> detail)
   }
