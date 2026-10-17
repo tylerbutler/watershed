@@ -80,9 +80,7 @@ type FacadeAbort {
 
 @target(javascript)
 @external(javascript, "./shared_tree_branch_ffi.mjs", "throwTransaction")
-fn throw_transaction(
-  tree: facade_fixture.JavascriptTree,
-) -> Result(Nil, FacadeAbort)
+fn throw_transaction(tree: facade_fixture.Tree) -> Result(Nil, FacadeAbort)
 
 @target(javascript)
 fn connect_message() -> message.ConnectMessage {
@@ -1209,59 +1207,55 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_javascript(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let parent = watershed.tree_fork(main) |> expect.to_be_ok()
-  let fork = watershed.tree_fork(parent) |> expect.to_be_ok()
-  watershed.tree_dispose_branch(parent) |> expect.to_equal(Ok(Nil))
-  watershed.tree_dispose_branch(parent) |> expect.to_equal(Ok(Nil))
-  watershed.tree_branch_status(parent)
-  |> expect.to_equal(watershed.BranchDisposed)
-  watershed.tree_branch_status(fork)
-  |> expect.to_equal(watershed.BranchValid)
-  watershed.tree_dispose_branch(main) |> expect.to_be_error()
-  watershed.tree_upgrade_schema(fork) |> expect.to_be_error()
+  let parent = facade_fixture.fork(main) |> expect.to_be_ok()
+  let fork = facade_fixture.fork(parent) |> expect.to_be_ok()
+  facade_fixture.dispose_branch(parent) |> expect.to_equal(Ok(Nil))
+  facade_fixture.dispose_branch(parent) |> expect.to_equal(Ok(Nil))
+  facade_fixture.branch_status(parent)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchValid)
+  facade_fixture.dispose_branch(main) |> expect.to_be_error()
+  facade_fixture.upgrade_schema(fork) |> expect.to_be_error()
   let main_events = transport_js.new_cell([])
   let fork_events = transport_js.new_cell([])
   let _ =
-    watershed.subscribe_tree(main, fn(event) {
+    facade_fixture.subscribe(main, fn(event) {
       transport_js.set_cell(main_events, [
         event,
         ..transport_js.get_cell(main_events)
       ])
     })
   let fork_subscription =
-    watershed.subscribe_tree(fork, fn(event) {
+    facade_fixture.subscribe(fork, fn(event) {
       transport_js.set_cell(fork_events, [
         event,
         ..transport_js.get_cell(fork_events)
       ])
     })
 
-  facade_fixture.set_javascript(
-    fork,
-    ["child", "label"],
-    tree_types.StringValue("fork"),
-  )
+  facade_fixture.set(fork, ["child", "label"], tree_types.StringValue("fork"))
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_javascript(main, ["child", "label"])
+  facade_fixture.get(main, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("child"))))
-  facade_fixture.get_javascript(fork, ["child", "label"])
+  facade_fixture.get(fork, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     fork,
     ["byKey"],
     "fork",
     identifier_fixture.point("fork", "fork"),
   )
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.array_insert_javascript(fork, ["left"], 0, [
+  facade_fixture.array_insert(fork, ["left"], 0, [
     identifier_fixture.point("array", "array"),
   ])
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.map_get_javascript(main, ["byKey"], "fork")
+  facade_fixture.map_get(main, ["byKey"], "fork")
   |> expect.to_equal(Ok(None))
-  facade_fixture.array_values_javascript(main, ["left"])
+  facade_fixture.array_values(main, ["left"])
   |> expect.to_equal(Ok([]))
   transport_js.get_cell(main_events) |> expect.to_equal([])
   transport_js.get_cell(fork_events)
@@ -1271,8 +1265,8 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     tree_kernel.TreeChanged(True),
   ])
   transport_js.get_cell(submissions) |> expect.to_equal([])
-  watershed.unsubscribe(fork_subscription)
-  facade_fixture.map_set_javascript(
+  runtime.unsubscribe(fork_subscription)
+  facade_fixture.map_set(
     fork,
     ["byKey"],
     "unsubscribed",
@@ -1281,9 +1275,9 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(fork_events) |> list.length |> expect.to_equal(3)
 
-  watershed.tree_transaction(fork, [], fn(_) {
-    watershed.tree_dispose_branch(fork) |> expect.to_be_error()
-    facade_fixture.map_set_javascript(
+  facade_fixture.transaction(fork, [], fn(_) {
+    facade_fixture.dispose_branch(fork) |> expect.to_be_error()
+    facade_fixture.map_set(
       main,
       ["byKey"],
       "main",
@@ -1292,11 +1286,11 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     |> expect.to_equal(Ok(Nil))
     Error(FacadeAbort)
   })
-  |> expect.to_equal(Error(watershed.Aborted(FacadeAbort)))
-  facade_fixture.map_get_javascript(main, ["byKey"], "main")
+  |> expect.to_equal(Error(facade_fixture.Aborted(FacadeAbort)))
+  facade_fixture.map_get(main, ["byKey"], "main")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
-  facade_fixture.map_get_javascript(fork, ["byKey"], "main")
+  facade_fixture.map_get(fork, ["byKey"], "main")
   |> expect.to_equal(Ok(None))
   transport_js.get_cell(fork_events)
   |> expect.to_equal([
@@ -1305,14 +1299,14 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     tree_kernel.TreeChanged(True),
   ])
 
-  watershed.tree_transaction(fork, [], fn(tree) {
-    facade_fixture.set_javascript(
+  facade_fixture.transaction(fork, [], fn(tree) {
+    facade_fixture.set(
       tree,
       ["child", "label"],
       tree_types.StringValue("discarded-preview"),
     )
     |> expect.to_equal(Ok(Nil))
-    facade_fixture.map_set_javascript(
+    facade_fixture.map_set(
       main,
       ["byKey"],
       "throw-main",
@@ -1322,24 +1316,24 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     throw_transaction(tree)
   })
   |> expect.to_be_error()
-  facade_fixture.get_javascript(fork, ["child", "label"])
+  facade_fixture.get(fork, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
-  facade_fixture.map_get_javascript(main, ["byKey"], "throw-main")
+  facade_fixture.map_get(main, ["byKey"], "throw-main")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
-  watershed.tree_transaction(fork, [], fn(_) { Ok(Nil) })
+  facade_fixture.transaction(fork, [], fn(_) { Ok(Nil) })
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_branch_status(fork)
-  |> expect.to_equal(watershed.BranchValid)
-  watershed.tree_transaction(fork, [], fn(tree) {
-    facade_fixture.map_set_javascript(
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchValid)
+  facade_fixture.transaction(fork, [], fn(tree) {
+    facade_fixture.map_set(
       tree,
       ["byKey"],
       "committed-owner",
       identifier_fixture.point("committed-owner", "committed-owner"),
     )
     |> expect.to_equal(Ok(Nil))
-    facade_fixture.map_set_javascript(
+    facade_fixture.map_set(
       main,
       ["byKey"],
       "commit-main",
@@ -1349,16 +1343,16 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     Ok(Nil)
   })
   |> expect.to_equal(Ok(Nil))
-  let sibling = watershed.tree_fork(main) |> expect.to_be_ok()
-  watershed.tree_transaction(main, [], fn(_) {
-    facade_fixture.map_set_javascript(
+  let sibling = facade_fixture.fork(main) |> expect.to_be_ok()
+  facade_fixture.transaction(main, [], fn(_) {
+    facade_fixture.map_set(
       fork,
       ["byKey"],
       "reverse",
       identifier_fixture.point("reverse", "reverse"),
     )
     |> expect.to_equal(Ok(Nil))
-    facade_fixture.map_set_javascript(
+    facade_fixture.map_set(
       sibling,
       ["byKey"],
       "sibling",
@@ -1367,11 +1361,11 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     |> expect.to_equal(Ok(Nil))
     Error(FacadeAbort)
   })
-  |> expect.to_equal(Error(watershed.Aborted(FacadeAbort)))
-  facade_fixture.map_get_javascript(fork, ["byKey"], "reverse")
+  |> expect.to_equal(Error(facade_fixture.Aborted(FacadeAbort)))
+  facade_fixture.map_get(fork, ["byKey"], "reverse")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
-  facade_fixture.map_get_javascript(sibling, ["byKey"], "sibling")
+  facade_fixture.map_get(sibling, ["byKey"], "sibling")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
   let pending_main = transport_js.get_cell(submissions) |> list.reverse
@@ -1411,7 +1405,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     ),
   )
   let _ =
-    watershed.subscribe_tree_commits(fork, fn(event) {
+    facade_fixture.subscribe_commits(fork, fn(event) {
       event.local |> expect.to_equal(True)
       transport_js.set_cell(commit_kinds, [
         event.kind,
@@ -1435,7 +1429,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
       })
       |> expect.to_equal(Ok(Nil))
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     fork,
     ["child", "label"],
     tree_types.StringValue("branch-change"),
@@ -1444,26 +1438,26 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   let assert [original_handle] = transport_js.get_cell(handles)
   let assert Some(late_factory) = transport_js.get_cell(late_factory)
   late_factory() |> expect.to_be_error()
-  watershed.tree_revertible_status(original_handle)
-  |> expect.to_equal(watershed.RevertibleValid)
+  runtime.tree_revertible_status(original_handle)
+  |> expect.to_equal(runtime.RevertibleValid)
   transport_js.get_cell(settled) |> expect.to_equal([])
 
-  watershed.tree_rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
+  facade_fixture.rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
   let target_subscription =
-    watershed.subscribe_tree_commits(main, fn(_) {
+    facade_fixture.subscribe_commits(main, fn(_) {
       transport_js.set_cell(delivery_order, [
         "target",
         ..transport_js.get_cell(delivery_order)
       ])
       transport_js.set_cell(guarded_results, [
-        #("rebase", watershed.tree_rebase_onto(fork, main)),
-        #("merge", watershed.tree_merge(main, fork, False)),
+        #("rebase", facade_fixture.rebase_onto(fork, main)),
+        #("merge", facade_fixture.merge(main, fork, False)),
         #(
           "transaction",
-          watershed.tree_transaction(fork, [], fn(_) { Ok(Nil) })
+          facade_fixture.transaction(fork, [], fn(_) { Ok(Nil) })
             |> result.map_error(string.inspect),
         ),
-        #("revert", watershed.tree_revert(original_handle, False)),
+        #("revert", runtime.tree_revert(original_handle, False)),
         ..transport_js.get_cell(guarded_results)
       ])
       case transport_js.get_cell(queued_once) {
@@ -1474,7 +1468,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
             watershed.runtime_of(document),
             fn() {
               transport_js.set_cell(queued_revert, [
-                watershed.tree_revert(original_handle, True),
+                runtime.tree_revert(original_handle, True),
                 ..transport_js.get_cell(queued_revert)
               ])
             },
@@ -1488,7 +1482,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
       )
     })
   transport_js.set_cell(inline_ack, True)
-  watershed.tree_merge(main, fork, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(main, fork, False) |> expect.to_equal(Ok(Nil))
   transport_js.set_cell(inline_ack, False)
   transport_js.set_cell(submissions, [])
   transport_js.get_cell(delivery_order)
@@ -1506,27 +1500,27 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   transport_js.get_cell(guarded_results)
   |> list.each(fn(entry) { entry.1 |> expect.to_be_error() })
   transport_js.get_cell(queued_revert) |> expect.to_equal([])
-  watershed.unsubscribe(target_subscription)
+  runtime.unsubscribe(target_subscription)
   transport_js.get_cell(queued_actions)
   |> list.reverse
   |> list.each(fn(action) { action() })
   transport_js.get_cell(queued_revert) |> expect.to_equal([Ok(Nil)])
-  watershed.tree_branch_status(fork)
-  |> expect.to_equal(watershed.BranchValid)
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchValid)
   transport_js.get_cell(settled)
   |> expect.to_equal([tree_types.FullyApplied])
-  watershed.tree_rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
-  watershed.tree_revertible_status(original_handle)
-  |> expect.to_equal(watershed.RevertibleDisposed)
-  facade_fixture.get_javascript(fork, ["child", "label"])
+  facade_fixture.rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
+  runtime.tree_revertible_status(original_handle)
+  |> expect.to_equal(runtime.RevertibleDisposed)
+  facade_fixture.get(fork, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
   let assert [redo_handle, _] = transport_js.get_cell(handles)
-  watershed.tree_revertible_status(original_handle)
-  |> expect.to_equal(watershed.RevertibleDisposed)
-  watershed.tree_revertible_status(redo_handle)
-  |> expect.to_equal(watershed.RevertibleValid)
-  watershed.tree_revert(redo_handle, True) |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_javascript(fork, ["child", "label"])
+  runtime.tree_revertible_status(original_handle)
+  |> expect.to_equal(runtime.RevertibleDisposed)
+  runtime.tree_revertible_status(redo_handle)
+  |> expect.to_equal(runtime.RevertibleValid)
+  runtime.tree_revert(redo_handle, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.get(fork, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("branch-change"))))
   transport_js.get_cell(commit_kinds)
   |> expect.to_equal([
@@ -1534,17 +1528,17 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     tree_types.UndoCommit,
     tree_types.DefaultCommit,
   ])
-  watershed.tree_merge(main, fork, True) |> expect.to_equal(Ok(Nil))
-  watershed.tree_branch_status(main)
-  |> expect.to_equal(watershed.DocumentBranch)
-  watershed.tree_branch_status(fork)
-  |> expect.to_equal(watershed.BranchDisposed)
-  facade_fixture.get_javascript(main, ["child", "label"])
+  facade_fixture.merge(main, fork, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.branch_status(main)
+  |> expect.to_equal(tree_types.DocumentBranch)
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.get(main, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("branch-change"))))
-  facade_fixture.map_get_javascript(main, ["byKey"], "fork")
+  facade_fixture.map_get(main, ["byKey"], "fork")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
-  facade_fixture.array_values_javascript(main, ["left"])
+  facade_fixture.array_values(main, ["left"])
   |> expect.to_be_ok()
   |> list.length
   |> expect.to_equal(1)
@@ -1564,12 +1558,12 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   transport_js.set_cell(submissions, [])
   transport_js.set_cell(inline_ack, True)
   let disposed_settlements = transport_js.new_cell([])
-  let disposable = watershed.tree_fork(main) |> expect.to_be_ok()
+  let disposable = facade_fixture.fork(main) |> expect.to_be_ok()
   let _ =
-    watershed.subscribe_tree_commits(disposable, fn(event) {
+    facade_fixture.subscribe_commits(disposable, fn(event) {
       let assert Some(on_settled) = event.on_settled
       on_settled(fn(_) {
-        watershed.tree_dispose_branch(disposable) |> expect.to_equal(Ok(Nil))
+        facade_fixture.dispose_branch(disposable) |> expect.to_equal(Ok(Nil))
         transport_js.set_cell(disposed_settlements, [
           "dispose-first",
           ..transport_js.get_cell(disposed_settlements)
@@ -1584,7 +1578,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
       })
       |> expect.to_equal(Ok(Nil))
     })
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     disposable,
     ["byKey"],
     "dispose-during-settlement",
@@ -1594,28 +1588,28 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     ),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(main, disposable, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(main, disposable, False) |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(disposed_settlements)
   |> expect.to_equal(["dispose-first"])
 
   let snapshot_calls = transport_js.new_cell([])
-  let snapshot = watershed.tree_fork(main) |> expect.to_be_ok()
+  let snapshot = facade_fixture.fork(main) |> expect.to_be_ok()
   let _ =
-    watershed.subscribe_tree(snapshot, fn(_) {
+    facade_fixture.subscribe(snapshot, fn(_) {
       transport_js.set_cell(snapshot_calls, [
         "snapshot-second",
         ..transport_js.get_cell(snapshot_calls)
       ])
     })
   let _ =
-    watershed.subscribe_tree(snapshot, fn(_) {
-      watershed.tree_dispose_branch(snapshot) |> expect.to_equal(Ok(Nil))
+    facade_fixture.subscribe(snapshot, fn(_) {
+      facade_fixture.dispose_branch(snapshot) |> expect.to_equal(Ok(Nil))
       transport_js.set_cell(snapshot_calls, [
         "snapshot-first",
         ..transport_js.get_cell(snapshot_calls)
       ])
     })
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     snapshot,
     ["byKey"],
     "dispose-during-delivery",
@@ -1629,52 +1623,52 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
 
   let unsubscribe_tree_calls = transport_js.new_cell([])
   let unsubscribe_commit_calls = transport_js.new_cell([])
-  let unsubscription = watershed.tree_fork(main) |> expect.to_be_ok()
+  let unsubscription = facade_fixture.fork(main) |> expect.to_be_ok()
   let canceled_tree =
-    watershed.subscribe_tree(unsubscription, fn(_) {
+    facade_fixture.subscribe(unsubscription, fn(_) {
       transport_js.set_cell(unsubscribe_tree_calls, [
         "canceled",
         ..transport_js.get_cell(unsubscribe_tree_calls)
       ])
     })
   let _ =
-    watershed.subscribe_tree(unsubscription, fn(_) {
-      watershed.unsubscribe(canceled_tree)
+    facade_fixture.subscribe(unsubscription, fn(_) {
+      runtime.unsubscribe(canceled_tree)
       transport_js.set_cell(unsubscribe_tree_calls, [
         "canceling",
         ..transport_js.get_cell(unsubscribe_tree_calls)
       ])
     })
   let _ =
-    watershed.subscribe_tree(unsubscription, fn(_) {
+    facade_fixture.subscribe(unsubscription, fn(_) {
       transport_js.set_cell(unsubscribe_tree_calls, [
         "other",
         ..transport_js.get_cell(unsubscribe_tree_calls)
       ])
     })
   let canceled_commit =
-    watershed.subscribe_tree_commits(unsubscription, fn(_) {
+    facade_fixture.subscribe_commits(unsubscription, fn(_) {
       transport_js.set_cell(unsubscribe_commit_calls, [
         "canceled",
         ..transport_js.get_cell(unsubscribe_commit_calls)
       ])
     })
   let _ =
-    watershed.subscribe_tree_commits(unsubscription, fn(_) {
-      watershed.unsubscribe(canceled_commit)
+    facade_fixture.subscribe_commits(unsubscription, fn(_) {
+      runtime.unsubscribe(canceled_commit)
       transport_js.set_cell(unsubscribe_commit_calls, [
         "canceling",
         ..transport_js.get_cell(unsubscribe_commit_calls)
       ])
     })
   let _ =
-    watershed.subscribe_tree_commits(unsubscription, fn(_) {
+    facade_fixture.subscribe_commits(unsubscription, fn(_) {
       transport_js.set_cell(unsubscribe_commit_calls, [
         "other",
         ..transport_js.get_cell(unsubscribe_commit_calls)
       ])
     })
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     unsubscription,
     ["byKey"],
     "unsubscribe-during-delivery",
@@ -1689,12 +1683,12 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   transport_js.get_cell(unsubscribe_commit_calls)
   |> expect.to_equal(["canceling", "other"])
 
-  watershed.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
-  let live = watershed.tree_fork(main) |> expect.to_be_ok()
+  facade_fixture.dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  let live = facade_fixture.fork(main) |> expect.to_be_ok()
   let live_settlements = transport_js.new_cell([])
   let live_registrations = transport_js.new_cell([])
   let _ =
-    watershed.subscribe_tree_commits(live, fn(event) {
+    facade_fixture.subscribe_commits(live, fn(event) {
       let first = case event.on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
@@ -1729,9 +1723,9 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     })
   let closed_settlements = transport_js.new_cell([])
   let closing_registrations = transport_js.new_cell([])
-  let closing = watershed.tree_fork(main) |> expect.to_be_ok()
+  let closing = facade_fixture.fork(main) |> expect.to_be_ok()
   let _ =
-    watershed.subscribe_tree_commits(closing, fn(event) {
+    facade_fixture.subscribe_commits(closing, fn(event) {
       let first = case event.on_settled {
         Some(on_settled) ->
           on_settled(fn(_) {
@@ -1763,7 +1757,7 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
         ..transport_js.get_cell(closing_registrations)
       ])
     })
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     closing,
     ["byKey"],
     "close-during-settlement",
@@ -1775,16 +1769,16 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(closing_registrations)
   |> expect.to_equal([#(Ok(Nil), Ok(Nil))])
-  watershed.tree_merge(live, closing, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(live, closing, False) |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(live_registrations)
   |> expect.to_equal([#(Ok(Nil), Ok(Nil))])
-  watershed.tree_merge(main, closing, False) |> expect.to_be_error()
+  facade_fixture.merge(main, closing, False) |> expect.to_be_error()
   transport_js.get_cell(closed_settlements) |> expect.to_equal([])
   transport_js.get_cell(live_settlements)
   |> expect.to_equal([tree_types.FullyApplied])
 
-  watershed.tree_branch_status(live)
-  |> expect.to_equal(watershed.BranchDisposed)
+  facade_fixture.branch_status(live)
+  |> expect.to_equal(tree_types.BranchDisposed)
 }
 
 @target(javascript)
@@ -1853,11 +1847,11 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_javascript(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let source = watershed.tree_fork(main) |> expect.to_be_ok()
-  let target = watershed.tree_fork(main) |> expect.to_be_ok()
-  let descendant = watershed.tree_fork(target) |> expect.to_be_ok()
+  let source = facade_fixture.fork(main) |> expect.to_be_ok()
+  let target = facade_fixture.fork(main) |> expect.to_be_ok()
+  let descendant = facade_fixture.fork(target) |> expect.to_be_ok()
   let source_outcomes = transport_js.new_cell([])
   let target_outcomes = transport_js.new_cell([])
   let descendant_outcomes = transport_js.new_cell([])
@@ -1866,7 +1860,7 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
   let main_factory = transport_js.new_cell([])
   let registrations = transport_js.new_cell([])
   let _ =
-    watershed.subscribe_tree_commits(source, fn(event) {
+    facade_fixture.subscribe_commits(source, fn(event) {
       transport_js.set_cell(source_factory, [
         case event.get_revertible {
           Some(factory) -> factory()
@@ -1894,11 +1888,11 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
       ])
     })
   let _ =
-    watershed.subscribe_tree_commits(target, fn(event) {
+    facade_fixture.subscribe_commits(target, fn(event) {
       let first = case event.on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
-            let disposal = watershed.tree_dispose_branch(target)
+            let disposal = facade_fixture.dispose_branch(target)
             transport_js.set_cell(target_outcomes, [
               #(outcome, disposal),
               ..transport_js.get_cell(target_outcomes)
@@ -1929,7 +1923,7 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
       ])
     })
   let _ =
-    watershed.subscribe_tree_commits(descendant, fn(event) {
+    facade_fixture.subscribe_commits(descendant, fn(event) {
       let registration = case event.on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
@@ -1949,7 +1943,7 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
       ])
     })
   let _ =
-    watershed.subscribe_tree_commits(main, fn(event) {
+    facade_fixture.subscribe_commits(main, fn(event) {
       transport_js.set_cell(main_factory, [
         case event.get_revertible {
           Some(factory) -> factory()
@@ -1976,15 +1970,15 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
         ..transport_js.get_cell(registrations)
       ])
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     source,
     ["child", "label"],
     tree_types.StringValue("settled"),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(target, source, False) |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(descendant, target, False) |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(main, source, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(target, source, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(descendant, target, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(main, source, True) |> expect.to_equal(Ok(Nil))
   let assert [source_factory_result] = transport_js.get_cell(source_factory)
   source_factory_result |> expect.to_be_ok()
   let assert [main_factory_result] = transport_js.get_cell(main_factory)
@@ -2016,12 +2010,12 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
   |> expect.to_equal([tree_types.FullyApplied])
   transport_js.get_cell(main_outcomes)
   |> expect.to_equal([tree_types.FullyApplied])
-  watershed.tree_branch_status(source)
-  |> expect.to_equal(watershed.BranchDisposed)
-  watershed.tree_branch_status(target)
-  |> expect.to_equal(watershed.BranchDisposed)
-  watershed.tree_branch_status(descendant)
-  |> expect.to_equal(watershed.BranchValid)
+  facade_fixture.branch_status(source)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.branch_status(target)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.branch_status(descendant)
+  |> expect.to_equal(tree_types.BranchValid)
   callbacks.on_event(
     "op",
     frame.encode_operation_event([
@@ -2098,13 +2092,13 @@ pub fn facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_javascript(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let source = watershed.tree_fork(main) |> expect.to_be_ok()
+  let source = facade_fixture.fork(main) |> expect.to_be_ok()
   let outcomes = transport_js.new_cell([])
   let registrations = transport_js.new_cell([])
   let token =
-    watershed.subscribe_tree_commits(source, fn(event) {
+    facade_fixture.subscribe_commits(source, fn(event) {
       let registration = case event.on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
@@ -2123,15 +2117,15 @@ pub fn facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
         ..transport_js.get_cell(registrations)
       ])
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     source,
     ["child", "label"],
     tree_types.StringValue("reconnect"),
   )
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(registrations) |> expect.to_equal([Ok(Nil)])
-  watershed.unsubscribe(token)
-  watershed.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  runtime.unsubscribe(token)
+  facade_fixture.merge(main, source, False) |> expect.to_equal(Ok(Nil))
   let assert [original_payload] = transport_js.get_cell(submissions)
   let original_dynamic =
     json.parse(json.to_string(original_payload), decode.dynamic)
@@ -2224,8 +2218,8 @@ pub fn facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
   |> expect.to_equal([tree_types.FullyApplied])
   transport_js.get_cell(outcomes) |> list.length |> expect.to_equal(1)
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
-  watershed.tree_branch_status(source)
-  |> expect.to_equal(watershed.BranchValid)
+  facade_fixture.branch_status(source)
+  |> expect.to_equal(tree_types.BranchValid)
   watershed.close(document)
 }
 
@@ -2325,27 +2319,27 @@ pub fn facade_merge_invalid_inline_echo_rejects_success_delivery_test() {
   let marker = watershed.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_javascript(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let fork = watershed.tree_fork(main) |> expect.to_be_ok()
+  let fork = facade_fixture.fork(main) |> expect.to_be_ok()
   let deliveries = transport_js.new_cell(0)
   let _ =
-    watershed.subscribe_tree_commits(main, fn(_) {
+    facade_fixture.subscribe_commits(main, fn(_) {
       transport_js.set_cell(deliveries, transport_js.get_cell(deliveries) + 1)
     })
-  facade_fixture.map_set_javascript(
+  facade_fixture.map_set(
     fork,
     ["byKey"],
     "merge-candidate",
     identifier_fixture.point("merge-candidate", "merge-candidate"),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(main, fork, False) |> expect.to_be_error()
+  facade_fixture.merge(main, fork, False) |> expect.to_be_error()
   transport_js.get_cell(deliveries) |> expect.to_equal(0)
   runtime.diagnostics(watershed.runtime_of(document)).phase
   |> string.starts_with("suspended-pending-tree:")
   |> expect.to_equal(True)
-  facade_fixture.map_get_javascript(main, ["byKey"], "merge-candidate")
+  facade_fixture.map_get(main, ["byKey"], "merge-candidate")
   |> expect.to_be_ok()
   |> expect.to_not_equal(None)
   watershed.close(document)
@@ -2486,9 +2480,8 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
   let assert [view] = input.tree_views
   let definition = facade_fixture.definition(view.view) |> expect.to_be_ok()
   let assert Ok(marker) = watershed.get(root, "tree")
-  let assert Ok(tree) =
-    facade_fixture.resolve_javascript(document, marker, view.view)
-  watershed.tree_handle_of(tree)
+  let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
+  facade_fixture.handle_of(tree)
   |> expect.to_equal(handle.encode_handle("A/_C"))
   let typed = watershed.typed(root)
   watershed.resolve_tree_field(
@@ -2506,39 +2499,29 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
     definition,
   )
   |> expect.to_equal(Ok(None))
-  watershed.set_tree_field(typed, schema.channel_field("tree"), tree)
+  let assert Ok(native_tree) =
+    watershed.resolve_tree(document, marker, definition)
+  watershed.set_tree_field(typed, schema.channel_field("tree"), native_tree)
   watershed.get(root, "tree") |> expect.to_equal(Ok(marker))
   let changed = transport_js.new_cell([])
   let subscription =
-    watershed.subscribe_tree(tree, fn(event) {
+    facade_fixture.subscribe(tree, fn(event) {
       transport_js.set_cell(changed, [event, ..transport_js.get_cell(changed)])
     })
-  facade_fixture.set_javascript(
-    tree,
-    ["unknown"],
-    tree_types.StringValue("invalid"),
-  )
+  facade_fixture.set(tree, ["unknown"], tree_types.StringValue("invalid"))
   |> expect.to_be_error()
   transport_js.get_cell(changed) |> expect.to_equal([])
-  facade_fixture.set_javascript(
-    tree,
-    ["title"],
-    tree_types.StringValue("native"),
-  )
+  facade_fixture.set(tree, ["title"], tree_types.StringValue("native"))
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_javascript(tree, ["title"])
+  facade_fixture.get(tree, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
   transport_js.get_cell(changed)
   |> expect.to_equal([
     tree_kernel.TreeChanged(True),
   ])
-  watershed.unsubscribe(subscription)
-  facade_fixture.clear_javascript(tree, ["title"]) |> expect.to_be_error()
-  facade_fixture.resolve_javascript(
-    document,
-    watershed.handle_of(root),
-    view.view,
-  )
+  runtime.unsubscribe(subscription)
+  facade_fixture.clear(tree, ["title"]) |> expect.to_be_error()
+  facade_fixture.resolve(document, watershed.handle_of(root), view.view)
   |> expect.to_be_error()
   watershed.handle_of(root)
   |> json.to_string
@@ -2603,38 +2586,33 @@ pub fn routed_facade_refusals_preserve_native_diagnostics_and_state_test() {
   let assert Ok(root) = watershed.resolve_root(document)
   let assert [view] = input.tree_views
   let assert Ok(marker) = watershed.get(root, "tree")
-  let assert Ok(tree) =
-    facade_fixture.resolve_javascript(document, marker, view.view)
+  let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
   let events = transport_js.new_cell([])
   let subscription =
-    watershed.subscribe_tree(tree, fn(event) {
+    facade_fixture.subscribe(tree, fn(event) {
       transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
     })
-  let before = watershed.tree_read_root(tree) |> expect.to_be_ok()
+  let before = facade_fixture.read_root(tree) |> expect.to_be_ok()
   let operations_since_summary = watershed.operations_since_summary(document)
 
-  assert_refusal_terms(facade_fixture.clear_javascript(tree, ["title"]), [
+  assert_refusal_terms(facade_fixture.clear(tree, ["title"]), [
     "title",
     "required field",
   ])
   assert_refusal_terms(
-    facade_fixture.set_javascript(tree, ["title"], tree_types.NumberValue(7.0)),
+    facade_fixture.set(tree, ["title"], tree_types.NumberValue(7.0)),
     ["title", "leaf.number"],
   )
   assert_refusal_terms(
-    facade_fixture.set_javascript(tree, ["note"], tree_types.NullValue),
+    facade_fixture.set(tree, ["note"], tree_types.NullValue),
     ["note", "leaf.null"],
   )
   assert_refusal_terms(
-    facade_fixture.set_javascript(
-      tree,
-      ["notAField"],
-      tree_types.StringValue("invalid"),
-    ),
+    facade_fixture.set(tree, ["notAField"], tree_types.StringValue("invalid")),
     ["notAField", "unknown field"],
   )
   assert_refusal_terms(
-    facade_fixture.set_javascript(
+    facade_fixture.set(
       tree,
       ["point"],
       tree_types.ObjectValue("org.watershed.shared-tree.m1.NotPoint", [
@@ -2645,22 +2623,18 @@ pub fn routed_facade_refusals_preserve_native_diagnostics_and_state_test() {
     ["NotPoint", "unknown node schema"],
   )
 
-  watershed.tree_read_root(tree) |> expect.to_equal(Ok(before))
+  facade_fixture.read_root(tree) |> expect.to_equal(Ok(before))
   watershed.operations_since_summary(document)
   |> expect.to_equal(operations_since_summary)
   transport_js.get_cell(events) |> expect.to_equal([])
   transport_js.get_cell(submissions) |> expect.to_equal(0)
 
-  facade_fixture.set_javascript(
-    tree,
-    ["title"],
-    tree_types.StringValue("continued"),
-  )
+  facade_fixture.set(tree, ["title"], tree_types.StringValue("continued"))
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(events)
   |> expect.to_equal([tree_kernel.TreeChanged(True)])
   transport_js.get_cell(submissions) |> expect.to_equal(1)
-  watershed.unsubscribe(subscription)
+  runtime.unsubscribe(subscription)
   watershed.close(document)
 }
 
@@ -4391,7 +4365,7 @@ pub fn detached_graph_lifecycle_facade_test() {
       [],
     )
   let tree =
-    facade_fixture.create_in_from_parts_javascript(
+    facade_fixture.create_in_from_parts(
       document,
       store,
       stored,
@@ -4400,13 +4374,13 @@ pub fn detached_graph_lifecycle_facade_test() {
     )
     |> expect.to_be_ok()
   transport_js.get_cell(submissions) |> expect.to_equal([])
-  let branch = watershed.tree_fork(tree) |> expect.to_be_ok()
+  let branch = facade_fixture.fork(tree) |> expect.to_be_ok()
   let branch_revertible = transport_js.new_cell(None)
   let disposed_branch_revertibles = transport_js.new_cell([])
   let _branch_token =
-    watershed.subscribe_tree_commits(branch, fn(event) {
+    facade_fixture.subscribe_commits(branch, fn(event) {
       let acquired =
-        watershed.tree_get_revertible(event, fn(disposed) {
+        runtime.tree_get_revertible(event, fn(disposed) {
           transport_js.set_cell(disposed_branch_revertibles, [
             disposed,
             ..transport_js.get_cell(disposed_branch_revertibles)
@@ -4415,30 +4389,29 @@ pub fn detached_graph_lifecycle_facade_test() {
         |> expect.to_be_ok()
       transport_js.set_cell(branch_revertible, Some(acquired))
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     branch,
     ["child", "label"],
     tree_types.StringValue("branch-only"),
   )
   |> expect.to_equal(Ok(Nil))
-  let branch_marker = watershed.tree_handle_of(branch)
-  branch_marker |> expect.to_equal(watershed.tree_handle_of(tree))
+  let branch_marker = facade_fixture.handle_of(branch)
+  branch_marker |> expect.to_equal(facade_fixture.handle_of(tree))
   let resolved_main =
-    facade_fixture.resolve_javascript(document, branch_marker, view)
+    facade_fixture.resolve(document, branch_marker, view)
     |> expect.to_be_ok()
-  facade_fixture.get_javascript(resolved_main, ["child", "label"])
+  facade_fixture.get(resolved_main, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
   transport_js.get_cell(submissions) |> expect.to_equal([])
-  watershed.tree_dispose_branch(branch) |> expect.to_equal(Ok(Nil))
+  facade_fixture.dispose_branch(branch) |> expect.to_equal(Ok(Nil))
   let assert Some(branch_revertible) = transport_js.get_cell(branch_revertible)
   transport_js.get_cell(disposed_branch_revertibles)
   |> expect.to_equal([branch_revertible])
-  let generated =
-    facade_fixture.get_javascript(tree, ["child", "id"]) |> expect.to_be_ok()
+  let generated = facade_fixture.get(tree, ["child", "id"]) |> expect.to_be_ok()
   let commit_handles = transport_js.new_cell([])
   let late_factory = transport_js.new_cell(None)
   let token =
-    watershed.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       let assert Some(factory) = event.get_revertible
       transport_js.set_cell(late_factory, Some(factory))
       transport_js.set_cell(commit_handles, [
@@ -4446,27 +4419,27 @@ pub fn detached_graph_lifecycle_facade_test() {
         ..transport_js.get_cell(commit_handles)
       ])
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     tree,
     ["child", "label"],
     tree_types.StringValue("changed"),
   )
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_javascript(tree, ["child", "id"])
+  facade_fixture.get(tree, ["child", "id"])
   |> expect.to_equal(Ok(generated))
   transport_js.get_cell(submissions) |> expect.to_equal([])
   let assert [#(Ok(revertible), Error(_))] =
     transport_js.get_cell(commit_handles)
   let assert Some(late_factory) = transport_js.get_cell(late_factory)
   late_factory() |> expect.to_be_error()
-  watershed.unsubscribe(token)
-  watershed.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_javascript(tree, ["child", "label"])
+  runtime.unsubscribe(token)
+  runtime.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.get(tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
 
   let before = runtime.diagnostics(watershed.runtime_of(document))
   let #(mismatched_stored, _) = evolution_schema("v1")
-  facade_fixture.create_in_from_parts_javascript(
+  facade_fixture.create_in_from_parts(
     document,
     store,
     mismatched_stored,
@@ -4479,7 +4452,7 @@ pub fn detached_graph_lifecycle_facade_test() {
   transport_js.get_cell(submissions) |> expect.to_equal([])
 
   let #(_, incompatible) = evolution_schema("v1")
-  facade_fixture.create_in_from_parts_javascript(
+  facade_fixture.create_in_from_parts(
     document,
     store,
     stored,
@@ -4499,7 +4472,7 @@ pub fn detached_graph_lifecycle_facade_test() {
   let handle_view =
     tree_schema.view_from_string(handle_schema) |> expect.to_be_ok()
   let handle_tree =
-    facade_fixture.create_in_from_parts_javascript(
+    facade_fixture.create_in_from_parts(
       document,
       store,
       handle_stored,
@@ -4514,14 +4487,14 @@ pub fn detached_graph_lifecycle_facade_test() {
   let disposed_lifetime_revertibles = transport_js.new_cell([])
   let late_lifetime_factory = transport_js.new_cell(None)
   let lifetime_token =
-    watershed.subscribe_tree_commits(handle_tree, fn(event) {
+    facade_fixture.subscribe_commits(handle_tree, fn(event) {
       case transport_js.get_cell(lifetime_revertible), event.get_revertible {
         None, Some(factory) -> {
           transport_js.set_cell(late_lifetime_factory, Some(factory))
           let acquired =
-            watershed.tree_get_revertible(event, fn(disposed) {
+            runtime.tree_get_revertible(event, fn(disposed) {
               transport_js.set_cell(disposed_lifetime_revertibles, [
-                #(disposed, watershed.tree_revertible_status(disposed)),
+                #(disposed, runtime.tree_revertible_status(disposed)),
                 ..transport_js.get_cell(disposed_lifetime_revertibles)
               ])
               watershed.set(target, "undo-callback", json.string("after-undo"))
@@ -4533,26 +4506,22 @@ pub fn detached_graph_lifecycle_facade_test() {
         _, _ -> Nil
       }
     })
-  facade_fixture.set_javascript(
-    handle_tree,
-    [],
-    tree_types.HandleValue(target_reference),
-  )
+  facade_fixture.set(handle_tree, [], tree_types.HandleValue(target_reference))
   |> expect.to_equal(Ok(Nil))
   let assert Some(lifetime_revertible) =
     transport_js.get_cell(lifetime_revertible)
   let assert Some(late_lifetime_factory) =
     transport_js.get_cell(late_lifetime_factory)
   late_lifetime_factory() |> expect.to_be_error()
-  watershed.tree_revertible_status(lifetime_revertible)
-  |> expect.to_equal(watershed.RevertibleValid)
+  runtime.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(runtime.RevertibleValid)
 
   watershed.set(root, "secondary", watershed.handle_of(store_root))
-  watershed.set(store_root, "tree", watershed.tree_handle_of(tree))
+  watershed.set(store_root, "tree", facade_fixture.handle_of(tree))
   watershed.set(
     store_root,
     "handle-tree",
-    watershed.tree_handle_of(handle_tree),
+    facade_fixture.handle_of(handle_tree),
   )
   transport_js.get_cell(submissions) |> expect.to_equal([])
   run_scheduled(scheduled)
@@ -4620,14 +4589,14 @@ pub fn detached_graph_lifecycle_facade_test() {
     watershed.resolve(peer, peer_store_marker) |> expect.to_be_ok()
   let peer_tree_marker = watershed.get(peer_store, "tree") |> expect.to_be_ok()
   let peer_tree =
-    facade_fixture.resolve_javascript(peer, peer_tree_marker, view)
+    facade_fixture.resolve(peer, peer_tree_marker, view)
     |> expect.to_be_ok()
-  facade_fixture.get_javascript(peer_tree, ["child", "id"])
+  facade_fixture.get(peer_tree, ["child", "id"])
   |> expect.to_equal(Ok(generated))
-  facade_fixture.get_javascript(peer_tree, ["child", "label"])
+  facade_fixture.get(peer_tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
 
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     peer_tree,
     ["child", "label"],
     tree_types.StringValue("peer"),
@@ -4643,22 +4612,18 @@ pub fn detached_graph_lifecycle_facade_test() {
     |> json.to_string
   callbacks.on_event("op", peer_event)
   peer_callbacks.on_event("op", peer_event)
-  facade_fixture.get_javascript(tree, ["child", "label"])
+  facade_fixture.get(tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
-  facade_fixture.get_javascript(peer_tree, ["child", "label"])
+  facade_fixture.get(peer_tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
 
   let peer_handle_tree_marker =
     watershed.get(peer_store, "handle-tree") |> expect.to_be_ok()
   let peer_handle_tree =
-    facade_fixture.resolve_javascript(
-      peer,
-      peer_handle_tree_marker,
-      handle_view,
-    )
+    facade_fixture.resolve(peer, peer_handle_tree_marker, handle_view)
     |> expect.to_be_ok()
   let assert Ok(Some(tree_types.HandleValue(peer_target_reference))) =
-    facade_fixture.get_javascript(peer_handle_tree, [])
+    facade_fixture.get(peer_handle_tree, [])
   let peer_target_marker = handle.reference_to_json(peer_target_reference)
   let writer_target_before =
     watershed.resolve(document, target_marker) |> expect.to_be_ok()
@@ -4679,13 +4644,13 @@ pub fn detached_graph_lifecycle_facade_test() {
   watershed.get(writer_target_before, "peer")
   |> expect.to_equal(Ok(json.string("survives")))
 
-  watershed.tree_revert(lifetime_revertible, True)
+  runtime.tree_revert(lifetime_revertible, True)
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_revertible_status(lifetime_revertible)
-  |> expect.to_equal(watershed.RevertibleDisposed)
+  runtime.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(runtime.RevertibleDisposed)
   transport_js.get_cell(disposed_lifetime_revertibles)
   |> expect.to_equal([
-    #(lifetime_revertible, watershed.RevertibleDisposed),
+    #(lifetime_revertible, runtime.RevertibleDisposed),
   ])
   let assert [undo_callback_payload, undo_payload, _] =
     transport_js.get_cell(submissions)
@@ -4708,8 +4673,8 @@ pub fn detached_graph_lifecycle_facade_test() {
     |> json.to_string
   callbacks.on_event("op", undo_event)
   peer_callbacks.on_event("op", undo_event)
-  facade_fixture.get_javascript(handle_tree, []) |> expect.to_equal(Ok(None))
-  facade_fixture.get_javascript(peer_handle_tree, [])
+  facade_fixture.get(handle_tree, []) |> expect.to_equal(Ok(None))
+  facade_fixture.get(peer_handle_tree, [])
   |> expect.to_equal(Ok(None))
   let writer_target_after =
     watershed.resolve(document, target_marker) |> expect.to_be_ok()
@@ -4726,13 +4691,13 @@ pub fn detached_graph_lifecycle_facade_test() {
   watershed.get(peer_target_after, "undo-callback")
   |> expect.to_equal(Ok(json.string("after-undo")))
 
-  let merged_branch = watershed.tree_fork(tree) |> expect.to_be_ok()
+  let merged_branch = facade_fixture.fork(tree) |> expect.to_be_ok()
   let merged_revertible = transport_js.new_cell(None)
   let disposed_merged_revertibles = transport_js.new_cell([])
   let _merged_token =
-    watershed.subscribe_tree_commits(merged_branch, fn(event) {
+    facade_fixture.subscribe_commits(merged_branch, fn(event) {
       let acquired =
-        watershed.tree_get_revertible(event, fn(disposed) {
+        runtime.tree_get_revertible(event, fn(disposed) {
           transport_js.set_cell(disposed_merged_revertibles, [
             disposed,
             ..transport_js.get_cell(disposed_merged_revertibles)
@@ -4742,14 +4707,14 @@ pub fn detached_graph_lifecycle_facade_test() {
         |> expect.to_be_ok()
       transport_js.set_cell(merged_revertible, Some(acquired))
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     merged_branch,
     ["child", "label"],
     tree_types.StringValue("merged"),
   )
   |> expect.to_equal(Ok(Nil))
   let assert Some(merged_revertible) = transport_js.get_cell(merged_revertible)
-  watershed.tree_merge(tree, merged_branch, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(tree, merged_branch, True) |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(disposed_merged_revertibles)
   |> expect.to_equal([merged_revertible])
   let assert [merge_callback_payload, merge_payload, _, _, _] =
@@ -4773,7 +4738,7 @@ pub fn detached_graph_lifecycle_facade_test() {
     |> json.to_string
   callbacks.on_event("op", merge_event)
   peer_callbacks.on_event("op", merge_event)
-  facade_fixture.get_javascript(peer_tree, ["child", "label"])
+  facade_fixture.get(peer_tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("merged"))))
   watershed.get(writer_target_after, "merge-callback")
   |> expect.to_equal(Ok(json.string("after-merge")))
@@ -4783,9 +4748,9 @@ pub fn detached_graph_lifecycle_facade_test() {
   let explicitly_disposed = transport_js.new_cell(None)
   let explicit_notifications = transport_js.new_cell([])
   let explicit_token =
-    watershed.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       let acquired =
-        watershed.tree_get_revertible(event, fn(disposed) {
+        runtime.tree_get_revertible(event, fn(disposed) {
           transport_js.set_cell(explicit_notifications, [
             disposed,
             ..transport_js.get_cell(explicit_notifications)
@@ -4794,16 +4759,16 @@ pub fn detached_graph_lifecycle_facade_test() {
         |> expect.to_be_ok()
       transport_js.set_cell(explicitly_disposed, Some(acquired))
     })
-  facade_fixture.set_javascript(
+  facade_fixture.set(
     tree,
     ["child", "label"],
     tree_types.StringValue("explicit-dispose"),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.unsubscribe(explicit_token)
+  runtime.unsubscribe(explicit_token)
   let assert Some(explicitly_disposed) =
     transport_js.get_cell(explicitly_disposed)
-  watershed.tree_dispose_revertible(explicitly_disposed)
+  runtime.tree_dispose_revertible(explicitly_disposed)
   |> expect.to_equal(Ok(Nil))
   transport_js.get_cell(explicit_notifications)
   |> expect.to_equal([explicitly_disposed])
@@ -4811,9 +4776,9 @@ pub fn detached_graph_lifecycle_facade_test() {
   let close_revertible = transport_js.new_cell(None)
   let close_notifications = transport_js.new_cell([])
   let close_token =
-    watershed.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       let acquired =
-        watershed.tree_get_revertible(event, fn(disposed) {
+        runtime.tree_get_revertible(event, fn(disposed) {
           transport_js.set_cell(close_notifications, [
             disposed,
             ..transport_js.get_cell(close_notifications)
@@ -4822,15 +4787,11 @@ pub fn detached_graph_lifecycle_facade_test() {
         |> expect.to_be_ok()
       transport_js.set_cell(close_revertible, Some(acquired))
     })
-  facade_fixture.set_javascript(
-    tree,
-    ["child", "label"],
-    tree_types.StringValue("close"),
-  )
+  facade_fixture.set(tree, ["child", "label"], tree_types.StringValue("close"))
   |> expect.to_equal(Ok(Nil))
-  watershed.unsubscribe(close_token)
+  runtime.unsubscribe(close_token)
   let assert Some(close_revertible) = transport_js.get_cell(close_revertible)
-  watershed.unsubscribe(lifetime_token)
+  runtime.unsubscribe(lifetime_token)
   watershed.close(peer)
   watershed.close(document)
   watershed.set_checked(root, "closed", json.string("no"))
@@ -4839,7 +4800,7 @@ pub fn detached_graph_lifecycle_facade_test() {
   |> expect.to_equal([close_revertible])
   transport_js.get_cell(disposed_lifetime_revertibles)
   |> expect.to_equal([
-    #(lifetime_revertible, watershed.RevertibleDisposed),
+    #(lifetime_revertible, runtime.RevertibleDisposed),
   ])
   transport_js.get_cell(disposed_branch_revertibles)
   |> expect.to_equal([branch_revertible])

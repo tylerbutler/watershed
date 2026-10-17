@@ -5,8 +5,10 @@ production dependency. The runtime gate tests DDS-level native outbound and
 replay. The summary gate checks fresh full-hierarchy artifacts on both native
 targets and, in its focused service mode, actual native publication and
 continuation by fresh clients.
-The `client:interop` gate uses the public SharedTree facades of both native
+The `client:interop` gate uses the checked SharedTree runtimes of both native
 targets with a byte-transparent, per-client TCP gate to exercise reconnect.
+Its test-only driver accepts raw schema and operation fixtures. The canonical
+application API has separate typed, two-target regression coverage.
 
 The [client compatibility matrix](../../docs/shared-tree-client-compatibility.md)
 inventories the full pinned upstream surface and distinguishes implementation,
@@ -354,7 +356,9 @@ pinned source cases: callbacks, constraints, V5 wire data, and retained
 history. The service profile and committed profile use the same feature arrays,
 and the interoperability loader pins the resulting profile digest.
 
-Transactions use the public callback API on the JavaScript and BEAM facades.
+The fixture driver runs callbacks over the checked JavaScript and BEAM runtime
+transaction operations. Typed application transactions use `tree.transaction`
+and are covered separately by the canonical API tests on both targets.
 Nested scopes on the same tree are savepoints. One successful outer scope with
 visible edits produces one native local event, one composed commit, and one
 channel operation. Intermediate edits and inner scopes produce no public data

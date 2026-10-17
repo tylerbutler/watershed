@@ -170,11 +170,7 @@ pub fn main() -> Promise(Nil) {
                     }
                     Ok(handle) ->
                       case
-                        facade_fixture.resolve_javascript(
-                          document,
-                          handle,
-                          config.view,
-                        )
+                        facade_fixture.resolve(document, handle, config.view)
                       {
                         Error(reason) -> {
                           watershed.close(document)
@@ -203,7 +199,7 @@ pub fn main() -> Promise(Nil) {
                           let commit_event_count = transport_js.new_cell(0)
                           let subscriptions = transport_js.new_cell(dict.new())
                           let _ =
-                            watershed.subscribe_tree_commits(tree, fn(event) {
+                            facade_fixture.subscribe_commits(tree, fn(event) {
                               observe_commit(
                                 event,
                                 tree,
@@ -304,12 +300,12 @@ fn require_revert_evidence(
 
 @target(javascript)
 fn named_tree(
-  main: facade_fixture.JavascriptTree,
-  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.JavascriptTree)),
+  main: facade_fixture.Tree,
+  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.Tree)),
   owner: protocol.TreeOwner,
   name: String,
   operation: String,
-) -> Result(facade_fixture.JavascriptTree, protocol.ProtocolError) {
+) -> Result(facade_fixture.Tree, protocol.ProtocolError) {
   case name {
     "main" -> Ok(main)
     _ ->
@@ -335,11 +331,11 @@ fn selected_command(
 
 @target(javascript)
 fn selected_tree(
-  active: facade_fixture.JavascriptTree,
-  trees: Cell(Dict(String, facade_fixture.JavascriptTree)),
+  active: facade_fixture.Tree,
+  trees: Cell(Dict(String, facade_fixture.Tree)),
   selected: Option(String),
   operation: String,
-) -> Result(facade_fixture.JavascriptTree, protocol.ProtocolError) {
+) -> Result(facade_fixture.Tree, protocol.ProtocolError) {
   case selected {
     None -> Ok(active)
     Some(name) ->
@@ -405,11 +401,11 @@ fn encode_shared_map_entries(entries: List(#(String, Json))) -> Json {
 @target(javascript)
 fn remove_branch(
   owner: protocol.TreeOwner,
-  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.JavascriptTree)),
-  subscriptions: Cell(Dict(protocol.TreeOwner, watershed.SubscriptionToken)),
+  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.Tree)),
+  subscriptions: Cell(Dict(protocol.TreeOwner, runtime.SubscriptionToken)),
 ) -> Nil {
   case dict.get(transport_js.get_cell(subscriptions), owner) {
-    Ok(subscription) -> watershed.unsubscribe(subscription)
+    Ok(subscription) -> runtime.unsubscribe(subscription)
     Error(_) -> Nil
   }
   transport_js.set_cell(
@@ -425,46 +421,42 @@ fn remove_branch(
 @target(javascript)
 fn run_branch_edit(
   document: watershed.Document(a),
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   owner: protocol.TreeOwner,
   events: Cell(Dict(protocol.TreeOwner, List(Json))),
   edit: protocol.BranchEdit,
 ) -> Result(Json, protocol.ProtocolError) {
   case edit {
     protocol.BranchSet(path, value) ->
-      map_result(
-        "branchEdit",
-        facade_fixture.set_javascript(tree, path, value),
-        fn(_) { json.null() },
-      )
+      map_result("branchEdit", facade_fixture.set(tree, path, value), fn(_) {
+        json.null()
+      })
     protocol.BranchClear(path) ->
-      map_result(
-        "branchEdit",
-        facade_fixture.clear_javascript(tree, path),
-        fn(_) { json.null() },
-      )
+      map_result("branchEdit", facade_fixture.clear(tree, path), fn(_) {
+        json.null()
+      })
     protocol.BranchMapSet(path, key, value) ->
       map_result(
         "branchEdit",
-        facade_fixture.map_set_javascript(tree, path, key, value),
+        facade_fixture.map_set(tree, path, key, value),
         fn(_) { json.null() },
       )
     protocol.BranchMapDelete(path, key) ->
       map_result(
         "branchEdit",
-        facade_fixture.map_delete_javascript(tree, path, key),
+        facade_fixture.map_delete(tree, path, key),
         fn(_) { json.null() },
       )
     protocol.BranchArrayInsert(path, index, values) ->
       map_result(
         "branchEdit",
-        facade_fixture.array_insert_javascript(tree, path, index, values),
+        facade_fixture.array_insert(tree, path, index, values),
         fn(_) { json.null() },
       )
     protocol.BranchArrayRemove(path, start, end) ->
       map_result(
         "branchEdit",
-        facade_fixture.array_remove_javascript(tree, path, start, end),
+        facade_fixture.array_remove(tree, path, start, end),
         fn(_) { json.null() },
       )
     protocol.BranchArrayMove(
@@ -476,7 +468,7 @@ fn run_branch_edit(
     ) ->
       map_result(
         "branchEdit",
-        facade_fixture.array_move_javascript(
+        facade_fixture.array_move(
           tree,
           source_path,
           source_start,
@@ -497,13 +489,13 @@ fn execute(
   document: watershed.Document(a),
   _handle: Json,
   config: protocol.Descriptor,
-  active_tree: Cell(facade_fixture.JavascriptTree),
+  active_tree: Cell(facade_fixture.Tree),
   data_stores: Cell(Dict(String, watershed.DataStore)),
   maps: Cell(Dict(String, watershed.SharedMap)),
-  trees: Cell(Dict(String, facade_fixture.JavascriptTree)),
-  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.JavascriptTree)),
+  trees: Cell(Dict(String, facade_fixture.Tree)),
+  branches: Cell(Dict(protocol.TreeOwner, facade_fixture.Tree)),
   branch_subscriptions: Cell(
-    Dict(protocol.TreeOwner, watershed.SubscriptionToken),
+    Dict(protocol.TreeOwner, runtime.SubscriptionToken),
   ),
   events: Cell(Dict(protocol.TreeOwner, List(Json))),
   commits: Cell(Dict(protocol.TreeOwner, List(Json))),
@@ -511,10 +503,10 @@ fn execute(
     Dict(
       String,
       #(
-        watershed.TreeRevertible,
+        runtime.TreeRevertible,
         TreeCommitKind,
         Option(String),
-        facade_fixture.JavascriptTree,
+        facade_fixture.Tree,
         protocol.TreeOwner,
         Bool,
       ),
@@ -523,13 +515,13 @@ fn execute(
   last_local: Cell(
     Dict(
       protocol.TreeOwner,
-      #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+      #(runtime.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   commit_event_count: Cell(Int),
   outbound_sends: Cell(List(Json)),
   outbound_send_count: Cell(Int),
-  subscriptions: Cell(Dict(protocol.TreeOwner, watershed.SubscriptionToken)),
+  subscriptions: Cell(Dict(protocol.TreeOwner, runtime.SubscriptionToken)),
 ) -> Promise(String) {
   case protocol.decode_request(raw) {
     Error(error) ->
@@ -682,7 +674,7 @@ fn execute(
             use _ <- result.try(require_new_name(trees, name, "create-tree"))
             use created <- result.try(case store_name {
               None ->
-                facade_fixture.create_from_parts_javascript(
+                facade_fixture.create_from_parts(
                   document,
                   stored,
                   Some(initial),
@@ -696,7 +688,7 @@ fn execute(
                   "data store",
                   "create-tree",
                 ))
-                facade_fixture.create_in_from_parts_javascript(
+                facade_fixture.create_in_from_parts(
                   document,
                   store,
                   stored,
@@ -713,7 +705,7 @@ fn execute(
               "create-tree",
             ))
             let _ =
-              watershed.subscribe_tree_commits(created, fn(event) {
+              facade_fixture.subscribe_commits(created, fn(event) {
                 observe_commit(
                   event,
                   created,
@@ -723,16 +715,16 @@ fn execute(
                   commit_event_count,
                 )
               })
-            Ok(watershed.tree_handle_of(created))
+            Ok(facade_fixture.handle_of(created))
           }
           protocol.OpenTree(name, marker, view) -> {
             use opened <- result.try(
-              facade_fixture.resolve_javascript(document, marker, view)
+              facade_fixture.resolve(document, marker, view)
               |> result.map_error(fn(reason) { facade("open-tree", reason) }),
             )
             use _ <- result.try(insert_named(trees, name, opened, "open-tree"))
             let _ =
-              watershed.subscribe_tree_commits(opened, fn(event) {
+              facade_fixture.subscribe_commits(opened, fn(event) {
                 observe_commit(
                   event,
                   opened,
@@ -742,56 +734,52 @@ fn execute(
                   commit_event_count,
                 )
               })
-            Ok(watershed.tree_handle_of(opened))
+            Ok(facade_fixture.handle_of(opened))
           }
           protocol.SelectedTree(_, _) ->
             Error(facade("tree", "Nested tree selection is invalid"))
           protocol.Read(path) ->
             map_result(
               "read",
-              facade_fixture.get_javascript(tree, path),
+              facade_fixture.get(tree, path),
               protocol.encode_read,
             )
           protocol.Set(path, value) ->
-            map_result(
-              "set",
-              facade_fixture.set_javascript(tree, path, value),
-              fn(_) { json.null() },
-            )
+            map_result("set", facade_fixture.set(tree, path, value), fn(_) {
+              json.null()
+            })
           protocol.Clear(path) ->
-            map_result(
-              "clear",
-              facade_fixture.clear_javascript(tree, path),
-              fn(_) { json.null() },
-            )
+            map_result("clear", facade_fixture.clear(tree, path), fn(_) {
+              json.null()
+            })
           protocol.MapGet(path, key) ->
             map_result(
               "map-get",
-              facade_fixture.map_get_javascript(tree, path, key),
+              facade_fixture.map_get(tree, path, key),
               protocol.encode_read,
             )
           protocol.MapSet(path, key, value) ->
             map_result(
               "map-set",
-              facade_fixture.map_set_javascript(tree, path, key, value),
+              facade_fixture.map_set(tree, path, key, value),
               fn(_) { json.null() },
             )
           protocol.MapDelete(path, key) ->
             map_result(
               "map-delete",
-              facade_fixture.map_delete_javascript(tree, path, key),
+              facade_fixture.map_delete(tree, path, key),
               fn(_) { json.null() },
             )
           protocol.MapKeys(path) ->
             map_result(
               "map-keys",
-              facade_fixture.map_keys_javascript(tree, path),
+              facade_fixture.map_keys(tree, path),
               protocol.encode_map_keys,
             )
           protocol.MapEntries(path) ->
             map_result(
               "map-entries",
-              facade_fixture.map_entries_javascript(tree, path),
+              facade_fixture.map_entries(tree, path),
               protocol.encode_map_entries,
             )
           protocol.SchemaCompatibility(label) ->
@@ -799,9 +787,9 @@ fn execute(
               Error(error) -> Error(error)
               Ok(view) -> {
                 use opened <- result.try(
-                  facade_fixture.open_javascript(
+                  facade_fixture.open(
                     document,
-                    watershed.tree_handle_of(tree),
+                    facade_fixture.handle_of(tree),
                     view,
                   )
                   |> result.map_error(fn(reason) {
@@ -810,7 +798,7 @@ fn execute(
                 )
                 map_result(
                   "schema-compatibility",
-                  watershed.tree_compatibility(opened),
+                  facade_fixture.compatibility(opened),
                   protocol.encode_compatibility,
                 )
               }
@@ -820,9 +808,9 @@ fn execute(
               Error(error) -> Error(error)
               Ok(view) -> {
                 use opened <- result.try(
-                  facade_fixture.open_javascript(
+                  facade_fixture.open(
                     document,
-                    watershed.tree_handle_of(tree),
+                    facade_fixture.handle_of(tree),
                     view,
                   )
                   |> result.map_error(fn(reason) {
@@ -831,7 +819,7 @@ fn execute(
                 )
                 map_result(
                   "schema-upgrade",
-                  watershed.tree_upgrade_schema(opened),
+                  facade_fixture.upgrade_schema(opened),
                   fn(_) { json.null() },
                 )
               }
@@ -841,9 +829,9 @@ fn execute(
               Error(error) -> Error(error)
               Ok(view) -> {
                 use opened <- result.try(
-                  facade_fixture.open_javascript(
+                  facade_fixture.open(
                     document,
-                    watershed.tree_handle_of(tree),
+                    facade_fixture.handle_of(tree),
                     view,
                   )
                   |> result.map_error(fn(reason) { facade("open-view", reason) }),
@@ -875,25 +863,25 @@ fn execute(
           protocol.ArrayGet(path, index) ->
             map_result(
               "array-get",
-              facade_fixture.array_get_javascript(tree, path, index),
+              facade_fixture.array_get(tree, path, index),
               protocol.encode_read,
             )
           protocol.ArrayValues(path) ->
             map_result(
               "array-values",
-              facade_fixture.array_values_javascript(tree, path),
+              facade_fixture.array_values(tree, path),
               protocol.encode_array_values,
             )
           protocol.ArrayInsert(path, index, values) ->
             map_result(
               "array-insert",
-              facade_fixture.array_insert_javascript(tree, path, index, values),
+              facade_fixture.array_insert(tree, path, index, values),
               fn(_) { json.null() },
             )
           protocol.ArrayRemove(path, start, end) ->
             map_result(
               "array-remove",
-              facade_fixture.array_remove_javascript(tree, path, start, end),
+              facade_fixture.array_remove(tree, path, start, end),
               fn(_) { json.null() },
             )
           protocol.ArrayMove(
@@ -905,7 +893,7 @@ fn execute(
           ) ->
             map_result(
               "array-move",
-              facade_fixture.array_move_javascript(
+              facade_fixture.array_move(
                 tree,
                 source_path,
                 source_start,
@@ -917,11 +905,11 @@ fn execute(
             )
           protocol.ConstrainedArrayRemove(target_path, path, start, end) ->
             case
-              watershed.tree_transaction(
+              facade_fixture.transaction(
                 tree,
-                [watershed.NodeInDocument(target_path)],
+                [facade_fixture.NodeInDocument(target_path)],
                 fn(transaction_tree) {
-                  facade_fixture.array_remove_javascript(
+                  facade_fixture.array_remove(
                     transaction_tree,
                     path,
                     start,
@@ -931,9 +919,9 @@ fn execute(
               )
             {
               Ok(_) -> Ok(json.null())
-              Error(watershed.TransactionFailed(reason)) ->
+              Error(facade_fixture.TransactionFailed(reason)) ->
                 Error(facade("constrained-array-remove", reason))
-              Error(watershed.Aborted(reason)) ->
+              Error(facade_fixture.Aborted(reason)) ->
                 Error(facade("constrained-array-remove", reason))
             }
           protocol.Transaction(scope) ->
@@ -946,17 +934,17 @@ fn execute(
               "active-target-preflight",
             ))
             use target_reference <- result.try(
-              handle.reference_from_json(watershed.tree_handle_of(target), "")
+              handle.reference_from_json(facade_fixture.handle_of(target), "")
               |> result.map_error(fn(_) {
                 facade("active-target-preflight", "invalid target handle")
               }),
             )
             case
-              watershed.tree_transaction(target, [], fn(_) {
+              facade_fixture.transaction(target, [], fn(_) {
                 let before =
                   runtime_state_evidence(watershed.runtime_of(document))
                 case
-                  facade_fixture.set_javascript(
+                  facade_fixture.set(
                     tree,
                     ["link"],
                     HandleValue(target_reference),
@@ -992,9 +980,10 @@ fn execute(
                 }
               })
             {
-              Error(watershed.Aborted(Ok(evidence))) -> Ok(evidence)
-              Error(watershed.Aborted(Error(EditFailed(error)))) -> Error(error)
-              Error(watershed.Aborted(Error(RequestedAbort(_)))) ->
+              Error(facade_fixture.Aborted(Ok(evidence))) -> Ok(evidence)
+              Error(facade_fixture.Aborted(Error(EditFailed(error)))) ->
+                Error(error)
+              Error(facade_fixture.Aborted(Error(RequestedAbort(_)))) ->
                 Error(facade(
                   "active-target-preflight",
                   "active target attachment returned another abort",
@@ -1004,7 +993,7 @@ fn execute(
                   "active-target-preflight",
                   "active target attachment committed without its refusal",
                 ))
-              Error(watershed.TransactionFailed(reason)) ->
+              Error(facade_fixture.TransactionFailed(reason)) ->
                 Error(facade("active-target-preflight", reason))
             }
           }
@@ -1028,11 +1017,11 @@ fn execute(
               "fork",
             ))
             use branch <- result.try(
-              watershed.tree_fork(source_tree)
+              facade_fixture.fork(source_tree)
               |> result.map_error(fn(reason) { facade("fork", reason) }),
             )
             let subscriber =
-              watershed.subscribe_tree_commits(branch, fn(event) {
+              facade_fixture.subscribe_commits(branch, fn(event) {
                 observe_commit(
                   event,
                   branch,
@@ -1116,7 +1105,7 @@ fn execute(
               "rebaseBranch",
             ))
             use _ <- result.try(
-              watershed.tree_rebase_onto(source_tree, target_tree)
+              facade_fixture.rebase_onto(source_tree, target_tree)
               |> result.map_error(fn(reason) { facade("rebaseBranch", reason) }),
             )
             Ok(
@@ -1142,7 +1131,7 @@ fn execute(
               "mergeBranch",
             ))
             use _ <- result.try(
-              watershed.tree_merge(target_tree, source_tree, dispose)
+              facade_fixture.merge(target_tree, source_tree, dispose)
               |> result.map_error(fn(reason) { facade("mergeBranch", reason) }),
             )
             case dispose && source != "main" {
@@ -1171,7 +1160,7 @@ fn execute(
               "disposeBranch",
             ))
             use _ <- result.try(
-              watershed.tree_dispose_branch(branch)
+              facade_fixture.dispose_branch(branch)
               |> result.map_error(fn(reason) { facade("disposeBranch", reason) }),
             )
             remove_branch(
@@ -1251,7 +1240,7 @@ fn execute(
               True -> Ok(json.null())
               False -> {
                 let subscriber =
-                  watershed.subscribe_tree(tree, fn(event) {
+                  facade_fixture.subscribe(tree, fn(event) {
                     case event {
                       SchemaChanged(local) -> {
                         push_owned_json(
@@ -1290,7 +1279,7 @@ fn execute(
           protocol.Unsubscribe -> {
             case dict.get(transport_js.get_cell(subscriptions), owner) {
               Error(_) -> Nil
-              Ok(subscriber) -> watershed.unsubscribe(subscriber)
+              Ok(subscriber) -> runtime.unsubscribe(subscriber)
             }
             transport_js.set_cell(
               subscriptions,
@@ -1368,22 +1357,21 @@ type ScopeFailure {
 
 @target(javascript)
 fn apply_transaction_edit(
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   edit: protocol.TransactionEdit,
 ) -> Result(Nil, protocol.ProtocolError) {
   let outcome = case edit {
     protocol.TransactionSet(path, value) ->
-      facade_fixture.set_javascript(tree, path, value)
-    protocol.TransactionClear(path) ->
-      facade_fixture.clear_javascript(tree, path)
+      facade_fixture.set(tree, path, value)
+    protocol.TransactionClear(path) -> facade_fixture.clear(tree, path)
     protocol.TransactionMapSet(path, key, value) ->
-      facade_fixture.map_set_javascript(tree, path, key, value)
+      facade_fixture.map_set(tree, path, key, value)
     protocol.TransactionMapDelete(path, key) ->
-      facade_fixture.map_delete_javascript(tree, path, key)
+      facade_fixture.map_delete(tree, path, key)
     protocol.TransactionArrayInsert(path, index, values) ->
-      facade_fixture.array_insert_javascript(tree, path, index, values)
+      facade_fixture.array_insert(tree, path, index, values)
     protocol.TransactionArrayRemove(path, start, end) ->
-      facade_fixture.array_remove_javascript(tree, path, start, end)
+      facade_fixture.array_remove(tree, path, start, end)
     protocol.TransactionArrayMove(
       source_path,
       source_start,
@@ -1391,7 +1379,7 @@ fn apply_transaction_edit(
       destination_path,
       destination_gap,
     ) ->
-      facade_fixture.array_move_javascript(
+      facade_fixture.array_move(
         tree,
         source_path,
         source_start,
@@ -1407,7 +1395,7 @@ fn apply_transaction_edit(
 
 @target(javascript)
 fn apply_transaction_scope(
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   scope: protocol.TransactionScope,
 ) -> Result(protocol.TransactionObservation, ScopeFailure) {
   use counted <- result.try(
@@ -1428,7 +1416,7 @@ fn apply_transaction_scope(
     }),
   )
   let #(applied, nested) = counted
-  let observed = case facade_fixture.get_javascript(tree, []) {
+  let observed = case facade_fixture.get(tree, []) {
     Ok(value) -> protocol.encode_read(value)
     Error(_) -> protocol.encode_read(None)
   }
@@ -1457,19 +1445,20 @@ fn apply_transaction_scope(
 
 @target(javascript)
 fn run_transaction_scope(
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   scope: protocol.TransactionScope,
 ) -> Result(protocol.TransactionObservation, protocol.ProtocolError) {
-  let constraints = list.map(scope.constraints, watershed.NodeInDocument)
+  let constraints = list.map(scope.constraints, facade_fixture.NodeInDocument)
   case
-    watershed.tree_transaction(tree, constraints, fn(scope_tree) {
+    facade_fixture.transaction(tree, constraints, fn(scope_tree) {
       apply_transaction_scope(scope_tree, scope)
     })
   {
     Ok(observation) -> Ok(observation)
-    Error(watershed.Aborted(RequestedAbort(observation))) -> Ok(observation)
-    Error(watershed.Aborted(EditFailed(error))) -> Error(error)
-    Error(watershed.TransactionFailed(reason)) ->
+    Error(facade_fixture.Aborted(RequestedAbort(observation))) ->
+      Ok(observation)
+    Error(facade_fixture.Aborted(EditFailed(error))) -> Error(error)
+    Error(facade_fixture.TransactionFailed(reason)) ->
       Error(facade("transaction", reason))
   }
 }
@@ -1477,7 +1466,7 @@ fn run_transaction_scope(
 @target(javascript)
 fn run_transaction(
   document: watershed.Document(a),
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   owner: protocol.TreeOwner,
   events: Cell(Dict(protocol.TreeOwner, List(Json))),
   scope: protocol.TransactionScope,
@@ -1497,12 +1486,12 @@ fn run_transaction(
   let revision = case observation.outcome {
     "aborted" -> None
     _ ->
-      case watershed.tree_history_evidence(tree) {
+      case facade_fixture.history_evidence(tree) {
         Ok(history) -> protocol.last_pending_revision(history)
         Error(_) -> None
       }
   }
-  let final = case facade_fixture.get_javascript(tree, []) {
+  let final = case facade_fixture.get(tree, []) {
     Ok(value) -> protocol.encode_read(value)
     Error(_) -> protocol.encode_read(None)
   }
@@ -1518,19 +1507,19 @@ fn run_transaction(
 @target(javascript)
 fn checkpoint(
   document: watershed.Document(a),
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   owner: protocol.TreeOwner,
   events: Cell(Dict(protocol.TreeOwner, List(Json))),
   commits: Cell(Dict(protocol.TreeOwner, List(Json))),
 ) -> Result(Json, protocol.ProtocolError) {
   use history <- result.try(
-    watershed.tree_history_evidence(tree)
+    facade_fixture.history_evidence(tree)
     |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
   )
   let changes = list.reverse(owned_json(events, owner))
   set_owned_json(events, owner, [])
   let commit_events = drain_tree_commits(commits, owner)
-  case facade_fixture.get_javascript(tree, []) {
+  case facade_fixture.get(tree, []) {
     Error(reason) ->
       Ok(protocol.encode_checkpoint(
         protocol.encode_read(None),
@@ -1548,12 +1537,12 @@ fn checkpoint(
         Some(ObjectValue("org.watershed.shared-tree.m2.Root", _)) -> {
           use keys <- result.try(map_result(
             "checkpoint",
-            facade_fixture.map_keys_javascript(tree, ["items"]),
+            facade_fixture.map_keys(tree, ["items"]),
             protocol.encode_map_keys,
           ))
           use entries <- result.try(map_result(
             "checkpoint",
-            facade_fixture.map_entries_javascript(tree, ["items"]),
+            facade_fixture.map_entries(tree, ["items"]),
             protocol.encode_map_entries,
           ))
           Ok([#("keys", keys), #("entries", entries)])
@@ -1573,7 +1562,7 @@ fn checkpoint(
               #("y", ["point", "y"]),
             ]
             |> list.filter_map(fn(entry) {
-              case facade_fixture.get_javascript(tree, entry.1) {
+              case facade_fixture.get(tree, entry.1) {
                 Ok(value) -> Ok(#(entry.0, protocol.encode_read(value)))
                 Error(_) -> Error(Nil)
               }
@@ -1583,7 +1572,7 @@ fn checkpoint(
       use retained <- result.try(case root_value {
         Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> {
           use snapshot <- result.try(
-            watershed.tree_retained_snapshot(tree)
+            facade_fixture.retained_snapshot(tree)
             |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
           )
           client_retained_evidence.encode(snapshot)
@@ -1653,10 +1642,10 @@ fn commit_outcome(outcome: TreeCommitOutcome) -> String {
 }
 
 @target(javascript)
-fn revertible_status(handle: watershed.TreeRevertible) -> String {
-  case watershed.tree_revertible_status(handle) {
-    watershed.RevertibleValid -> "Valid"
-    watershed.RevertibleDisposed -> "Disposed"
+fn revertible_status(handle: runtime.TreeRevertible) -> String {
+  case runtime.tree_revertible_status(handle) {
+    runtime.RevertibleValid -> "Valid"
+    runtime.RevertibleDisposed -> "Disposed"
   }
 }
 
@@ -1706,24 +1695,24 @@ fn owner_tree_field(owner: protocol.TreeOwner) -> List(#(String, Json)) {
 
 @target(javascript)
 fn observe_commit(
-  event: watershed.TreeCommitEvent,
-  tree: facade_fixture.JavascriptTree,
+  event: runtime.TreeCommitEvent,
+  tree: facade_fixture.Tree,
   owner: protocol.TreeOwner,
   commits: Cell(Dict(protocol.TreeOwner, List(Json))),
   last_local: Cell(
     Dict(
       protocol.TreeOwner,
-      #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+      #(runtime.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   commit_event_count: Cell(Int),
 ) -> Nil {
-  let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+  let runtime.TreeCommitEvent(kind, local, factory, settlement) = event
   let event_id = transport_js.get_cell(commit_event_count) + 1
   let action_id = "event-" <> int.to_string(event_id)
   transport_js.set_cell(commit_event_count, event_id)
   let history_revision =
-    watershed.tree_history_evidence(tree)
+    facade_fixture.history_evidence(tree)
     |> result.map(protocol.history_revisions)
     |> result.unwrap([])
     |> list.last
@@ -1735,7 +1724,7 @@ fn observe_commit(
         Ok(handle) -> {
           let revision =
             Some(
-              watershed.tree_revertible_revision(handle)
+              runtime.tree_revertible_revision(handle)
               |> fluid_ids.stable_id_to_string,
             )
           transport_js.set_cell(
@@ -1809,17 +1798,17 @@ fn settlement_owner_fields(owner: protocol.TreeOwner) -> List(#(String, Json)) {
 
 @target(javascript)
 fn retain_last_local_commit(
-  tree: facade_fixture.JavascriptTree,
+  tree: facade_fixture.Tree,
   owner: protocol.TreeOwner,
   name: String,
   handles: Cell(
     Dict(
       String,
       #(
-        watershed.TreeRevertible,
+        runtime.TreeRevertible,
         TreeCommitKind,
         Option(String),
-        facade_fixture.JavascriptTree,
+        facade_fixture.Tree,
         protocol.TreeOwner,
         Bool,
       ),
@@ -1828,7 +1817,7 @@ fn retain_last_local_commit(
   last_local: Cell(
     Dict(
       protocol.TreeOwner,
-      #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+      #(runtime.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   outbound_sends: Cell(List(Json)),
@@ -1888,10 +1877,10 @@ fn revertible_status_for_name(
     Dict(
       String,
       #(
-        watershed.TreeRevertible,
+        runtime.TreeRevertible,
         TreeCommitKind,
         Option(String),
-        facade_fixture.JavascriptTree,
+        facade_fixture.Tree,
         protocol.TreeOwner,
         Bool,
       ),
@@ -1920,10 +1909,10 @@ fn dispose_revertible(
     Dict(
       String,
       #(
-        watershed.TreeRevertible,
+        runtime.TreeRevertible,
         TreeCommitKind,
         Option(String),
-        facade_fixture.JavascriptTree,
+        facade_fixture.Tree,
         protocol.TreeOwner,
         Bool,
       ),
@@ -1938,7 +1927,7 @@ fn dispose_revertible(
     }),
   )
   use _ <- result.try(
-    watershed.tree_dispose_revertible(entry.0)
+    runtime.tree_dispose_revertible(entry.0)
     |> result.map_error(fn(reason) { facade("disposeRevertible", reason) }),
   )
   Ok(
@@ -1957,10 +1946,10 @@ fn revert_handle(
     Dict(
       String,
       #(
-        watershed.TreeRevertible,
+        runtime.TreeRevertible,
         TreeCommitKind,
         Option(String),
-        facade_fixture.JavascriptTree,
+        facade_fixture.Tree,
         protocol.TreeOwner,
         Bool,
       ),
@@ -1969,7 +1958,7 @@ fn revert_handle(
   last_local: Cell(
     Dict(
       protocol.TreeOwner,
-      #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+      #(runtime.TreeRevertible, TreeCommitKind, Int, Option(String)),
     ),
   ),
   commit_event_count: Cell(Int),
@@ -1986,7 +1975,7 @@ fn revert_handle(
   let before_event_count = transport_js.get_cell(commit_event_count)
   let before_send_count = transport_js.get_cell(outbound_send_count)
   let before_commits =
-    watershed.tree_history_evidence(entry.3)
+    facade_fixture.history_evidence(entry.3)
     |> result.map(protocol.history_commit_ids)
     |> result.unwrap([])
   use originator <- result.try(case entry.5, entry.2 {
@@ -2000,7 +1989,7 @@ fn revert_handle(
     True, None -> Error(facade("revert", "Revert target lacks a revision"))
   })
   use _ <- result.try(
-    watershed.tree_revert(entry.0, dispose)
+    runtime.tree_revert(entry.0, dispose)
     |> result.map_error(fn(reason) { facade("revert", reason) }),
   )
   use authored <- result.try(
@@ -2013,7 +2002,7 @@ fn revert_handle(
   )
   let before_revisions = list.map(before_commits, fn(commit) { commit.0 })
   let submitted_revisions =
-    watershed.tree_history_evidence(entry.3)
+    facade_fixture.history_evidence(entry.3)
     |> result.map(protocol.history_commit_ids)
     |> result.unwrap([])
     |> list.filter(fn(commit) {

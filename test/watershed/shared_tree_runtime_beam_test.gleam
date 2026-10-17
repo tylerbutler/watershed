@@ -579,7 +579,7 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
       [],
     )
   let assert Ok(tree) =
-    facade_fixture.create_in_from_parts_erlang(
+    facade_fixture.create_in_from_parts(
       document,
       store,
       stored,
@@ -587,55 +587,55 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
       view,
     )
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
-  let branch = watershed_beam.tree_fork(tree) |> expect.to_be_ok()
+  let branch = facade_fixture.fork(tree) |> expect.to_be_ok()
   let branch_revertibles = process.new_subject()
   let disposed_branch_revertibles = process.new_subject()
   let _branch_token =
-    watershed_beam.subscribe_tree_commits(branch, fn(event) {
+    facade_fixture.subscribe_commits(branch, fn(event) {
       process.send(
         branch_revertibles,
-        watershed_beam.tree_get_revertible(event, fn(disposed) {
+        runtime_beam.tree_get_revertible(event, fn(disposed) {
           process.send(disposed_branch_revertibles, disposed)
         }),
       )
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     branch,
     ["child", "label"],
     tree_types.StringValue("branch-only"),
   )
   |> expect.to_equal(Ok(Nil))
-  let branch_marker = watershed_beam.tree_handle_of(branch)
-  branch_marker |> expect.to_equal(watershed_beam.tree_handle_of(tree))
+  let branch_marker = facade_fixture.handle_of(branch)
+  branch_marker |> expect.to_equal(facade_fixture.handle_of(tree))
   let resolved_main =
-    facade_fixture.resolve_erlang(document, branch_marker, view)
+    facade_fixture.resolve(document, branch_marker, view)
     |> expect.to_be_ok()
-  facade_fixture.get_erlang(resolved_main, ["child", "label"])
+  facade_fixture.get(resolved_main, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
-  watershed_beam.tree_dispose_branch(branch) |> expect.to_equal(Ok(Nil))
+  facade_fixture.dispose_branch(branch) |> expect.to_equal(Ok(Nil))
   let assert Ok(Ok(branch_revertible)) =
     process.receive(branch_revertibles, 1000)
   process.receive(disposed_branch_revertibles, 1000)
   |> expect.to_equal(Ok(branch_revertible))
   process.receive(disposed_branch_revertibles, 0)
   |> expect.to_equal(Error(Nil))
-  let assert Ok(generated) = facade_fixture.get_erlang(tree, ["child", "id"])
+  let assert Ok(generated) = facade_fixture.get(tree, ["child", "id"])
   let commit_handles = process.new_subject()
   let late_factories = process.new_subject()
   let token =
-    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       let assert Some(factory) = event.get_revertible
       process.send(late_factories, factory)
       process.send(commit_handles, #(factory(), factory()))
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     tree,
     ["child", "label"],
     tree_types.StringValue("changed"),
   )
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["child", "id"])
+  facade_fixture.get(tree, ["child", "id"])
   |> expect.to_equal(Ok(generated))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
   let assert #(Ok(revertible), Error(_)) = case
@@ -646,14 +646,14 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   }
   let late_factory = process.receive(late_factories, 1000) |> expect.to_be_ok()
   late_factory() |> expect.to_be_error()
-  watershed_beam.unsubscribe(token)
-  watershed_beam.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["child", "label"])
+  runtime_beam.unsubscribe(token)
+  runtime_beam.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.get(tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
 
   let before = runtime_beam.connection_observation(actor)
   let #(mismatched_stored, _) = evolution_schema("v1")
-  facade_fixture.create_in_from_parts_erlang(
+  facade_fixture.create_in_from_parts(
     document,
     store,
     mismatched_stored,
@@ -665,7 +665,7 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
 
   let #(_, incompatible) = evolution_schema("v1")
-  facade_fixture.create_in_from_parts_erlang(
+  facade_fixture.create_in_from_parts(
     document,
     store,
     stored,
@@ -684,7 +684,7 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let handle_view =
     tree_schema.view_from_string(handle_schema) |> expect.to_be_ok()
   let assert Ok(handle_tree) =
-    facade_fixture.create_in_from_parts_erlang(
+    facade_fixture.create_in_from_parts(
       document,
       store,
       handle_stored,
@@ -698,40 +698,36 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let disposed_lifetime_revertibles = process.new_subject()
   let late_lifetime_factories = process.new_subject()
   let lifetime_token =
-    watershed_beam.subscribe_tree_commits(handle_tree, fn(event) {
+    facade_fixture.subscribe_commits(handle_tree, fn(event) {
       let assert Some(factory) = event.get_revertible
       process.send(late_lifetime_factories, factory)
       process.send(lifetime_handles, #(
-        watershed_beam.tree_get_revertible(event, fn(disposed) {
+        runtime_beam.tree_get_revertible(event, fn(disposed) {
           process.send(disposed_lifetime_revertibles, #(
             disposed,
-            watershed_beam.tree_revertible_status(disposed),
+            runtime_beam.tree_revertible_status(disposed),
           ))
         }),
         factory(),
       ))
     })
-  facade_fixture.set_erlang(
-    handle_tree,
-    [],
-    tree_types.HandleValue(target_reference),
-  )
+  facade_fixture.set(handle_tree, [], tree_types.HandleValue(target_reference))
   |> expect.to_equal(Ok(Nil))
   let assert Ok(#(Ok(lifetime_revertible), Error(_))) =
     process.receive(lifetime_handles, 1000)
   let late_lifetime_factory =
     process.receive(late_lifetime_factories, 1000) |> expect.to_be_ok()
   late_lifetime_factory() |> expect.to_be_error()
-  watershed_beam.unsubscribe(lifetime_token)
-  watershed_beam.tree_revertible_status(lifetime_revertible)
-  |> expect.to_equal(watershed_beam.RevertibleValid)
+  runtime_beam.unsubscribe(lifetime_token)
+  runtime_beam.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(runtime_beam.RevertibleValid)
 
   watershed_beam.set(root, "secondary", watershed_beam.handle_of(store_root))
-  watershed_beam.set(store_root, "tree", watershed_beam.tree_handle_of(tree))
+  watershed_beam.set(store_root, "tree", facade_fixture.handle_of(tree))
   watershed_beam.set(
     store_root,
     "handle-tree",
-    watershed_beam.tree_handle_of(handle_tree),
+    facade_fixture.handle_of(handle_tree),
   )
   let payload = process.receive(submissions, 1000) |> expect.to_be_ok()
   let dynamic =
@@ -795,13 +791,13 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let peer_tree_marker =
     watershed_beam.get(peer_store, "tree") |> expect.to_be_ok()
   let peer_tree =
-    facade_fixture.resolve_erlang(peer, peer_tree_marker, view)
+    facade_fixture.resolve(peer, peer_tree_marker, view)
     |> expect.to_be_ok()
-  facade_fixture.get_erlang(peer_tree, ["child", "id"])
+  facade_fixture.get(peer_tree, ["child", "id"])
   |> expect.to_equal(Ok(generated))
-  facade_fixture.get_erlang(peer_tree, ["child", "label"])
+  facade_fixture.get(peer_tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("local"))))
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     peer_tree,
     ["child", "label"],
     tree_types.StringValue("peer"),
@@ -818,18 +814,18 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
     frame.encode_operation_event([sequenced_submission(peer_edit, "peer", 2)])
   callbacks.on_event("op", peer_event)
   peer_callbacks.on_event("op", peer_event)
-  facade_fixture.get_erlang(tree, ["child", "label"])
+  facade_fixture.get(tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
-  facade_fixture.get_erlang(peer_tree, ["child", "label"])
+  facade_fixture.get(peer_tree, ["child", "label"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("peer"))))
 
   let peer_handle_tree_marker =
     watershed_beam.get(peer_store, "handle-tree") |> expect.to_be_ok()
   let peer_handle_tree =
-    facade_fixture.resolve_erlang(peer, peer_handle_tree_marker, handle_view)
+    facade_fixture.resolve(peer, peer_handle_tree_marker, handle_view)
     |> expect.to_be_ok()
   let assert Ok(Some(tree_types.HandleValue(peer_target_reference))) =
-    facade_fixture.get_erlang(peer_handle_tree, [])
+    facade_fixture.get(peer_handle_tree, [])
   let peer_target_marker = handle.reference_to_json(peer_target_reference)
   let writer_target_before =
     watershed_beam.resolve(document, target_marker) |> expect.to_be_ok()
@@ -851,13 +847,13 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   watershed_beam.get(writer_target_before, "peer")
   |> expect.to_equal(Ok(json.string("survives")))
 
-  watershed_beam.tree_revert(lifetime_revertible, True)
+  runtime_beam.tree_revert(lifetime_revertible, True)
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_revertible_status(lifetime_revertible)
-  |> expect.to_equal(watershed_beam.RevertibleDisposed)
+  runtime_beam.tree_revertible_status(lifetime_revertible)
+  |> expect.to_equal(runtime_beam.RevertibleDisposed)
   process.receive(disposed_lifetime_revertibles, 1000)
   |> expect.to_equal(
-    Ok(#(lifetime_revertible, watershed_beam.RevertibleDisposed)),
+    Ok(#(lifetime_revertible, runtime_beam.RevertibleDisposed)),
   )
   process.receive(disposed_lifetime_revertibles, 0)
   |> expect.to_equal(Error(Nil))
@@ -871,8 +867,8 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
     frame.encode_operation_event([sequenced_submission(undo, "writer", 4)])
   callbacks.on_event("op", undo_event)
   peer_callbacks.on_event("op", undo_event)
-  facade_fixture.get_erlang(handle_tree, []) |> expect.to_equal(Ok(None))
-  facade_fixture.get_erlang(peer_handle_tree, []) |> expect.to_equal(Ok(None))
+  facade_fixture.get(handle_tree, []) |> expect.to_equal(Ok(None))
+  facade_fixture.get(peer_handle_tree, []) |> expect.to_equal(Ok(None))
   let writer_target_after =
     watershed_beam.resolve(document, target_marker) |> expect.to_be_ok()
   writer_target_after |> expect.to_equal(writer_target_before)
@@ -884,19 +880,19 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   watershed_beam.get(peer_target_after, "peer")
   |> expect.to_equal(Ok(json.string("survives")))
 
-  let merged_branch = watershed_beam.tree_fork(tree) |> expect.to_be_ok()
+  let merged_branch = facade_fixture.fork(tree) |> expect.to_be_ok()
   let merged_revertibles = process.new_subject()
   let disposed_merged_revertibles = process.new_subject()
   let _merged_token =
-    watershed_beam.subscribe_tree_commits(merged_branch, fn(event) {
+    facade_fixture.subscribe_commits(merged_branch, fn(event) {
       process.send(
         merged_revertibles,
-        watershed_beam.tree_get_revertible(event, fn(disposed) {
+        runtime_beam.tree_get_revertible(event, fn(disposed) {
           process.send(disposed_merged_revertibles, disposed)
         }),
       )
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     merged_branch,
     ["child", "label"],
     tree_types.StringValue("merged"),
@@ -904,7 +900,7 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   |> expect.to_equal(Ok(Nil))
   let assert Ok(Ok(merged_revertible)) =
     process.receive(merged_revertibles, 1000)
-  watershed_beam.tree_merge(tree, merged_branch, True)
+  facade_fixture.merge(tree, merged_branch, True)
   |> expect.to_equal(Ok(Nil))
   process.receive(disposed_merged_revertibles, 1000)
   |> expect.to_equal(Ok(merged_revertible))
@@ -914,15 +910,15 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let explicitly_disposed = process.new_subject()
   let explicit_notifications = process.new_subject()
   let explicit_token =
-    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       process.send(
         explicitly_disposed,
-        watershed_beam.tree_get_revertible(event, fn(disposed) {
+        runtime_beam.tree_get_revertible(event, fn(disposed) {
           process.send(explicit_notifications, disposed)
         }),
       )
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     tree,
     ["child", "label"],
     tree_types.StringValue("explicit-dispose"),
@@ -930,8 +926,8 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   |> expect.to_equal(Ok(Nil))
   let assert Ok(Ok(explicitly_disposed)) =
     process.receive(explicitly_disposed, 1000)
-  watershed_beam.unsubscribe(explicit_token)
-  watershed_beam.tree_dispose_revertible(explicitly_disposed)
+  runtime_beam.unsubscribe(explicit_token)
+  runtime_beam.tree_dispose_revertible(explicitly_disposed)
   |> expect.to_equal(Ok(Nil))
   process.receive(explicit_notifications, 1000)
   |> expect.to_equal(Ok(explicitly_disposed))
@@ -941,25 +937,21 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   let close_revertibles = process.new_subject()
   let close_notifications = process.new_subject()
   let close_token =
-    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+    facade_fixture.subscribe_commits(tree, fn(event) {
       process.send(
         close_revertibles,
-        watershed_beam.tree_get_revertible(event, fn(disposed) {
+        runtime_beam.tree_get_revertible(event, fn(disposed) {
           process.send(close_notifications, #(
             disposed,
-            watershed_beam.tree_revertible_status(disposed),
+            runtime_beam.tree_revertible_status(disposed),
           ))
         }),
       )
     })
-  facade_fixture.set_erlang(
-    tree,
-    ["child", "label"],
-    tree_types.StringValue("close"),
-  )
+  facade_fixture.set(tree, ["child", "label"], tree_types.StringValue("close"))
   |> expect.to_equal(Ok(Nil))
   let assert Ok(Ok(close_revertible)) = process.receive(close_revertibles, 1000)
-  watershed_beam.unsubscribe(close_token)
+  runtime_beam.unsubscribe(close_token)
   watershed_beam.close(peer)
   watershed_beam.close(document)
   let close_release =
@@ -989,7 +981,7 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   watershed_beam.delete_checked(root, "closed")
   |> expect.to_equal(Error("document runtime is closed"))
   process.receive(close_notifications, 1000)
-  |> expect.to_equal(Ok(#(close_revertible, watershed_beam.RevertibleDisposed)))
+  |> expect.to_equal(Ok(#(close_revertible, runtime_beam.RevertibleDisposed)))
   process.receive(close_notifications, 0) |> expect.to_equal(Error(Nil))
   process.receive(disposed_lifetime_revertibles, 0)
   |> expect.to_equal(Error(Nil))
@@ -1006,9 +998,9 @@ pub fn detached_graph_lifecycle_beam_facade_test() {
   |> expect.to_equal(Error("document runtime is closed"))
   watershed_beam.create_map_in(document, store)
   |> expect.to_equal(Error("document runtime is closed"))
-  facade_fixture.create_from_parts_erlang(document, stored, Some(initial), view)
+  facade_fixture.create_from_parts(document, stored, Some(initial), view)
   |> expect.to_equal(Error("document runtime is closed"))
-  facade_fixture.create_in_from_parts_erlang(
+  facade_fixture.create_in_from_parts(
     document,
     store,
     stored,
@@ -1885,19 +1877,19 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_erlang(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
-  let other_scope = watershed_beam.tree_fork(main) |> expect.to_be_ok()
-  let blocked = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let source = facade_fixture.fork(main) |> expect.to_be_ok()
+  let other_scope = facade_fixture.fork(main) |> expect.to_be_ok()
+  let blocked = facade_fixture.fork(main) |> expect.to_be_ok()
   let registered = process.new_subject()
   let first_started = process.new_subject()
   let close_processed = process.new_subject()
   let wait_results = process.new_subject()
   let later_started = process.new_subject()
   let _ =
-    watershed_beam.subscribe_tree_commits(source, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+    facade_fixture.subscribe_commits(source, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(
         registered,
         #("source-first", local, case on_settled {
@@ -1912,7 +1904,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
               watershed_beam.close(document)
               process.send(
                 close_processed,
-                watershed_beam.tree_branch_status(source),
+                facade_fixture.branch_status(source),
               )
             })
           None ->
@@ -1934,8 +1926,8 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
       )
     })
   let _ =
-    watershed_beam.subscribe_tree_commits(other_scope, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+    facade_fixture.subscribe_commits(other_scope, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(
         registered,
         #("other", local, case on_settled {
@@ -1948,7 +1940,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
         }),
       )
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     source,
     ["child", "label"],
     tree_types.StringValue("settle"),
@@ -1958,9 +1950,9 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
   |> expect.to_equal(Ok(#("source-first", True, Ok(Nil))))
   process.receive(registered, 1000)
   |> expect.to_equal(Ok(#("source-later", True, Ok(Nil))))
-  watershed_beam.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(main, source, False) |> expect.to_equal(Ok(Nil))
   let source_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     other_scope,
     ["child", "label"],
     tree_types.StringValue("other"),
@@ -1968,7 +1960,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
   |> expect.to_equal(Ok(Nil))
   process.receive(registered, 1000)
   |> expect.to_equal(Ok(#("other", True, Ok(Nil))))
-  watershed_beam.tree_merge(main, other_scope, False)
+  facade_fixture.merge(main, other_scope, False)
   |> expect.to_equal(Ok(Nil))
   let other_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
   let source_dynamic =
@@ -1993,7 +1985,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
 
   let delivery_entered = process.new_subject()
   let _other_token =
-    watershed_beam.subscribe_tree_commits(blocked, fn(_) {
+    facade_fixture.subscribe_commits(blocked, fn(_) {
       let release = process.new_subject()
       process.send(delivery_entered, release)
       process.send(wait_results, #(
@@ -2001,7 +1993,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
         process.receive(release, 1000),
       ))
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     blocked,
     ["child", "label"],
     tree_types.StringValue("held"),
@@ -2010,7 +2002,7 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
   let release = process.receive(delivery_entered, 1000) |> expect.to_be_ok()
   process.send(close_command, Nil)
   process.receive(close_processed, 1000)
-  |> expect.to_equal(Ok(watershed_beam.BranchDisposed))
+  |> expect.to_equal(Ok(tree_types.BranchDisposed))
   process.receive(wait_results, 1000)
   |> expect.to_equal(Ok(#("source-release", Ok(Nil))))
   await_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
@@ -2104,11 +2096,11 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_erlang(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
-  let target = watershed_beam.tree_fork(main) |> expect.to_be_ok()
-  let descendant = watershed_beam.tree_fork(target) |> expect.to_be_ok()
+  let source = facade_fixture.fork(main) |> expect.to_be_ok()
+  let target = facade_fixture.fork(main) |> expect.to_be_ok()
+  let descendant = facade_fixture.fork(target) |> expect.to_be_ok()
   let registered = process.new_subject()
   let factories = process.new_subject()
   let localities = process.new_subject()
@@ -2118,8 +2110,8 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
   let main_outcomes = process.new_subject()
   let completed = process.new_subject()
   let _ =
-    watershed_beam.subscribe_tree_commits(source, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, factory, on_settled) = event
+    facade_fixture.subscribe_commits(source, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, factory, on_settled) = event
       process.send(localities, #("source", local))
       process.send(factories, case factory {
         Some(factory) -> factory()
@@ -2136,15 +2128,15 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       })
     })
   let _ =
-    watershed_beam.subscribe_tree_commits(target, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+    facade_fixture.subscribe_commits(target, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(localities, #("target", local))
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
             process.send(target_outcomes, #(
               outcome,
-              watershed_beam.tree_dispose_branch(target),
+              facade_fixture.dispose_branch(target),
             ))
           })
         None ->
@@ -2164,8 +2156,8 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       })
     })
   let _ =
-    watershed_beam.subscribe_tree_commits(descendant, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+    facade_fixture.subscribe_commits(descendant, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(localities, #("descendant", local))
       process.send(registered, case on_settled {
         Some(on_settled) ->
@@ -2185,8 +2177,8 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       })
     })
   let _ =
-    watershed_beam.subscribe_tree_commits(main, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, factory, on_settled) = event
+    facade_fixture.subscribe_commits(main, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, factory, on_settled) = event
       process.send(localities, #("main", local))
       process.send(factories, case factory {
         Some(factory) -> factory()
@@ -2208,7 +2200,7 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
           Error(tree_error.RuntimeFailure("missing main settlement completion"))
       })
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     source,
     ["child", "label"],
     tree_types.StringValue("settled"),
@@ -2217,17 +2209,17 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
   process.receive(localities, 1000) |> expect.to_equal(Ok(#("source", True)))
   process.receive(factories, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  watershed_beam.tree_merge(target, source, False) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(target, source, False) |> expect.to_equal(Ok(Nil))
   process.receive(localities, 1000) |> expect.to_equal(Ok(#("target", True)))
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  watershed_beam.tree_merge(descendant, target, False)
+  facade_fixture.merge(descendant, target, False)
   |> expect.to_equal(Ok(Nil))
   process.receive(localities, 1000)
   |> expect.to_equal(Ok(#("descendant", True)))
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  watershed_beam.tree_merge(main, source, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.merge(main, source, True) |> expect.to_equal(Ok(Nil))
   process.receive(localities, 1000) |> expect.to_equal(Ok(#("main", True)))
   process.receive(factories, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
   process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
@@ -2259,12 +2251,12 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
   [completion_one, completion_two]
   |> list.contains("main")
   |> expect.to_be_true()
-  watershed_beam.tree_branch_status(source)
-  |> expect.to_equal(watershed_beam.BranchDisposed)
-  watershed_beam.tree_branch_status(target)
-  |> expect.to_equal(watershed_beam.BranchDisposed)
-  watershed_beam.tree_branch_status(descendant)
-  |> expect.to_equal(watershed_beam.BranchValid)
+  facade_fixture.branch_status(source)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.branch_status(target)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.branch_status(descendant)
+  |> expect.to_equal(tree_types.BranchValid)
   seal_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
   await_settlement_trace(settlement_trace, 1000)
   |> expect.to_equal(Ok(Nil))
@@ -2281,8 +2273,8 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       sequenced_submission(submitted, "reader", 1),
     ]),
   )
-  watershed_beam.tree_branch_status(descendant)
-  |> expect.to_equal(watershed_beam.BranchValid)
+  facade_fixture.branch_status(descendant)
+  |> expect.to_equal(tree_types.BranchValid)
   seal_settlement_trace(duplicate_trace, 1000) |> expect.to_equal(Ok(Nil))
   await_settlement_trace(duplicate_trace, 1000)
   |> expect.to_equal(Ok(Nil))
@@ -2353,14 +2345,14 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
   let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
   let assert [view] = input.tree_views
   let main =
-    facade_fixture.resolve_erlang(document, marker, view.view)
+    facade_fixture.resolve(document, marker, view.view)
     |> expect.to_be_ok()
-  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let source = facade_fixture.fork(main) |> expect.to_be_ok()
   let registered = process.new_subject()
   let outcomes = process.new_subject()
   let token =
-    watershed_beam.subscribe_tree_commits(source, fn(event) {
-      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+    facade_fixture.subscribe_commits(source, fn(event) {
+      let runtime_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(
         registered,
         #(local, case on_settled {
@@ -2373,7 +2365,7 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
         }),
       )
     })
-  facade_fixture.set_erlang(
+  facade_fixture.set(
     source,
     ["child", "label"],
     tree_types.StringValue("reconnect"),
@@ -2381,8 +2373,8 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
   |> expect.to_equal(Ok(Nil))
   process.receive(registered, 1000)
   |> expect.to_equal(Ok(#(True, Ok(Nil))))
-  watershed_beam.unsubscribe(token)
-  watershed_beam.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  runtime_beam.unsubscribe(token)
+  facade_fixture.merge(main, source, False) |> expect.to_equal(Ok(Nil))
   let original_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
   let original_dynamic =
     json.parse(json.to_string(original_payload), decode.dynamic)
@@ -2482,8 +2474,8 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
   )
   process.receive(outcomes, 1000)
   |> expect.to_equal(Ok(tree_types.FullyApplied))
-  watershed_beam.tree_branch_status(source)
-  |> expect.to_equal(watershed_beam.BranchValid)
+  facade_fixture.branch_status(source)
+  |> expect.to_equal(tree_types.BranchValid)
   process.receive(outcomes, 100) |> expect.to_equal(Error(Nil))
   process.receive(submissions, 100) |> expect.to_equal(Error(Nil))
   process.send(actor, runtime_beam.Shutdown)
@@ -4880,9 +4872,8 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   let assert [view] = input.tree_views
   let definition = facade_fixture.definition(view.view) |> expect.to_be_ok()
   let assert Ok(marker) = watershed_beam.get(root, "tree")
-  let assert Ok(tree) =
-    facade_fixture.resolve_erlang(document, marker, view.view)
-  watershed_beam.tree_handle_of(tree)
+  let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
+  facade_fixture.handle_of(tree)
   |> expect.to_equal(handle.encode_handle("A/_C"))
   let typed = watershed_beam.typed(root)
   watershed_beam.resolve_tree_field(
@@ -4900,29 +4891,27 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
     definition,
   )
   |> expect.to_equal(Ok(None))
-  watershed_beam.set_tree_field(typed, schema.channel_field("tree"), tree)
-  watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
-  let events = watershed_beam.subscribe_tree(tree)
-  runtime_beam.resolve_root(actor) |> expect.to_be_ok()
-  facade_fixture.set_erlang(
-    tree,
-    ["unknown"],
-    tree_types.StringValue("invalid"),
+  let assert Ok(native_tree) =
+    watershed_beam.resolve_tree(document, marker, definition)
+  watershed_beam.set_tree_field(
+    typed,
+    schema.channel_field("tree"),
+    native_tree,
   )
+  watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
+  let events = facade_fixture.subscribe(tree)
+  runtime_beam.resolve_root(actor) |> expect.to_be_ok()
+  facade_fixture.set(tree, ["unknown"], tree_types.StringValue("invalid"))
   |> expect.to_be_error()
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
-  facade_fixture.set_erlang(tree, ["title"], tree_types.StringValue("native"))
+  facade_fixture.set(tree, ["title"], tree_types.StringValue("native"))
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["title"])
+  facade_fixture.get(tree, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
-  facade_fixture.clear_erlang(tree, ["title"]) |> expect.to_be_error()
-  facade_fixture.resolve_erlang(
-    document,
-    watershed_beam.handle_of(root),
-    view.view,
-  )
+  facade_fixture.clear(tree, ["title"]) |> expect.to_be_error()
+  facade_fixture.resolve(document, watershed_beam.handle_of(root), view.view)
   |> expect.to_be_error()
   watershed_beam.handle_of(root)
   |> json.to_string
@@ -4932,35 +4921,31 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   watershed_beam.handle_of(other)
   |> json.to_string
   |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/B/root\"}")
-  let assert Ok(fork) = watershed_beam.tree_fork(tree)
-  watershed_beam.tree_branch_status(tree)
-  |> expect.to_equal(watershed_beam.DocumentBranch)
-  watershed_beam.tree_branch_status(fork)
-  |> expect.to_equal(watershed_beam.BranchValid)
-  facade_fixture.set_erlang(
-    fork,
-    ["title"],
-    tree_types.StringValue("fork-only"),
-  )
+  let assert Ok(fork) = facade_fixture.fork(tree)
+  facade_fixture.branch_status(tree)
+  |> expect.to_equal(tree_types.DocumentBranch)
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchValid)
+  facade_fixture.set(fork, ["title"], tree_types.StringValue("fork-only"))
   |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["title"])
+  facade_fixture.get(tree, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
-  let assert Ok(nested) = watershed_beam.tree_fork(fork)
-  watershed_beam.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_branch_status(fork)
-  |> expect.to_equal(watershed_beam.BranchDisposed)
-  facade_fixture.set_erlang(nested, ["title"], tree_types.StringValue("nested"))
+  let assert Ok(nested) = facade_fixture.fork(fork)
+  facade_fixture.dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  facade_fixture.dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  facade_fixture.branch_status(fork)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.set(nested, ["title"], tree_types.StringValue("nested"))
   |> expect.to_equal(Ok(Nil))
-  watershed_beam.tree_rebase_onto(nested, tree) |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["title"])
+  facade_fixture.rebase_onto(nested, tree) |> expect.to_equal(Ok(Nil))
+  facade_fixture.get(tree, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
-  watershed_beam.tree_merge(tree, nested, True) |> expect.to_equal(Ok(Nil))
-  facade_fixture.get_erlang(tree, ["title"])
+  facade_fixture.merge(tree, nested, True) |> expect.to_equal(Ok(Nil))
+  facade_fixture.get(tree, ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("nested"))))
-  watershed_beam.tree_branch_status(nested)
-  |> expect.to_equal(watershed_beam.BranchDisposed)
-  watershed_beam.tree_dispose_branch(tree) |> expect.to_be_error()
+  facade_fixture.branch_status(nested)
+  |> expect.to_equal(tree_types.BranchDisposed)
+  facade_fixture.dispose_branch(tree) |> expect.to_be_error()
   let other_callbacks_subject = process.new_subject()
   let assert Ok(other_document) =
     watershed_beam.connect_via_seed(
@@ -5001,9 +4986,9 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
     watershed_beam.resolve_root(other_document) |> expect.to_be_ok()
   let other_marker = watershed_beam.get(other_root, "tree") |> expect.to_be_ok()
   let other_tree =
-    facade_fixture.resolve_erlang(other_document, other_marker, view.view)
+    facade_fixture.resolve(other_document, other_marker, view.view)
     |> expect.to_be_ok()
-  watershed_beam.tree_merge(tree, other_tree, False) |> expect.to_be_error()
+  facade_fixture.merge(tree, other_tree, False) |> expect.to_be_error()
   process.send(other_actor, runtime_beam.Shutdown)
   process.send(actor, runtime_beam.Shutdown)
 }
@@ -5057,35 +5042,30 @@ pub fn routed_beam_facade_refusals_preserve_native_diagnostics_and_state_test() 
   let assert Ok(root) = watershed_beam.resolve_root(document)
   let assert [view] = input.tree_views
   let assert Ok(marker) = watershed_beam.get(root, "tree")
-  let assert Ok(tree) =
-    facade_fixture.resolve_erlang(document, marker, view.view)
-  let events = watershed_beam.subscribe_tree(tree)
-  let before = watershed_beam.tree_read_root(tree) |> expect.to_be_ok()
+  let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
+  let events = facade_fixture.subscribe(tree)
+  let before = facade_fixture.read_root(tree) |> expect.to_be_ok()
   let operations_since_summary =
     watershed_beam.operations_since_summary(document)
 
-  assert_refusal_terms(facade_fixture.clear_erlang(tree, ["title"]), [
+  assert_refusal_terms(facade_fixture.clear(tree, ["title"]), [
     "title",
     "required field",
   ])
   assert_refusal_terms(
-    facade_fixture.set_erlang(tree, ["title"], tree_types.NumberValue(7.0)),
+    facade_fixture.set(tree, ["title"], tree_types.NumberValue(7.0)),
     ["title", "leaf.number"],
   )
   assert_refusal_terms(
-    facade_fixture.set_erlang(tree, ["note"], tree_types.NullValue),
+    facade_fixture.set(tree, ["note"], tree_types.NullValue),
     ["note", "leaf.null"],
   )
   assert_refusal_terms(
-    facade_fixture.set_erlang(
-      tree,
-      ["notAField"],
-      tree_types.StringValue("invalid"),
-    ),
+    facade_fixture.set(tree, ["notAField"], tree_types.StringValue("invalid")),
     ["notAField", "unknown field"],
   )
   assert_refusal_terms(
-    facade_fixture.set_erlang(
+    facade_fixture.set(
       tree,
       ["point"],
       tree_types.ObjectValue("org.watershed.shared-tree.m1.NotPoint", [
@@ -5096,17 +5076,13 @@ pub fn routed_beam_facade_refusals_preserve_native_diagnostics_and_state_test() 
     ["NotPoint", "unknown node schema"],
   )
 
-  watershed_beam.tree_read_root(tree) |> expect.to_equal(Ok(before))
+  facade_fixture.read_root(tree) |> expect.to_equal(Ok(before))
   watershed_beam.operations_since_summary(document)
   |> expect.to_equal(operations_since_summary)
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
 
-  facade_fixture.set_erlang(
-    tree,
-    ["title"],
-    tree_types.StringValue("continued"),
-  )
+  facade_fixture.set(tree, ["title"], tree_types.StringValue("continued"))
   |> expect.to_equal(Ok(Nil))
   process.receive(events, 1000)
   |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
