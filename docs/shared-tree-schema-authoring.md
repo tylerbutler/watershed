@@ -286,15 +286,15 @@ For declared layouts, `with_initial_tree(layout, store, channel, compiled,
 initial)` uses the same construction rules. Pass the resulting layout to
 `create_tree_container_with_layout(config, compiled, initial, layout)`.
 
-## Native tree access
+## Open and edit a tree
 
-To open an existing document, connect, resolve the root, get its
-`"tree"` handle, and call `resolve_tree` with
-`document_schema.declaration()` as its final argument.
+After connecting and reaching readiness, call
+`watershed.open_tree(document, compiled)`. It checks the bootstrap map and
+its `"tree"` binding, then returns `watershed/tree.Tree(a)` for your
+declaration's application type. BEAM uses `watershed_beam.open_tree` with
+the same inputs. Custom layouts can use
+`resolve_tree(document, marker, compiled)` instead.
 
-The example's native record is `TreeValue`, so `tree_read_root(tree)` returns
-an `Option(TreeValue)` that `builder.decode(compiled, snapshot)` can decode.
-Other native declarations can decode their own application record directly.
 The [item-counter application](../examples/shared_tree_item_counter_lustre)
 shows the corresponding Lustre effects, subscriptions, cleanup, and error
 handling.
@@ -302,19 +302,14 @@ handling.
 Decoded records and lists are snapshots. Reconstructing a record or changing
 a local list does not submit an edit.
 
-## Typed live access
-
-Import `watershed/tree as live` and bind an existing native tree with
-`watershed.tree_typed(tree, compiled)`. On BEAM, use
-`watershed_beam.tree_typed` with the same compiled descriptor. Keep the
-property descriptors used to build your object so you can use them for reads
-and writes:
+Keep the property descriptors used to build your object so you can use them
+for reads and writes on that same tree:
 
 ```gleam
-let assert Ok(view) = watershed.tree_typed(tree, compiled)
-let assert Ok(item) = live.required_root(view)
-let assert Ok(Nil) = live.set(item, label_property, "Renamed")
-let assert Ok(label) = live.get(item, label_property)
+let assert Ok(handle) = watershed.open_tree(document, compiled)
+let assert Ok(item) = tree.required_root(handle)
+let assert Ok(Nil) = tree.set(item, label_property, "Renamed")
+let assert Ok(label) = tree.get(item, label_property)
 ```
 
 `read_root` and `read` return snapshots. A `Ref(a)` instead identifies an
@@ -407,18 +402,17 @@ transaction ownership, and reentrant writes have distinct error variants;
 | Primitive schema | Corresponding leaf function |
 | `sf.array("Name", element)` | `array(factory, "Name", element)` |
 | `sf.map("Name", value)` | `map(factory, "Name", value)` |
-| `sf.object("Name", fields)` | `object0` through `object8` |
+| `sf.object("Name", fields)` | `object` with a typed reader, or `object0` through `object8` |
 | Implicit required field | `required(key, node, getter)` |
 | `sf.optional(node)` | `optional(key, node, getter)` or `optional_root(node)` |
 | Allowed-type array | `union([variant(node, inject, project), ...])` |
 | Recursive schema reference | `lazy(factory, name, resolve)` |
 | `sf.identifier` | `identifier(key, getter)` |
-| View configuration | `view(compiled)` plus the existing native open API |
+| View configuration | `open_tree(document, compiled)`; `view(compiled)` for schema inspection |
 
-This milestone excludes anonymous names, custom codecs, schema migration,
-code generation, and typed live node references. The low-level native schema
-API retains its existing capabilities. The arity constructors support up to
-eight properties; `object` has no fixed property limit. This layer uses the
+Anonymous names, custom codecs, automatic schema migration, and code generation
+are outside this API. The arity constructors support up to eight properties;
+`object` has no fixed property limit. This layer uses the
 same Schema V2 format and does not expand the accepted interoperability profile.
 
 The independent [authoring oracle](../tools/shared-tree-oracle/README.md#typed-schema-authoring-capture)

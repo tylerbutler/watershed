@@ -72,13 +72,13 @@ returns a promise; the BEAM facade returns a result. Both preserve structured
 creation and storage errors. Creation starts no WebSocket connection and does
 not retry an uncertain result.
 
-After `connect` reports readiness, resolve the bootstrap map with `resolve_root`,
-read its `"tree"` handle, and call `resolve_tree` with the same typed
-definition. Capture the root with `tree_root`, read its snapshot with
-`tree_read`, and update the required title through the declaration's
-`title()` field.
-This fixed layout uses datastore `A`, map `/A/root`, and tree `/A/_C`. Use
-`resolve_root`, not the map-only native `root` shortcut.
+After `connect` reports readiness, call `open_tree(document, schema.compiled())`.
+It checks the bootstrap map's `"tree"` binding and returns `tree.Tree(Note)`.
+Capture the root with `tree.required_root`, update its `schema.title()`
+property with `tree.set`, and read the ordinary Note with `tree.read_root`.
+The same handle supports transactions, observation, and history.
+This fixed layout uses datastore `A`, map `/A/root`, and tree `/A/_C`;
+opening follows the checked binding rather than hardcoding that address.
 
 ## Checks
 

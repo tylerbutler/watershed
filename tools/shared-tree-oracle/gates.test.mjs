@@ -113,6 +113,15 @@ test("native gate selects both complete file suites and HTTP smokes", () => {
   ]);
 });
 
+test("format and lint select tracked sources instead of downloaded trees", () => {
+  assert.deepEqual(recipeCommands("format"), [
+    "git ls-files -z '*.gleam' | xargs -0 gleam format",
+  ]);
+  assert.deepEqual(recipeCommands("lint"), [
+    "git ls-files -z '*.gleam' | xargs -0 gleam format --check",
+  ]);
+});
+
 test("acceptance delegates to the 300-schedule coordinator", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop"), [
     "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42",
@@ -397,6 +406,22 @@ test("README initial layout example compiles against the public Gleam API", () =
     "README.md",
     "### Declare an initial container layout",
     "readme_initial_layout_example.gleam",
+  );
+});
+
+test("README transaction examples compile against the public Gleam API", () => {
+  compileMarkdownSection(
+    "README.md",
+    "### SharedTree transactions",
+    "readme_tree_transaction_examples.gleam",
+  );
+});
+
+test("README history examples compile against the public Gleam API", () => {
+  compileMarkdownSection(
+    "README.md",
+    "### SharedTree undo and redo",
+    "readme_tree_history_examples.gleam",
   );
 });
 

@@ -51,7 +51,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "observe",
     title: "Let the tree tell the view.",
     explanation:
-      "Both apps derive the count from the array, not from button clicks. React listens for nodeChanged and reads length. Lustre subscribes to the native tree, decodes a typed list snapshot, and counts its entries. That list is a value, not a live Fluid node. Both unsubscribe when their view closes; the complete Gleam app also handles a subscription delivered after Close.",
+      "Both apps derive the count from the array, not from button clicks. React listens for nodeChanged and reads length. Lustre reads the initial List(String), then observes that same typed tree and counts each delivered snapshot. Registration sends no initial value. That list is a value, not a live Fluid node. Both unsubscribe when their view closes; the complete Gleam app also handles a subscription delivered after Close.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-observe"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-observe"))],
   },
@@ -59,7 +59,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "edits",
     title: "Insert an entry. Remove the first.",
     explanation:
-      "Fluid's methods edit the array directly. watershed prepares an explicit edit against the latest checked snapshot, then submits it through the native facade. Both insert an empty string at index zero and leave an empty array alone on Remove. watershed's remove range is half-open: [0, 1).",
+      "Fluid's methods edit the array directly. watershed captures the typed root array and calls array_insert or array_remove on it. Both insert an empty string at index zero and leave an empty array alone on Remove. watershed's remove range is half-open: [0, 1).",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-edits"))],
     watershed: [
       watershedSnippet(sourceSnippet("item-counter-watershed-edits")),

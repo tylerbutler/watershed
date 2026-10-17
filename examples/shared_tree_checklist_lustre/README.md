@@ -30,24 +30,23 @@ summary storage. The Phoenix socket still connects to Floodgate on port 4000.
 
 ## Schema and edits
 
-`typed_schema.gleam` declares one
-`SharedTree(typed_schema.Checklist, checklist.Checklist)`. Container creation
-uses `typed_schema.compiled()` with the ordinary `checklist.Checklist` record;
-no raw value encoding or extra optional root is needed. Its edit builder accepts
-`ChecklistInput` and `ItemInput`; reads return the application's
+`schema.gleam` declares one `Tree(checklist.Checklist)`. Container creation
+uses `schema.compiled()` with the ordinary `checklist.Checklist` record;
+no raw value encoding or extra optional root is needed. Reads and edits use
 `checklist.Checklist` and `checklist.Item` records. The root has a required
 string `title` and a required `Items` array. Each item has required `id`,
 `text`, and `completed` fields.
 
-Decoded records are snapshots. The app also keeps live `TreeNode` handles for
-rendered items. Rename, toggle, delete, and move actions capture the native node
+Decoded records are snapshots. The app also keeps `Ref(Item)` values for
+rendered items. Rename, toggle, delete, and move actions capture the node
 identity, so an intervening reorder does not redirect an action to the item now
 at the old index. Removing an item invalidates its captured node. Inserting a
 new item with the same application `id` does not make the old handle valid.
 Position-based insertion still uses the current array when the effect runs.
 
-The app owns its undo and redo stacks. It subscribes to local SharedTree
-commits, retains the native revertible handles, and disposes handles when a new
+The app owns its undo and redo entries, using the pure
+`watershed/tree/history_stack` policy. It subscribes to SharedTree commits,
+retains eligible local revertibles, and disposes handles when a new
 edit invalidates redo or the user clears history. **Complete all** reads the
 latest snapshot inside one native transaction, so every incomplete item changes
 in one commit and one undo step. An all-complete checklist creates no commit.

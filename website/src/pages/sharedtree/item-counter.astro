@@ -83,7 +83,7 @@ const fluidSource =
       <p>
         Fluid's detached create, initialize, and attach sequence isn't a
         one-for-one match for watershed's create-with-schema, connect, and
-        resolve-tree flow. The Gleam example uses its own schema namespace
+        open-tree flow. The Gleam example uses its own schema namespace
         and the native Floodgate container layout. These apps aren't presented
         as opening each other's documents.
       </p>
@@ -94,7 +94,7 @@ const fluidSource =
         two. What survives is decided by the array's merge rules.
       </p>
       <p>
-        The complete example includes setup, decoding, error handling, and
+        The complete example includes setup, typed reads, error handling, and
         subscription cleanup that would distract from some of these excerpts.
         It uses development-only browser token minting. Production
         authentication belongs on a backend, not in a shipped tenant secret.

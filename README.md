@@ -102,12 +102,12 @@ The [client compatibility matrix](docs/shared-tree-client-compatibility.md)
 compares the full pinned SharedTree API surface with both native targets,
 separating collaboration blockers, local API differences, and missing proof.
 
-Identifier fields contain ordinary strings. Omit an Identifier when you insert
-a new object and the document compressor generates one; provide a string when
-you need an external ID. Reads return that string unchanged. An attached
+Identifier fields use `Generate` for new content and `Assigned(string)` for an
+existing or external ID. The document compressor materializes generated IDs;
+reads return `Assigned(string)`. An attached
 Identifier field is read-only, so changing an ID requires replacing its parent
 object. Duplicate custom strings are allowed and do not make two nodes the same
-node: moves, references, and `NodeInDocument` constraints still use node
+node: moves, references, and `node_in_document` constraints still use node
 identity.
 
 Messages can compress known IDs with the author's session and allocation
@@ -119,8 +119,9 @@ The Identifier profile does not add incremental FieldBatch chunks, arbitrary
 container layouts, `Tree.shortId`, an identifier index, global uniqueness
 checks, a detached JavaScript-style node builder, or UUIDv5 healing.
 Transactions are synchronous and limited to one tree. Undo and redo use
-application-owned, runtime-local revertible handles; Watershed does not provide
-or persist an undo stack.
+application-owned, runtime-local revertible handles. The optional
+`watershed/tree/history_stack` helper supplies pure stack policy, not persistent
+history or automatic ownership.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
@@ -151,41 +152,35 @@ resolution requires an absolute marker. Use
 `bind_handle(document, source_handle, value)` to resolve a relative marker in
 its source channel's datastore.
 
-After readiness, use `resolve_root(document)`, `get(root, "tree")`, and
-`resolve_tree(document, handle, definition)` to reach an existing tree.
-`definition` pairs a strict view schema with a hand-authored decoder. The
-facades expose one application tree type, `SharedTree(schema, record)`.
-The earlier path-and-`TreeValue` read and edit calls were removed; this is a
-breaking migration for the experimental API. There is no `TypedTree` wrapper
-or raw application escape.
+After readiness, call `open_tree(document, compiled)` to check the bootstrap
+map's `"tree"` binding and open a `watershed/tree.Tree(a)`. The compiled
+declaration supplies its schema and snapshot codecs. Use
+`resolve_tree(document, marker, compiled)` for an explicit custom route.
 
 ### Typed SharedTree application API
 
-The schema tag, decoded record, and construction input serve different jobs.
-The tag prevents a field from one schema being used with another. The record is
-an immutable snapshot. The input tells a builder what to insert and can omit an
-Identifier that the runtime owns. This declaration reads the generated `id`
-but never accepts it in `CardInput`:
+Declare ordinary Gleam records with `watershed/tree/schema_builder`, compile
+once, and keep the resulting `Compiled(a)`. Within a connected document,
+`create_tree` and `open_tree` return the same `watershed/tree.Tree(a)` used for
+edits, observation, transactions, branches, and undo. There is no separate
+live-view binding.
+
+This declaration includes a generated Identifier, an optional string, and an
+optional null. Getters and constructor arguments must describe the same record:
 
 ```gleam
-import gleam/json.{type Json}
-import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/javascript/promise.{type Promise}
+import gleam/option.{type Option, None}
 import gleam/result
 import watershed
 import watershed/container
-import watershed/tree/schema
-import watershed/tree/typed
-import watershed/tree/types
-
-const card_type = "example.Card"
-const card_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"example.Card\":{\"kind\":{\"object\":{\"deletedAt\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]},\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"status\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"example.Card\"]}}"
-
-pub type CardSchema
+import watershed/tree
+import watershed/tree/error
+import watershed/tree/schema_builder as builder
 
 pub type Card {
   Card(
-    id: String,
+    id: builder.Identifier,
     title: String,
     note: Option(String),
     status: Nil,
@@ -193,628 +188,358 @@ pub type Card {
   )
 }
 
-pub type CardInput {
-  CardInput(title: String, note: Option(String))
+pub fn title() -> builder.Property(Card, String) {
+  builder.required("title", builder.string(), fn(card: Card) { card.title })
 }
 
-pub fn title() -> typed.Field(CardSchema, String, typed.Required) {
-  typed.required("title", typed.string())
+pub fn compiled() -> builder.Compiled(Card) {
+  let assert Ok(compiled) =
+    builder.object5(
+      builder.factory("example"),
+      "Card",
+      Card,
+      builder.identifier("id", fn(card: Card) { card.id }),
+      title(),
+      builder.optional("note", builder.string(), fn(card: Card) { card.note }),
+      builder.required("status", builder.null(), fn(card: Card) { card.status }),
+      builder.optional("deletedAt", builder.null(), fn(card: Card) {
+        card.deleted_at
+      }),
+    )
+    |> builder.root
+    |> builder.compile
+  compiled
 }
 
-pub fn note() -> typed.Field(CardSchema, String, typed.Optional) {
-  typed.optional("note", typed.string())
-}
-
-pub fn card_builder() -> typed.Builder(CardSchema, CardInput) {
-  let assert Ok(value) =
-    typed.builder(card_type, fn(input: CardInput) {
-      let note = case input.note {
-        None -> []
-        Some(value) -> [#("note", types.StringValue(value))]
-      }
-      Ok(types.ObjectValue(card_type, [
-        #("title", types.StringValue(input.title)),
-        #("status", types.NullValue),
-        ..note
-      ]))
-    })
-  value
-}
-
-pub fn card_definition() -> typed.Schema(CardSchema, Card) {
-  let assert Ok(view) = schema.view_from_string(card_schema)
-  let assert Ok(codec) =
-    typed.node(card_type, fn(value) {
-      let assert types.ObjectValue(_, fields) = value
-      use id <- result.try(required(fields, "id", typed.string()))
-      use title <- result.try(required(fields, "title", typed.string()))
-      use note <- result.try(optional(fields, "note", typed.string()))
-      use status <- result.try(required(fields, "status", typed.null()))
-      use deleted_at <- result.try(optional(fields, "deletedAt", typed.null()))
-      Ok(Card(id:, title:, note:, status:, deleted_at:))
-    })
-  let assert Ok(value) = typed.schema(view, codec)
-  value
-}
-
-fn required(
-  fields: List(#(String, types.TreeValue)),
-  key: String,
-  codec: typed.Codec(value),
-) -> Result(value, typed.Error) {
-  case list.key_find(fields, key) {
-    Ok(value) -> typed.decode(codec, value)
-    Error(Nil) -> Error(typed.MissingRequired(key))
-  }
-}
-
-fn optional(
-  fields: List(#(String, types.TreeValue)),
-  key: String,
-  codec: typed.Codec(value),
-) -> Result(Option(value), typed.Error) {
-  case list.key_find(fields, key) {
-    Ok(value) -> typed.decode(codec, value) |> result.map(Some)
-    Error(Nil) -> Ok(None)
-  }
-}
-```
-
-Creation validates the declaration and builder before it allocates a document.
-Resolution checks the current stored schema. Reads and edits repeat those
-runtime checks because a remote schema change can invalidate a handle even
-though its Gleam tags still match:
-
-```gleam
-pub fn create(config: container.CreateConfig) {
+pub fn create(
+  config: container.CreateConfig,
+  compiled: builder.Compiled(Card),
+) -> Promise(Result(String, error.Error)) {
   watershed.create_tree_container(
     config,
-    card_definition(),
-    card_builder(),
-    Some(CardInput("Draft", None)),
+    compiled,
+    Card(builder.Generate, "Draft", None, Nil, None),
   )
 }
 
-pub fn resolve(
+pub fn open(
   document: watershed.Document(root),
-  handle: Json,
-) -> Result(watershed.SharedTree(CardSchema, Card), typed.Error) {
-  watershed.resolve_tree(document, handle, card_definition())
+  compiled: builder.Compiled(Card),
+) -> Result(tree.Tree(Card), error.Error) {
+  watershed.open_tree(document, compiled)
 }
 
-pub fn read_and_rename(
-  tree: watershed.SharedTree(CardSchema, Card),
-) -> Result(Card, typed.Error) {
-  use root <- result.try(watershed.tree_root(tree))
-  case root {
-    None -> Error(typed.MissingRequired("$root"))
-    Some(root) -> {
-      use old_title <- result.try(watershed.tree_get(root, title()))
-      use _note <- result.try(watershed.tree_get_optional(root, note()))
-      use _ <- result.try(
-        watershed.tree_set(root, title(), old_title <> " reviewed"),
-      )
-      watershed.tree_read(root)
-    }
-  }
+pub fn rename(
+  handle: tree.Tree(Card),
+  value: String,
+) -> Result(Card, error.Error) {
+  use root <- result.try(tree.required_root(handle))
+  use _ <- result.try(tree.set(root, title(), value))
+  tree.read_root(handle)
 }
 
-pub fn watch(
-  tree: watershed.SharedTree(CardSchema, Card),
-) -> watershed.SubscriptionToken {
-  watershed.subscribe_tree(tree, fn(_event) { Nil })
+pub fn read_and_watch(
+  handle: tree.Tree(Card),
+  changed: fn(Result(Card, error.Error)) -> Nil,
+) -> Result(#(Card, tree.Subscription), error.Error) {
+  use initial <- result.try(tree.read_root(handle))
+  use subscription <- result.try(tree.observe(handle, changed))
+  Ok(#(initial, subscription))
 }
 
-pub fn watch_history(
-  tree: watershed.SharedTree(CardSchema, Card),
-) -> watershed.SubscriptionToken {
-  watershed.subscribe_tree_commits(tree, fn(_event) { Nil })
+pub fn release(
+  handle: tree.Tree(Card),
+  subscription: tree.Subscription,
+) -> Result(Nil, error.Error) {
+  tree.unsubscribe(subscription)
+  tree.dispose(handle)
 }
 ```
 
-`tree_read` and `tree_read_root` return record snapshots. `TreeNode`,
-`TreeArray`, and `TreeMap` are live handles to native forest identities. A
-captured node follows that identity through moves and refuses edits after
-removal or replacement; an equal record or repeated application ID does not
-retarget it. Index-based array operations use the current sequence when the
-call runs. Use node-based remove and move operations when an action must stay
-bound to the captured item.
+Creation returns a document ID; it does not connect or automatically retry a
+lost response. After connecting and reaching readiness, pass the same compiled
+declaration to `open_tree`. It checks the bootstrap map's `"tree"` binding
+instead of assuming a fixed channel address. The BEAM facade has the same
+compiled inputs and returns the same `Tree(a)`; its container creation result
+is synchronous rather than a promise.
 
-A Fluid handle value names a channel or datastore route. It is data stored in
-the tree, not a `TreeNode`, and it retains its source datastore context.
-Closing the document invalidates live tree handles. Reload creates a new
-runtime, so resolve the tree again and capture fresh nodes; committed data
-reloads, but node and revertible handles do not.
+`read_root` and `read` return immutable snapshots. Changing a local record or
+list submits nothing. `Ref(a)` captures an object, array, or map identity in
+one tree checkout. It follows a surviving node through moves, but never
+retargets a replacement with the same application ID. Leaves remain values.
+For a selected array item, use `array_remove_node` or `array_move_before`;
+index operations instead use the sequence as it exists when the call runs.
+Refs are not data to insert and are not an application equality key.
 
-Missing optional fields decode as `None`. A present null leaf decodes as
-`Nil`, so `Some(Nil)` differs from absence. A missing required field reports
-`MissingRequired`. Schema incompatibility, removed nodes, disposed branches,
-and closed runtimes return errors without changing visible state.
+Required roots take their value directly. `optional_root(node)` compiles to
+`Compiled(Option(a))`, so creation takes `None` or `Some(value)`, not another
+outer option. Optional properties distinguish absence from a present null:
+`None` differs from `Some(Nil)`. Identifier reads return `Assigned(string)`.
+Creation and `*_new` edits permit `Generate`; ordinary snapshot writes reject
+it. Identifier properties are read-only, and their strings are not node
+identity.
 
-Subscriptions remain tree-level. This typed API adds no per-field event
-promise. Existing change subscriptions, commit subscriptions, settlement
-callbacks, transactions, branches, and application-owned history all take the
-same `SharedTree(schema, record)`.
+Properties from another record are type errors. A descriptor for the same
+record but an undeclared key or different field definition is checked at
+runtime. `object0` through `object8` cover small records; compositional
+`object` declarations have no fixed property limit. See the
+[authoring guide](docs/shared-tree-schema-authoring.md) for collections, unions,
+recursion, and the typed object reader.
 
-To inspect or upgrade an incompatible stored schema, use `open_tree` with the
-next typed definition. Reads and edits remain unavailable until compatibility
-permits them:
+Observation is changes-only. Registration delivers no initial snapshot, and
+a commit elsewhere in the same tree and checkout can repeat an equal value.
+`subscribe_changes` reports schema and content events; `subscribe_commits`
+reports commit metadata and history hooks. Callbacks can read committed state
+and unsubscribe, but reentrant edits return `ReentrantEdit`.
 
-```gleam
-pub fn open_or_upgrade(
-  document: watershed.Document(root),
-  handle: Json,
-  next_definition: typed.Schema(schema, record),
-) -> Result(watershed.SharedTree(schema, record), typed.Error) {
-  use candidate <- result.try(
-    watershed.open_tree(document, handle, next_definition),
-  )
-  use status <- result.try(
-    watershed.tree_compatibility(candidate)
-    |> result.map_error(typed.AccessFailed),
-  )
-  use _ <- result.try(case status.can_view {
-    True -> Ok(Nil)
-    False ->
-      watershed.tree_upgrade_schema(candidate)
-      |> result.map_error(typed.AccessFailed)
-  })
-  watershed.resolve_tree(document, handle, next_definition)
-}
-```
-
+For a custom route, use `resolve_tree(document, marker, compiled)`. To inspect
+an incompatible schema, use `inspect_tree`, then `tree.compatibility`.
 `can_view`, `can_upgrade`, and `is_equivalent` answer different questions.
-An ordinary wider view is not readable until its explicit upgrade applies.
-An equivalent upgrade is a no-op: it allocates no revision or IDs, submits no
-message, and emits no event. Unsupported or invalid local upgrades leave state
-unchanged.
+Request `tree.upgrade_schema` explicitly; opening never initializes content or
+upgrades a schema. Reads and edits recheck compatibility, including after a
+remote upgrade. Equivalent upgrades allocate nothing and emit no event.
+An upgrade can lose to concurrent data edits and settle as an empty change;
+there is no automatic merge or retry of losing schemas.
 
-Each tree handle keeps the view passed to `open_tree` or `resolve_tree`.
-Reads and writes recheck that view against the current visible schema. A handle
-that was valid can become unavailable after another client applies an
-incompatible upgrade. The document stays usable, and a fresh compatible handle
-can continue editing.
+Errors from factories and tree operations use `watershed/tree/error.Error`.
+Invalid values retain the original `TreeError`; creation failures retain the
+complete `container.CreateError`. Use `error.to_string` at presentation
+boundaries, not to recover categories from text.
 
-`subscribe_tree` reports `SchemaChanged(local)` for a visible schema change and
-keeps `TreeChanged(local)` for data changes. If one completed transition changes
-both, subscribers receive the schema event first and observe the final state.
-Summaries pair the sequenced schema with the sequenced forest, history, and
-compressor state, so a pending local upgrade does not leak into a published
-snapshot.
-
-Schema upgrades participate in the same sequenced conflict rules as data.
-A concurrent data edit can win and reduce the local upgrade to an acknowledged
-empty change. Watershed does not merge or retry losing schemas. Inspect
-compatibility again and request a new upgrade from the current stored schema.
-
-The supported authoring profile permits additive object/map changes: optional
-object fields, wider allowed types for existing object fields and map entries,
-required-to-optional field or root changes, wider root types, and definitions
-needed by those transitions. Upstream `can_upgrade` describes the schema
-relation; Watershed's authoring restrictions can still reject a transition
-such as a node-kind replacement. This profile covers initialized documents and
-does not broaden creation or initialization.
+`unsubscribe` and `dispose` are idempotent. Disposing a document-tree handle
+releases its subscriptions and anchors without closing the document or other
+handles. Disposing a fork also releases its checkout and retained history.
+Closing the document invalidates every handle; after reload, open the tree and
+capture fresh references.
 
 ### SharedTree transactions
 
-Both facades support synchronous transactions on one SharedTree. The callback
-uses the ordinary read and edit functions, and its `Result` decides whether the
-scope commits or aborts:
-
-```gleam
-import gleam/option.{None, Some}
-import gleam/result
-import watershed
-import watershed/tree/typed
-
-pub fn commit_title(
-  tree: watershed.SharedTree(schema, record),
-  title: typed.Field(schema, String, cardinality),
-) -> Result(Nil, watershed.TreeTransactionError(typed.Error)) {
-  watershed.tree_transaction(tree, [], fn(transaction_tree) {
-    use root <- result.try(watershed.tree_root(transaction_tree))
-    case root {
-      Some(root) -> watershed.tree_set(root, title, "committed")
-      None -> Error(typed.MissingRequired("$root"))
-    }
-  })
-}
-```
-
-The callback error stays typed inside `Aborted`. Runtime, setup, constraint,
-composition, and transport failures use `TransactionFailed(String)`:
+Transactions are synchronous and stay within one tree checkout. The callback
+uses the same handle and normal edit functions; its `Result` chooses commit
+or abort:
 
 ```gleam
 import gleam/result
-import watershed
-import watershed/tree/typed
+import watershed/tree
+import watershed/tree/error
+import watershed/tree/schema_builder as builder
 
 pub type DraftAbort {
-  EditFailed(typed.Error)
+  EditFailed(error.Error)
   InvalidTitle
 }
 
+pub fn commit_title(
+  handle: tree.Tree(record),
+  title: builder.Property(record, String),
+) -> Result(Nil, tree.TransactionError(error.Error)) {
+  tree.transaction(handle, [], fn(handle) {
+    use root <- result.try(tree.required_root(handle))
+    tree.set(root, title, "committed")
+  })
+}
+
 pub fn abort_draft(
-  tree: watershed.SharedTree(schema, record),
-  title: typed.Field(schema, String, cardinality),
-) -> Result(Nil, watershed.TreeTransactionError(DraftAbort)) {
-  watershed.tree_transaction(tree, [], fn(transaction_tree) {
-    let assert Ok(Some(root)) = watershed.tree_root(transaction_tree)
+  handle: tree.Tree(record),
+  title: builder.Property(record, String),
+) -> Result(Nil, tree.TransactionError(DraftAbort)) {
+  tree.transaction(handle, [], fn(handle) {
+    use root <- result.try(
+      tree.required_root(handle) |> result.map_error(EditFailed),
+    )
     use _ <- result.try(
-      watershed.tree_set(root, title, "temporary")
-      |> result.map_error(EditFailed),
+      tree.set(root, title, "temporary") |> result.map_error(EditFailed),
     )
     Error(InvalidTitle)
   })
 }
-```
-
-Use `NodeInDocument` when the commit is valid only while a selected node remains
-in the document:
-
-```gleam
-import watershed
-import watershed/tree/typed
 
 pub fn update_while_item_exists(
-  tree: watershed.SharedTree(schema, record),
-  title: typed.Field(schema, String, cardinality),
-) -> Result(Nil, watershed.TreeTransactionError(typed.Error)) {
-  watershed.tree_transaction(
-    tree,
-    [watershed.NodeInDocument(["items", "0"])],
-    fn(transaction_tree) {
-      let assert Ok(Some(root)) = watershed.tree_root(transaction_tree)
-      watershed.tree_set(root, title, "item still exists")
-    },
-  )
+  handle: tree.Tree(record),
+  selected: tree.Ref(item),
+  title: builder.Property(record, String),
+) -> Result(Nil, tree.TransactionError(error.Error)) {
+  tree.transaction(handle, [tree.node_in_document(selected)], fn(handle) {
+    use root <- result.try(tree.required_root(handle))
+    tree.set(root, title, "item still exists")
+  })
 }
 ```
 
-Nested calls on the same tree use savepoints. Inner success remains part of the
-outer scope; inner abort restores its savepoint and lets the outer callback
-continue. A successful outer scope with visible edits emits one local
-`TreeChanged` event and submits one composed network commit. Intermediate
-edits, inner scopes, aborts, and no-op transactions emit no public data event;
-an outer abort submits nothing.
+Application errors remain typed in `Aborted`. Setup, runtime, constraint,
+transport, and callback-exception failures return `TransactionFailed` with a
+structured tree error. An exception also aborts the transaction.
 
-`NodeInDocument` checks identity, not the original path. Moving the node keeps
-the constraint valid. A missing or detached node fails before the callback
-runs. Every client checks the constraint again after sequencing, so a removal
-that sequences first suppresses the constrained edits instead of relying on a
-local preflight approximation.
+Nested transactions use savepoints. An outer success with visible edits
+produces one composed commit; intermediate edits, inner scopes, aborts, and
+no-ops produce no public content event. An outer abort submits nothing.
+Rollback restores content but can preserve compressor advancement; preview
+node identities are not recycled.
 
-Asynchronous and cross-tree transactions, schema upgrades inside transactions,
-the alpha `noChange` constraint, transaction metadata, and post-processors are
-not supported.
+`node_in_document(selected)` captures identity, not a path. A move preserves
+the constraint; a missing or foreign node fails before the callback runs.
+Sequencing checks it again, so a removal that wins first suppresses the
+constrained edits. Async or cross-tree transactions, schema upgrades inside
+transactions, `noChange`, metadata, and post-processors are unsupported.
 
 ### SharedTree undo and redo
 
-`subscribe_tree_commits` reports local default, undo, and redo commits on both
-facades. An eligible local commit supplies a one-shot factory during the
-callback. Call that factory before the callback returns, then store the handle
-in application state. Remote and schema commits do not supply a factory.
-
-Use `tree_get_revertible(event, on_disposed)` when the application must release
-state associated with a revertible. It performs the same one-shot acquisition
-and calls `on_disposed` once with the exact acquired handle after disposal is
-installed. Disposal includes `tree_revert(handle, True)`, explicit disposal,
-disposing or merging away the handle's local branch, and closing the document.
-The original zero-argument factory remains available for callers that do not
-need a disposal notification.
-
-Use `tree_revertible_revision(handle)` on either facade to read the commit's
-stable identity. You can still read it after disposal or document close;
-the accessor does not send an actor request.
-
-The following pattern uses one subscription. The application routes
-`UndoMessage` values through its existing state owner, such as an actor or an
-application update loop. The state owner holds the mutable undo and redo
-stacks; Watershed only creates and reverts handles.
-Queue dispatched messages so a commit callback does not reenter `update_undo`
-during a revert.
-
-```gleam
-import gleam/list
-import gleam/option.{None, Some}
-import watershed
-import watershed/tree/types
-
-pub type UndoState {
-  UndoState(
-    undo: List(watershed.TreeRevertible),
-    redo: List(watershed.TreeRevertible),
-  )
-}
-
-pub type UndoMessage {
-  Captured(types.TreeCommitKind, watershed.TreeRevertible)
-  Settled(types.TreeCommitOutcome)
-  UndoRequested
-  RedoRequested
-}
-
-pub fn new_undo_state() -> UndoState {
-  UndoState(undo: [], redo: [])
-}
-
-pub fn subscribe_undo(
-  tree: watershed.SharedTree(schema, record),
-  dispatch: fn(UndoMessage) -> Nil,
-  report_error: fn(String) -> Nil,
-) -> watershed.SubscriptionToken {
-  watershed.subscribe_tree_commits(tree, fn(event) {
-    let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
-
-    case local, factory, settlement {
-      True, Some(acquire), Some(register) ->
-        case acquire() {
-          Error(error) ->
-            report_error("Could not acquire revertible: " <> error)
-          Ok(handle) ->
-            case register(fn(outcome) { dispatch(Settled(outcome)) }) {
-              Ok(Nil) -> dispatch(Captured(kind, handle))
-              Error(error) -> {
-                report_error("Could not register settlement: " <> error)
-                case watershed.tree_dispose_revertible(handle) {
-                  Ok(Nil) -> Nil
-                  Error(dispose_error) ->
-                    report_error(
-                      "Could not dispose unregistered revertible: "
-                      <> dispose_error,
-                    )
-                }
-              }
-            }
-        }
-      False, _, _ | _, None, _ | _, _, None -> Nil
-    }
-  })
-}
-
-fn dispose_all(
-  handles: List(watershed.TreeRevertible),
-  report_error: fn(String) -> Nil,
-) -> Nil {
-  list.each(handles, fn(handle) {
-    case watershed.tree_dispose_revertible(handle) {
-      Ok(Nil) -> Nil
-      Error(error) -> report_error("Could not dispose redo handle: " <> error)
-    }
-  })
-}
-
-pub fn update_undo(
-  state: UndoState,
-  message: UndoMessage,
-  report_error: fn(String) -> Nil,
-  report_settlement: fn(types.TreeCommitOutcome) -> Nil,
-) -> UndoState {
-  case message {
-    Captured(types.DefaultCommit, handle) -> {
-      dispose_all(state.redo, report_error)
-      UndoState(undo: [handle, ..state.undo], redo: [])
-    }
-    Captured(types.UndoCommit, handle) ->
-      UndoState(..state, redo: [handle, ..state.redo])
-    Captured(types.RedoCommit, handle) ->
-      UndoState(..state, undo: [handle, ..state.undo])
-    Settled(outcome) -> {
-      report_settlement(outcome)
-      state
-    }
-    UndoRequested ->
-      case state.undo {
-        [] -> state
-        [handle, ..rest] ->
-          case watershed.tree_revert(handle, True) {
-            Ok(Nil) -> UndoState(..state, undo: rest)
-            Error(error) -> {
-              report_error("Could not undo commit: " <> error)
-              state
-            }
-          }
-      }
-    RedoRequested ->
-      case state.redo {
-        [] -> state
-        [handle, ..rest] ->
-          case watershed.tree_revert(handle, True) {
-            Ok(Nil) -> UndoState(..state, redo: rest)
-            Error(error) -> {
-              report_error("Could not redo commit: " <> error)
-              state
-            }
-          }
-      }
-  }
-}
-```
-
-A new default commit disposes and clears the redo stack. Reverting a default
-or redo handle emits an undo commit, whose acquired handle goes onto the redo
-stack. Reverting an undo handle emits a redo commit, whose handle goes onto the
-undo stack. The example consumes each popped handle with
-`tree_revert(handle, True)`. `tree_revert(handle, False)` keeps a handle valid,
-and the pinned contract permits repeated reversion of that same target.
-
-Handles belong to one runtime, document, and tree address. They survive
-disconnect and reconnect in that runtime because reconnect keeps the in-memory
-registry and retained history. Closing the runtime disposes them. Summary
-reload preserves the committed undo or redo state but creates a new runtime,
-so old handles and application stacks do not reload. Dispose unused handles to
-release retained history; a second disposal returns an error.
-
-One outer transaction commit can supply one revertible after the transaction
-finishes. `tree_revert` during an active transaction is unsupported. Persisted
-stacks, schema undo, remote-commit undo, cross-tree atomic undo, public
-branches, `noChange`, custom revert metadata, clone-to-view, and `revertTo`
-remain outside the profile. The Lustre history/checklist adapter uses this
-lifecycle; additional UI bindings are separate consumer work.
-
-### SharedTree local branches
-
-`tree_fork` creates an in-memory checkout of the same runtime, document, and
-tree. Read and edit that checkout with the existing tree, map, array, move,
-Identifier, transaction, subscription, and revertible APIs. A fork does not
-submit tree operations until it is merged.
+An eligible local content commit offers a one-shot revertible factory. Acquire
+it during the commit callback; after delivery it expires, and acquisition is
+shared across subscribers. Remote and schema commits supply no local undo
+entry. Settlement reports the sequenced outcome, not a successful local edit
+or merge.
 
 ```gleam
 import gleam/option.{None, Some}
 import gleam/result
-import watershed
-import watershed/tree/typed
+import watershed/tree
+import watershed/tree/error
+import watershed/tree/history_stack as history
 
-pub type DraftError {
-  TreeError(typed.Error)
-  BranchError(String)
+pub type HistoryMessage {
+  Captured(tree.CommitKind, tree.Revertible)
+  Settled(tree.CommitOutcome)
+  Disposed(tree.Revertible)
 }
 
-fn draft_root(
-  tree: watershed.SharedTree(schema, record),
-) -> Result(watershed.TreeNode(schema, record), DraftError) {
-  use root <- result.try(
-    watershed.tree_root(tree)
-    |> result.map_error(TreeError),
-  )
-  case root {
-    Some(root) -> Ok(root)
-    None -> Error(TreeError(typed.MissingRequired("$root")))
-  }
+pub fn watch_history(
+  handle: tree.Tree(a),
+  enqueue: fn(HistoryMessage) -> Nil,
+  report: fn(error.Error) -> Nil,
+) -> Result(tree.Subscription, error.Error) {
+  tree.subscribe_commits(handle, fn(event) {
+    let tree.CommitEvent(kind, _, factory, settlement) = event
+    case factory {
+      None -> Nil
+      Some(acquire) ->
+        case acquire(fn(entry) { enqueue(Disposed(entry)) }) {
+          Ok(entry) -> enqueue(Captured(kind, entry))
+          Error(error) -> report(error)
+        }
+    }
+    case settlement {
+      None -> Nil
+      Some(register) ->
+        case register(fn(outcome) { enqueue(Settled(outcome)) }) {
+          Ok(Nil) -> Nil
+          Error(error) -> report(error)
+        }
+    }
+  })
 }
 
-pub fn publish_draft(
-  main: watershed.SharedTree(schema, record),
-  title: typed.Field(schema, String, cardinality),
-) -> Result(Nil, DraftError) {
-  use draft <- result.try(
-    watershed.tree_fork(main)
-    |> result.map_error(BranchError),
-  )
-  let outcome = {
-    use root <- result.try(draft_root(draft))
-    use _ <- result.try(
-      watershed.tree_set(root, title, "reviewed draft")
-      |> result.map_error(TreeError),
-    )
-    use _ <- result.try(
-      watershed.tree_rebase_onto(draft, main)
-      |> result.map_error(BranchError),
-    )
-    watershed.tree_merge(main, draft, True)
-    |> result.map_error(BranchError)
-  }
-  case outcome {
-    Ok(Nil) -> Ok(Nil)
-    Error(error) -> {
-      let _ = watershed.tree_dispose_branch(draft)
-      Error(error)
+pub fn undo(
+  stack: history.History(tree.Revertible),
+) -> Result(history.History(tree.Revertible), error.Error) {
+  case history.next_undo(stack) {
+    None -> Ok(stack)
+    Some(entry) -> {
+      use _ <- result.try(tree.revert(entry, tree.DisposeRevertible))
+      Ok(history.consume_undo(stack))
     }
   }
 }
 ```
 
-Pass `True` to dispose the source after merge. Pass `False` when a workflow
-must keep the source checkout for more edits or another merge:
+`enqueue` must defer application updates: commit callbacks must not reenter
+an update loop during a revert. The Lustre bindings do this with microtasks.
+Route a captured entry with `history.route(stack, kind, True, Some(entry))`.
+It returns the next stack and entries to dispose when a new default commit
+clears redo. Undo commits route to redo; redo commits route to undo.
+For redo, use `next_redo` and `consume_redo`. Consume an entry only after
+reversion succeeds. `prune` removes disposed entries; `clear` returns all
+remaining entries for cleanup. The helper is pure: it subscribes to nothing,
+owns no document, and does not acquire or dispose handles for you.
+
+Revertibles belong to the application, not the document-tree handle that
+observed them. Use `DisposeRevertible` to consume one on success or
+`KeepRevertible` to retain it for repeated reversion. Release unused entries
+with `dispose_revertible`; repeated disposal is safe. Disposal callbacks run
+after disposal is installed. `revertible_status` is checked, while
+`revertible_revision` remains available after disposal or document close.
+
+Reconnect preserves handles in the same runtime. Closing it, disposing a
+fork, or merging that fork with `DisposeSource` releases the corresponding
+history. Summary reload restores committed document state, not application
+stacks or old handles. Schema undo, remote-commit undo, persisted stacks,
+cross-tree atomic undo, `clone-to-view`, and `revertTo` are unsupported.
+
+### SharedTree local branches
+
+`tree.fork` returns another `Tree(a)` in the same runtime, document, and tree.
+It supports the same reads, identity edits, transactions, observation, and
+history. Its edits remain local until merged:
 
 ```gleam
-pub fn publish_in_stages(
-  main: watershed.SharedTree(schema, record),
-  title: typed.Field(schema, String, cardinality),
-) -> Result(Nil, DraftError) {
-  use draft <- result.try(
-    watershed.tree_fork(main)
-    |> result.map_error(BranchError),
-  )
-  let outcome = {
-    use root <- result.try(draft_root(draft))
-    use _ <- result.try(
-      watershed.tree_set(root, title, "night")
-      |> result.map_error(TreeError),
-    )
-    use _ <- result.try(
-      watershed.tree_merge(main, draft, False)
-      |> result.map_error(BranchError),
-    )
-    use _ <- result.try(
-      watershed.tree_set(root, title, "compact")
-      |> result.map_error(TreeError),
-    )
-    use _ <- result.try(
-      watershed.tree_rebase_onto(draft, main)
-      |> result.map_error(BranchError),
-    )
-    watershed.tree_merge(main, draft, True)
-    |> result.map_error(BranchError)
-  }
-  case outcome {
-    Ok(Nil) -> Ok(Nil)
-    Error(error) -> {
-      let _ = watershed.tree_dispose_branch(draft)
-      Error(error)
-    }
-  }
+import gleam/result
+import watershed/tree
+import watershed/tree/error
+import watershed/tree/schema_builder as builder
+
+pub fn start_review(main: tree.Tree(a)) -> Result(tree.Tree(a), error.Error) {
+  tree.fork(main)
+}
+
+pub fn publish_review(
+  main: tree.Tree(record),
+  draft: tree.Tree(record),
+  title: builder.Property(record, String),
+) -> Result(Nil, error.Error) {
+  use root <- result.try(tree.required_root(draft))
+  use _ <- result.try(tree.set(root, title, "reviewed draft"))
+  use _ <- result.try(tree.rebase_onto(draft, main))
+  tree.merge(main, draft, tree.DisposeSource)
 }
 ```
 
-Undo and redo remain application-owned. Subscribe to commits on the branch,
-acquire its one-shot revertible factory during the callback, and queue the
-result through the same `UndoMessage` dispatch pattern above. Do not call the
-application update loop directly from a commit callback. A branch registration
-does not settle merely because the local forest changed. If its commit is
-merged, the target commit can settle after sequencing; an accepted source
-registration remains independent of the subscription that created it, but
-disposing that source cancels its outstanding registrations.
+The caller retains the draft on failure and can inspect, retry, or dispose it.
+`DisposeSource` releases it after a successful merge; `KeepSource` retains it
+for more edits and later merges. `branch_status` returns a checked
+`DocumentBranch`, `BranchValid`, or `BranchDisposed`.
 
-Local checkouts pin ancestry and repair data in memory. Revertibles add their
-own pins. Dispose unused handles and branches; descendants retain their own
-pins and remain usable. Authoring and publication still require the ready
-phase. Disconnect and reconnect in the same runtime preserve branches, pending
-main origins, and live handles. Runtime close or a fresh summary load loses all
-local branches, subscriptions, handles, and application stacks. Only merged
-document state reloads and continues editing.
+Subscribe on the branch to acquire its history. A branch commit does not
+settle just because the local forest changed: it must reach sequencing through
+a merge. Accepted settlement registrations are independent of the original
+subscription, but source disposal cancels that source's outstanding
+registrations.
 
-Branch schema authoring is unsupported. A schema change on main can make a
-branch incompatible; an unsupported reconciliation fails atomically rather
-than silently changing either checkout. Shared or persisted branches, branch
-wire APIs, cross-runtime or cross-tree merge, historical checkouts, portable
-handles, async transactions, offline authoring, automatic disk journaling, managed undo stacks,
-clone-to-view, `revertTo`, and preview diffs remain outside this profile.
+Checkouts pin ancestry and repair data in memory; descendants retain their
+own pins. Reconnect in the same runtime preserves them, while close or a fresh
+summary load loses local checkouts and handles. Only merged state reloads.
+Branch schema authoring, shared or persisted branches, cross-runtime or
+cross-tree merge, historical checkouts, portable branch handles, offline
+authoring, automatic journaling, managed undo stacks, and preview diffs are
+outside the profile. Unsupported reconciliation fails atomically.
 
-Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
-`tree_map_entries` on either facade. Each operation takes a path to the map;
-single-entry operations take the key as a separate argument. Per-key edits,
-recursive map values, reconnect, and full-summary reload are part of the M2
-profile.
+Use `map_get`, `map_set`, `map_delete`, and `read` on a `Ref(Dict(String, a))`.
+Per-key edits, recursive map values, reconnect, and full-summary reload remain
+part of the M2 profile.
 
 Unsupported versions, incompatible schemas, and corrupt input return explicit
 errors. Failed bootstrap does not expose a writable partial document. Invalid
 local edits leave the tree, pending edits, allocations, events, and outgoing
 messages unchanged.
 
-Manual `summarize` publishes a complete tree document when it is synchronized
-and has its original routing and protocol metadata. Automatic summary policy
-still skips tree documents. New tree edits require the ready phase: disconnected,
+Manual `summarize` publishes a complete tree document when synchronized with
+its original routing and protocol metadata. Automatic summary policy still
+skips tree documents. New edits require readiness; disconnected,
 bootstrapping, and catching-up clients reject them without changing visible
-state. Accepted local edits remain visible across a transport loss. Reconnect
-keeps their core and compressor, replays the sequenced tail, waits for the old
-submitting session's sequenced leave and the new join, and resubmits only edits
-that the server has not accepted. Missing history or failed repair retains the
-pending state with an explicit error; it does not report a synchronized tree.
-Repeated recovery keeps earlier unacknowledged ID ranges ahead of newly
-generated rollback ranges, before the edits that use them.
-Authorization refusal stops reconnect with the pending tree still readable;
-recoverable connection failures have a bounded, delayed retry and report
-their cause through `connection_observation`. A replay error also suspends
-recovery without discarding accepted local edits.
-This reconnect path keeps state in memory. Explicit pending checkpoints also
-support restart recovery as described below; neither path enables offline
-authoring.
-The combined service gate includes the six focused reconnect schedules on
-each native target, the three-client editing matrix, and fresh summary readers.
-SharedTree has no P2P mode; P2P tree creation and snapshot import return an
-unsupported-channel error. A compatible service transport alone does not
-establish SharedTree operation or persistence compatibility.
+state. Accepted edits remain visible across a transport loss.
+
+Reconnect keeps the core and compressor, replays the sequenced tail, waits for
+the old submitting session's leave and the new join, and resubmits only edits
+the server has not accepted. Missing history or failed repair retains pending
+state with an explicit error. Earlier unacknowledged ID ranges stay ahead of
+new rollback ranges and the edits that use them. Authorization refusal stops
+reconnect with the pending tree readable; recoverable connection failures use
+a bounded, delayed retry and report through `connection_observation`.
+
+This path keeps state in memory. Explicit checkpoints support restart
+recovery below, not offline authoring. The service gate includes the six
+focused reconnect schedules on each native target, three-client editing, and
+fresh summary readers. SharedTree has no P2P mode; a compatible service
+transport alone does not establish operation or persistence compatibility.
 
 ### Recover pending tree edits
 
@@ -871,14 +596,13 @@ A ready, writable service document can grow beyond its bootstrap layout.
 `create_data_store(document)` creates a detached datastore, and
 `data_store_root(store)` returns its entry-point map. Use
 `create_map_in(document, store)` and
-`create_tree_in(document, store, definition, builder, initial_input)` to add
+`create_tree_in(document, store, compiled, initial)` to add
 detached channels there. `create_tree` adds a detached tree to the bootstrap
 datastore. The JavaScript and BEAM facades expose the same calls with matching
 `Result` return types. Both also expose
-`resolve_tree(document, value, definition)` and
-`open_tree(document, value, definition)`,
-`tree_handle_of(tree)`, and the immutable
-`tree_revertible_revision(revertible)` accessor.
+`resolve_tree(document, marker, compiled)` and
+`open_tree(document, compiled)`. Use `tree.handle_of(tree)` for its route and
+`tree.revertible_revision(revertible)` for a retained revision.
 
 Detached creation is local. It sends no transport message, but tree
 initialization still emits the ordinary local commit, schema, tree, and
@@ -896,7 +620,7 @@ state or submits any message. Completed single-tree transactions can publish a
 new graph; an active transaction on the target tree is refused. Local branches
 do not publish bindings until merge, and dropping a branch leaves its detached
 targets local. Undo can restore an earlier handle while preserving independent
-edits to the target. `tree_revertible_revision(handle)` continues to report the
+edits to the target. `tree.revertible_revision(handle)` continues to report the
 immutable revision captured by a revertible, including after disposal or
 document close.
 
@@ -971,34 +695,28 @@ Arbitrary container layouts, automatic application history management, and
 automatic disk journaling remain outside the profile. Explicit restart
 checkpoints cover the pending-tree boundary described above.
 
-Recreate documents written with earlier Watershed development encodings.
-There is no legacy reader or migration path. This format change does not
-remove the regression requirement for existing DDS APIs and behavior.
-
 ### Create a SharedTree container
 
 Use [typed schema authoring](docs/shared-tree-schema-authoring.md) to derive
 stored/view schemas and checked Gleam snapshot codecs from one declaration.
-The schema builder supports named collections, objects with up to eight
-properties, and required/optional roots on JavaScript and BEAM. Native live
-operations keep their existing API.
+The schema builder supports named collections, compositional objects of any
+arity, and required/optional roots on JavaScript and BEAM.
 
 `watershed.create_tree_container` returns a
-`Promise(Result(String, typed.Error))`;
+`Promise(Result(String, error.Error))`;
 `watershed_beam.create_tree_container` returns
-`Result(String, typed.Error)`. Pass a
-`container.CreateConfig(base_url, tenant, token)`, a checked
-`typed.Schema(schema, record)`, its matching `typed.Builder(schema, input)`,
-and an optional input. Use `None` only with an optional root schema. The
-builder encodes construction data; callers do not pass `TreeValue` through the
-application facade.
+`Result(String, error.Error)`, with errors from `watershed/tree/error`. Pass a
+`container.CreateConfig(base_url, tenant, token)`, a `builder.Compiled(a)`,
+and an initial value of type `a`. Required roots take their value directly;
+optional roots already use `Option(value)`. The compiled declaration encodes
+construction data; callers do not pass `TreeValue` through the application
+facade.
 
 Creation sends one authenticated POST to the pinned Floodgate service and
 returns its assigned document ID. It does not start a WebSocket connection or
 document runtime. Obtain
 a document-scoped token for that ID, call the existing `connect`, then follow
-`resolve_root` -> `get(root, "tree")` ->
-`resolve_tree(document, handle, definition)`. Keep the returned ID if token
+`open_tree(document, compiled)`. Keep the returned ID if token
 acquisition or opening fails; retry opening that document, not creation.
 If the creation response is lost or invalid, the service may have created a
 document. Watershed reports that uncertainty and does not retry the POST.
@@ -1051,11 +769,11 @@ pub fn initial_layout() -> container.Layout {
 ```
 
 Both facades expose
-`with_initial_tree(layout, store, channel, definition, builder, input)`.
-It returns `Result(container.Layout, typed.Error)` and supports a different
+`with_initial_tree(layout, store, channel, compiled, initial)`.
+It returns `Result(container.Layout, error.Error)` and supports a different
 schema for each additional tree, including channels in datastore `A`.
 Pass the completed layout as the last argument to
-`create_tree_container_with_layout(config, definition, builder, input, layout)`.
+`create_tree_container_with_layout(config, compiled, initial, layout)`.
 Its return type and creation uncertainty match `create_tree_container`.
 All initial trees share one document ID compressor.
 

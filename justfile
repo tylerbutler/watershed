@@ -415,7 +415,7 @@ p2p-down:
 # examples and the website fixture under tools/ are formatted by the same
 # command as the root package rather than only when someone remembers to cd.
 format:
-    trellis run format
+    git ls-files -z '*.gleam' | xargs -0 gleam format
 
 # Check every tracked Gleam source file. Explicit paths keep the formatter out
 # of generated dependency trees while still covering every workspace member.

@@ -70,42 +70,50 @@ document ripples.
 
 ### SharedTree effects
 
-`watershed_lustre/tree` accepts the same generic
-`watershed.SharedTree(schema, record)` as the core facade. It does not add a
-second tree type or field-level event stream. `perform` takes a thunk, so the
-edit runs only when Lustre performs the effect. The completion message and
-subscription callbacks arrive on a later microtask.
+`watershed_lustre/tree` accepts the same `watershed/tree.Tree(a)` as the core
+API. `open` takes a compiled declaration; `read_root` returns its application
+value directly. `perform` takes a thunk, so the edit runs only when Lustre
+performs the effect. Message construction and dispatch happen in a later
+microtask, including subscription registration and failure messages.
 
 ```gleam
 import lustre/effect.{type Effect}
-import watershed
-import watershed/tree/typed
-import watershed/tree/types
-import watershed_lustre/tree
+import watershed/tree
+import watershed/tree/error
+import watershed/tree/schema_builder as builder
+import watershed_lustre/tree as tree_effect
 
-pub type TreeMsg {
-  Saved(Result(Nil, typed.Error))
-  Watching(watershed.SubscriptionToken)
-  Committed(Result(tree.CommitEvent, String))
-  Settled(Result(types.TreeCommitOutcome, String))
-  Disposed(Result(Nil, String))
+pub type TreeMsg(record) {
+  Saved(Result(Nil, error.Error))
+  Watching(Result(tree.Subscription, error.Error))
+  Read(Result(record, error.Error))
+  Committed(Result(tree_effect.CommitEvent, error.Error))
+  Settled(Result(tree.CommitOutcome, error.Error))
+  Disposed(Result(Nil, error.Error))
 }
 
 pub fn save_title(
-  node: watershed.TreeNode(schema, record),
-  field: typed.Field(schema, String, cardinality),
+  node: tree.Ref(record),
+  field: builder.Property(record, String),
   value: String,
-) -> Effect(TreeMsg) {
-  tree.perform(
-    fn() { watershed.tree_set(node, field, value) },
+) -> Effect(TreeMsg(record)) {
+  tree_effect.perform(
+    fn() { tree.set(node, field, value) },
     Saved,
   )
 }
 
+pub fn read_and_watch(handle: tree.Tree(record)) -> Effect(TreeMsg(record)) {
+  effect.batch([
+    tree_effect.read_root(handle, Read),
+    tree_effect.observe(handle, Watching, Read),
+  ])
+}
+
 pub fn watch_history(
-  shared_tree: watershed.SharedTree(schema, record),
-) -> Effect(TreeMsg) {
-  tree.subscribe_commits(
+  shared_tree: tree.Tree(record),
+) -> Effect(TreeMsg(record)) {
+  tree_effect.subscribe_commits(
     shared_tree,
     Watching,
     Committed,
@@ -113,10 +121,15 @@ pub fn watch_history(
   )
 }
 
-pub fn release(handle: watershed.TreeRevertible) -> Effect(TreeMsg) {
-  tree.dispose_revertible(handle, Disposed)
+pub fn release(handle: tree.Revertible) -> Effect(TreeMsg(record)) {
+  tree_effect.dispose_revertible(handle, Disposed)
 }
 ```
+
+`observe` is changes-only: it sends no registration snapshot. Read explicitly
+for the initial value. Commits elsewhere in the same tree and checkout can
+repeat an equal snapshot; errors such as removal and schema incompatibility
+arrive as structured results.
 
 The bindings keep transactions and undo handles in the same effect discipline:
 
@@ -125,15 +138,17 @@ The bindings keep transactions and undo handles in the same effect discipline:
 - `subscribe_commits` reports default, undo, and redo commits. Eligible local
   commits include a retained revertible handle; remote and schema commits do
   not. Settlement arrives separately after sequencing decides the outcome.
-- `revert` and `dispose_revertible` run only when their effects are performed.
-  The app owns its undo and redo stacks and must dispose every retained handle
-  it does not keep.
-- The existing `unsubscribe` accepts change-subscription and commit-subscription
-  tokens. It stops future native callbacks, but a message already queued for a
-  microtask can still arrive. An app that stops accepting history must also
-  dispose any late handle it receives.
-- Closing the document disposes runtime-owned handles. It does not persist or
-  manage application history.
+- `revert` takes `KeepRevertible` or `DisposeRevertible`.
+  `dispose_revertible` releases an unused entry. The app owns every acquired
+  handle; `watershed/tree/history_stack` can supply pure stack policy.
+- `unsubscribe` accepts any canonical tree subscription. It stops future
+  callbacks, but a message already queued for a microtask can still arrive.
+  An app that stops accepting history must dispose late handles and cancel
+  late subscription registrations.
+- `dispose` releases a tree handle's subscriptions and anchors. For a document
+  tree it leaves the document and application-owned revertibles alive; for
+  a fork it also disposes the checkout and its history. Closing the document
+  invalidates all its handles. None of these operations persists an undo stack.
 
 ### Claims writes
 
