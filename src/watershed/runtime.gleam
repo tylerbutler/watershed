@@ -96,6 +96,8 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
+import watershed/tree as tree_api
+@target(javascript)
 import watershed/tree/error as tree_error
 @target(javascript)
 import watershed/tree/forest
@@ -105,6 +107,8 @@ import watershed/tree/live_types as tree_live
 import watershed/tree/node
 @target(javascript)
 import watershed/tree/schema as tree_schema
+@target(javascript)
+import watershed/tree/schema_builder as tree_builder
 @target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
@@ -3347,10 +3351,13 @@ pub fn tree_node_edit_view_on(
 pub fn create_live_tree(
   runtime: Runtime,
   store: Option(String),
-  stored: tree_schema.StoredSchema,
-  initial: Option(tree_types.TreeValue),
-  view: tree_schema.ViewSchema,
-) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Result(tree_api.Tree(a), tree_error.Error) {
+  use root <- result.try(
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
   let state = cell_get(runtime.cell)
   use _ <- result.try(case state.closed {
     True -> Error(tree_error.ClosedRuntime)
@@ -3386,9 +3393,9 @@ pub fn create_live_tree(
       core,
       store,
       id.uuid_v4(),
-      stored,
-      initial,
-      view,
+      tree_builder.stored(compiled),
+      root,
+      tree_builder.view(compiled),
     ),
   )
   cell_set(runtime.cell, State(..state, phase: Ready(core, None)))
@@ -3399,7 +3406,7 @@ pub fn create_live_tree(
     state.tree_commit_subscribers,
     events,
   )
-  Ok(#(address, token))
+  Ok(bound_tree(runtime, address, compiled, token))
 }
 
 @target(javascript)
@@ -3407,9 +3414,9 @@ pub fn create_live_tree(
 pub fn open_live_tree(
   runtime: Runtime,
   marker: Option(Json),
-  view: tree_schema.ViewSchema,
+  compiled: tree_builder.Compiled(a),
   inspect: Bool,
-) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+) -> Result(tree_api.Tree(a), tree_error.Error) {
   let state = cell_get(runtime.cell)
   use _ <- result.try(case state.closed {
     True -> Error(tree_error.ClosedRuntime)
@@ -3430,11 +3437,84 @@ pub fn open_live_tree(
   use #(core, address, token) <- result.try(runtime_core.open_live_tree(
     core,
     marker,
-    view,
+    tree_builder.view(compiled),
     inspect,
   ))
   cell_set(runtime.cell, State(..state, phase: install(core)))
-  Ok(#(address, token))
+  Ok(bound_tree(runtime, address, compiled, token))
+}
+
+@target(javascript)
+@internal
+pub fn bound_tree(
+  runtime: Runtime,
+  address: String,
+  compiled: tree_builder.Compiled(a),
+  token: tree_live.ViewToken,
+) -> tree_api.Tree(a) {
+  tree_api.from_bound(
+    compiled,
+    tree_backend(runtime, address, tree_builder.view(compiled), token),
+    token,
+  )
+}
+
+@target(javascript)
+fn tree_backend(
+  connection: Runtime,
+  address: String,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+) -> tree_api.Backend {
+  let selector = tree_live.checkout(token)
+  tree_api.Backend(
+    address: address,
+    request: fn(request) {
+      live_request(connection, address, selector, view, request)
+    },
+    subscribe: fn(handler) {
+      subscribe_live_commits(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        fn(event) {
+          let identity = fn(revertible) {
+            #(
+              tree_revertible_id(revertible),
+              tree_revertible_revision(revertible),
+            )
+          }
+          handler(tree_api.from_commit(
+            tree_backend(connection, address, view, token),
+            event.kind,
+            event.local,
+            option.map(event.get_revertible, fn(_) {
+              fn(on_disposed) {
+                tree_get_revertible(event, fn(value) {
+                  on_disposed(identity(value))
+                })
+                |> result.map(identity)
+              }
+            }),
+            event.on_settled,
+          ))
+        },
+      )
+    },
+    changes: fn(handler) {
+      subscribe_live_changes(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        fn(event) { handler(tree_api.from_change(event)) },
+      )
+    },
+    rebind: fn(token) { tree_backend(connection, address, view, token) },
+  )
 }
 
 @target(javascript)

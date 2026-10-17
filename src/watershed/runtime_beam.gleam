@@ -234,6 +234,8 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree as tree_api
+@target(erlang)
 import watershed/tree/error as tree_error
 @target(erlang)
 import watershed/tree/forest
@@ -243,6 +245,8 @@ import watershed/tree/live_types as tree_live
 import watershed/tree/node
 @target(erlang)
 import watershed/tree/schema as tree_schema
+@target(erlang)
+import watershed/tree/schema_builder as tree_builder
 @target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
@@ -2133,16 +2137,28 @@ pub fn tree_node_edit_view_on(
 pub fn create_live_tree(
   runtime: Subject(Msg),
   store: Option(String),
-  stored: tree_schema.StoredSchema,
-  initial: Option(tree_types.TreeValue),
-  view: tree_schema.ViewSchema,
-) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
-  call_runtime_with_errors(
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Result(tree_api.Tree(a), tree_error.Error) {
+  use root <- result.try(
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
+  use #(address, token) <- result.try(call_runtime_with_errors(
     runtime,
-    fn(reply) { CreateLiveTree(store, stored, initial, view, reply) },
+    fn(reply) {
+      CreateLiveTree(
+        store,
+        tree_builder.stored(compiled),
+        root,
+        tree_builder.view(compiled),
+        reply,
+      )
+    },
     tree_error.ClosedRuntime,
     tree_error.RequestTimeout,
-  )
+  ))
+  Ok(bound_tree(runtime, address, compiled, token))
 }
 
 @target(erlang)
@@ -2150,14 +2166,90 @@ pub fn create_live_tree(
 pub fn open_live_tree(
   runtime: Subject(Msg),
   marker: Option(Json),
-  view: tree_schema.ViewSchema,
+  compiled: tree_builder.Compiled(a),
   inspect: Bool,
-) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
-  call_runtime_with_errors(
+) -> Result(tree_api.Tree(a), tree_error.Error) {
+  use #(address, token) <- result.try(call_runtime_with_errors(
     runtime,
-    fn(reply) { OpenLiveTree(marker, view, inspect, reply) },
+    fn(reply) {
+      OpenLiveTree(marker, tree_builder.view(compiled), inspect, reply)
+    },
     tree_error.ClosedRuntime,
     tree_error.RequestTimeout,
+  ))
+  Ok(bound_tree(runtime, address, compiled, token))
+}
+
+@target(erlang)
+@internal
+pub fn bound_tree(
+  runtime: Subject(Msg),
+  address: String,
+  compiled: tree_builder.Compiled(a),
+  token: tree_live.ViewToken,
+) -> tree_api.Tree(a) {
+  tree_api.from_bound(
+    compiled,
+    tree_backend(runtime, address, tree_builder.view(compiled), token),
+    token,
+  )
+}
+
+@target(erlang)
+fn tree_backend(
+  connection: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+) -> tree_api.Backend {
+  let selector = tree_live.checkout(token)
+  tree_api.Backend(
+    address: address,
+    request: fn(request) {
+      live_request(connection, address, selector, view, request)
+    },
+    subscribe: fn(handler) {
+      subscribe_live_commits(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        fn(event) {
+          let identity = fn(revertible) {
+            #(
+              tree_revertible_id(revertible),
+              tree_revertible_revision(revertible),
+            )
+          }
+          handler(tree_api.from_commit(
+            tree_backend(connection, address, view, token),
+            event.kind,
+            event.local,
+            option.map(event.get_revertible, fn(_) {
+              fn(on_disposed) {
+                tree_get_revertible(event, fn(value) {
+                  on_disposed(identity(value))
+                })
+                |> result.map(identity)
+              }
+            }),
+            event.on_settled,
+          ))
+        },
+      )
+    },
+    changes: fn(handler) {
+      subscribe_live_changes(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        fn(event) { handler(tree_api.from_change(event)) },
+      )
+    },
+    rebind: fn(token) { tree_backend(connection, address, view, token) },
   )
 }
 

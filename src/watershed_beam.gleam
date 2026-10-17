@@ -1035,72 +1035,10 @@ pub fn tree_typed(
   )
   case response {
     live_types.Bound(token) ->
-      Ok(tree_live.from_bound(
-        compiled,
-        tree_backend(tree.runtime, tree.address, tree.view, token),
-        token,
-      ))
+      Ok(runtime_beam.bound_tree(tree.runtime, tree.address, compiled, token))
     _ ->
       Error(tree_error.RuntimeFailure("Unexpected typed tree binding response"))
   }
-}
-
-@target(erlang)
-fn tree_backend(
-  connection: Subject(runtime_beam.Msg),
-  address: String,
-  view: tree_schema.ViewSchema,
-  token: live_types.ViewToken,
-) -> tree_live.Backend {
-  let selector = live_types.checkout(token)
-  tree_live.Backend(
-    address: address,
-    request: fn(request) {
-      runtime_beam.live_request(connection, address, selector, view, request)
-    },
-    subscribe: fn(handler) {
-      runtime_beam.subscribe_live_commits(
-        connection,
-        address,
-        selector,
-        view,
-        token,
-        fn(event) {
-          let identity = fn(revertible) {
-            #(
-              runtime_beam.tree_revertible_id(revertible),
-              runtime_beam.tree_revertible_revision(revertible),
-            )
-          }
-          handler(tree_live.from_commit(
-            tree_backend(connection, address, view, token),
-            event.kind,
-            event.local,
-            option.map(event.get_revertible, fn(_) {
-              fn(on_disposed) {
-                runtime_beam.tree_get_revertible(event, fn(value) {
-                  on_disposed(identity(value))
-                })
-                |> result.map(identity)
-              }
-            }),
-            event.on_settled,
-          ))
-        },
-      )
-    },
-    changes: fn(handler) {
-      runtime_beam.subscribe_live_changes(
-        connection,
-        address,
-        selector,
-        view,
-        token,
-        fn(event) { handler(tree_live.from_change(event)) },
-      )
-    },
-    rebind: fn(token) { tree_backend(connection, address, view, token) },
-  )
 }
 
 @target(erlang)
