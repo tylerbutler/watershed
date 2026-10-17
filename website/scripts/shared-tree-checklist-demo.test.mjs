@@ -35,9 +35,7 @@ async function openChecklist(t) {
 
 async function replaceText(page, selector, text) {
   await page.click(selector);
-  await page.keyboard.down("Control");
-  await page.keyboard.press("A");
-  await page.keyboard.up("Control");
+  await page.$eval(selector, (input) => input.select());
   await page.keyboard.type(text);
 }
 
