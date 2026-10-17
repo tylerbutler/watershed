@@ -5142,6 +5142,11 @@ fn install_checkout_forest_state(
     tree_branch.checkout_state(forest, tree_branch.document(forest))
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
+  use <- bool.guard(
+    dict.get(core.tree_checkouts, address) == Ok(forest)
+      && tree_channel(core, address) == Ok(document),
+    Ok(core),
+  )
   Ok(
     case dict.has_key(core.detached, address) {
       True ->
