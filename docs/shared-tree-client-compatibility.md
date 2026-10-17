@@ -475,7 +475,7 @@ Keep historical acceptance records intact and identify the profile they prove.
 [up-container-loader]: https://github.com/microsoft/FluidFramework/blob/c3c5bf0ecd313362e83fe8a02b7d39e7e0736960/packages/loader/container-loader/src/container.ts#L2412-L2491
 [up-datastore-factory]: https://github.com/microsoft/FluidFramework/blob/c3c5bf0ecd313362e83fe8a02b7d39e7e0736960/packages/runtime/container-runtime/src/dataStoreContext.ts#L602-L695
 [typed-tests]: ../test/watershed/shared_tree_declared_codec_test.gleam
-[typed-facade-tests]: ../test/watershed/shared_tree_typed_facade_test.gleam
+[typed-facade-tests]: ../test/watershed/shared_tree_declared_api_test.gleam
 [node-tests]: ../test/watershed/shared_tree_node_test.gleam
 [map-tests]: ../test/watershed/shared_tree_map_kernel_test.gleam
 [array-tests]: ../test/watershed/shared_tree_array_facade_test.gleam
