@@ -806,6 +806,12 @@ pub type Msg {
     edit: node.Edit,
     reply: Subject(Result(Nil, String)),
   )
+  OpenLiveTree(
+    marker: Option(Json),
+    view: tree_schema.ViewSchema,
+    inspect: Bool,
+    reply: Subject(Result(#(String, tree_live.ViewToken), tree_error.Error)),
+  )
   LiveTreeRequest(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -2116,6 +2122,22 @@ pub fn tree_node_edit_view_on(
 }
 
 @target(erlang)
+@internal
+pub fn open_live_tree(
+  runtime: Subject(Msg),
+  marker: Option(Json),
+  view: tree_schema.ViewSchema,
+  inspect: Bool,
+) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+  call_runtime_with_errors(
+    runtime,
+    fn(reply) { OpenLiveTree(marker, view, inspect, reply) },
+    tree_error.ClosedRuntime,
+    tree_error.RequestTimeout,
+  )
+}
+
+@target(erlang)
 pub fn live_request(
   runtime: Subject(Msg),
   address: String,
@@ -2951,6 +2973,10 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
 @target(erlang)
 fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
+    OpenLiveTree(_, _, _, reply) -> {
+      process.send(reply, Error(tree_error.ClosedRuntime))
+      actor.continue(state)
+    }
     LiveTreeRequest(_, _, _, _, reply)
     | FinishLiveTreeTransaction(_, _, reply) -> {
       process.send(reply, Error(tree_error.ClosedRuntime))
@@ -3254,7 +3280,8 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | SubscribeTreeEvents(_, _, _)
         | TreeRevertibleStatusRequested(_, _, _, _)
         | TreeBranchStatus(_, _, _) -> handle_message(state, msg)
-        SubscribeLiveTree(_, _, _, _, _, _) -> handle_message(state, msg)
+        OpenLiveTree(_, _, _, _) | SubscribeLiveTree(_, _, _, _, _, _) ->
+          handle_message(state, msg)
         LiveTreeRequest(_, _, _, request, reply) ->
           case
             tree_live.writes(request),
@@ -4249,6 +4276,36 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
             }
           }
       }
+    OpenLiveTree(marker, view, inspect, reply) -> {
+      let opened = {
+        use core <- result.try(case state.phase {
+          Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
+            Ok(core)
+          Connecting(_) -> Error(tree_error.NotReady)
+          Failed(reason) -> Error(tree_error.TransportFailed(reason))
+        })
+        use address <- result.try(runtime_core.live_tree_address(core, marker))
+        use _ <- result.try(
+          transaction_tree_access(state, address, reply)
+          |> result.map_error(tree_error.TransactionConflict),
+        )
+        let core = case core.live_namespace {
+          None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+          Some(_) -> core
+        }
+        runtime_core.open_live_tree(core, marker, view, inspect)
+      }
+      case opened {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(#(core, address, token)) -> {
+          process.send(reply, Ok(#(address, token)))
+          actor.continue(install_phase_core(state, core))
+        }
+      }
+    }
     LiveTreeRequest(address, selector, view, request, reply) ->
       handle_live_tree_request(state, address, selector, view, request, reply)
     FinishLiveTreeTransaction(core, outcome, reply) ->

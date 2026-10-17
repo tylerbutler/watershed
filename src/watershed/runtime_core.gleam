@@ -1107,6 +1107,70 @@ pub fn open_tree(core: Core, value: Json) -> Result(String, CoreError) {
   Ok(address)
 }
 
+@internal
+pub fn open_live_tree(
+  core: Core,
+  marker: Option(Json),
+  view: tree_schema.ViewSchema,
+  inspect: Bool,
+) -> Result(#(Core, String, tree_live.ViewToken), tree_error.Error) {
+  use address <- result.try(live_tree_address(core, marker))
+  let request = case inspect {
+    True -> tree_live.Inspect(view)
+    False -> tree_live.Bind(view)
+  }
+  use #(core, response, _, _) <- result.try(live_request(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    request,
+  ))
+  case response {
+    tree_live.Bound(token) -> Ok(#(core, address, token))
+    _ -> Error(tree_error.RuntimeFailure("Unexpected tree binding response"))
+  }
+}
+
+@internal
+pub fn live_tree_address(
+  core: Core,
+  marker: Option(Json),
+) -> Result(String, tree_error.Error) {
+  let route = case marker {
+    Some(value) ->
+      handle.absolute_routed_address(value)
+      |> result.map_error(fn(error) {
+        tree_error.InvalidHandle(string.inspect(error))
+      })
+    None -> {
+      use root <- result.try(
+        root_channel_address(core) |> result.map_error(live_core_error),
+      )
+      use value <- result.try(
+        get(core, root, "tree")
+        |> result.map_error(fn(_) { tree_error.MissingBinding("tree") }),
+      )
+      use context <- result.try(
+        handle_context(root) |> result.map_error(live_core_error),
+      )
+      handle.routed_address(value, context)
+      |> result.map_error(fn(error) {
+        tree_error.InvalidHandle(string.inspect(error))
+      })
+    }
+  }
+  use route <- result.try(route)
+  use address <- result.try(
+    resolve_routed_handle(core, Ok(route))
+    |> result.map_error(live_core_error),
+  )
+  use _ <- result.try(
+    tree_channel(core, address) |> result.map_error(live_core_error),
+  )
+  Ok(address)
+}
+
 /// Bind a handle to the datastore of its source channel.
 pub fn bind_handle(
   core: Core,

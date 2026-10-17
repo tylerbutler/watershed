@@ -3344,6 +3344,41 @@ pub fn tree_node_edit_view_on(
 
 @target(javascript)
 @internal
+pub fn open_live_tree(
+  runtime: Runtime,
+  marker: Option(Json),
+  view: tree_schema.ViewSchema,
+  inspect: Bool,
+) -> Result(#(String, tree_live.ViewToken), tree_error.Error) {
+  let state = cell_get(runtime.cell)
+  use _ <- result.try(case state.closed {
+    True -> Error(tree_error.ClosedRuntime)
+    False -> Ok(Nil)
+  })
+  use #(core, install) <- result.try(case state.phase {
+    Ready(core, checkpoint) -> Ok(#(core, Ready(_, checkpoint)))
+    Reconnecting(core) -> Ok(#(core, Reconnecting))
+    SuspendedPendingTree(core, reason) ->
+      Ok(#(core, SuspendedPendingTree(_, reason)))
+    Connecting -> Error(tree_error.NotReady)
+    Failed(reason) -> Error(tree_error.TransportFailed(reason))
+  })
+  let core = case core.live_namespace {
+    None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
+    Some(_) -> core
+  }
+  use #(core, address, token) <- result.try(runtime_core.open_live_tree(
+    core,
+    marker,
+    view,
+    inspect,
+  ))
+  cell_set(runtime.cell, State(..state, phase: install(core)))
+  Ok(#(address, token))
+}
+
+@target(javascript)
+@internal
 pub fn live_request(
   runtime: Runtime,
   address: String,
