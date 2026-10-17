@@ -16,43 +16,61 @@ import watershed/runtime_core
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree as tree_api
+import watershed/tree/error
 import watershed/tree/runtime_fixture
-import watershed/tree/schema
 import watershed/tree/schema_builder as builder
-import watershed/tree/typed
 import watershed/tree/types
 @target(erlang)
 import watershed_beam as facade
 
-pub type NativeRoot
-
-pub fn definition(
+@target(javascript)
+pub fn open(
+  document: facade.Document(root),
   compiled: builder.Compiled(a),
-) -> typed.Schema(NativeRoot, types.TreeValue) {
-  let identifiers =
-    schema.root_field_schema(builder.stored(compiled)).allowed_types
-  let assert Ok(root) = typed.dynamic_union_node(identifiers)
-  let assert Ok(value) = typed.schema(builder.view(compiled), root)
-  value
+) -> Result(tree_api.Tree(a), error.Error) {
+  runtime.open_live_tree(facade.runtime_of(document), None, compiled, False)
 }
 
-pub fn native_cards(
-  tree: facade.SharedTree(NativeRoot, types.TreeValue),
-) -> facade.TreeArray(Card, types.TreeValue) {
-  let assert Ok(Some(root)) = facade.tree_root(tree)
-  let assert Ok(item) = typed.node("typed.test.Card", fn(value) { Ok(value) })
-  let assert Ok(cards) =
-    facade.tree_array(
-      root,
-      typed.array_field("cards", "typed.test.Cards", item),
-    )
-  cards
+@target(erlang)
+pub fn open(
+  document: facade.Document(root),
+  compiled: builder.Compiled(a),
+) -> Result(tree_api.Tree(a), error.Error) {
+  runtime_beam.open_live_tree(
+    facade.runtime_subject(document),
+    None,
+    compiled,
+    False,
+  )
 }
 
-pub fn native_card_builder() -> typed.Builder(Card, types.TreeValue) {
-  let assert Ok(value) =
-    typed.builder("typed.test.Card", fn(value) { Ok(value) })
-  value
+@target(javascript)
+pub fn inspect(
+  document: facade.Document(root),
+  marker: json.Json,
+  compiled: builder.Compiled(a),
+) -> Result(tree_api.Tree(a), error.Error) {
+  runtime.open_live_tree(
+    facade.runtime_of(document),
+    Some(marker),
+    compiled,
+    True,
+  )
+}
+
+@target(erlang)
+pub fn inspect(
+  document: facade.Document(root),
+  marker: json.Json,
+  compiled: builder.Compiled(a),
+) -> Result(tree_api.Tree(a), error.Error) {
+  runtime_beam.open_live_tree(
+    facade.runtime_subject(document),
+    Some(marker),
+    compiled,
+    True,
+  )
 }
 
 pub type Card {
@@ -209,7 +227,7 @@ fn receive_values(subject: process.Subject(a), count: Int) -> List(a) {
 pub fn tree(
   compiled: builder.Compiled(a),
   initial: a,
-) -> #(facade.Document(Nil), facade.SharedTree(NativeRoot, types.TreeValue)) {
+) -> #(facade.Document(Nil), tree_api.Tree(a)) {
   let #(document, tree, _) = tree_with_operations(compiled, initial)
   #(document, tree)
 }
@@ -217,11 +235,7 @@ pub fn tree(
 pub fn tree_with_operations(
   compiled: builder.Compiled(a),
   initial: a,
-) -> #(
-  facade.Document(Nil),
-  facade.SharedTree(NativeRoot, types.TreeValue),
-  fn(List(frame.Sequenced)) -> Nil,
-) {
+) -> #(facade.Document(Nil), tree_api.Tree(a), fn(List(frame.Sequenced)) -> Nil) {
   tree_with_submissions(compiled, initial, fn(_) { Nil })
 }
 
@@ -230,11 +244,7 @@ pub fn tree_with_submissions(
   compiled: builder.Compiled(a),
   initial: a,
   on_submit: fn(json.Json) -> Nil,
-) -> #(
-  facade.Document(Nil),
-  facade.SharedTree(NativeRoot, types.TreeValue),
-  fn(List(frame.Sequenced)) -> Nil,
-) {
+) -> #(facade.Document(Nil), tree_api.Tree(a), fn(List(frame.Sequenced)) -> Nil) {
   let callbacks = transport_js.new_cell(option.None)
   let document =
     facade.connect_via_seed(
@@ -261,10 +271,7 @@ pub fn tree_with_submissions(
     )
   let assert Some(callbacks) = transport_js.get_cell(callbacks)
   callbacks.on_event("connect_document_success", connected() |> json.to_string)
-  let assert Ok(root) = facade.resolve_root(document)
-  let assert Ok(marker) = facade.get(root, "tree")
-  let assert Ok(tree) =
-    facade.resolve_tree(document, marker, definition(compiled))
+  let assert Ok(tree) = open(document, compiled)
   #(document, tree, fn(operations) {
     callbacks.on_event(
       "op",
@@ -278,11 +285,7 @@ pub fn tree_with_submissions(
   compiled: builder.Compiled(a),
   initial: a,
   on_submit: fn(json.Json) -> Nil,
-) -> #(
-  facade.Document(Nil),
-  facade.SharedTree(NativeRoot, types.TreeValue),
-  fn(List(frame.Sequenced)) -> Nil,
-) {
+) -> #(facade.Document(Nil), tree_api.Tree(a), fn(List(frame.Sequenced)) -> Nil) {
   let connections = process.new_subject()
   let assert Ok(document) =
     facade.connect_via_seed(
@@ -311,10 +314,7 @@ pub fn tree_with_submissions(
   callbacks.on_event("connect_document_success", connected())
   let assert Ok(Nil) =
     runtime_beam.await_ready(facade.runtime_subject(document))
-  let assert Ok(root) = facade.resolve_root(document)
-  let assert Ok(marker) = facade.get(root, "tree")
-  let assert Ok(tree) =
-    facade.resolve_tree(document, marker, definition(compiled))
+  let assert Ok(tree) = open(document, compiled)
   #(document, tree, fn(operations) {
     callbacks.on_event("op", frame.encode_operation_event(operations))
   })

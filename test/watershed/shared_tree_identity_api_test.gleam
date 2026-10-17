@@ -26,9 +26,8 @@ fn cards() {
 pub fn tree_api_remove_node_follows_identity_after_remote_insertion_test() {
   let #(compiled, _) = cards()
   let initial = [card("A"), card("B")]
-  let #(document, native, deliver) =
+  let #(document, tree, deliver) =
     fixture.tree_with_operations(compiled, initial)
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(items) = tree.required_root(tree)
   let assert Ok(Some(selected)) = tree.array_node(items, 1)
   let assert Ok(Some(types.ArrayValue(_, [inserted]))) =
@@ -49,9 +48,8 @@ pub fn tree_api_remove_node_follows_identity_after_remote_insertion_test() {
 
 pub fn tree_api_move_before_preserves_identity_and_supports_append_test() {
   let #(compiled, definition) = cards()
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, [card("A"), card("B"), card("C")])
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(items) = tree.required_root(tree)
   let assert Ok(Some(a)) = tree.array_node(items, 0)
   let assert Ok(Some(b)) = tree.array_node(items, 1)
@@ -81,9 +79,8 @@ fn board() {
     builder.object2(factory, "Board", Board, left, right)
     |> builder.root
     |> builder.compile
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, Board([card("A")], [card("B")]))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(root) = tree.required_root(tree)
   let assert Ok(left) = tree.child(root, left)
   let assert Ok(right) = tree.child(root, right)
@@ -159,9 +156,8 @@ pub fn tree_api_identity_edits_rollback_with_the_transaction_test() {
 pub fn tree_api_rejected_identity_edit_sends_no_operation_test() {
   let #(compiled, _) = cards()
   let #(record, take) = fixture.capture()
-  let #(document, native, _) =
+  let #(document, tree, _) =
     fixture.tree_with_submissions(compiled, [card("A")], record)
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(items) = tree.required_root(tree)
   let assert Ok(Some(item)) = tree.array_node(items, 0)
   let assert Ok(branch) = tree.fork(tree)

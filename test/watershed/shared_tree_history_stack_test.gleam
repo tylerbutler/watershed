@@ -63,8 +63,7 @@ pub fn tree_api_history_uses_application_owned_canonical_revertibles_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
   let initial = fixture.Card(builder.Assigned("original"), "First")
-  let #(document, native) = fixture.tree(compiled, initial)
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
+  let #(document, tree) = fixture.tree(compiled, initial)
   let assert Ok(root) = tree.required_root(tree)
   let #(record, take) = fixture.capture()
   let #(disposed, take_disposed) = fixture.capture()

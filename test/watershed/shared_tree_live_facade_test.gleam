@@ -5,11 +5,10 @@ import gleam/option.{type Option, None, Some}
 import startest/expect
 @target(javascript)
 import watershed as facade
-import watershed/tree/error as tree_error
 import watershed/tree as live
+import watershed/tree/error as tree_error
 import watershed/tree/live_fixture as fixture
 import watershed/tree/schema_builder as builder
-import watershed/tree/typed
 import watershed/tree/types
 @target(erlang)
 import watershed_beam as facade
@@ -19,7 +18,7 @@ pub fn typed_live_root_and_properties_test() {
   let assert Ok(compiled) = builder.compile(builder.root(schema.node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   live.read_root(view) |> expect.to_equal(Ok(initial))
   let assert Ok(card) = live.required_root(view)
   live.get(card, schema.id) |> expect.to_equal(Ok(builder.Assigned("original")))
@@ -68,28 +67,23 @@ fn board_schema() {
   #(compiled, card, cards, by_key, selected)
 }
 
-pub fn typed_live_collection_navigation_follows_native_edits_test() {
+pub fn typed_live_collection_navigation_follows_other_handle_edits_test() {
   let #(compiled, card, cards_property, map_property, selected_property) =
     board_schema()
   let a = fixture.Card(builder.Assigned("duplicate"), "A")
   let b = fixture.Card(builder.Assigned("duplicate"), "B")
   let #(document, tree) =
     fixture.tree(compiled, Board([a, b], dict.new(), None))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(cards) = live.child(root, cards_property)
   let assert Ok(Some(saved)) = live.array_node(cards, 1)
-  facade.tree_array_insert(
-    fixture.native_cards(tree),
-    0,
-    fixture.native_card_builder(),
-    [
-      types.ObjectValue("typed.test.Card", [
-        #("id", types.StringValue("inserted")),
-        #("title", types.StringValue("Inserted")),
-      ]),
-    ],
-  )
+  let assert Ok(other) = fixture.open(document, compiled)
+  let assert Ok(other_root) = live.required_root(other)
+  let assert Ok(other_cards) = live.child(other_root, cards_property)
+  live.array_insert(other_cards, 0, [
+    fixture.Card(builder.Assigned("inserted"), "Inserted"),
+  ])
   |> expect.to_equal(Ok(Nil))
   live.set(saved, card.title, "Edited") |> expect.to_equal(Ok(Nil))
   live.array_get(cards, 1) |> expect.to_equal(Ok(Some(a)))
@@ -122,7 +116,7 @@ pub fn typed_live_construction_and_disposal_test() {
   let assert Ok(compiled) = builder.compile(builder.root(schema.node))
   let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(before) = live.required_root(view)
   live.replace_root(view, fixture.Card(builder.Generate, "New"))
   |> expect.to_be_error
@@ -133,7 +127,7 @@ pub fn typed_live_construction_and_disposal_test() {
   live.dispose(view) |> expect.to_equal(Ok(Nil))
   live.dispose(view) |> expect.to_equal(Ok(Nil))
   live.read_root(view) |> expect.to_equal(Error(tree_error.ClosedTree))
-  let assert Ok(other) = facade.tree_typed(tree, compiled)
+  let assert Ok(other) = fixture.open(document, compiled)
   let assert Ok(_) = live.read_root(other)
   facade.close(document)
   live.read_root(other) |> expect.to_equal(Error(tree_error.ClosedRuntime))
@@ -144,7 +138,7 @@ pub fn typed_live_observation_reads_committed_state_and_cancels_test() {
   let assert Ok(compiled) = builder.compile(builder.root(schema.node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let assert Ok(view) = fixture.open(document, compiled)
   let assert Ok(card) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) = live.observe(view, record)
@@ -155,18 +149,14 @@ pub fn typed_live_observation_reads_committed_state_and_cancels_test() {
   live.unsubscribe(subscription)
   live.unsubscribe(subscription)
   live.set(card, schema.title, "Unobserved") |> expect.to_equal(Ok(Nil))
-  let assert Ok(_) = facade.tree_read_root(tree)
+  let assert Ok(_) = live.read_root(tree)
   take(0) |> expect.to_equal([])
   let assert Ok(_) = live.observe(view, record)
   live.dispose(view) |> expect.to_equal(Ok(Nil))
-  let assert Ok(Some(native_card)) = facade.tree_root(tree)
-  facade.tree_set(
-    native_card,
-    typed.required("title", typed.string()),
-    "After disposal",
-  )
+  let assert Ok(other_card) = live.required_root(tree)
+  live.set(other_card, schema.title, "After disposal")
   |> expect.to_equal(Ok(Nil))
-  let assert Ok(_) = facade.tree_read_root(tree)
+  let assert Ok(_) = live.read_root(tree)
   take(0) |> expect.to_equal([])
   facade.close(document)
 }
@@ -176,7 +166,7 @@ pub fn typed_live_optional_root_and_primitive_root_test() {
   let assert Ok(compiled) = builder.compile(builder.optional_root(card.node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, Some(initial))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   live.required_root(view)
   |> expect.to_equal(Error(tree_error.WrongCardinality))
   let assert Ok(Some(reference)) = live.optional_root(view)
@@ -188,7 +178,7 @@ pub fn typed_live_optional_root_and_primitive_root_test() {
   facade.close(document)
   let assert Ok(compiled) = builder.compile(builder.root(builder.string()))
   let #(document, tree) = fixture.tree(compiled, "First")
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   live.read_root(view) |> expect.to_equal(Ok("First"))
   live.required_root(view)
   |> expect.to_equal(
@@ -203,7 +193,7 @@ pub fn typed_live_collection_construction_modes_test() {
   let #(compiled, card, cards_property, map_property, selected_property) =
     board_schema()
   let #(document, tree) = fixture.tree(compiled, Board([], dict.new(), None))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(cards) = live.child(root, cards_property)
   let generated = fixture.Card(builder.Generate, "Generated")
@@ -241,7 +231,7 @@ pub fn typed_live_leaf_collections_do_not_issue_refs_test() {
     builder.array(builder.factory("typed.test"), "Strings", builder.string())
   let assert Ok(compiled) = builder.compile(builder.root(node))
   let #(document, tree) = fixture.tree(compiled, ["a"])
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(array) = live.required_root(view)
   live.array_get(array, 0) |> expect.to_equal(Ok(Some("a")))
   live.array_node(array, 0) |> expect.to_be_error
@@ -253,7 +243,7 @@ pub fn typed_live_leaf_collections_do_not_issue_refs_test() {
     builder.map(builder.factory("typed.test"), "StringsByKey", builder.string())
   let assert Ok(compiled) = builder.compile(builder.root(node))
   let #(document, tree) = fixture.tree(compiled, dict.from_list([#("a", "b")]))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(map) = live.required_root(view)
   live.map_get(map, "a") |> expect.to_equal(Ok(Some("b")))
   live.map_node(map, "a") |> expect.to_be_error
@@ -289,7 +279,7 @@ pub fn typed_live_narrow_keeps_composite_identity_test() {
   let assert Ok(compiled) = builder.compile(builder.root(node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, CardChoice(initial))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let assert Ok(Some(narrowed)) = live.narrow(reference, card.node)
   live.narrow(reference, builder.string()) |> expect.to_equal(Ok(None))
@@ -315,13 +305,16 @@ pub fn typed_live_node_observer_reports_removal_test() {
         None,
       ),
     )
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(cards) = live.child(root, cards_property)
   let assert Ok(Some(card)) = live.array_node(cards, 0)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) = live.observe_node(card, record)
-  facade.tree_array_remove(fixture.native_cards(tree), 0, 1)
+  let assert Ok(other) = fixture.open(document, compiled)
+  let assert Ok(other_root) = live.required_root(other)
+  let assert Ok(other_cards) = live.child(other_root, cards_property)
+  live.array_remove(other_cards, 0, 1)
   |> expect.to_equal(Ok(Nil))
   take(1)
   |> expect.to_equal([Error(tree_error.InvalidReference(tree_error.Removed))])
@@ -335,8 +328,8 @@ pub fn typed_live_move_refuses_another_runtime_with_the_same_client_id_test() {
   let assert Ok(compiled) = builder.compile(builder.root(node))
   let #(first_document, first_tree) = fixture.tree(compiled, ["first"])
   let #(second_document, second_tree) = fixture.tree(compiled, ["second"])
-  let assert Ok(first_view) = facade.tree_typed(first_tree, compiled)
-  let assert Ok(second_view) = facade.tree_typed(second_tree, compiled)
+  let first_view = first_tree
+  let second_view = second_tree
   let assert Ok(first) = live.required_root(first_view)
   let assert Ok(second) = live.required_root(second_view)
   live.array_move(first, 0, 1, second, 1)
@@ -350,12 +343,12 @@ pub fn typed_live_move_refuses_another_runtime_with_the_same_client_id_test() {
 pub fn typed_live_transaction_abort_does_not_poison_new_refs_test() {
   let #(compiled, _, cards_property, _, _) = board_schema()
   let #(document, tree) = fixture.tree(compiled, Board([], dict.new(), None))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(cards) = live.child(root, cards_property)
   let #(record, take) = fixture.capture()
   let outcome =
-    facade.tree_transaction(tree, [], fn(_) {
+    live.transaction(tree, [], fn(_) {
       live.array_insert_new(cards, 0, [
         fixture.Card(builder.Generate, "Aborted"),
       ])
@@ -384,7 +377,7 @@ pub fn typed_live_equal_replacements_do_not_retarget_old_refs_test() {
   let card = fixture.Card(builder.Assigned("duplicate"), "Same")
   let initial = Board([], dict.from_list([#("key", card)]), Some(card))
   let #(document, tree) = fixture.tree(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(Some(selected)) = live.optional_child(root, selected_property)
   let assert Ok(by_key) = live.child(root, map_property)
@@ -413,11 +406,11 @@ pub fn typed_live_observation_excludes_transaction_previews_test() {
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) = live.observe(view, record)
-  facade.tree_transaction(tree, [], fn(_) {
+  live.transaction(tree, [], fn(_) {
     live.set(reference, card.title, "Preview") |> expect.to_equal(Ok(Nil))
     take(0) |> expect.to_equal([])
     live.set(reference, card.title, "Committed") |> expect.to_equal(Ok(Nil))
@@ -429,7 +422,7 @@ pub fn typed_live_observation_excludes_transaction_previews_test() {
   |> expect.to_equal([
     Ok(fixture.Card(builder.Assigned("original"), "Committed")),
   ])
-  facade.tree_transaction(tree, [], fn(_) {
+  live.transaction(tree, [], fn(_) {
     live.set(reference, card.title, "Aborted") |> expect.to_equal(Ok(Nil))
     take(0) |> expect.to_equal([])
     Error(Nil)
@@ -446,8 +439,8 @@ pub fn typed_live_disposal_cancels_captured_and_late_observers_test() {
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(first) = facade.tree_typed(tree, compiled)
-  let assert Ok(second) = facade.tree_typed(tree, compiled)
+  let first = tree
+  let assert Ok(second) = fixture.open(document, compiled)
   let assert Ok(reference) = live.required_root(first)
   let #(record, take) = fixture.capture()
   let assert Ok(_) = live.observe(second, fn(_) { record("captured") })
@@ -457,14 +450,14 @@ pub fn typed_live_disposal_cancels_captured_and_late_observers_test() {
       live.dispose(second) |> expect.to_equal(Ok(Nil))
       record("first")
     })
-  facade.tree_transaction(tree, [], fn(_) {
+  live.transaction(tree, [], fn(_) {
     live.set(reference, card.title, "Updated")
   })
   |> expect.to_equal(Ok(Nil))
   take(1) |> expect.to_equal(["first"])
   live.unsubscribe(subscription)
   live.set(reference, card.title, "Unobserved") |> expect.to_equal(Ok(Nil))
-  let assert Ok(_) = facade.tree_read_root(tree)
+  let assert Ok(_) = live.read_root(tree)
   take(0) |> expect.to_equal([])
   live.read_root(second) |> expect.to_equal(Error(tree_error.ClosedTree))
   facade.close(document)
@@ -475,7 +468,7 @@ pub fn typed_live_observers_report_incompatible_schema_upgrade_test() {
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) = fixture.tree(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(_) = live.observe(view, fn(value) { record(value) })
@@ -483,9 +476,8 @@ pub fn typed_live_observers_report_incompatible_schema_upgrade_test() {
   let assert Ok(broader) = builder.compile(builder.root(choice_node(card.node)))
   let assert Ok(root) = facade.resolve_root(document)
   let assert Ok(marker) = facade.get(root, "tree")
-  let assert Ok(upgraded) =
-    facade.open_tree(document, marker, fixture.definition(broader))
-  facade.tree_upgrade_schema(upgraded) |> expect.to_equal(Ok(Nil))
+  let assert Ok(upgraded) = fixture.inspect(document, marker, broader)
+  live.upgrade_schema(upgraded) |> expect.to_equal(Ok(Nil))
   take(2)
   |> expect.to_equal([
     Error(tree_error.IncompatibleView),
@@ -493,8 +485,7 @@ pub fn typed_live_observers_report_incompatible_schema_upgrade_test() {
   ])
   live.read(reference) |> expect.to_equal(Error(tree_error.IncompatibleView))
   live.dispose(view) |> expect.to_equal(Ok(Nil))
-  let assert Ok(current) = facade.tree_typed(upgraded, broader)
-  live.read_root(current) |> expect.to_equal(Ok(CardChoice(initial)))
+  live.read_root(upgraded) |> expect.to_equal(Ok(CardChoice(initial)))
   facade.close(document)
 }
 
@@ -503,9 +494,9 @@ pub fn typed_live_branch_disposal_cancels_its_observers_test() {
     builder.array(builder.factory("typed.test"), "Strings", builder.string())
   let assert Ok(compiled) = builder.compile(builder.root(node))
   let #(document, tree) = fixture.tree(compiled, ["first"])
-  let assert Ok(branch) = facade.tree_fork(tree)
-  let assert Ok(document_view) = facade.tree_typed(tree, compiled)
-  let assert Ok(branch_view) = facade.tree_typed(branch, compiled)
+  let assert Ok(branch) = live.fork(tree)
+  let document_view = tree
+  let branch_view = branch
   let assert Ok(document_root) = live.required_root(document_view)
   let assert Ok(branch_root) = live.required_root(branch_view)
   live.array_move(branch_root, 0, 1, document_root, 1)
@@ -514,19 +505,19 @@ pub fn typed_live_branch_disposal_cancels_its_observers_test() {
   let assert Ok(_) = live.observe(branch_view, record)
   live.array_insert(branch_root, 1, ["branch"]) |> expect.to_equal(Ok(Nil))
   take(1) |> expect.to_equal([Ok(["first", "branch"])])
-  facade.tree_merge(tree, branch, True) |> expect.to_equal(Ok(Nil))
+  live.merge(tree, branch, live.DisposeSource) |> expect.to_equal(Ok(Nil))
   live.read(document_root) |> expect.to_equal(Ok(["first", "branch"]))
   live.read(branch_root) |> expect.to_equal(Error(tree_error.DisposedCheckout))
   take(0) |> expect.to_equal([])
   facade.close(document)
 }
 
-pub fn typed_live_observer_failure_keeps_the_native_runtime_usable_test() {
+pub fn typed_live_observer_failure_keeps_the_runtime_usable_test() {
   let card = fixture.card_schema()
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) =
@@ -548,7 +539,7 @@ pub fn typed_live_observer_cannot_write_reentrantly_test() {
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) =
@@ -572,10 +563,10 @@ pub fn typed_live_transaction_preview_is_hidden_from_another_caller_test() {
   let assert Ok(compiled) = builder.compile(builder.root(card.node))
   let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
-  facade.tree_transaction(tree, [], fn(_) {
+  live.transaction(tree, [], fn(_) {
     live.set(reference, card.title, "Preview") |> expect.to_equal(Ok(Nil))
     let _ = process.spawn_unlinked(fn() { record(live.read_root(view)) })
     take(1)
@@ -596,12 +587,12 @@ pub fn typed_live_failed_edit_invalidates_only_preview_nodes_test() {
   let original = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree) =
     fixture.tree(compiled, Board([original], dict.new(), None))
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(root) = live.required_root(view)
   let assert Ok(cards) = live.child(root, cards_property)
   let assert Ok(Some(existing)) = live.array_node(cards, 0)
   let #(record, take) = fixture.capture()
-  facade.tree_transaction(tree, [], fn(_) {
+  live.transaction(tree, [], fn(_) {
     live.array_insert_new(cards, 1, [
       fixture.Card(builder.Generate, "Preview"),
     ])
@@ -625,7 +616,7 @@ pub fn typed_live_remote_observer_cannot_write_reentrantly_test() {
   let initial = fixture.Card(builder.Assigned("original"), "First")
   let #(document, tree, deliver) =
     fixture.tree_with_operations(compiled, initial)
-  let assert Ok(view) = facade.tree_typed(tree, compiled)
+  let view = tree
   let assert Ok(reference) = live.required_root(view)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) =

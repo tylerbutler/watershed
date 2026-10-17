@@ -3,8 +3,8 @@ import startest/expect
 @target(javascript)
 import watershed as facade
 import watershed/runtime_core as core
-import watershed/tree/error
 import watershed/tree as live
+import watershed/tree/error
 import watershed/tree/live_fixture as fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema_builder as builder
@@ -15,10 +15,9 @@ import watershed_beam as facade
 pub fn tree_api_errors_distinguish_closed_runtime_and_closed_tree_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
-  let assert Ok(other) = facade.tree_typed(native, compiled)
+  let assert Ok(other) = fixture.open(document, compiled)
   live.dispose(tree) |> expect.to_equal(Ok(Nil))
   live.read_root(tree) |> expect.to_equal(Error(error.ClosedTree))
   facade.close(document)
@@ -28,9 +27,8 @@ pub fn tree_api_errors_distinguish_closed_runtime_and_closed_tree_test() {
 pub fn tree_api_errors_preserve_wrong_property_and_incompatible_schema_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(root) = live.required_root(tree)
   let wrong =
     builder.required("absent", builder.string(), fn(v: fixture.Card) { v.title })
@@ -40,7 +38,7 @@ pub fn tree_api_errors_preserve_wrong_property_and_incompatible_schema_test() {
   |> expect.to_equal(Ok(fixture.Card(builder.Assigned("original"), "First")))
   let assert Ok(incompatible) =
     builder.string() |> builder.root |> builder.compile
-  case facade.tree_typed(native, incompatible) {
+  case fixture.open(document, incompatible) {
     Error(error.IncompatibleView) -> Nil
     _ -> panic as "Expected an incompatible schema"
   }
@@ -66,8 +64,7 @@ pub fn tree_api_errors_preserve_native_invalid_edit_payload_test() {
     core.submit_tree_edits(state, "A/_C", [
       types.ArrayInsert([], 3, [types.StringValue("Rejected")]),
     ])
-  let #(document, native) = fixture.tree(compiled, [])
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
+  let #(document, tree) = fixture.tree(compiled, [])
   let assert Ok(array) = live.required_root(tree)
   live.array_insert(array, 3, ["Rejected"])
   |> expect.to_equal(Error(error.InvalidValue(original)))

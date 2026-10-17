@@ -19,8 +19,7 @@ pub fn tree_api_node_observation_is_changes_only_and_can_repeat_test() {
     builder.array(builder.factory("observation"), "Cards", definition.node)
     |> builder.root
     |> builder.compile
-  let #(document, native) = fixture.tree(compiled, [card("A"), card("B")])
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
+  let #(document, tree) = fixture.tree(compiled, [card("A"), card("B")])
   let assert Ok(array) = tree.required_root(tree)
   let assert Ok(Some(first)) = tree.array_node(array, 0)
   let assert Ok(Some(second)) = tree.array_node(array, 1)
@@ -44,9 +43,8 @@ pub fn tree_api_node_observation_is_changes_only_and_can_repeat_test() {
 pub fn tree_api_disposing_one_document_handle_keeps_other_handles_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, card("First"))
-  let assert Ok(first) = facade.tree_typed(native, compiled)
-  let assert Ok(second) = facade.tree_typed(native, compiled)
+  let #(document, first) = fixture.tree(compiled, card("First"))
+  let assert Ok(second) = fixture.open(document, compiled)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) = tree.observe(first, record)
   tree.dispose(first) |> expect.to_equal(Ok(Nil))
@@ -65,8 +63,7 @@ pub fn tree_api_disposing_one_document_handle_keeps_other_handles_test() {
 pub fn tree_api_disposing_fork_releases_checkout_and_retained_history_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, card("First"))
-  let assert Ok(document_tree) = facade.tree_typed(native, compiled)
+  let #(document, document_tree) = fixture.tree(compiled, card("First"))
   let assert Ok(branch) = tree.fork(document_tree)
   let assert Ok(root) = tree.required_root(branch)
   let #(record, take) = fixture.capture()
@@ -95,8 +92,7 @@ pub fn tree_api_disposing_fork_releases_checkout_and_retained_history_test() {
 pub fn tree_api_merge_disposal_releases_source_history_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, card("First"))
-  let assert Ok(document_tree) = facade.tree_typed(native, compiled)
+  let #(document, document_tree) = fixture.tree(compiled, card("First"))
   let assert Ok(branch) = tree.fork(document_tree)
   let assert Ok(root) = tree.required_root(branch)
   let #(record, take) = fixture.capture()
@@ -124,8 +120,7 @@ pub fn tree_api_merge_disposal_releases_source_history_test() {
 pub fn tree_api_change_callbacks_read_cancel_and_reject_reentrant_edits_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, card("First"))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
+  let #(document, tree) = fixture.tree(compiled, card("First"))
   let assert Ok(root) = tree.required_root(tree)
   let #(record, take) = fixture.capture()
   let assert Ok(victim) = tree.subscribe_changes(tree, fn(_) { record(None) })
@@ -158,12 +153,10 @@ pub fn tree_api_schema_change_notifications_survive_incompatibility_test() {
   let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
   let assert Ok(expanded) =
     builder.string() |> builder.optional_root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, "First")
-  let assert Ok(original) = facade.tree_typed(native, compiled)
+  let #(document, original) = fixture.tree(compiled, "First")
   let assert Ok(root) = facade.resolve_root(document)
   let assert Ok(marker) = facade.get(root, "tree")
-  let assert Ok(upgraded_native) =
-    facade.open_tree(document, marker, fixture.definition(expanded))
+  let assert Ok(upgraded) = fixture.inspect(document, marker, expanded)
   let #(record, take) = fixture.capture()
   let assert Ok(subscription) =
     tree.subscribe_changes(original, fn(event) {
@@ -173,7 +166,7 @@ pub fn tree_api_schema_change_notifications_survive_incompatibility_test() {
         tree.replace_root(original, "Reentrant"),
       ))
     })
-  facade.tree_upgrade_schema(upgraded_native) |> expect.to_equal(Ok(Nil))
+  tree.upgrade_schema(upgraded) |> expect.to_equal(Ok(Nil))
   take(1)
   |> expect.to_equal([
     #(
@@ -182,7 +175,6 @@ pub fn tree_api_schema_change_notifications_survive_incompatibility_test() {
       Error(error.ReentrantEdit),
     ),
   ])
-  let assert Ok(upgraded) = facade.tree_typed(upgraded_native, expanded)
   tree.read_root(upgraded) |> expect.to_equal(Ok(Some("First")))
   tree.unsubscribe(subscription)
   tree.dispose(original) |> expect.to_equal(Ok(Nil))
@@ -194,10 +186,8 @@ pub fn tree_api_schema_change_notifications_survive_incompatibility_test() {
 pub fn tree_api_changes_are_scoped_to_the_document_and_checkout_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) = fixture.tree(compiled, card("First"))
-  let #(other_document, other_native) = fixture.tree(compiled, card("Other"))
-  let assert Ok(document_tree) = facade.tree_typed(native, compiled)
-  let assert Ok(other) = facade.tree_typed(other_native, compiled)
+  let #(document, document_tree) = fixture.tree(compiled, card("First"))
+  let #(other_document, other) = fixture.tree(compiled, card("Other"))
   let assert Ok(branch) = tree.fork(document_tree)
   let assert Ok(document_root) = tree.required_root(document_tree)
   let assert Ok(branch_root) = tree.required_root(branch)

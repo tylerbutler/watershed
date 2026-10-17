@@ -16,9 +16,8 @@ import watershed_beam as facade
 fn card() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   #(document, tree, definition)
 }
 
@@ -150,13 +149,12 @@ pub fn tree_api_branch_commit_factories_are_scoped_and_expire_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
   let #(submitted, take_submitted) = fixture.capture()
-  let #(document, native, deliver) =
+  let #(document, document_tree, deliver) =
     fixture.tree_with_submissions(
       compiled,
       fixture.Card(builder.Assigned("original"), "First"),
       submitted,
     )
-  let assert Ok(document_tree) = facade.tree_typed(native, compiled)
   let assert Ok(branch) = tree.fork(document_tree)
   let assert Ok(root) = tree.required_root(branch)
   let #(record, take) = fixture.capture()
@@ -215,9 +213,8 @@ pub fn tree_api_remote_commits_do_not_offer_local_history_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
   let initial = fixture.Card(builder.Assigned("original"), "First")
-  let #(document, native, deliver) =
+  let #(document, tree, deliver) =
     fixture.tree_with_operations(compiled, initial)
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let #(record, take) = fixture.capture()
   let assert Ok(_) = tree.subscribe_commits(tree, record)
   let #(changed, take_changes) = fixture.capture()
@@ -243,9 +240,8 @@ pub fn tree_api_remote_commits_do_not_offer_local_history_test() {
 pub fn tree_api_checkout_status_and_routing_use_the_same_handle_test() {
   let definition = fixture.card_schema()
   let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
-  let #(document, native) =
+  let #(document, tree) =
     fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
-  let assert Ok(tree) = facade.tree_typed(native, compiled)
   let assert Ok(root) = facade.resolve_root(document)
   let assert Ok(marker) = facade.get(root, "tree")
   let route = json.to_string(marker)
