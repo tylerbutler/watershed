@@ -5546,12 +5546,12 @@ test("artifact comparison rejects changed content, missing files, and extra file
   await rm(join(second, "unexpected.json"));
   await writeFile(join(second, "compression.json"), "{}");
   await writeFile(join(second, "compression-profile.json"), "{}");
-  await compareDirectories(first, second, {
-    ignoredCommittedPaths: new Set([
-      "compression.json",
-      "compression-profile.json",
-    ]),
-  });
+  await writeFile(join(second, "schema-authoring.json"), "{}");
+  await writeFile(join(second, "typed-api-authoring.json"), "{}");
+  await writeFile(join(second, "typed-api-live.json"), "{}");
+  await compareDirectories(first, second);
+  await writeFile(join(second, "unexpected.json"), "{}");
+  await assert.rejects(compareDirectories(first, second), /files|unexpected/i);
 });
 
 test("source-only deterministic entropy preserves distinct UUIDs across reproducible runs", () => {

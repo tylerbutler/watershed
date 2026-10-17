@@ -30,6 +30,14 @@ import {
 const directory = dirname(fileURLToPath(import.meta.url));
 const fixtures = resolve(directory, "../../test/fixtures/shared_tree");
 
+const independentFixturePaths = new Set([
+  "compression-profile.json",
+  "compression.json",
+  "schema-authoring.json",
+  "typed-api-authoring.json",
+  "typed-api-live.json",
+]);
+
 export const requiredCases = [
   ["schema-profile", "schema"],
   ["schema-validation", "schema"],
@@ -8403,7 +8411,7 @@ async function files(directory, prefix = "") {
 export async function compareDirectories(
   generated,
   committed,
-  { ignoredCommittedPaths = new Set() } = {},
+  { ignoredCommittedPaths = independentFixturePaths } = {},
 ) {
   const expected = await files(generated);
   const actual = (await files(committed))
@@ -8703,15 +8711,10 @@ export async function generate({ check = false } = {}) {
     applyNativeTransactionHistoryExpected(cases);
     await writeCorpus(artifacts, cases, await read(join(source, "source-smoke.json")));
     if (check) {
-      await compareDirectories(artifacts, fixtures, {
-        ignoredCommittedPaths: new Set([
-          "compression-profile.json",
-          "compression.json",
-        ]),
-      });
+      await compareDirectories(artifacts, fixtures);
     } else {
       const allowed = new Set(["profile.json", "manifest.json",
-        "compression-profile.json", "compression.json",
+        ...independentFixturePaths,
         ...requiredCases.map(([id]) => `cases/${id}.json`)]);
       for (const path of await files(fixtures)) {
         assert(allowed.has(path), `Refusing to replace unexpected fixture file: ${path}`);

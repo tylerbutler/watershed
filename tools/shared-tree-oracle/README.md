@@ -1626,6 +1626,12 @@ oracle does not replace that refusal with a test-written scratch-register
 algorithm.
 # Typed schema authoring capture
 
+The main corpus generator owns `profile.json`, `manifest.json`, and `cases/`.
+Compression, schema-authoring, and typed API captures are independent fixtures:
+main-corpus generation preserves them; `pnpm check` compares only files that
+generator owns. Use their dedicated capture and comparison commands when
+changing those contracts.
+
 The schema-evolution source batch also writes `schema-authoring.json`. Its 13
 independent `SchemaFactory` declarations cover leaves, optional roots, named
 collections, records, shared children, nesting, and cross-factory composition.
