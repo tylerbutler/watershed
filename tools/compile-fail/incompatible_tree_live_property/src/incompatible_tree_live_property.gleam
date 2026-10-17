@@ -1,5 +1,5 @@
+import watershed/tree/error
 import watershed/tree/live
-import watershed/tree/live_types
 import watershed/tree/schema_builder as builder
 
 pub type Card {
@@ -13,6 +13,6 @@ pub type Person {
 pub fn invalid(
   reference: live.Ref(Card),
   field: builder.Property(Person, String),
-) -> Result(String, live_types.LiveError) {
+) -> Result(String, error.Error) {
   live.get(reference, field)
 }

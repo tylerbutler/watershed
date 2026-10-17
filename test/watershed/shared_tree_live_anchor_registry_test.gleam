@@ -7,6 +7,7 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/identifier_fixture
 import watershed/tree/live_anchor as anchors
+import watershed/tree/error as tree_error
 import watershed/tree/live_types as live
 import watershed/tree/types
 
@@ -64,7 +65,7 @@ pub fn live_anchor_registry_interns_by_identity_test() {
     second_token,
     forest,
   )
-  |> expect.to_equal(Ok(live.Attached))
+  |> expect.to_equal(Ok(tree_error.Attached))
 }
 
 pub fn live_anchor_registry_ownership_and_close_test() {
@@ -75,7 +76,7 @@ pub fn live_anchor_registry_ownership_and_close_test() {
   let assert Ok(#(registry, token)) = anchors.acquire(registry, view, reference)
   let foreign = branch.origin("other-runtime", "document", "tree")
   anchors.resolve(registry, foreign, types.DocumentCheckout, token, forest)
-  |> expect.to_equal(Error(live.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   anchors.resolve(
     registry,
     origin(),
@@ -83,7 +84,7 @@ pub fn live_anchor_registry_ownership_and_close_test() {
     token,
     forest,
   )
-  |> expect.to_equal(Error(live.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   let #(registry, other_view) =
     anchors.open(registry, origin(), types.DocumentCheckout)
   let assert Ok(#(registry, other_token)) =
@@ -92,9 +93,9 @@ pub fn live_anchor_registry_ownership_and_close_test() {
   let closed = anchors.close(registry, view)
   anchors.close(closed, view) |> expect.to_equal(closed)
   anchors.acquire(closed, view, reference)
-  |> expect.to_equal(Error(live.ClosedView))
+  |> expect.to_equal(Error(tree_error.ClosedTree))
   anchors.status(closed, origin(), types.DocumentCheckout, token, forest)
-  |> expect.to_equal(Error(live.ClosedView))
+  |> expect.to_equal(Error(tree_error.ClosedTree))
   anchors.resolve(closed, origin(), types.DocumentCheckout, other_token, forest)
   |> expect.to_equal(Ok(reference))
 }
@@ -125,8 +126,8 @@ pub fn live_anchor_registry_tombstones_and_conflicts_test() {
     anchors.open(anchors.new(), origin(), types.DocumentCheckout)
   let assert Ok(#(registry, token)) = anchors.acquire(registry, view, first)
   [
-    #(live.Discard(first), live.Invalidated),
-    #(live.Forget(first), live.Deleted),
+    #(live.Discard(first), tree_error.Invalidated),
+    #(live.Forget(first), tree_error.Deleted),
   ]
   |> list.each(fn(pair) {
     let assert Ok(changed) =
@@ -134,7 +135,7 @@ pub fn live_anchor_registry_tombstones_and_conflicts_test() {
     anchors.status(changed, origin(), types.DocumentCheckout, token, forest)
     |> expect.to_equal(Ok(pair.1))
     anchors.resolve(changed, origin(), types.DocumentCheckout, token, forest)
-    |> expect.to_equal(Error(live.InvalidReference(pair.1)))
+    |> expect.to_equal(Error(tree_error.InvalidReference(pair.1)))
     let assert Ok(#(changed, replacement)) =
       anchors.acquire(changed, view, first)
     replacement |> expect.to_not_equal(token)
@@ -180,14 +181,14 @@ pub fn live_anchor_registry_removed_and_destroyed_test() {
     change.into_delta(change.TaggedChange(Some(revision), None, edit))
   let assert Ok(removed) = forest.apply_delta(before, delta)
   anchors.status(registry, origin(), types.DocumentCheckout, token, removed)
-  |> expect.to_equal(Ok(live.Removed))
+  |> expect.to_equal(Ok(tree_error.Removed))
   anchors.resolve(registry, origin(), types.DocumentCheckout, token, removed)
-  |> expect.to_equal(Error(live.InvalidReference(live.Removed)))
+  |> expect.to_equal(Error(tree_error.InvalidReference(tree_error.Removed)))
   let assert Ok(destroyed) = forest.trim_revisions(removed, [revision])
   anchors.status(registry, origin(), types.DocumentCheckout, token, destroyed)
-  |> expect.to_equal(Ok(live.Deleted))
+  |> expect.to_equal(Ok(tree_error.Deleted))
   anchors.resolve(registry, origin(), types.DocumentCheckout, token, destroyed)
-  |> expect.to_equal(Error(live.InvalidReference(live.Deleted)))
+  |> expect.to_equal(Error(tree_error.InvalidReference(tree_error.Deleted)))
 }
 
 pub fn live_anchor_path_preserves_map_keys_test() {

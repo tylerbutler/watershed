@@ -136,6 +136,8 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree/error as tree_error
+@target(javascript)
 import watershed/tree/forest
 @target(javascript)
 import watershed/tree/live as tree_live
@@ -865,7 +867,7 @@ pub fn open_tree(
 pub fn tree_typed(
   tree: SharedTree(s, r),
   compiled: tree_builder.Compiled(a),
-) -> Result(tree_live.View(a), live_types.LiveError) {
+) -> Result(tree_live.View(a), tree_error.Error) {
   let request = fn(value) {
     runtime.live_request(
       tree.runtime,
@@ -895,7 +897,7 @@ pub fn tree_typed(
         token,
       ))
     _ ->
-      Error(live_types.RuntimeFailure("Unexpected typed tree binding response"))
+      Error(tree_error.RuntimeFailure("Unexpected typed tree binding response"))
   }
 }
 

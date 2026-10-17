@@ -340,9 +340,12 @@ not a promise of Fluid's exact per-node event counts. `unsubscribe` cancels
 one observation. Callbacks can read committed state and cancel observations,
 but cannot submit reentrant edits. `dispose(view)` cancels that view's
 observations and releases its anchors without closing the native tree. Both
-cleanup operations are idempotent. Closed views, disposed checkouts, runtime
-shutdown, incompatible schemas, and foreign references return structured `LiveError` values from
-`watershed/tree/live_types`.
+cleanup operations are idempotent. Closed handles, disposed checkouts, runtime
+shutdown, incompatible schemas, and foreign references return structured
+`Error` values from `watershed/tree/error`. Invalid edits retain the original
+`TreeError`, including its path and details. Connection readiness, timeouts,
+transaction ownership, and reentrant writes have distinct error variants;
+`error.to_string` formats them for display without discarding the typed value.
 
 ## Fluid mapping and scope
 

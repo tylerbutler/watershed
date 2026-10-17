@@ -234,6 +234,8 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree/error as tree_error
+@target(erlang)
 import watershed/tree/forest
 @target(erlang)
 import watershed/tree/live_types as tree_live
@@ -806,7 +808,7 @@ pub type Msg {
     selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     request: tree_live.Request,
-    reply: Subject(Result(tree_live.Response, tree_live.LiveError)),
+    reply: Subject(Result(tree_live.Response, tree_error.Error)),
   )
   SubscribeLiveTree(
     address: String,
@@ -814,7 +816,7 @@ pub type Msg {
     view: tree_schema.ViewSchema,
     token: tree_live.ViewToken,
     handler: fn() -> Nil,
-    reply: Subject(Result(SubscriptionToken, tree_live.LiveError)),
+    reply: Subject(Result(SubscriptionToken, tree_error.Error)),
   )
   TreeTransactionBegin(
     address: String,
@@ -2105,12 +2107,12 @@ pub fn live_request(
   selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   request: tree_live.Request,
-) -> Result(tree_live.Response, tree_live.LiveError) {
+) -> Result(tree_live.Response, tree_error.Error) {
   call_runtime_with_errors(
     runtime,
     fn(reply) { LiveTreeRequest(address, selector, view, request, reply) },
-    tree_live.ClosedRuntime,
-    tree_live.RuntimeFailure("Typed tree request timed out"),
+    tree_error.ClosedRuntime,
+    tree_error.RequestTimeout,
   )
 }
 
@@ -2123,14 +2125,14 @@ pub fn subscribe_live_tree(
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
   handler: fn() -> Nil,
-) -> Result(fn() -> Nil, tree_live.LiveError) {
+) -> Result(fn() -> Nil, tree_error.Error) {
   use subscription <- result.try(call_runtime_with_errors(
     runtime,
     fn(reply) {
       SubscribeLiveTree(address, selector, view, token, handler, reply)
     },
-    tree_live.ClosedRuntime,
-    tree_live.RuntimeFailure("Typed tree subscription timed out"),
+    tree_error.ClosedRuntime,
+    tree_error.RequestTimeout,
   ))
   Ok(fn() { unsubscribe(subscription) })
 }
@@ -2889,11 +2891,11 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
 fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
     LiveTreeRequest(_, _, _, _, reply) -> {
-      process.send(reply, Error(tree_live.ClosedRuntime))
+      process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
     SubscribeLiveTree(_, _, _, _, _, reply) -> {
-      process.send(reply, Error(tree_live.ClosedRuntime))
+      process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
     Shutdown -> handle_message(state, msg)
@@ -3198,12 +3200,7 @@ fn handle_open(state: State, msg: Msg) -> actor.Next(State, Msg) {
           {
             False, _ -> handle_message(state, msg)
             True, True -> {
-              process.send(
-                reply,
-                Error(tree_live.RuntimeFailure(
-                  "Typed tree edit is not allowed during commit delivery",
-                )),
-              )
+              process.send(reply, Error(tree_error.ReentrantEdit))
               actor.continue(state)
             }
             True, False ->
@@ -4196,21 +4193,17 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       let checked = {
         use _ <- result.try(
           transaction_tree_access(state, address, reply)
-          |> result.map_error(tree_live.RuntimeFailure),
+          |> result.map_error(tree_error.TransactionConflict),
         )
-        read(
-          state,
-          Error(tree_live.RuntimeFailure("Typed tree has no current core")),
-          fn(core) {
-            runtime_core.live_request(
-              core,
-              address,
-              selector,
-              view,
-              tree_live.RootRead(token),
-            )
-          },
-        )
+        read(state, Error(tree_error.NotReady), fn(core) {
+          runtime_core.live_request(
+            core,
+            address,
+            selector,
+            view,
+            tree_live.RootRead(token),
+          )
+        })
       }
       case checked {
         Error(error) -> {
@@ -5338,30 +5331,24 @@ fn handle_live_tree_request(
   selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   request: tree_live.Request,
-  reply: Subject(Result(tree_live.Response, tree_live.LiveError)),
+  reply: Subject(Result(tree_live.Response, tree_error.Error)),
 ) -> actor.Next(State, Msg) {
   let writes = tree_live.writes(request)
   let prepared = {
     use _ <- result.try(
       transaction_tree_access(state, address, reply)
-      |> result.map_error(tree_live.RuntimeFailure),
+      |> result.map_error(tree_error.TransactionConflict),
     )
     use #(core, install, writable) <- result.try(case state.phase {
       Ready(core, marker) -> Ok(#(core, Ready(_, marker), marker == None))
       Reconnecting(core) -> Ok(#(core, Reconnecting, False))
       SuspendedPendingTree(core, reason) ->
         Ok(#(core, SuspendedPendingTree(_, reason), False))
-      Connecting(_) ->
-        Error(tree_live.RuntimeFailure(
-          "Typed tree requires a ready document connection",
-        ))
-      Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+      Connecting(_) -> Error(tree_error.NotReady)
+      Failed(reason) -> Error(tree_error.TransportFailed(reason))
     })
     use _ <- result.try(case writes && !writable {
-      True ->
-        Error(tree_live.RuntimeFailure(
-          "Typed tree edit requires a ready document connection",
-        ))
+      True -> Error(tree_error.NotReady)
       False -> Ok(Nil)
     })
     let core = case core.live_namespace {
@@ -5402,7 +5389,7 @@ fn handle_live_tree_request(
       }
       process.send(reply, case next.phase, outcome {
         Reconnecting(_), _ | _, Ok(Nil) -> Ok(response)
-        _, Error(reason) -> Error(tree_live.RuntimeFailure(reason))
+        _, Error(reason) -> Error(tree_error.TransportFailed(reason))
       })
       actor.continue(fan_out_scoped(next, events))
     }

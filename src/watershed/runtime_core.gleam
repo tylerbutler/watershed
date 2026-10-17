@@ -61,11 +61,12 @@ import watershed/text_kernel
 import watershed/tree/branch as tree_branch
 import watershed/tree/change as tree_change
 import watershed/tree/codec as tree_codec
+import watershed/tree/error as tree_error
 import watershed/tree/forest
 import watershed/tree/history
-import watershed/tree/node
 import watershed/tree/live_anchor
 import watershed/tree/live_types as tree_live
+import watershed/tree/node
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
 import watershed/tree/shared_change
@@ -5148,7 +5149,7 @@ type LiveResult =
       List(ScopedTreeEvent),
       List(wire.OutboundOperation),
     ),
-    tree_live.LiveError,
+    tree_error.Error,
   )
 
 /// Resolve references and submit edits in the same core transition.
@@ -5165,13 +5166,13 @@ pub fn live_request(
     List(ScopedTreeEvent),
     List(wire.OutboundOperation),
   ),
-  tree_live.LiveError,
+  tree_error.Error,
 ) {
   use forest <- result.try(
     checkout_forest(core, address) |> result.map_error(live_core_error),
   )
   use _ <- result.try(case tree_branch.status(forest, selector) {
-    tree_branch.BranchDisposed -> Error(tree_live.DisposedCheckout)
+    tree_branch.BranchDisposed -> Error(tree_error.DisposedCheckout)
     _ -> Ok(Nil)
   })
   use state <- result.try(
@@ -5192,7 +5193,7 @@ pub fn live_request(
       if active_address == address
       && active_selector == selector
       && active_view != handle_view
-    -> Error(tree_live.IncompatibleView)
+    -> Error(tree_error.IncompatibleView)
     _, _ -> Ok(Nil)
   })
   case request {
@@ -5243,58 +5244,81 @@ fn live_origin(
   }
 }
 
-fn live_core_error(error: CoreError) -> tree_live.LiveError {
+fn live_core_error(error: CoreError) -> tree_error.Error {
   case error {
-    TreeOperationFailed(_, error) -> tree_live.InvalidValue(error)
-    _ -> tree_live.RuntimeFailure(string.inspect(error))
+    TreeOperationFailed(_, error) -> tree_error.InvalidValue(error)
+    WrongChannelType(_, expected, actual) ->
+      tree_error.WrongChannel(string.inspect(expected), string.inspect(actual))
+    UnknownChannel(address, _) ->
+      tree_error.InvalidHandle("Unknown tree channel: " <> address)
+    ContainerOperationFailed(_)
+    | InboundFailed(_, _, _)
+    | ChannelBoundaryFailed(_)
+    | BadBootstrapSeed(_)
+    | AckMismatch(_)
+    | BadOperationContents(_)
+    | HistoryGap(_)
+    | DuplicateAttach(_, _)
+    | OrMapModeMismatch(_, _)
+    | OrMapOperationFailed(_, _)
+    | TaskNotAssigned(_, _)
+    | DirectoryOperationFailed(_, _)
+    | SequenceOperationFailed(_, _)
+    | GCounterOperationFailed(_, _)
+    | LwwRegisterOperationFailed(_, _)
+    | LwwMapOperationFailed(_, _)
+    | TextOperationFailed(_, _)
+    | EmptyTreeEditBatch
+    | BadSummaryChannel(_, _) ->
+      tree_error.RuntimeFailure(string.inspect(error))
   }
 }
 
 fn live_owner(
   context: LiveContext,
   view: tree_live.ViewToken,
-) -> Result(Nil, tree_live.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   case tree_live.view_matches(view, context.origin, context.selector) {
     True -> Ok(Nil)
-    False -> Error(tree_live.ForeignOrigin)
+    False -> Error(tree_error.ForeignOrigin)
   }
 }
 
 fn live_compatible(
   context: LiveContext,
   view: tree_schema.ViewSchema,
-) -> Result(Nil, tree_live.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use _ <- result.try(
     tree_schema.can_view(
       tree_kernel.stored_schema(context.state),
       context.handle_view,
     )
-    |> result.map_error(fn(_) { tree_live.IncompatibleView }),
+    |> result.map_error(fn(_) { tree_error.IncompatibleView }),
   )
   use _ <- result.try(
     tree_schema.can_view(tree_schema.view_to_stored(context.handle_view), view)
-    |> result.map_error(fn(_) { tree_live.IncompatibleView }),
+    |> result.map_error(fn(_) { tree_error.IncompatibleView }),
   )
   tree_schema.can_view(tree_kernel.stored_schema(context.state), view)
-  |> result.map_error(fn(_) { tree_live.IncompatibleView })
+  |> result.map_error(fn(_) { tree_error.IncompatibleView })
 }
 
 fn live_check_view(
   core: Core,
   context: LiveContext,
   view: tree_live.ViewToken,
-) -> Result(Nil, tree_live.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use _ <- result.try(live_owner(context, view))
   use #(_, _, schema) <- result.try(
     dict.get(core.live_views, view)
-    |> result.map_error(fn(_) { tree_live.ClosedView }),
+    |> result.map_error(fn(_) { tree_error.ClosedTree }),
   )
   live_compatible(context, schema)
 }
 
 fn live_request_view(
   request: tree_live.Request,
-) -> Result(tree_live.ViewToken, tree_live.LiveError) {
+) -> Result(tree_live.ViewToken, tree_error.Error) {
   case request {
     tree_live.RootRead(view)
     | tree_live.RootReplace(view, _)
@@ -5316,7 +5340,7 @@ fn live_request_view(
     | tree_live.MapDelete(anchor, _)
     | tree_live.Narrow(anchor, _) -> Ok(tree_live.anchor_view(anchor))
     tree_live.Bind(_) ->
-      Error(tree_live.RuntimeFailure("Bind has no existing view"))
+      Error(tree_error.RuntimeFailure("Bind has no existing view"))
   }
 }
 
@@ -5328,7 +5352,7 @@ fn live_snapshot(
   core: Core,
   value: Result(Option(tree_types.TreeValue), tree_types.TreeError),
 ) -> LiveResult {
-  use value <- result.try(value |> result.map_error(tree_live.InvalidValue))
+  use value <- result.try(value |> result.map_error(tree_error.InvalidValue))
   live_response(core, tree_live.Snapshot(value))
 }
 
@@ -5358,7 +5382,7 @@ fn live_reference(
   core: Core,
   context: LiveContext,
   anchor: tree_live.AnchorToken,
-) -> Result(#(tree_types.FieldPath, tree_types.TreeValue), tree_live.LiveError) {
+) -> Result(#(tree_types.FieldPath, tree_types.TreeValue), tree_error.Error) {
   use _ <- result.try(live_check_view(
     core,
     context,
@@ -5373,11 +5397,11 @@ fn live_reference(
   ))
   use path <- result.try(
     tree_kernel.path_of_reference(context.state, reference)
-    |> result.map_error(tree_live.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   use value <- result.try(
     tree_kernel.read_reference(context.state, reference)
-    |> result.map_error(tree_live.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   Ok(#(path, value))
 }
@@ -5392,7 +5416,7 @@ type LiveKind {
 fn live_kind(
   value: tree_types.TreeValue,
   kind: LiveKind,
-) -> Result(Nil, tree_live.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   case value, kind {
     tree_types.ObjectValue(_, _), ObjectKind
     | tree_types.ArrayValue(_, _), ArrayKind
@@ -5408,7 +5432,7 @@ fn live_kind(
         ArrayKind -> "array"
         MapKind -> "map"
       }
-      Error(tree_live.WrongKind(expected, tree_schema.value_identifier(value)))
+      Error(tree_error.WrongKind(expected, tree_schema.value_identifier(value)))
     }
   }
 }
@@ -5418,7 +5442,7 @@ fn live_path(
   context: LiveContext,
   anchor: tree_live.AnchorToken,
   kind: LiveKind,
-) -> Result(tree_types.FieldPath, tree_live.LiveError) {
+) -> Result(tree_types.FieldPath, tree_error.Error) {
   use #(path, value) <- result.try(live_reference(core, context, anchor))
   use _ <- result.try(live_kind(value, kind))
   Ok(path)
@@ -5429,7 +5453,7 @@ fn live_property(
   context: LiveContext,
   anchor: tree_live.AnchorToken,
   proof: tree_live.FieldProof,
-) -> Result(tree_types.FieldPath, tree_live.LiveError) {
+) -> Result(tree_types.FieldPath, tree_error.Error) {
   use #(path, value) <- result.try(live_reference(core, context, anchor))
   use _ <- result.try(live_kind(value, ObjectKind))
   use actual <- result.try(
@@ -5438,7 +5462,7 @@ fn live_property(
       tree_schema.value_identifier(value),
       proof.key,
     )
-    |> result.map_error(fn(_) { tree_live.WrongProperty(proof.key) }),
+    |> result.map_error(fn(_) { tree_error.WrongProperty(proof.key) }),
   )
   case
     actual.cardinality == proof.definition.cardinality
@@ -5446,7 +5470,7 @@ fn live_property(
     == list.sort(proof.definition.allowed_types, string.compare)
   {
     True -> Ok(list.append(path, [proof.key]))
-    False -> Error(tree_live.WrongProperty(proof.key))
+    False -> Error(tree_error.WrongProperty(proof.key))
   }
 }
 
@@ -5459,14 +5483,14 @@ fn live_acquire(
 ) -> LiveResult {
   use value <- result.try(
     tree_kernel.read(context.state, path)
-    |> result.map_error(tree_live.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   case value {
     None ->
       case required {
         True ->
           Error(
-            tree_live.InvalidValue(tree_types.InvalidEdit(
+            tree_error.InvalidValue(tree_types.InvalidEdit(
               path,
               "Required node is absent",
             )),
@@ -5477,7 +5501,7 @@ fn live_acquire(
       use _ <- result.try(live_kind(value, CompositeKind))
       use reference <- result.try(
         tree_kernel.reference_at(context.state, path)
-        |> result.map_error(tree_live.InvalidValue),
+        |> result.map_error(tree_error.InvalidValue),
       )
       use #(anchors, anchor) <- result.try(live_anchor.acquire(
         core.live_anchors,
@@ -5511,7 +5535,7 @@ fn live_mark_preview(
   anchors: live_anchor.Registry,
   anchor: tree_live.AnchorToken,
   reference: forest.NodeRef,
-) -> Result(live_anchor.Registry, tree_live.LiveError) {
+) -> Result(live_anchor.Registry, tree_error.Error) {
   case core.active_tree_transaction {
     Some(#(address, selector, _, _))
       if address == context.address && selector == context.selector
@@ -5522,18 +5546,15 @@ fn live_mark_preview(
       )
       use base <- result.try(
         tree_branch.checkout_state(forest, checkout)
-        |> result.map_error(tree_live.InvalidValue),
+        |> result.map_error(tree_error.InvalidValue),
       )
       use status <- result.try(
-        forest.reference_status(
-          tree_kernel.visible_forest(base),
-          reference,
-        )
-        |> result.map_error(tree_live.InvalidValue),
+        forest.reference_status(tree_kernel.visible_forest(base), reference)
+        |> result.map_error(tree_error.InvalidValue),
       )
       case status {
         forest.DeletedNode -> live_anchor.mark_preview(anchors, anchor)
-        forest.ForeignNode -> Error(tree_live.ForeignOrigin)
+        forest.ForeignNode -> Error(tree_error.ForeignOrigin)
         forest.AttachedNode | forest.RemovedNode -> Ok(anchors)
       }
     }
@@ -5558,7 +5579,7 @@ fn live_finish_preview(
     )
     |> result.map_error(fn(error) {
       case error {
-        tree_live.InvalidValue(error) | tree_live.InvalidSchema(error) ->
+        tree_error.InvalidValue(error) | tree_error.InvalidSchema(error) ->
           TreeOperationFailed(address, error)
         _ ->
           TreeOperationFailed(
@@ -5593,7 +5614,7 @@ fn live_dispatch(
           }
         {
           True -> Ok(Nil)
-          False -> Error(tree_live.WrongCardinality)
+          False -> Error(tree_error.WrongCardinality)
         },
       )
       live_acquire(core, context, view, [], cardinality == tree_schema.Required)
@@ -5621,7 +5642,7 @@ fn live_dispatch(
       use _ <- result.try(case proof.definition.cardinality {
         tree_schema.Identifier ->
           Error(
-            tree_live.InvalidValue(tree_types.InvalidEdit(
+            tree_error.InvalidValue(tree_types.InvalidEdit(
               path,
               "Identifier property is read-only",
             )),
@@ -5634,7 +5655,7 @@ fn live_dispatch(
       use path <- result.try(live_property(core, context, anchor, proof))
       use _ <- result.try(case proof.definition.cardinality {
         tree_schema.Required | tree_schema.Optional -> Ok(Nil)
-        _ -> Error(tree_live.WrongCardinality)
+        _ -> Error(tree_error.WrongCardinality)
       })
       live_acquire(
         core,
@@ -5652,7 +5673,7 @@ fn live_dispatch(
       use path <- result.try(live_path(core, context, anchor, ArrayKind))
       use value <- result.try(
         tree_kernel.array_get(context.state, path, index)
-        |> result.map_error(tree_live.InvalidValue),
+        |> result.map_error(tree_error.InvalidValue),
       )
       case value {
         None -> live_response(core, tree_live.Acquired(None))
@@ -5722,7 +5743,7 @@ fn live_dispatch(
       )
     }
     tree_live.Bind(_) | tree_live.Close(_) ->
-      Error(tree_live.RuntimeFailure("Unexpected live request"))
+      Error(tree_error.RuntimeFailure("Unexpected live request"))
   }
 }
 

@@ -3,6 +3,7 @@
 import gleam/dict.{type Dict}
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import watershed/tree/error as tree_error
 import watershed/tree/live_types as protocol
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
@@ -11,9 +12,8 @@ import watershed/tree/types
 @internal
 pub type Backend {
   Backend(
-    request: fn(protocol.Request) ->
-      Result(protocol.Response, protocol.LiveError),
-    subscribe: fn(fn() -> Nil) -> Result(fn() -> Nil, protocol.LiveError),
+    request: fn(protocol.Request) -> Result(protocol.Response, tree_error.Error),
+    subscribe: fn(fn() -> Nil) -> Result(fn() -> Nil, tree_error.Error),
   )
 }
 
@@ -54,7 +54,7 @@ pub opaque type Subscription {
 pub fn bind(
   compiled: builder.Compiled(a),
   backend: Backend,
-) -> Result(View(a), protocol.LiveError) {
+) -> Result(View(a), tree_error.Error) {
   use response <- result.try(
     backend.request(protocol.Bind(builder.view(compiled))),
   )
@@ -73,8 +73,8 @@ pub fn from_bound(
   View(token, compiled, backend)
 }
 
-fn unexpected() -> Result(a, protocol.LiveError) {
-  Error(protocol.RuntimeFailure("Unexpected typed tree response"))
+fn unexpected() -> Result(a, tree_error.Error) {
+  Error(tree_error.RuntimeFailure("Unexpected typed tree response"))
 }
 
 fn codec(compiled: builder.Compiled(a)) -> Codec(a) {
@@ -104,11 +104,11 @@ fn snapshot(
   backend: Backend,
   request: protocol.Request,
   codec: Codec(a),
-) -> Result(a, protocol.LiveError) {
+) -> Result(a, tree_error.Error) {
   use response <- result.try(backend.request(request))
   case response {
     protocol.Snapshot(value) ->
-      codec.decode(value) |> result.map_error(protocol.InvalidValue)
+      codec.decode(value) |> result.map_error(tree_error.InvalidValue)
     _ -> unexpected()
   }
 }
@@ -116,7 +116,7 @@ fn snapshot(
 fn done(
   backend: Backend,
   request: protocol.Request,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use response <- result.try(backend.request(request))
   case response {
     protocol.Done -> Ok(Nil)
@@ -129,27 +129,28 @@ fn evidence(
   codec: Codec(a),
   node: protocol.NodeEvidence,
   view: protocol.ViewToken,
-) -> Result(Ref(a), protocol.LiveError) {
+) -> Result(Ref(a), tree_error.Error) {
   use _ <- result.try(case protocol.anchor_view(node.anchor) == view {
     True -> Ok(Nil)
-    False -> Error(protocol.ForeignOrigin)
+    False -> Error(tree_error.ForeignOrigin)
   })
   use _ <- result.try(case node.snapshot {
     types.ObjectValue(_, _) | types.ArrayValue(_, _) | types.MapValue(_, _) ->
       Ok(Nil)
-    _ -> Error(protocol.WrongKind("composite", node.identifier))
+    _ -> Error(tree_error.WrongKind("composite", node.identifier))
   })
   use _ <- result.try(
     case schema.value_identifier(node.snapshot) == node.identifier {
       True -> Ok(Nil)
       False ->
-        Error(protocol.RuntimeFailure(
+        Error(tree_error.RuntimeFailure(
           "Node evidence has an incorrect identifier",
         ))
     },
   )
   use _ <- result.try(
-    codec.decode(Some(node.snapshot)) |> result.map_error(protocol.InvalidValue),
+    codec.decode(Some(node.snapshot))
+    |> result.map_error(tree_error.InvalidValue),
   )
   Ok(Ref(node.anchor, node.identifier, codec, backend))
 }
@@ -159,7 +160,7 @@ fn acquire(
   request: protocol.Request,
   codec: Codec(a),
   view: protocol.ViewToken,
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   use response <- result.try(backend.request(request))
   case response {
     protocol.Acquired(None) -> Ok(None)
@@ -169,25 +170,22 @@ fn acquire(
   }
 }
 
-fn require(reference: Option(Ref(a))) -> Result(Ref(a), protocol.LiveError) {
-  option.to_result(reference, protocol.InvalidValue(absent()))
+fn require(reference: Option(Ref(a))) -> Result(Ref(a), tree_error.Error) {
+  option.to_result(reference, tree_error.InvalidValue(absent()))
 }
 
-pub fn read_root(view: View(a)) -> Result(a, protocol.LiveError) {
+pub fn read_root(view: View(a)) -> Result(a, tree_error.Error) {
   snapshot(view.backend, protocol.RootRead(view.token), codec(view.compiled))
 }
 
-pub fn replace_root(
-  view: View(a),
-  value: a,
-) -> Result(Nil, protocol.LiveError) {
+pub fn replace_root(view: View(a), value: a) -> Result(Nil, tree_error.Error) {
   replace(view, value, Snapshot)
 }
 
 pub fn replace_root_new(
   view: View(a),
   value: a,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   replace(view, value, NewContent)
 }
 
@@ -195,15 +193,15 @@ fn replace(
   view: View(a),
   value: a,
   mode: Encoding,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use encoded <- result.try(
     codec(view.compiled).encode(mode, value)
-    |> result.map_error(protocol.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   done(view.backend, protocol.RootReplace(view.token, encoded))
 }
 
-pub fn required_root(view: View(a)) -> Result(Ref(a), protocol.LiveError) {
+pub fn required_root(view: View(a)) -> Result(Ref(a), tree_error.Error) {
   use _ <- result.try(cardinality(
     builder.root_cardinality(view.compiled),
     schema.Required,
@@ -219,7 +217,7 @@ pub fn required_root(view: View(a)) -> Result(Ref(a), protocol.LiveError) {
 
 pub fn optional_root(
   view: View(Option(a)),
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   use _ <- result.try(cardinality(
     builder.root_cardinality(view.compiled),
     schema.Optional,
@@ -232,13 +230,13 @@ pub fn optional_root(
   )
 }
 
-pub fn read(reference: Ref(a)) -> Result(a, protocol.LiveError) {
+pub fn read(reference: Ref(a)) -> Result(a, tree_error.Error) {
   snapshot(reference.backend, protocol.Read(reference.anchor), reference.codec)
 }
 
 pub fn status(
   reference: Ref(a),
-) -> Result(protocol.ReferenceStatus, protocol.LiveError) {
+) -> Result(tree_error.ReferenceStatus, tree_error.Error) {
   use response <- result.try(
     reference.backend.request(protocol.Status(reference.anchor)),
   )
@@ -248,17 +246,17 @@ pub fn status(
   }
 }
 
-pub fn dispose(view: View(a)) -> Result(Nil, protocol.LiveError) {
+pub fn dispose(view: View(a)) -> Result(Nil, tree_error.Error) {
   done(view.backend, protocol.Close(view.token))
 }
 
 fn property_codec(
   property: builder.Property(record, a),
-) -> Result(Codec(a), protocol.LiveError) {
+) -> Result(Codec(a), tree_error.Error) {
   builder.property_root(property)
   |> builder.compile
   |> result.map(codec)
-  |> result.map_error(protocol.InvalidSchema)
+  |> result.map_error(tree_error.InvalidSchema)
 }
 
 fn proof(property: builder.Property(record, a)) -> protocol.FieldProof {
@@ -269,17 +267,17 @@ fn proof(property: builder.Property(record, a)) -> protocol.FieldProof {
 fn cardinality(
   actual: schema.Cardinality,
   expected: schema.Cardinality,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   case actual == expected {
     True -> Ok(Nil)
-    False -> Error(protocol.WrongCardinality)
+    False -> Error(tree_error.WrongCardinality)
   }
 }
 
 pub fn get(
   reference: Ref(record),
   property: builder.Property(record, a),
-) -> Result(a, protocol.LiveError) {
+) -> Result(a, tree_error.Error) {
   use codec <- result.try(property_codec(property))
   snapshot(
     reference.backend,
@@ -292,7 +290,7 @@ pub fn set(
   reference: Ref(record),
   property: builder.Property(record, a),
   value: a,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   set_property(reference, property, value, Snapshot)
 }
 
@@ -300,7 +298,7 @@ pub fn set_new(
   reference: Ref(record),
   property: builder.Property(record, a),
   value: a,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   set_property(reference, property, value, NewContent)
 }
 
@@ -309,10 +307,10 @@ fn set_property(
   property: builder.Property(record, a),
   value: a,
   mode: Encoding,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use codec <- result.try(property_codec(property))
   use value <- result.try(
-    codec.encode(mode, value) |> result.map_error(protocol.InvalidValue),
+    codec.encode(mode, value) |> result.map_error(tree_error.InvalidValue),
   )
   done(
     reference.backend,
@@ -323,7 +321,7 @@ fn set_property(
 pub fn child(
   reference: Ref(record),
   property: builder.Property(record, a),
-) -> Result(Ref(a), protocol.LiveError) {
+) -> Result(Ref(a), tree_error.Error) {
   use _ <- result.try(cardinality(
     proof(property).definition.cardinality,
     schema.Required,
@@ -341,7 +339,7 @@ pub fn child(
 pub fn optional_child(
   reference: Ref(record),
   property: builder.Property(record, Option(a)),
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   use _ <- result.try(cardinality(
     proof(property).definition.cardinality,
     schema.Optional,
@@ -358,10 +356,10 @@ pub fn optional_child(
 pub fn narrow(
   reference: Ref(sum),
   node: builder.Node(a),
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   use compiled <- result.try(
     builder.compile(builder.root(node))
-    |> result.map_error(protocol.InvalidSchema),
+    |> result.map_error(tree_error.InvalidSchema),
   )
   acquire(
     reference.backend,
@@ -403,14 +401,14 @@ fn optional_snapshot(
   backend: Backend,
   request: protocol.Request,
   codec: Codec(a),
-) -> Result(Option(a), protocol.LiveError) {
+) -> Result(Option(a), tree_error.Error) {
   use response <- result.try(backend.request(request))
   case response {
     protocol.Snapshot(None) -> Ok(None)
     protocol.Snapshot(Some(value)) ->
       codec.decode(Some(value))
       |> result.map(Some)
-      |> result.map_error(protocol.InvalidValue)
+      |> result.map_error(tree_error.InvalidValue)
     _ -> unexpected()
   }
 }
@@ -418,7 +416,7 @@ fn optional_snapshot(
 pub fn array_get(
   reference: Ref(List(a)),
   index: Int,
-) -> Result(Option(a), protocol.LiveError) {
+) -> Result(Option(a), tree_error.Error) {
   optional_snapshot(
     reference.backend,
     protocol.ArrayRead(reference.anchor, index),
@@ -429,7 +427,7 @@ pub fn array_get(
 pub fn array_node(
   reference: Ref(List(a)),
   index: Int,
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   acquire(
     reference.backend,
     protocol.ArrayAcquire(reference.anchor, index),
@@ -442,7 +440,7 @@ pub fn array_insert(
   reference: Ref(List(a)),
   index: Int,
   values: List(a),
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   insert(reference, index, values, Snapshot)
 }
 
@@ -450,7 +448,7 @@ pub fn array_insert_new(
   reference: Ref(List(a)),
   index: Int,
   values: List(a),
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   insert(reference, index, values, NewContent)
 }
 
@@ -459,10 +457,10 @@ fn insert(
   index: Int,
   values: List(a),
   mode: Encoding,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use encoded <- result.try(
     reference.codec.encode(mode, values)
-    |> result.map_error(protocol.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   case encoded {
     Some(types.ArrayValue(identifier, values))
@@ -472,7 +470,7 @@ fn insert(
         reference.backend,
         protocol.ArrayInsert(reference.anchor, index, values),
       )
-    _ -> Error(protocol.WrongKind("array", reference.identifier))
+    _ -> Error(tree_error.WrongKind("array", reference.identifier))
   }
 }
 
@@ -480,7 +478,7 @@ pub fn array_remove(
   reference: Ref(List(a)),
   start: Int,
   end: Int,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   done(reference.backend, protocol.ArrayRemove(reference.anchor, start, end))
 }
 
@@ -490,7 +488,7 @@ pub fn array_move(
   end: Int,
   destination: Ref(List(a)),
   gap: Int,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   done(
     source.backend,
     protocol.ArrayMove(source.anchor, start, end, destination.anchor, gap),
@@ -529,7 +527,7 @@ fn map_codec(reference: Ref(Dict(String, a))) -> Codec(a) {
 pub fn map_get(
   reference: Ref(Dict(String, a)),
   key: String,
-) -> Result(Option(a), protocol.LiveError) {
+) -> Result(Option(a), tree_error.Error) {
   optional_snapshot(
     reference.backend,
     protocol.MapRead(reference.anchor, key),
@@ -540,7 +538,7 @@ pub fn map_get(
 pub fn map_node(
   reference: Ref(Dict(String, a)),
   key: String,
-) -> Result(Option(Ref(a)), protocol.LiveError) {
+) -> Result(Option(Ref(a)), tree_error.Error) {
   acquire(
     reference.backend,
     protocol.MapAcquire(reference.anchor, key),
@@ -553,7 +551,7 @@ pub fn map_set(
   reference: Ref(Dict(String, a)),
   key: String,
   value: a,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   set_map(reference, key, value, Snapshot)
 }
 
@@ -561,7 +559,7 @@ pub fn map_set_new(
   reference: Ref(Dict(String, a)),
   key: String,
   value: a,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   set_map(reference, key, value, NewContent)
 }
 
@@ -570,29 +568,29 @@ fn set_map(
   key: String,
   value: a,
   mode: Encoding,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   use encoded <- result.try(
     map_codec(reference).encode(mode, value)
-    |> result.map_error(protocol.InvalidValue),
+    |> result.map_error(tree_error.InvalidValue),
   )
   case encoded {
     Some(value) ->
       done(reference.backend, protocol.MapSet(reference.anchor, key, value))
-    None -> Error(protocol.InvalidValue(absent()))
+    None -> Error(tree_error.InvalidValue(absent()))
   }
 }
 
 pub fn map_delete(
   reference: Ref(Dict(String, a)),
   key: String,
-) -> Result(Nil, protocol.LiveError) {
+) -> Result(Nil, tree_error.Error) {
   done(reference.backend, protocol.MapDelete(reference.anchor, key))
 }
 
 pub fn observe(
   view: View(a),
-  handler: fn(Result(a, protocol.LiveError)) -> Nil,
-) -> Result(Subscription, protocol.LiveError) {
+  handler: fn(Result(a, tree_error.Error)) -> Nil,
+) -> Result(Subscription, tree_error.Error) {
   use _ <- result.try(read_root(view))
   use cancel <- result.try(
     view.backend.subscribe(fn() { handler(read_root(view)) }),
@@ -602,8 +600,8 @@ pub fn observe(
 
 pub fn observe_node(
   reference: Ref(a),
-  handler: fn(Result(a, protocol.LiveError)) -> Nil,
-) -> Result(Subscription, protocol.LiveError) {
+  handler: fn(Result(a, tree_error.Error)) -> Nil,
+) -> Result(Subscription, tree_error.Error) {
   use _ <- result.try(read(reference))
   use cancel <- result.try(
     reference.backend.subscribe(fn() { handler(read(reference)) }),

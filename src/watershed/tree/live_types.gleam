@@ -2,6 +2,7 @@
 
 import gleam/option.{type Option}
 import watershed/tree/branch
+import watershed/tree/error
 import watershed/tree/forest
 import watershed/tree/schema
 import watershed/tree/types
@@ -46,7 +47,7 @@ pub type Response {
   Done
   Snapshot(Option(types.TreeValue))
   Acquired(Option(NodeEvidence))
-  ReferenceState(ReferenceStatus)
+  ReferenceState(error.ReferenceStatus)
 }
 
 @internal
@@ -61,28 +62,6 @@ pub fn writes(request: Request) -> Bool {
     | MapDelete(_, _) -> True
     _ -> False
   }
-}
-
-pub type ReferenceStatus {
-  Attached
-  Removed
-  Deleted
-  Invalidated
-}
-
-pub type LiveError {
-  InvalidSchema(types.TreeError)
-  InvalidValue(types.TreeError)
-  IncompatibleView
-  WrongProperty(key: String)
-  WrongCardinality
-  WrongKind(expected: String, actual: String)
-  InvalidReference(ReferenceStatus)
-  ClosedView
-  DisposedCheckout
-  ClosedRuntime
-  ForeignOrigin
-  RuntimeFailure(detail: String)
 }
 
 pub opaque type ViewToken {

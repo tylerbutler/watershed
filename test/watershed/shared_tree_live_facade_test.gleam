@@ -5,9 +5,9 @@ import gleam/option.{type Option, None, Some}
 import startest/expect
 @target(javascript)
 import watershed as facade
+import watershed/tree/error as tree_error
 import watershed/tree/live
 import watershed/tree/live_fixture as fixture
-import watershed/tree/live_types
 import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
@@ -33,7 +33,7 @@ pub fn typed_live_root_and_properties_test() {
       card.title
     })
   live.set(card, wrong, "wrong")
-  |> expect.to_equal(Error(live_types.WrongProperty("other")))
+  |> expect.to_equal(Error(tree_error.WrongProperty("other")))
   live.get(card, schema.title) |> expect.to_equal(Ok("Updated"))
   facade.close(document)
 }
@@ -110,10 +110,10 @@ pub fn typed_live_collection_navigation_follows_native_edits_test() {
   let assert Ok(Some(selected)) = live.optional_child(root, selected_property)
   live.read(selected) |> expect.to_equal(Ok(b))
   live.set(root, selected_property, None) |> expect.to_equal(Ok(Nil))
-  live.status(selected) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(selected) |> expect.to_equal(Ok(tree_error.Removed))
   live.array_remove(cards, 2, 3) |> expect.to_equal(Ok(Nil))
   live.read(saved)
-  |> expect.to_equal(Error(live_types.InvalidReference(live_types.Removed)))
+  |> expect.to_equal(Error(tree_error.InvalidReference(tree_error.Removed)))
   facade.close(document)
 }
 
@@ -129,14 +129,14 @@ pub fn typed_live_construction_and_disposal_test() {
   live.replace_root_new(view, fixture.Card(builder.Generate, "New"))
   |> expect.to_equal(Ok(Nil))
   let assert Ok(fixture.Card(builder.Assigned(_), "New")) = live.read_root(view)
-  live.status(before) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(before) |> expect.to_equal(Ok(tree_error.Removed))
   live.dispose(view) |> expect.to_equal(Ok(Nil))
   live.dispose(view) |> expect.to_equal(Ok(Nil))
-  live.read_root(view) |> expect.to_equal(Error(live_types.ClosedView))
+  live.read_root(view) |> expect.to_equal(Error(tree_error.ClosedTree))
   let assert Ok(other) = facade.tree_typed(tree, compiled)
   let assert Ok(_) = live.read_root(other)
   facade.close(document)
-  live.read_root(other) |> expect.to_equal(Error(live_types.ClosedRuntime))
+  live.read_root(other) |> expect.to_equal(Error(tree_error.ClosedRuntime))
 }
 
 pub fn typed_live_observation_reads_committed_state_and_cancels_test() {
@@ -178,13 +178,13 @@ pub fn typed_live_optional_root_and_primitive_root_test() {
   let #(document, tree) = fixture.tree(compiled, Some(initial))
   let assert Ok(view) = facade.tree_typed(tree, compiled)
   live.required_root(view)
-  |> expect.to_equal(Error(live_types.WrongCardinality))
+  |> expect.to_equal(Error(tree_error.WrongCardinality))
   let assert Ok(Some(reference)) = live.optional_root(view)
   live.read(reference) |> expect.to_equal(Ok(initial))
   live.replace_root(view, None) |> expect.to_equal(Ok(Nil))
   live.read_root(view) |> expect.to_equal(Ok(None))
   live.optional_root(view) |> expect.to_equal(Ok(None))
-  live.status(reference) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(reference) |> expect.to_equal(Ok(tree_error.Removed))
   facade.close(document)
   let assert Ok(compiled) = builder.compile(builder.root(builder.string()))
   let #(document, tree) = fixture.tree(compiled, "First")
@@ -192,7 +192,7 @@ pub fn typed_live_optional_root_and_primitive_root_test() {
   live.read_root(view) |> expect.to_equal(Ok("First"))
   live.required_root(view)
   |> expect.to_equal(
-    Error(live_types.WrongKind("composite", "com.fluidframework.leaf.string")),
+    Error(tree_error.WrongKind("composite", "com.fluidframework.leaf.string")),
   )
   live.replace_root(view, "Updated") |> expect.to_equal(Ok(Nil))
   live.read_root(view) |> expect.to_equal(Ok("Updated"))
@@ -299,7 +299,7 @@ pub fn typed_live_narrow_keeps_composite_identity_test() {
     Ok(CardChoice(fixture.Card(builder.Assigned("original"), "Updated"))),
   )
   live.replace_root(view, TextChoice("Leaf")) |> expect.to_equal(Ok(Nil))
-  live.status(narrowed) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(narrowed) |> expect.to_equal(Ok(tree_error.Removed))
   live.read_root(view) |> expect.to_equal(Ok(TextChoice("Leaf")))
   facade.close(document)
 }
@@ -324,7 +324,7 @@ pub fn typed_live_node_observer_reports_removal_test() {
   facade.tree_array_remove(fixture.native_cards(tree), 0, 1)
   |> expect.to_equal(Ok(Nil))
   take(1)
-  |> expect.to_equal([Error(live_types.InvalidReference(live_types.Removed))])
+  |> expect.to_equal([Error(tree_error.InvalidReference(tree_error.Removed))])
   live.unsubscribe(subscription)
   facade.close(document)
 }
@@ -340,7 +340,7 @@ pub fn typed_live_move_refuses_another_runtime_with_the_same_client_id_test() {
   let assert Ok(first) = live.required_root(first_view)
   let assert Ok(second) = live.required_root(second_view)
   live.array_move(first, 0, 1, second, 1)
-  |> expect.to_equal(Error(live_types.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   live.read(first) |> expect.to_equal(Ok(["first"]))
   live.read(second) |> expect.to_equal(Ok(["second"]))
   facade.close(first_document)
@@ -366,16 +366,16 @@ pub fn typed_live_transaction_abort_does_not_poison_new_refs_test() {
     })
   outcome |> expect.to_be_error
   let assert [preview] = take(1)
-  live.status(preview) |> expect.to_equal(Ok(live_types.Invalidated))
+  live.status(preview) |> expect.to_equal(Ok(tree_error.Invalidated))
   live.array_insert_new(cards, 0, [
     fixture.Card(builder.Generate, "Replacement"),
   ])
   |> expect.to_equal(Ok(Nil))
   let assert Ok(Some(replacement)) = live.array_node(cards, 0)
-  live.status(replacement) |> expect.to_equal(Ok(live_types.Attached))
+  live.status(replacement) |> expect.to_equal(Ok(tree_error.Attached))
   let assert Ok(fixture.Card(builder.Assigned(_), "Replacement")) =
     live.read(replacement)
-  live.status(preview) |> expect.to_equal(Ok(live_types.Invalidated))
+  live.status(preview) |> expect.to_equal(Ok(tree_error.Invalidated))
   facade.close(document)
 }
 
@@ -390,20 +390,20 @@ pub fn typed_live_equal_replacements_do_not_retarget_old_refs_test() {
   let assert Ok(by_key) = live.child(root, map_property)
   let assert Ok(Some(entry)) = live.map_node(by_key, "key")
   live.set(root, selected_property, Some(card)) |> expect.to_equal(Ok(Nil))
-  live.status(selected) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(selected) |> expect.to_equal(Ok(tree_error.Removed))
   let assert Ok(Some(replacement)) =
     live.optional_child(root, selected_property)
-  live.status(replacement) |> expect.to_equal(Ok(live_types.Attached))
+  live.status(replacement) |> expect.to_equal(Ok(tree_error.Attached))
   live.map_set(by_key, "key", card) |> expect.to_equal(Ok(Nil))
-  live.status(entry) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(entry) |> expect.to_equal(Ok(tree_error.Removed))
   let assert Ok(Some(replacement_entry)) = live.map_node(by_key, "key")
-  live.status(replacement_entry) |> expect.to_equal(Ok(live_types.Attached))
+  live.status(replacement_entry) |> expect.to_equal(Ok(tree_error.Attached))
   live.replace_root(view, initial) |> expect.to_equal(Ok(Nil))
-  live.status(root) |> expect.to_equal(Ok(live_types.Removed))
-  live.status(replacement) |> expect.to_equal(Ok(live_types.Removed))
-  live.status(replacement_entry) |> expect.to_equal(Ok(live_types.Removed))
+  live.status(root) |> expect.to_equal(Ok(tree_error.Removed))
+  live.status(replacement) |> expect.to_equal(Ok(tree_error.Removed))
+  live.status(replacement_entry) |> expect.to_equal(Ok(tree_error.Removed))
   let assert Ok(current) = live.required_root(view)
-  live.status(current) |> expect.to_equal(Ok(live_types.Attached))
+  live.status(current) |> expect.to_equal(Ok(tree_error.Attached))
   live.read(current) |> expect.to_equal(Ok(initial))
   facade.close(document)
 }
@@ -466,7 +466,7 @@ pub fn typed_live_disposal_cancels_captured_and_late_observers_test() {
   live.set(reference, card.title, "Unobserved") |> expect.to_equal(Ok(Nil))
   let assert Ok(_) = facade.tree_read_root(tree)
   take(0) |> expect.to_equal([])
-  live.read_root(second) |> expect.to_equal(Error(live_types.ClosedView))
+  live.read_root(second) |> expect.to_equal(Error(tree_error.ClosedTree))
   facade.close(document)
 }
 
@@ -488,10 +488,10 @@ pub fn typed_live_observers_report_incompatible_schema_upgrade_test() {
   facade.tree_upgrade_schema(upgraded) |> expect.to_equal(Ok(Nil))
   take(2)
   |> expect.to_equal([
-    Error(live_types.IncompatibleView),
-    Error(live_types.IncompatibleView),
+    Error(tree_error.IncompatibleView),
+    Error(tree_error.IncompatibleView),
   ])
-  live.read(reference) |> expect.to_equal(Error(live_types.IncompatibleView))
+  live.read(reference) |> expect.to_equal(Error(tree_error.IncompatibleView))
   live.dispose(view) |> expect.to_equal(Ok(Nil))
   let assert Ok(current) = facade.tree_typed(upgraded, broader)
   live.read_root(current) |> expect.to_equal(Ok(CardChoice(initial)))
@@ -509,14 +509,14 @@ pub fn typed_live_branch_disposal_cancels_its_observers_test() {
   let assert Ok(document_root) = live.required_root(document_view)
   let assert Ok(branch_root) = live.required_root(branch_view)
   live.array_move(branch_root, 0, 1, document_root, 1)
-  |> expect.to_equal(Error(live_types.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   let #(record, take) = fixture.capture()
   let assert Ok(_) = live.observe(branch_view, record)
   live.array_insert(branch_root, 1, ["branch"]) |> expect.to_equal(Ok(Nil))
   take(1) |> expect.to_equal([Ok(["first", "branch"])])
   facade.tree_merge(tree, branch, True) |> expect.to_equal(Ok(Nil))
   live.read(document_root) |> expect.to_equal(Ok(["first", "branch"]))
-  live.read(branch_root) |> expect.to_equal(Error(live_types.DisposedCheckout))
+  live.read(branch_root) |> expect.to_equal(Error(tree_error.DisposedCheckout))
   take(0) |> expect.to_equal([])
   facade.close(document)
 }
@@ -560,7 +560,7 @@ pub fn typed_live_observer_cannot_write_reentrantly_test() {
       }
     })
   live.set(reference, card.title, "Committed") |> expect.to_equal(Ok(Nil))
-  let assert [Error(live_types.RuntimeFailure(_))] = take(1)
+  let assert [Error(tree_error.ReentrantEdit)] = take(1)
   live.unsubscribe(subscription)
   live.get(reference, card.title) |> expect.to_equal(Ok("Committed"))
   facade.close(document)
@@ -580,7 +580,9 @@ pub fn typed_live_transaction_preview_is_hidden_from_another_caller_test() {
     let _ = process.spawn_unlinked(fn() { record(live.read_root(view)) })
     take(1)
     |> expect.to_equal([
-      Error(live_types.RuntimeFailure("tree transaction uses another caller")),
+      Error(tree_error.TransactionConflict(
+        "tree transaction uses another caller",
+      )),
     ])
     Ok(Nil)
   })
@@ -610,8 +612,8 @@ pub fn typed_live_failed_edit_invalidates_only_preview_nodes_test() {
   })
   |> expect.to_be_error
   let assert [preview] = take(1)
-  live.status(preview) |> expect.to_equal(Ok(live_types.Invalidated))
-  live.status(existing) |> expect.to_equal(Ok(live_types.Attached))
+  live.status(preview) |> expect.to_equal(Ok(tree_error.Invalidated))
+  live.status(existing) |> expect.to_equal(Ok(tree_error.Attached))
   live.read(existing) |> expect.to_equal(Ok(original))
   live.read(cards) |> expect.to_equal(Ok([original]))
   facade.close(document)
@@ -641,7 +643,7 @@ pub fn typed_live_remote_observer_cannot_write_reentrantly_test() {
       types.SetField(["title"], types.StringValue("Remote")),
     ),
   ])
-  let assert [Error(live_types.RuntimeFailure(_))] = take(1)
+  let assert [Error(tree_error.ReentrantEdit)] = take(1)
   live.unsubscribe(subscription)
   live.get(reference, card.title) |> expect.to_equal(Ok("Remote"))
   live.set(reference, card.title, "After delivery") |> expect.to_equal(Ok(Nil))

@@ -10,6 +10,7 @@ import watershed/fluid_ids
 import watershed/runtime_core as core
 import watershed/tree/branch
 import watershed/tree/identifier_fixture
+import watershed/tree/error as tree_error
 import watershed/tree/live_types as live
 import watershed/tree/runtime_fixture
 import watershed/tree/schema
@@ -189,7 +190,7 @@ pub fn live_core_refuses_wrong_property_and_identifier_write_test() {
     identifier_fixture.full_view(),
     live.PropertySet(saved, wrong, Some(types.StringValue("bad"))),
   )
-  |> expect.to_equal(Error(live.WrongProperty("label")))
+  |> expect.to_equal(Error(tree_error.WrongProperty("label")))
   core.live_request(
     core,
     address,
@@ -209,7 +210,7 @@ pub fn live_core_removed_reference_and_disposal_test() {
   let #(core, view, left, saved) = acquire_b(initial())
   let assert #(core, live.Done) = request(core, live.ArrayRemove(left, 1, 2))
   let #(core, response) = request(core, live.Status(saved))
-  response |> expect.to_equal(live.ReferenceState(live.Removed))
+  response |> expect.to_equal(live.ReferenceState(tree_error.Removed))
   core.live_request(
     core,
     address,
@@ -217,7 +218,7 @@ pub fn live_core_removed_reference_and_disposal_test() {
     identifier_fixture.full_view(),
     live.Read(saved),
   )
-  |> expect.to_equal(Error(live.InvalidReference(live.Removed)))
+  |> expect.to_equal(Error(tree_error.InvalidReference(tree_error.Removed)))
   let assert #(core, live.Done) = request(core, live.Close(view))
   let assert #(core, live.Done) = request(core, live.Close(view))
   core.live_request(
@@ -227,7 +228,7 @@ pub fn live_core_removed_reference_and_disposal_test() {
     identifier_fixture.full_view(),
     live.RootRead(view),
   )
-  |> expect.to_equal(Error(live.ClosedView))
+  |> expect.to_equal(Error(tree_error.ClosedTree))
 }
 
 pub fn live_core_aborted_preview_is_invalidated_test() {
@@ -254,9 +255,9 @@ pub fn live_core_aborted_preview_is_invalidated_test() {
     ])
   let assert Ok(#(core, _)) = core.abort_tree_transaction(core, address)
   let #(core, status) = request(core, live.Status(preview.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Invalidated))
   let #(core, status) = request(core, live.Status(existing))
-  status |> expect.to_equal(live.ReferenceState(live.Attached))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let assert #(core, live.Done) =
     request(
       core,
@@ -268,7 +269,7 @@ pub fn live_core_aborted_preview_is_invalidated_test() {
     request(core, live.ArrayAcquire(left, 2))
   replacement.anchor |> expect.to_not_equal(preview.anchor)
   let #(core, state) = request(core, live.Status(replacement.anchor))
-  state |> expect.to_equal(live.ReferenceState(live.Attached))
+  state |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let assert Ok(checkouts) = dict.get(core.tree_checkouts, address)
   let assert Ok(current) =
     branch.checkout_state(checkouts, branch.document(checkouts))
@@ -276,7 +277,7 @@ pub fn live_core_aborted_preview_is_invalidated_test() {
     tree_kernel.reference_at(current, ["left", "2"])
   replacement_physical |> expect.to_not_equal(preview_physical)
   let #(_, status) = request(core, live.Status(preview.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Invalidated))
 }
 
 pub fn live_core_committed_preview_remains_attached_test() {
@@ -297,7 +298,7 @@ pub fn live_core_committed_preview_remains_attached_test() {
     request(core, live.ArrayAcquire(left, 2))
   let assert Ok(#(core, _, _)) = core.commit_tree_transaction(core, address)
   let #(core, status) = request(core, live.Status(preview.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Attached))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let assert #(_, live.Acquired(Some(after))) =
     request(core, live.ArrayAcquire(left, 2))
   after.anchor |> expect.to_equal(preview.anchor)
@@ -312,7 +313,7 @@ pub fn live_core_checks_runtime_tree_checkout_and_disposed_scope_test() {
     identifier_fixture.full_view(),
     live.Read(saved),
   )
-  |> expect.to_equal(Error(live.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   core.live_request(
     core,
     "B/_C",
@@ -320,7 +321,7 @@ pub fn live_core_checks_runtime_tree_checkout_and_disposed_scope_test() {
     identifier_fixture.full_view(),
     live.Read(saved),
   )
-  |> expect.to_equal(Error(live.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   let assert Ok(#(core, branch)) =
     core.fork_tree(
       core,
@@ -336,7 +337,7 @@ pub fn live_core_checks_runtime_tree_checkout_and_disposed_scope_test() {
     identifier_fixture.full_view(),
     live.Read(saved),
   )
-  |> expect.to_equal(Error(live.ForeignOrigin))
+  |> expect.to_equal(Error(tree_error.ForeignOrigin))
   let assert Ok(#(core, live.Bound(view), _, _)) =
     core.live_request(
       core,
@@ -354,7 +355,7 @@ pub fn live_core_checks_runtime_tree_checkout_and_disposed_scope_test() {
     identifier_fixture.full_view(),
     live.RootRead(view),
   )
-  |> expect.to_equal(Error(live.DisposedCheckout))
+  |> expect.to_equal(Error(tree_error.DisposedCheckout))
 }
 
 pub fn live_core_checks_handle_and_compiled_schema_test() {
@@ -368,7 +369,7 @@ pub fn live_core_checks_handle_and_compiled_schema_test() {
     identifier_fixture.full_view(),
     live.Bind(incompatible),
   )
-  |> expect.to_equal(Error(live.IncompatibleView))
+  |> expect.to_equal(Error(tree_error.IncompatibleView))
   core.live_request(
     core,
     address,
@@ -376,7 +377,7 @@ pub fn live_core_checks_handle_and_compiled_schema_test() {
     incompatible,
     live.Bind(identifier_fixture.full_view()),
   )
-  |> expect.to_equal(Error(live.IncompatibleView))
+  |> expect.to_equal(Error(tree_error.IncompatibleView))
   let #(core, view, _, _) = acquire_b(core)
   core.live_request(
     core,
@@ -385,7 +386,7 @@ pub fn live_core_checks_handle_and_compiled_schema_test() {
     incompatible,
     live.RootRead(view),
   )
-  |> expect.to_equal(Error(live.IncompatibleView))
+  |> expect.to_equal(Error(tree_error.IncompatibleView))
 }
 
 pub fn live_core_refuses_partial_array_insert_and_wrong_kinds_test() {
@@ -415,7 +416,7 @@ pub fn live_core_refuses_partial_array_insert_and_wrong_kinds_test() {
     identifier_fixture.full_view(),
     live.RootAcquire(view, schema.Optional),
   )
-  |> expect.to_equal(Error(live.WrongCardinality))
+  |> expect.to_equal(Error(tree_error.WrongCardinality))
   core.live_request(
     core,
     address,
@@ -496,7 +497,7 @@ pub fn live_core_moves_and_map_keys_keep_identity_test() {
   let assert #(core, live.Done) =
     request(core, live.MapDelete(by_key.anchor, "a/b.0"))
   let #(_, status) = request(core, live.Status(entry.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Removed))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Removed))
 }
 
 pub fn live_core_nested_abort_only_invalidates_discarded_preview_test() {
@@ -531,14 +532,14 @@ pub fn live_core_nested_abort_only_invalidates_discarded_preview_test() {
     request(core, live.ArrayAcquire(left, 3))
   let assert Ok(#(core, _)) = core.abort_tree_transaction(core, address)
   let #(core, state) = request(core, live.Status(inner.anchor))
-  state |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  state |> expect.to_equal(live.ReferenceState(tree_error.Invalidated))
   let #(core, state) = request(core, live.Status(outer.anchor))
-  state |> expect.to_equal(live.ReferenceState(live.Attached))
+  state |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let assert Ok(#(core, _, _)) = core.commit_tree_transaction(core, address)
   let #(core, state) = request(core, live.Status(outer.anchor))
-  state |> expect.to_equal(live.ReferenceState(live.Attached))
+  state |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let #(_, state) = request(core, live.Status(inner.anchor))
-  state |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  state |> expect.to_equal(live.ReferenceState(tree_error.Invalidated))
 }
 
 fn sequenced(
@@ -616,7 +617,7 @@ pub fn live_core_saved_reference_survives_reconciliation_and_reconnect_test() {
     ]),
   )
   let #(_, status) = request(reader, live.Status(saved))
-  status |> expect.to_equal(live.ReferenceState(live.Attached))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Attached))
 }
 
 pub fn live_core_rebase_merge_preserve_saved_checkout_references_test() {
@@ -684,7 +685,7 @@ pub fn live_core_rebase_merge_preserve_saved_checkout_references_test() {
     identifier_fixture.full_view(),
     live.Read(branch_b),
   )
-  |> expect.to_equal(Error(live.DisposedCheckout))
+  |> expect.to_equal(Error(tree_error.DisposedCheckout))
 }
 
 pub fn live_core_remove_undo_reattaches_the_original_anchor_test() {
@@ -713,7 +714,7 @@ pub fn live_core_remove_undo_reattaches_the_original_anchor_test() {
     )
     |> expect.to_be_ok
   let #(core, status) = request(core, live.Status(saved))
-  status |> expect.to_equal(live.ReferenceState(live.Removed))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Removed))
   let #(core, _, _) =
     core.revert_tree_on(core, address, types.DocumentCheckout, undo)
     |> expect.to_be_ok
@@ -739,7 +740,7 @@ pub fn live_core_anchors_do_not_pin_detached_repair_data_test() {
     core.handle_sequenced(core, sequenced(core, removed, 1))
     |> expect.to_be_ok
   let #(core, status) = request(core, live.Status(saved))
-  status |> expect.to_equal(live.ReferenceState(live.Removed))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Removed))
   let #(core, _, outbounds) =
     core.submit_tree_edits(core, address, [
       types.SetField(["child", "label"], types.StringValue("later")),
@@ -762,7 +763,7 @@ pub fn live_core_anchors_do_not_pin_detached_repair_data_test() {
     )
   let #(core, _) = core.handle_sequenced(core, pruning) |> expect.to_be_ok
   let #(core, status) = request(core, live.Status(saved))
-  status |> expect.to_equal(live.ReferenceState(live.Deleted))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Deleted))
   let assert #(core, live.Done) =
     request(
       core,
@@ -774,7 +775,7 @@ pub fn live_core_anchors_do_not_pin_detached_repair_data_test() {
     request(core, live.ArrayAcquire(left, 1))
   replacement.anchor |> expect.to_not_equal(saved)
   let #(_, status) = request(core, live.Status(saved))
-  status |> expect.to_equal(live.ReferenceState(live.Deleted))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Deleted))
 }
 
 pub fn live_core_outer_abort_invalidates_committed_inner_preview_test() {
@@ -802,10 +803,10 @@ pub fn live_core_outer_abort_invalidates_committed_inner_preview_test() {
     request(core, live.ArrayAcquire(left, 2))
   let assert Ok(#(core, _, [])) = core.commit_tree_transaction(core, address)
   let #(core, status) = request(core, live.Status(preview.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Attached))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Attached))
   let assert Ok(#(core, _)) = core.abort_tree_transaction(core, address)
   let #(core, status) = request(core, live.Status(preview.anchor))
-  status |> expect.to_equal(live.ReferenceState(live.Invalidated))
+  status |> expect.to_equal(live.ReferenceState(tree_error.Invalidated))
   let #(_, response) = request(core, live.Read(existing))
   response
   |> expect.to_equal(

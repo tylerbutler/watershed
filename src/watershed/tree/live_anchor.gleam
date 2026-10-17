@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/tree/branch
+import watershed/tree/error as tree_error
 import watershed/tree/forest
 import watershed/tree/live_types as live
 import watershed/tree/types
@@ -12,7 +13,7 @@ import watershed/tree/types
 type Entry {
   Entry(
     reference: forest.NodeRef,
-    tombstone: Option(live.ReferenceStatus),
+    tombstone: Option(tree_error.ReferenceStatus),
     preview: Bool,
   )
 }
@@ -60,7 +61,7 @@ pub fn acquire(
   registry: Registry,
   view: live.ViewToken,
   reference: forest.NodeRef,
-) -> Result(#(Registry, live.AnchorToken), live.LiveError) {
+) -> Result(#(Registry, live.AnchorToken), tree_error.Error) {
   use _ <- result.try(require_view(registry, view))
   case
     list.find(dict.to_list(registry.entries), fn(entry) {
@@ -92,11 +93,13 @@ pub fn acquire(
 pub fn mark_preview(
   registry: Registry,
   token: live.AnchorToken,
-) -> Result(Registry, live.LiveError) {
+) -> Result(Registry, tree_error.Error) {
   use _ <- result.try(require_view(registry, live.anchor_view(token)))
   use entry <- result.try(
     dict.get(registry.entries, token)
-    |> result.map_error(fn(_) { live.InvalidReference(live.Invalidated) }),
+    |> result.map_error(fn(_) {
+      tree_error.InvalidReference(tree_error.Invalidated)
+    }),
   )
   Ok(
     Registry(
@@ -117,7 +120,7 @@ pub fn finish_preview(
   checkout: types.CheckoutSelector,
   visible: forest.Forest,
   complete: Bool,
-) -> Result(Registry, live.LiveError) {
+) -> Result(Registry, tree_error.Error) {
   use entries <- result.try(
     dict.to_list(registry.entries)
     |> list.try_map(fn(pair) {
@@ -131,7 +134,7 @@ pub fn finish_preview(
         True -> {
           use status <- result.try(
             forest.reference_status(visible, entry.reference)
-            |> result.map_error(live.InvalidValue),
+            |> result.map_error(tree_error.InvalidValue),
           )
           case status {
             forest.DeletedNode ->
@@ -139,11 +142,11 @@ pub fn finish_preview(
                 token,
                 Entry(
                   ..entry,
-                  tombstone: Some(live.Invalidated),
+                  tombstone: Some(tree_error.Invalidated),
                   preview: False,
                 ),
               ))
-            forest.ForeignNode -> Error(live.ForeignOrigin)
+            forest.ForeignNode -> Error(tree_error.ForeignOrigin)
             forest.AttachedNode | forest.RemovedNode ->
               Ok(#(token, Entry(..entry, preview: !complete)))
           }
@@ -157,8 +160,9 @@ pub fn finish_preview(
 fn require_view(
   registry: Registry,
   view: live.ViewToken,
-) -> Result(Nil, live.LiveError) {
-  dict.get(registry.views, view) |> result.map_error(fn(_) { live.ClosedView })
+) -> Result(Nil, tree_error.Error) {
+  dict.get(registry.views, view)
+  |> result.map_error(fn(_) { tree_error.ClosedTree })
 }
 
 fn entry(
@@ -166,15 +170,17 @@ fn entry(
   origin: branch.Origin,
   checkout: types.CheckoutSelector,
   token: live.AnchorToken,
-) -> Result(Entry, live.LiveError) {
+) -> Result(Entry, tree_error.Error) {
   let view = live.anchor_view(token)
   use _ <- result.try(case live.view_matches(view, origin, checkout) {
     True -> Ok(Nil)
-    False -> Error(live.ForeignOrigin)
+    False -> Error(tree_error.ForeignOrigin)
   })
   use _ <- result.try(require_view(registry, view))
   dict.get(registry.entries, token)
-  |> result.map_error(fn(_) { live.InvalidReference(live.Invalidated) })
+  |> result.map_error(fn(_) {
+    tree_error.InvalidReference(tree_error.Invalidated)
+  })
 }
 
 pub fn status(
@@ -183,20 +189,20 @@ pub fn status(
   checkout: types.CheckoutSelector,
   token: live.AnchorToken,
   forest: forest.Forest,
-) -> Result(live.ReferenceStatus, live.LiveError) {
+) -> Result(tree_error.ReferenceStatus, tree_error.Error) {
   use entry <- result.try(entry(registry, origin, checkout, token))
   case entry.tombstone {
     Some(status) -> Ok(status)
     None -> {
       use status <- result.try(
         forest.reference_status(forest, entry.reference)
-        |> result.map_error(live.InvalidValue),
+        |> result.map_error(tree_error.InvalidValue),
       )
       case status {
-        forest.AttachedNode -> Ok(live.Attached)
-        forest.RemovedNode -> Ok(live.Removed)
-        forest.DeletedNode -> Ok(live.Deleted)
-        forest.ForeignNode -> Error(live.ForeignOrigin)
+        forest.AttachedNode -> Ok(tree_error.Attached)
+        forest.RemovedNode -> Ok(tree_error.Removed)
+        forest.DeletedNode -> Ok(tree_error.Deleted)
+        forest.ForeignNode -> Error(tree_error.ForeignOrigin)
       }
     }
   }
@@ -208,13 +214,13 @@ pub fn resolve(
   checkout: types.CheckoutSelector,
   token: live.AnchorToken,
   forest: forest.Forest,
-) -> Result(forest.NodeRef, live.LiveError) {
+) -> Result(forest.NodeRef, tree_error.Error) {
   use status <- result.try(status(registry, origin, checkout, token, forest))
   case status {
-    live.Attached ->
+    tree_error.Attached ->
       entry(registry, origin, checkout, token)
       |> result.map(fn(e) { e.reference })
-    _ -> Error(live.InvalidReference(status))
+    _ -> Error(tree_error.InvalidReference(status))
   }
 }
 
@@ -223,7 +229,7 @@ pub fn apply_changes(
   origin: branch.Origin,
   checkout: types.CheckoutSelector,
   changes: List(live.IdentityChange),
-) -> Result(Registry, live.LiveError) {
+) -> Result(Registry, tree_error.Error) {
   use _ <- result.try(
     list.try_each(changes, fn(change) {
       let occupied = case change {
@@ -243,7 +249,9 @@ pub fn apply_changes(
       {
         False -> Ok(Nil)
         True ->
-          Error(live.RuntimeFailure("Conflicting node identity transitions"))
+          Error(tree_error.RuntimeFailure(
+            "Conflicting node identity transitions",
+          ))
       }
     }),
   )
@@ -267,11 +275,19 @@ pub fn apply_changes(
             )
             Ok(live.Discard(_)) -> #(
               token,
-              Entry(..entry, tombstone: Some(live.Invalidated), preview: False),
+              Entry(
+                ..entry,
+                tombstone: Some(tree_error.Invalidated),
+                preview: False,
+              ),
             )
             Ok(live.Forget(_)) -> #(
               token,
-              Entry(..entry, tombstone: Some(live.Deleted), preview: False),
+              Entry(
+                ..entry,
+                tombstone: Some(tree_error.Deleted),
+                preview: False,
+              ),
             )
           }
         _, _ -> pair

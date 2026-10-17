@@ -96,6 +96,8 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
+import watershed/tree/error as tree_error
+@target(javascript)
 import watershed/tree/forest
 @target(javascript)
 import watershed/tree/live_types as tree_live
@@ -3337,27 +3339,24 @@ pub fn live_request(
   selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   request: tree_live.Request,
-) -> Result(tree_live.Response, tree_live.LiveError) {
+) -> Result(tree_live.Response, tree_error.Error) {
   let state = cell_get(runtime.cell)
   let writes = tree_live.writes(request)
   use _ <- result.try(case state.closed {
-    True -> Error(tree_live.ClosedRuntime)
+    True -> Error(tree_error.ClosedRuntime)
     False -> Ok(Nil)
   })
   use _ <- result.try(case writes {
     True ->
       require_no_tree_delivery(state, address)
-      |> result.map_error(tree_live.RuntimeFailure)
+      |> result.map_error(fn(_) { tree_error.ReentrantEdit })
     False -> Ok(Nil)
   })
   use core <- result.try(case state.phase {
     Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       Ok(core)
-    Connecting ->
-      Error(tree_live.RuntimeFailure(
-        "Typed tree requires a ready document connection",
-      ))
-    Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+    Connecting -> Error(tree_error.NotReady)
+    Failed(reason) -> Error(tree_error.TransportFailed(reason))
   })
   let core = case core.live_namespace {
     None -> runtime_core.Core(..core, live_namespace: Some(id.uuid_v4()))
@@ -3368,10 +3367,7 @@ pub fn live_request(
     _, _ -> False
   }
   use _ <- result.try(case writes && !writable {
-    True ->
-      Error(tree_live.RuntimeFailure(
-        "Typed tree edit requires a ready document connection",
-      ))
+    True -> Error(tree_error.NotReady)
     False -> Ok(Nil)
   })
   use #(core, response, events, outbound) <- result.try(
@@ -3382,7 +3378,7 @@ pub fn live_request(
     Reconnecting(_) -> Ok(Reconnecting(core))
     SuspendedPendingTree(_, reason) -> Ok(SuspendedPendingTree(core, reason))
     Connecting | Failed(_) ->
-      Error(tree_live.RuntimeFailure("Typed tree has no current core"))
+      Error(tree_error.RuntimeFailure("Typed tree has no current core"))
   })
   let subscribers = case request {
     tree_live.Close(token) ->
@@ -3398,9 +3394,9 @@ pub fn live_request(
   prime_scoped_tree_commit_deliveries(runtime.cell, events)
   queue_outbound(runtime.cell, outbound)
   use _ <- result.try(case cell_get(runtime.cell).phase {
-    Failed(reason) -> Error(tree_live.RuntimeFailure(reason))
+    Failed(reason) -> Error(tree_error.TransportFailed(reason))
     SuspendedPendingTree(_, reason) if writes ->
-      Error(tree_live.RuntimeFailure(reason))
+      Error(tree_error.TransportFailed(reason))
     _ -> Ok(Nil)
   })
   fan_out_scoped(runtime.cell, state.subscribers, subscribers, events)
@@ -3416,7 +3412,7 @@ pub fn subscribe_live_tree(
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
   handler: fn() -> Nil,
-) -> Result(fn() -> Nil, tree_live.LiveError) {
+) -> Result(fn() -> Nil, tree_error.Error) {
   use _ <- result.try(live_request(
     runtime,
     address,
