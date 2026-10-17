@@ -26,6 +26,9 @@ fn backend(response: protocol.Response) -> live.Backend {
     subscribe: fn(_) {
       Error(tree_error.RuntimeFailure("No subscription in this protocol case"))
     },
+    changes: fn(_) {
+      Error(tree_error.RuntimeFailure("No subscription in this protocol case"))
+    },
     rebind: fn(_) { backend(response) },
   )
 }
@@ -43,6 +46,7 @@ pub fn live_protocol_rejects_wrong_response_variants_test() {
     live.Backend(
       request: fn(_) { Ok(protocol.Done) },
       subscribe: fn(_) { Error(tree_error.ClosedTree) },
+      changes: fn(_) { Error(tree_error.ClosedTree) },
       rebind: fn(_) { backend(protocol.Done) },
     )
   live.bind(compiled, bad) |> expect.to_equal(Error(expected))

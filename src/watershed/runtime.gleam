@@ -108,6 +108,8 @@ import watershed/tree/schema as tree_schema
 @target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
+import watershed/tree_kernel
+@target(javascript)
 import watershed/wire
 @target(javascript)
 import watershed/wire/fluid_document
@@ -238,9 +240,15 @@ type TreeCommitSubscriber {
     id: String,
     address: String,
     selector: tree_types.CheckoutSelector,
-    handler: fn(TreeCommitEvent) -> Nil,
+    handler: TreeSubscriptionHandler,
     typed_view: Option(tree_live.ViewToken),
   )
+}
+
+@target(javascript)
+type TreeSubscriptionHandler {
+  CommitHandler(fn(TreeCommitEvent) -> Nil)
+  ChangeHandler(fn(tree_kernel.TreeEvent) -> Nil)
 }
 
 @target(javascript)
@@ -306,6 +314,7 @@ type State {
       #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
       TreeCommitDelivery,
     ),
+    tree_change_deliveries: List(String),
     tree_revertible_disposals: List(TreeRevertibleDisposal),
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
     /// document and does not sequence, so the fan-out is separate from the
@@ -654,6 +663,7 @@ fn start_with_optional_seed(
       tree_commit_subscribers: [],
       tree_commit_settlements: dict.new(),
       tree_commit_deliveries: dict.new(),
+      tree_change_deliveries: [],
       tree_revertible_disposals: [],
       ripple_subscribers: [],
       presence_subscribers: [],
@@ -3394,6 +3404,14 @@ pub fn live_request(
   }
   let state = State(..state, phase: phase, tree_commit_subscribers: subscribers)
   let #(state, disposals) = case request {
+    tree_live.Close(token) ->
+      case tree_live.checkout(token) {
+        tree_types.DocumentCheckout -> #(state, [])
+        tree_types.LocalCheckout(_) ->
+          remove_tree_scope(state, address, selector)
+      }
+    tree_live.Merge(_, source, True) ->
+      remove_tree_scope(state, address, tree_live.checkout(source))
     tree_live.DisposeRevertible(id) | tree_live.Revert(id, True) ->
       take_tree_revertible_disposals(state, address, selector, id)
     _ -> #(state, [])
@@ -3421,6 +3439,45 @@ pub fn subscribe_live_commits(
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
   handler: fn(TreeCommitEvent) -> Nil,
+) -> Result(fn() -> Nil, tree_error.Error) {
+  subscribe_live_tree(
+    runtime,
+    address,
+    selector,
+    view,
+    token,
+    CommitHandler(handler),
+  )
+}
+
+@target(javascript)
+@internal
+pub fn subscribe_live_changes(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: fn(tree_kernel.TreeEvent) -> Nil,
+) -> Result(fn() -> Nil, tree_error.Error) {
+  subscribe_live_tree(
+    runtime,
+    address,
+    selector,
+    view,
+    token,
+    ChangeHandler(handler),
+  )
+}
+
+@target(javascript)
+fn subscribe_live_tree(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: TreeSubscriptionHandler,
 ) -> Result(fn() -> Nil, tree_error.Error) {
   use _ <- result.try(live_request(
     runtime,
@@ -3830,7 +3887,7 @@ pub fn subscribe_tree_commits_on(
         id: token_id,
         address: address,
         selector: selector,
-        handler: handler,
+        handler: CommitHandler(handler),
         typed_view: None,
       ),
       ..state.tree_commit_subscribers
@@ -6067,7 +6124,7 @@ fn fan_out_scoped(
           revision,
           outcome,
         )
-      _ ->
+      _ -> {
         list.each(subscribers, fn(subscriber) {
           let subscription_is_live = case event {
             channel.TreeEvent(_) -> subscriber_registered(cell, subscriber.id)
@@ -6086,11 +6143,57 @@ fn fan_out_scoped(
             False -> Nil
           }
         })
+        case event {
+          channel.TreeEvent(change) ->
+            fan_out_tree_change(
+              cell,
+              tree_commit_subscribers,
+              address,
+              selector,
+              change,
+            )
+          _ -> Nil
+        }
+      }
     }
   })
   transport_js.get_cell(deferred_settlements)
   |> list.reverse
   |> list.each(fn(callback) { callback() })
+}
+
+@target(javascript)
+fn fan_out_tree_change(
+  cell: Cell(State),
+  subscribers: List(TreeCommitSubscriber),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  event: tree_kernel.TreeEvent,
+) -> Nil {
+  let state = cell_get(cell)
+  let previous = state.tree_change_deliveries
+  cell_set(cell, State(..state, tree_change_deliveries: [address, ..previous]))
+  list.each(subscribers, fn(subscriber) {
+    case subscriber.handler {
+      ChangeHandler(handler) ->
+        case
+          subscriber.address == address
+          && subscriber.selector == selector
+          && tree_scope_live(cell, address, selector)
+          && tree_commit_subscriber_registered(cell, subscriber.id)
+        {
+          True ->
+            observe(
+              "tree change subscriber " <> subscriber.id <> " at " <> address,
+              fn() { handler(event) },
+            )
+          False -> Nil
+        }
+      CommitHandler(_) -> Nil
+    }
+  })
+  let state = cell_get(cell)
+  cell_set(cell, State(..state, tree_change_deliveries: previous))
 }
 
 @target(javascript)
@@ -6222,7 +6325,12 @@ fn fan_out_tree_commit(
       True ->
         observe(
           "tree commit subscriber " <> subscriber.id <> " at " <> address,
-          fn() { subscriber.handler(event) },
+          fn() {
+            case subscriber.handler {
+              CommitHandler(handler) -> handler(event)
+              ChangeHandler(_) -> Nil
+            }
+          },
         )
       False -> Nil
     }
@@ -6445,8 +6553,11 @@ fn require_no_tree_delivery(
   address: String,
 ) -> Result(Nil, String) {
   case
-    dict.keys(state.tree_commit_deliveries)
-    |> list.any(fn(key) { key.0 == address })
+    list.contains(state.tree_change_deliveries, address)
+    || {
+      dict.keys(state.tree_commit_deliveries)
+      |> list.any(fn(key) { key.0 == address })
+    }
   {
     True -> Error("tree operation is not allowed during commit delivery")
     False -> Ok(Nil)

@@ -359,11 +359,23 @@ reattach on undo; references do not keep repair data alive.
 
 `observe` and `observe_node` re-read typed snapshots after native commits.
 Their callbacks receive `Result` values, including removal and schema errors,
-not a promise of Fluid's exact per-node event counts. `unsubscribe` cancels
-one observation. Callbacks can read committed state and cancel observations,
-but cannot submit reentrant edits. `dispose(view)` cancels that view's
-observations and releases its anchors without closing the native tree. Both
-cleanup operations are idempotent. Closed handles, disposed checkouts, runtime
+not a promise of Fluid's exact per-node event counts. Registration does not
+deliver an initial value: read explicitly before subscribing. A commit elsewhere
+in the same tree and checkout can repeat an unchanged snapshot.
+
+`subscribe_changes` reports actual `SchemaChanged` and `TreeChanged` events,
+including their local/remote provenance. It is separate from commit metadata:
+a schema notification does not invent a content change or an undo entry.
+Subscriptions stay in their document, checkout, and owning handle.
+Callbacks can read committed state and cancel subscriptions, but cannot submit
+reentrant edits. `unsubscribe` cancels one subscription.
+
+`dispose(tree)` cancels its subscriptions and releases its anchors. Disposing
+a document-tree handle leaves the document and other opened handles usable.
+Disposing a fork also disposes its checkout and retained revertibles;
+`merge` with `DisposeSource` does the same for its source. Cleanup is idempotent,
+works after schema incompatibility or document closure, and does not require
+a successful read. Closed handles, disposed checkouts, runtime
 shutdown, incompatible schemas, and foreign references return structured
 `Error` values from `watershed/tree/error`. Invalid edits retain the original
 `TreeError`, including its path and details. Connection readiness, timeouts,

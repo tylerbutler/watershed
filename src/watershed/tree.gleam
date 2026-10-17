@@ -11,6 +11,7 @@ import watershed/tree/live_types as protocol
 import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
+import watershed/tree_kernel
 
 @internal
 pub type Backend {
@@ -18,6 +19,7 @@ pub type Backend {
     request: fn(protocol.Request) -> Result(protocol.Response, tree_error.Error),
     subscribe: fn(fn(CommitEvent) -> Nil) ->
       Result(fn() -> Nil, tree_error.Error),
+    changes: fn(fn(ChangeEvent) -> Nil) -> Result(fn() -> Nil, tree_error.Error),
     rebind: fn(protocol.ViewToken) -> Backend,
   )
 }
@@ -69,6 +71,26 @@ pub type CommitKind {
   DefaultCommit
   UndoCommit
   RedoCommit
+}
+
+pub type ChangeEvent {
+  SchemaChanged(local: Bool)
+  TreeChanged(local: Bool)
+}
+
+@internal
+pub fn from_change(event: tree_kernel.TreeEvent) -> ChangeEvent {
+  case event {
+    tree_kernel.SchemaChanged(local) -> SchemaChanged(local)
+    tree_kernel.TreeChanged(local) -> TreeChanged(local)
+  }
+}
+
+pub fn subscribe_changes(
+  tree: Tree(a),
+  handler: fn(ChangeEvent) -> Nil,
+) -> Result(Subscription, tree_error.Error) {
+  tree.backend.changes(handler) |> result.map(Subscription)
 }
 
 pub type CommitOutcome {
@@ -500,7 +522,10 @@ pub fn status(
 }
 
 pub fn dispose(view: Tree(a)) -> Result(Nil, tree_error.Error) {
-  done(view.backend, protocol.Close(view.token))
+  case done(view.backend, protocol.Close(view.token)) {
+    Error(tree_error.ClosedRuntime) -> Ok(Nil)
+    outcome -> outcome
+  }
 }
 
 fn property_codec(

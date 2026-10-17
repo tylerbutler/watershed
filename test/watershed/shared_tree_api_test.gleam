@@ -219,6 +219,8 @@ pub fn tree_api_remote_commits_do_not_offer_local_history_test() {
   let assert Ok(tree) = facade.tree_typed(native, compiled)
   let #(record, take) = fixture.capture()
   let assert Ok(_) = tree.subscribe_commits(tree, record)
+  let #(changed, take_changes) = fixture.capture()
+  let assert Ok(_) = tree.subscribe_changes(tree, changed)
   deliver([
     fixture.remote_edit(
       compiled,
@@ -231,6 +233,7 @@ pub fn tree_api_remote_commits_do_not_offer_local_history_test() {
   event.local |> expect.to_equal(False)
   event.get_revertible |> expect.to_equal(None)
   event.on_settled |> expect.to_equal(None)
+  take_changes(1) |> expect.to_equal([tree.TreeChanged(False)])
   tree.read_root(tree)
   |> expect.to_equal(Ok(fixture.Card(builder.Assigned("original"), "Remote")))
   facade.close(document)

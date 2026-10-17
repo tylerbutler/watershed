@@ -175,7 +175,7 @@ pub fn tree_api_rejected_identity_edit_sends_no_operation_test() {
   tree.read_root(branch) |> expect.to_equal(Ok([card("A")]))
   tree.dispose(branch) |> expect.to_equal(Ok(Nil))
   tree.array_remove_node(branch_items, branch_item)
-  |> expect.to_equal(Error(error.ClosedTree))
+  |> expect.to_equal(Error(error.DisposedCheckout))
   take(0) |> expect.to_equal([])
   facade.close(document)
 }

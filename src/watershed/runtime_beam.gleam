@@ -198,7 +198,7 @@ import watershed/channel.{
   InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
   InitRegisterCollection, InitRichText, InitSequence, InitTaskManager, InitText,
   InitTwoPSet, MapChannel, SequenceChannel, TextChannel, TreeCommitApplied,
-  TreeCommitSettled,
+  TreeCommitSettled, TreeEvent,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -245,6 +245,8 @@ import watershed/tree/node
 import watershed/tree/schema as tree_schema
 @target(erlang)
 import watershed/tree/types as tree_types
+@target(erlang)
+import watershed/tree_kernel
 @target(erlang)
 import watershed/wire
 @target(erlang)
@@ -821,7 +823,7 @@ pub type Msg {
     selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     token: tree_live.ViewToken,
-    handler: fn(TreeCommitEvent) -> Nil,
+    handler: TreeSubscriptionHandler,
     reply: Subject(Result(SubscriptionToken, tree_error.Error)),
   )
   TreeTransactionBegin(
@@ -1196,9 +1198,16 @@ type TreeCommitSubscriber {
     id: Int,
     address: String,
     selector: tree_types.CheckoutSelector,
-    handler: fn(TreeCommitEvent) -> Nil,
+    handler: TreeSubscriptionHandler,
     typed_view: Option(tree_live.ViewToken),
   )
+}
+
+@target(erlang)
+@internal
+pub type TreeSubscriptionHandler {
+  CommitHandler(fn(TreeCommitEvent) -> Nil)
+  ChangeHandler(fn(tree_kernel.TreeEvent) -> Nil)
 }
 
 @target(erlang)
@@ -1207,7 +1216,7 @@ type ActiveTreeCommitDelivery {
     event_id: Int,
     address: String,
     selector: tree_types.CheckoutSelector,
-    revision: fluid_ids.StableId,
+    revision: Option(fluid_ids.StableId),
     acquired: Bool,
     worker: process.Pid,
     monitor: process.Monitor,
@@ -2131,6 +2140,45 @@ pub fn subscribe_live_commits(
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
   handler: fn(TreeCommitEvent) -> Nil,
+) -> Result(fn() -> Nil, tree_error.Error) {
+  subscribe_live_tree(
+    runtime,
+    address,
+    selector,
+    view,
+    token,
+    CommitHandler(handler),
+  )
+}
+
+@target(erlang)
+@internal
+pub fn subscribe_live_changes(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: fn(tree_kernel.TreeEvent) -> Nil,
+) -> Result(fn() -> Nil, tree_error.Error) {
+  subscribe_live_tree(
+    runtime,
+    address,
+    selector,
+    view,
+    token,
+    ChangeHandler(handler),
+  )
+}
+
+@target(erlang)
+fn subscribe_live_tree(
+  runtime: Subject(Msg),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  token: tree_live.ViewToken,
+  handler: TreeSubscriptionHandler,
 ) -> Result(fn() -> Nil, tree_error.Error) {
   use subscription <- result.try(call_runtime_with_errors(
     runtime,
@@ -4272,7 +4320,13 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
         State(
           ..state,
           tree_commit_subscribers: [
-            TreeCommitSubscriber(id, address, selector, handler, None),
+            TreeCommitSubscriber(
+              id,
+              address,
+              selector,
+              CommitHandler(handler),
+              None,
+            ),
             ..state.tree_commit_subscribers
           ],
           next_tree_commit_subscription_id: id + 1,
@@ -5419,6 +5473,18 @@ fn handle_live_tree_request(
         _, _ -> next
       }
       let #(next, disposals) = case request {
+        tree_live.Close(token) ->
+          case tree_live.checkout(token) {
+            tree_types.DocumentCheckout -> #(next, [])
+            tree_types.LocalCheckout(_) -> #(
+              cleanup_tree_scope(next, address, selector),
+              [],
+            )
+          }
+        tree_live.Merge(_, source, True) -> #(
+          cleanup_tree_scope(next, address, tree_live.checkout(source)),
+          [],
+        )
         tree_live.DisposeRevertible(id) | tree_live.Revert(id, True) ->
           take_tree_revertible_disposals(next, address, selector, id)
         _ -> #(next, [])
@@ -8262,7 +8328,17 @@ fn fan_out_scoped(
                   False -> Nil
                 }
               })
-              fan_out_scoped(state, rest)
+              case event {
+                TreeEvent(change) ->
+                  start_tree_change_delivery(
+                    state,
+                    address,
+                    selector,
+                    change,
+                    rest,
+                  )
+                _ -> fan_out_scoped(state, rest)
+              }
             }
           }
       }
@@ -8282,7 +8358,12 @@ fn start_tree_commit_delivery(
 ) -> State {
   let subscribers =
     list.filter(state.tree_commit_subscribers, fn(subscriber) {
-      subscriber.address == address && subscriber.selector == selector
+      subscriber.address == address
+      && subscriber.selector == selector
+      && case subscriber.handler {
+        CommitHandler(_) -> True
+        ChangeHandler(_) -> False
+      }
     })
   case subscribers {
     [] -> fan_out_scoped(state, remaining_events)
@@ -8334,6 +8415,71 @@ fn start_tree_commit_delivery(
         False -> None
       }
       let event = TreeCommitEvent(kind, local, get_revertible, on_settled)
+      start_tree_delivery(
+        state,
+        address,
+        selector,
+        Some(revision),
+        subscribers,
+        fn(handler) {
+          case handler {
+            CommitHandler(callback) -> callback(event)
+            ChangeHandler(_) -> Nil
+          }
+        },
+        remaining_events,
+      )
+    }
+  }
+}
+
+@target(erlang)
+fn start_tree_change_delivery(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  event: tree_kernel.TreeEvent,
+  remaining_events: List(runtime_core.ScopedTreeEvent),
+) -> State {
+  let subscribers =
+    list.filter(state.tree_commit_subscribers, fn(subscriber) {
+      subscriber.address == address
+      && subscriber.selector == selector
+      && case subscriber.handler {
+        ChangeHandler(_) -> True
+        CommitHandler(_) -> False
+      }
+    })
+  start_tree_delivery(
+    state,
+    address,
+    selector,
+    None,
+    subscribers,
+    fn(handler) {
+      case handler {
+        ChangeHandler(callback) -> callback(event)
+        CommitHandler(_) -> Nil
+      }
+    },
+    remaining_events,
+  )
+}
+
+@target(erlang)
+fn start_tree_delivery(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  revision: Option(fluid_ids.StableId),
+  subscribers: List(TreeCommitSubscriber),
+  notify: fn(TreeSubscriptionHandler) -> Nil,
+  remaining_events: List(runtime_core.ScopedTreeEvent),
+) -> State {
+  case subscribers {
+    [] -> fan_out_scoped(state, remaining_events)
+    _ -> {
+      let event_id = state.next_tree_commit_event_id
       let delivery =
         process.spawn_unlinked(fn() {
           list.each(subscribers, fn(subscriber) {
@@ -8351,7 +8497,7 @@ fn start_tree_commit_delivery(
                 },
               )
             {
-              True -> subscriber.handler(event)
+              True -> notify(subscriber.handler)
               False -> Nil
             }
           })
@@ -8390,7 +8536,7 @@ fn handle_retain_tree_revertible(
       if active.event_id == event_id
       && active.address == address
       && active.selector == selector
-      && active.revision == revision
+      && active.revision == Some(revision)
       && !active.acquired
     ->
       case phase_core(state.phase) {
@@ -8493,7 +8639,7 @@ fn handle_register_tree_settlement(
       if active.event_id == event_id
       && active.address == address
       && active.selector == selector
-      && active.revision == revision
+      && active.revision == Some(revision)
     -> {
       let callbacks =
         dict.get(state.tree_commit_settlements, #(address, selector, revision))

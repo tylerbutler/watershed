@@ -1088,6 +1088,16 @@ fn tree_backend(
         },
       )
     },
+    changes: fn(handler) {
+      runtime_beam.subscribe_live_changes(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        fn(event) { handler(tree_live.from_change(event)) },
+      )
+    },
     rebind: fn(token) { tree_backend(connection, address, view, token) },
   )
 }

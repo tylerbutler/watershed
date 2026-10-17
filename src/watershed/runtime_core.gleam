@@ -5103,7 +5103,10 @@ pub fn dispose_tree_branch(
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
   use core <- result.try(install_checkout_forest_state(core, address, forest))
-  Ok(remove_tree_publication_scope(core, address, selector))
+  Ok(
+    remove_tree_publication_scope(core, address, selector)
+    |> prune_tree_scopes,
+  )
 }
 
 pub fn scope_tree_events(
@@ -5171,6 +5174,62 @@ pub fn live_request(
   use forest <- result.try(
     checkout_forest(core, address) |> result.map_error(live_core_error),
   )
+  case request {
+    tree_live.Close(token) -> live_close(core, address, selector, forest, token)
+    _ -> live_request_on(core, address, selector, handle_view, request, forest)
+  }
+}
+
+fn live_close(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  forest: tree_branch.Forest,
+  token: tree_live.ViewToken,
+) -> LiveResult {
+  use _ <- result.try(
+    case
+      tree_live.view_matches(
+        token,
+        live_origin(core, address, forest),
+        selector,
+      )
+    {
+      True -> Ok(Nil)
+      False -> Error(tree_error.ForeignOrigin)
+    },
+  )
+  case selector {
+    tree_types.DocumentCheckout ->
+      live_response(live_close_scope(core, token), tree_live.Done)
+    tree_types.LocalCheckout(_) -> {
+      use core <- result.try(case tree_branch.status(forest, selector) {
+        tree_branch.BranchDisposed -> Ok(core)
+        _ ->
+          dispose_tree_branch(core, address, selector)
+          |> result.map_error(live_core_error)
+      })
+      live_response(prune_tree_scopes(core), tree_live.Done)
+    }
+  }
+}
+
+fn live_close_scope(core: Core, token: tree_live.ViewToken) -> Core {
+  Core(
+    ..core,
+    live_anchors: live_anchor.close(core.live_anchors, token),
+    live_views: dict.delete(core.live_views, token),
+  )
+}
+
+fn live_request_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  handle_view: tree_schema.ViewSchema,
+  request: tree_live.Request,
+  forest: tree_branch.Forest,
+) -> LiveResult {
   use _ <- result.try(case tree_branch.status(forest, selector) {
     tree_branch.BranchDisposed -> Error(tree_error.DisposedCheckout)
     _ -> Ok(Nil)
@@ -5259,17 +5318,6 @@ pub fn live_request(
         |> result.map_error(live_core_error),
       )
       Ok(#(core, tree_live.Done, events, []))
-    }
-    tree_live.Close(view) -> {
-      use _ <- result.try(live_owner(context, view))
-      live_response(
-        Core(
-          ..core,
-          live_anchors: live_anchor.close(core.live_anchors, view),
-          live_views: dict.delete(core.live_views, view),
-        ),
-        tree_live.Done,
-      )
     }
     _ -> {
       use view <- result.try(live_request_view(request))
@@ -7011,7 +7059,9 @@ pub fn merge_tree(
       target_selector,
     ])
   let core = case dispose_source {
-    True -> remove_tree_publication_scope(core, address, source_selector)
+    True ->
+      remove_tree_publication_scope(core, address, source_selector)
+      |> prune_tree_scopes
     False -> core
   }
   let scoped = scoped_branch_change_events(address, reconciled.events)
