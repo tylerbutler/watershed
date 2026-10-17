@@ -337,6 +337,9 @@ preview-only nodes; it does not make those node identities available for later
 insertions. Callback errors retain their application type inside `Aborted`;
 exceptions roll back and return `TransactionFailed`. Use `KeepSource` or
 `DisposeSource` to choose whether merging retains the source checkout.
+`branch_status` returns a checked `DocumentBranch`, `BranchValid`, or
+`BranchDisposed` status. `handle_of(tree)` encodes the persisted tree route
+for routing or attachment; it does not serialize a fork's local state.
 
 `subscribe_commits` reports `DefaultCommit`, `UndoCommit`, and `RedoCommit`
 with local/remote provenance. A local content event can provide a revertible

@@ -1,5 +1,6 @@
 @target(erlang)
 import gleam/erlang/process
+import gleam/json
 import gleam/option.{None, Some}
 import startest/expect
 @target(javascript)
@@ -237,4 +238,26 @@ pub fn tree_api_remote_commits_do_not_offer_local_history_test() {
   tree.read_root(tree)
   |> expect.to_equal(Ok(fixture.Card(builder.Assigned("original"), "Remote")))
   facade.close(document)
+}
+
+pub fn tree_api_checkout_status_and_routing_use_the_same_handle_test() {
+  let definition = fixture.card_schema()
+  let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
+  let #(document, native) =
+    fixture.tree(compiled, fixture.Card(builder.Assigned("original"), "First"))
+  let assert Ok(tree) = facade.tree_typed(native, compiled)
+  let assert Ok(root) = facade.resolve_root(document)
+  let assert Ok(marker) = facade.get(root, "tree")
+  let route = json.to_string(marker)
+  tree.handle_of(tree) |> json.to_string |> expect.to_equal(route)
+  tree.branch_status(tree) |> expect.to_equal(Ok(tree.DocumentBranch))
+  let assert Ok(branch) = tree.fork(tree)
+  tree.branch_status(branch) |> expect.to_equal(Ok(tree.BranchValid))
+  tree.handle_of(branch) |> json.to_string |> expect.to_equal(route)
+  tree.dispose(branch) |> expect.to_equal(Ok(Nil))
+  tree.branch_status(branch) |> expect.to_equal(Ok(tree.BranchDisposed))
+  tree.dispose(branch) |> expect.to_equal(Ok(Nil))
+  facade.close(document)
+  tree.handle_of(tree) |> json.to_string |> expect.to_equal(route)
+  tree.branch_status(tree) |> expect.to_equal(Error(error.ClosedRuntime))
 }

@@ -1054,6 +1054,7 @@ fn tree_backend(
 ) -> tree_live.Backend {
   let selector = live_types.checkout(token)
   tree_live.Backend(
+    address: address,
     request: fn(request) {
       runtime_beam.live_request(connection, address, selector, view, request)
     },

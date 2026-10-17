@@ -1,11 +1,13 @@
 //// Typed snapshots, identity references, and checkout-local tree operations.
 
 import gleam/dict.{type Dict}
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/callback
 import watershed/fluid_ids
+import watershed/handle
 import watershed/tree/error as tree_error
 import watershed/tree/live_types as protocol
 import watershed/tree/schema
@@ -16,6 +18,7 @@ import watershed/tree_kernel
 @internal
 pub type Backend {
   Backend(
+    address: String,
     request: fn(protocol.Request) -> Result(protocol.Response, tree_error.Error),
     subscribe: fn(fn(CommitEvent) -> Nil) ->
       Result(fn() -> Nil, tree_error.Error),
@@ -60,6 +63,29 @@ pub opaque type Subscription {
 pub type SourcePolicy {
   KeepSource
   DisposeSource
+}
+
+pub type BranchStatus {
+  DocumentBranch
+  BranchValid
+  BranchDisposed
+}
+
+pub fn branch_status(tree: Tree(a)) -> Result(BranchStatus, tree_error.Error) {
+  use response <- result.try(
+    tree.backend.request(protocol.BranchStatus(tree.token)),
+  )
+  case response {
+    protocol.BranchState(types.DocumentBranch) -> Ok(DocumentBranch)
+    protocol.BranchState(types.BranchValid) -> Ok(BranchValid)
+    protocol.BranchState(types.BranchDisposed) -> Ok(BranchDisposed)
+    _ -> unexpected()
+  }
+}
+
+/// Encode the persisted tree route. Local fork state is not serialized.
+pub fn handle_of(tree: Tree(a)) -> Json {
+  handle.encode_handle(tree.backend.address)
 }
 
 pub type TransactionError(callback_error) {

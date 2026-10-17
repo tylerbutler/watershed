@@ -17,6 +17,7 @@ fn token() -> protocol.ViewToken {
 
 fn backend(response: protocol.Response) -> live.Backend {
   live.Backend(
+    address: "tree",
     request: fn(request) {
       case request {
         protocol.Bind(_) -> Ok(protocol.Bound(token()))
@@ -39,11 +40,13 @@ pub fn live_protocol_rejects_wrong_response_variants_test() {
   let expected = tree_error.RuntimeFailure("Unexpected typed tree response")
   live.read_root(view) |> expect.to_equal(Error(expected))
   live.required_root(view) |> expect.to_equal(Error(expected))
+  live.branch_status(view) |> expect.to_equal(Error(expected))
   let assert Ok(view) = live.bind(compiled, backend(protocol.Snapshot(None)))
   live.replace_root(view, "new") |> expect.to_equal(Error(expected))
   live.dispose(view) |> expect.to_equal(Error(expected))
   let bad =
     live.Backend(
+      address: "tree",
       request: fn(_) { Ok(protocol.Done) },
       subscribe: fn(_) { Error(tree_error.ClosedTree) },
       changes: fn(_) { Error(tree_error.ClosedTree) },

@@ -5176,6 +5176,28 @@ pub fn live_request(
   )
   case request {
     tree_live.Close(token) -> live_close(core, address, selector, forest, token)
+    tree_live.BranchStatus(token) -> {
+      use _ <- result.try(
+        case
+          tree_live.view_matches(
+            token,
+            live_origin(core, address, forest),
+            selector,
+          )
+        {
+          True -> Ok(Nil)
+          False -> Error(tree_error.ForeignOrigin)
+        },
+      )
+      live_response(
+        core,
+        tree_live.BranchState(case tree_branch.status(forest, selector) {
+          tree_branch.DocumentBranch -> tree_types.DocumentBranch
+          tree_branch.BranchValid -> tree_types.BranchValid
+          tree_branch.BranchDisposed -> tree_types.BranchDisposed
+        }),
+      )
+    }
     _ -> live_request_on(core, address, selector, handle_view, request, forest)
   }
 }
@@ -5476,6 +5498,7 @@ fn live_request_view(
     | tree_live.Narrow(anchor, _) -> Ok(tree_live.anchor_view(anchor))
     tree_live.Bind(_)
     | tree_live.Inspect(_)
+    | tree_live.BranchStatus(_)
     | tree_live.Revert(_, _)
     | tree_live.DisposeRevertible(_)
     | tree_live.RevertibleStatus(_) ->
@@ -6016,6 +6039,7 @@ fn live_dispatch(
     tree_live.Bind(_)
     | tree_live.Inspect(_)
     | tree_live.Compatibility(_)
+    | tree_live.BranchStatus(_)
     | tree_live.Upgrade(_)
     | tree_live.Abort(_)
     | tree_live.Revert(_, _)

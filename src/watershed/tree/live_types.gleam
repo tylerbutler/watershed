@@ -15,6 +15,7 @@ pub type Request {
   Bind(schema.ViewSchema)
   Inspect(schema.ViewSchema)
   Close(ViewToken)
+  BranchStatus(ViewToken)
   Fork(ViewToken)
   Rebase(ViewToken, ViewToken)
   Merge(ViewToken, ViewToken, Bool)
@@ -64,6 +65,7 @@ pub type Response {
   ReferenceState(error.ReferenceStatus)
   SchemaCompatibility(schema.Compatibility)
   RevertibleState(Bool)
+  BranchState(types.TreeBranchStatus)
 }
 
 @internal
