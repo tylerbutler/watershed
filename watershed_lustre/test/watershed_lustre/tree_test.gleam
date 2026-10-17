@@ -14,6 +14,7 @@ import watershed/sluice/frame
 import watershed/transport_js
 import watershed/tree/error as tree_error
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
@@ -28,7 +29,7 @@ type CallbackProblem {
 type Msg {
   Performed(Result(Nil, String))
   TypedPerformed(Result(String, typed.Error))
-  Created(Result(String, typed.Error))
+  Created(Result(String, tree_error.Error))
   Opened(Result(watershed.SharedTree(Text, String), typed.Error))
   ReadRoot(Result(Option(String), typed.Error))
   TreeSubscribed(watershed.SubscriptionToken)
@@ -670,14 +671,13 @@ pub fn create_preserves_invalid_configuration_and_defers_dispatch_test() -> Prom
 ) {
   let calls = transport_js.new_cell(0)
   let constructors = transport_js.new_cell(0)
-  let builder = counting_builder(calls)
+  let compiled = counting_declaration(calls)
   let sink = transport_js.new_cell([])
   let pending =
     tree.create(
       container.CreateConfig("ftp://invalid", "dev-tenant", "token"),
-      text_definition(),
-      builder,
-      Some("initial"),
+      compiled,
+      "initial",
       fn(outcome) {
         transport_js.set_cell(
           constructors,
@@ -693,7 +693,11 @@ pub fn create_preserves_invalid_configuration_and_defers_dispatch_test() -> Prom
   let assert 0 = transport_js.get_cell(constructors)
   let assert [] = messages(sink)
   use _ <- promise.await(promise.wait(0))
-  let assert [Created(Error(typed.AccessFailed(detail)))] = messages(sink)
+  let assert [
+    Created(Error(tree_error.CreationFailed(container.InvalidConfiguration(
+      detail,
+    )))),
+  ] = messages(sink)
   let assert True = detail != ""
   let assert 1 = transport_js.get_cell(constructors)
   promise.resolve(Nil)
@@ -708,9 +712,8 @@ pub fn create_dev_is_lazy_and_defers_dispatch_test() -> Promise(Nil) {
       "ftp://invalid",
       "dev-tenant",
       "secret",
-      text_definition(),
-      counting_builder(calls),
-      Some("initial"),
+      counting_declaration(calls),
+      "initial",
       fn(outcome) {
         transport_js.set_cell(
           constructors,
@@ -731,7 +734,9 @@ pub fn create_dev_is_lazy_and_defers_dispatch_test() -> Promise(Nil) {
   )
   let assert True = completed
   let assert 1 = transport_js.get_cell(calls)
-  let assert [Created(Error(typed.AccessFailed(_)))] = messages(sink)
+  let assert [
+    Created(Error(tree_error.CreationFailed(container.InvalidConfiguration(_)))),
+  ] = messages(sink)
   let assert 1 = transport_js.get_cell(constructors)
   promise.resolve(Nil)
 }
@@ -861,15 +866,24 @@ fn text_builder() -> typed.Builder(Text, String) {
   value
 }
 
-fn counting_builder(
+fn counting_declaration(
   calls: transport_js.Cell(Int),
-) -> typed.Builder(Text, String) {
-  let assert Ok(value) =
-    typed.builder("com.fluidframework.leaf.string", fn(value) {
+) -> builder.Compiled(String) {
+  let property =
+    builder.required("value", builder.string(), fn(value: String) {
       transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
-      typed.encode(typed.string(), value)
+      value
     })
-  value
+  let assert Ok(compiled) =
+    builder.object1(
+      builder.factory("effects"),
+      "Created",
+      fn(value) { value },
+      property,
+    )
+    |> builder.root
+    |> builder.compile
+  compiled
 }
 
 fn text_definition() -> typed.Schema(Text, String) {

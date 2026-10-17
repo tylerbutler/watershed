@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/tree/schema
+import watershed/tree/schema_builder as declaration
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -19,6 +20,28 @@ pub type NoteSchema
 
 pub type Note {
   Note(title: String, note: Option(String))
+}
+
+pub fn compiled() -> declaration.Compiled(Note) {
+  let title =
+    declaration.required("title", declaration.string(), fn(note: Note) {
+      note.title
+    })
+  let note =
+    declaration.optional("note", declaration.string(), fn(note: Note) {
+      note.note
+    })
+  let assert Ok(compiled) =
+    declaration.object2(
+      declaration.factory("shared_tree_cli"),
+      "Note",
+      Note,
+      title,
+      note,
+    )
+    |> declaration.root
+    |> declaration.compile
+  compiled
 }
 
 pub fn stored() -> schema.StoredSchema {

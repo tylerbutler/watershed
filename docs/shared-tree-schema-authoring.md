@@ -253,36 +253,42 @@ advancement. It does not promise that an allocated identifier can be reused.
 Identifier cardinality is only available on object properties, not roots or
 collection entry declarations.
 
-## Native create, open, and read
+## Container creation
 
-The native facades accept a schema-scoped `typed.Schema(s, r)` and a matching
-`typed.Builder(s, input)`, not raw stored and view schemas. The item-counter
-example supplies these adapters through `document_schema.declaration()` and
-`document_schema.builder()`:
+Both facades accept a compiled declaration and an ordinary application value.
+The declaration supplies the stored schema and construction encoder together:
 
 ```gleam
-import gleam/option.{Some}
 import shared_tree_item_counter_lustre/schema as document_schema
 
+let assert Ok(compiled) = document_schema.definition()
 watershed.create_tree_container(
   create_config,
-  document_schema.declaration(),
-  document_schema.builder(),
-  Some(document_schema.initial()),
-)
-
-// On an already connected document:
-watershed.create_tree(
-  document,
-  document_schema.declaration(),
-  document_schema.builder(),
-  Some(document_schema.initial()),
+  compiled,
+  [],
 )
 ```
 
 `create_tree_container` on JavaScript returns a promise of the creation
-result; the BEAM facade returns the result. Creation does not connect the
-document. To open an existing document, connect, resolve the root, get its
+result; the BEAM facade returns the result. Both return structured
+`watershed/tree/error.Error` values. Encoding failures retain the original
+`TreeError` in `InvalidValue`; `CreationFailed` retains the complete
+`container.CreateError`, including nested storage failures. Use `error.to_string`
+for a presentation that does not expose credentials or response bodies.
+
+Creation uses `encode_new`, so generated identifiers are allowed. Required
+roots take a record, list, or leaf directly. Optional roots take the
+declaration's `Option(a)` value, without another surrounding `Some`.
+Invalid construction values fail before allocation or network work.
+Creation does not connect the document and does not retry an uncertain result.
+
+For declared layouts, `with_initial_tree(layout, store, channel, compiled,
+initial)` uses the same construction rules. Pass the resulting layout to
+`create_tree_container_with_layout(config, compiled, initial, layout)`.
+
+## Native tree access
+
+To open an existing document, connect, resolve the root, get its
 `"tree"` handle, and call `resolve_tree` with
 `document_schema.declaration()` as its final argument.
 

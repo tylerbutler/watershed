@@ -158,15 +158,13 @@ const call_timeout_milliseconds = 5000
 /// Obtain a token for that ID, then call `connect`. This call does not retry.
 pub fn create_tree_container(
   config: container.CreateConfig,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-) -> Result(String, typed.Error) {
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Result(String, tree_error.Error) {
   create_tree_container_with_layout(
     config,
-    definition,
-    builder,
-    initial_root,
+    compiled,
+    initial,
     container.layout(),
   )
 }
@@ -176,21 +174,21 @@ pub fn create_tree_container(
 /// Creation does not open a runtime or retry an uncertain response.
 pub fn create_tree_container_with_layout(
   config: container.CreateConfig,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
+  compiled: tree_builder.Compiled(a),
+  initial: a,
   layout: container.Layout,
-) -> Result(String, typed.Error) {
-  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+) -> Result(String, tree_error.Error) {
+  use root <- result.try(
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
   container.create_tree_with_layout(
     config,
-    tree_schema.view_to_stored(typed.schema_view(definition)),
+    tree_builder.stored(compiled),
     root,
     layout,
   )
-  |> result.map_error(fn(error) {
-    typed.AccessFailed(container.error_to_string(error))
-  })
+  |> result.map_error(tree_error.CreationFailed)
 }
 
 @target(erlang)
@@ -199,16 +197,18 @@ pub fn with_initial_tree(
   layout: container.Layout,
   store: String,
   channel: String,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-) -> Result(container.Layout, typed.Error) {
-  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Result(container.Layout, tree_error.Error) {
+  use root <- result.try(
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
   Ok(container.with_tree(
     layout,
     store,
     channel,
-    tree_schema.view_to_stored(typed.schema_view(definition)),
+    tree_builder.stored(compiled),
     root,
   ))
 }

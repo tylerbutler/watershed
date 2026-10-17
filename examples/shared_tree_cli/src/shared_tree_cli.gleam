@@ -13,6 +13,7 @@ import shared_tree_cli/schema
 @target(javascript)
 import watershed as client
 import watershed/container
+import watershed/tree/error as tree_error
 import watershed/tree/typed
 @target(erlang)
 import watershed_beam as client
@@ -117,11 +118,10 @@ fn run(command: Command, config: Config) -> Result(Nil, String) {
       use id <- result.try(
         client.create_tree_container(
           container.CreateConfig(base_url(config), config.tenant, token),
-          schema.definition(),
-          schema.builder(),
-          Some(schema.initial()),
+          schema.compiled(),
+          schema.initial(),
         )
-        |> result.map_error(typed_error),
+        |> result.map_error(tree_error.to_string),
       )
       io.println("document: " <> id)
       open(config, id, None)
@@ -139,11 +139,10 @@ fn run(command: Command, config: Config) -> Promise(Result(Nil, String)) {
       use id <- promise.try_await(
         client.create_tree_container(
           container.CreateConfig(base_url(config), config.tenant, token),
-          schema.definition(),
-          schema.builder(),
-          Some(schema.initial()),
+          schema.compiled(),
+          schema.initial(),
         )
-        |> promise.map(result.map_error(_, typed_error)),
+        |> promise.map(result.map_error(_, tree_error.to_string)),
       )
       io.println("document: " <> id)
       open(config, id, None)

@@ -65,12 +65,12 @@ browser.
 
 ## API flow
 
-Pass `container.CreateConfig(base_url, tenant, token)`, the hand-authored
-`typed_schema.definition()`, its matching builder, and an optional
-`NoteInput` to `create_tree_container`. The builder encodes construction data;
-the decoded `Note` record returned by reads is a separate type. The JavaScript
-facade returns a promise; the BEAM facade returns a result. Creation starts no
-WebSocket connection.
+Pass `container.CreateConfig(base_url, tenant, token)`, `schema.compiled()`,
+and a `Note` directly to `create_tree_container`. The compiled declaration
+supplies both the stored schema and construction encoder. The JavaScript facade
+returns a promise; the BEAM facade returns a result. Both preserve structured
+creation and storage errors. Creation starts no WebSocket connection and does
+not retry an uncertain result.
 
 After `connect` reports readiness, resolve the bootstrap map with `resolve_root`,
 read its `"tree"` handle, and call `resolve_tree` with the same typed

@@ -541,15 +541,13 @@ fn build_connect_message(
 /// Obtain a token for that ID, then call `connect`. This call does not retry.
 pub fn create_tree_container(
   config: container.CreateConfig,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-) -> Promise(Result(String, typed.Error)) {
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Promise(Result(String, tree_error.Error)) {
   create_tree_container_with_layout(
     config,
-    definition,
-    builder,
-    initial_root,
+    compiled,
+    initial,
     container.layout(),
   )
 }
@@ -559,25 +557,23 @@ pub fn create_tree_container(
 /// Creation does not open a runtime or retry an uncertain response.
 pub fn create_tree_container_with_layout(
   config: container.CreateConfig,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
+  compiled: tree_builder.Compiled(a),
+  initial: a,
   layout: container.Layout,
-) -> Promise(Result(String, typed.Error)) {
-  case prepare_tree_root(definition, builder, initial_root) {
+) -> Promise(Result(String, tree_error.Error)) {
+  case
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue)
+  {
     Error(error) -> promise.resolve(Error(error))
     Ok(root) ->
       container.create_tree_with_layout(
         config,
-        tree_schema.view_to_stored(typed.schema_view(definition)),
+        tree_builder.stored(compiled),
         root,
         layout,
       )
-      |> promise.map(
-        result.map_error(_, fn(error) {
-          typed.AccessFailed(container.error_to_string(error))
-        }),
-      )
+      |> promise.map(result.map_error(_, tree_error.CreationFailed))
   }
 }
 
@@ -587,16 +583,18 @@ pub fn with_initial_tree(
   layout: container.Layout,
   store: String,
   channel: String,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-) -> Result(container.Layout, typed.Error) {
-  use root <- result.try(prepare_tree_root(definition, builder, initial_root))
+  compiled: tree_builder.Compiled(a),
+  initial: a,
+) -> Result(container.Layout, tree_error.Error) {
+  use root <- result.try(
+    tree_builder.encode_new(compiled, initial)
+    |> result.map_error(tree_error.InvalidValue),
+  )
   Ok(container.with_tree(
     layout,
     store,
     channel,
-    tree_schema.view_to_stored(typed.schema_view(definition)),
+    tree_builder.stored(compiled),
     root,
   ))
 }

@@ -5,6 +5,7 @@ import lustre/effect.{type Effect}
 import watershed
 import watershed/container
 import watershed/tree/error
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
@@ -22,18 +23,16 @@ pub type CommitEvent {
 
 pub fn create(
   config: container.CreateConfig,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-  created: fn(Result(String, typed.Error)) -> msg,
+  compiled: builder.Compiled(a),
+  initial: a,
+  created: fn(Result(String, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _ = {
     use outcome <- promise.map(watershed.create_tree_container(
       config,
-      definition,
-      builder,
-      initial_root,
+      compiled,
+      initial,
     ))
     queue_microtask(fn() { dispatch(created(outcome)) })
   }
@@ -44,10 +43,9 @@ pub fn create_dev(
   base_url: String,
   tenant: String,
   secret: String,
-  definition: typed.Schema(s, r),
-  builder: typed.Builder(s, input),
-  initial_root: Option(input),
-  created: fn(Result(String, typed.Error)) -> msg,
+  compiled: builder.Compiled(a),
+  initial: a,
+  created: fn(Result(String, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _ = {
@@ -59,9 +57,8 @@ pub fn create_dev(
     ))
     use outcome <- promise.map(watershed.create_tree_container(
       container.CreateConfig(base_url, tenant, token),
-      definition,
-      builder,
-      initial_root,
+      compiled,
+      initial,
     ))
     queue_microtask(fn() { dispatch(created(outcome)) })
   }

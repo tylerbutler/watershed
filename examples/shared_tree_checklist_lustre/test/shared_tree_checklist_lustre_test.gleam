@@ -7,6 +7,7 @@ import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/schema as document_schema
 import shared_tree_checklist_lustre/typed_schema
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -19,6 +20,21 @@ pub fn typed_initial_tree_matches_the_unchanged_stored_schema_test() {
     typed.build(typed_schema.builder(), typed_schema.initial())
   let assert True = initial == document_schema.initial()
   let assert Ok(Nil) = schema.validate_root(document_schema.stored(), initial)
+}
+
+pub fn compiled_creation_preserves_application_records_and_stored_schema_test() {
+  let compiled = typed_schema.compiled()
+  let initial =
+    checklist.Checklist("SharedTree checklist", [
+      checklist.Item("one", "First", False),
+    ])
+  let assert Ok(Some(encoded)) = builder.encode_new(compiled, initial)
+  let assert Ok(Nil) =
+    schema.can_view(builder.stored(compiled), document_schema.view())
+  let assert Ok(Nil) = schema.validate_root(document_schema.stored(), encoded)
+  let assert Ok(decoded) = builder.decode(compiled, Some(encoded))
+  let assert True = decoded == initial
+  Nil
 }
 
 pub fn local_commit_kinds_route_handles_and_default_clears_redo_test() {

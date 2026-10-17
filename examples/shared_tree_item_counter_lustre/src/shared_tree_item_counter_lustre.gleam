@@ -12,6 +12,7 @@ import shared_tree_item_counter_lustre/counter
 import shared_tree_item_counter_lustre/schema as document_schema
 import watershed
 import watershed/id
+import watershed/tree/error as tree_error
 import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
@@ -45,7 +46,7 @@ type Model {
 }
 
 type Msg {
-  Created(Result(String, typed.Error))
+  Created(Result(String, tree_error.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
   Opened(
@@ -115,9 +116,8 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
         config.base_url,
         config.tenant,
         config.secret,
-        document_schema.declaration(),
-        document_schema.builder(),
-        Some(document_schema.initial()),
+        document_schema.compiled(),
+        [],
         Created,
       ),
     )
@@ -165,7 +165,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       fail(
         model,
         "Creation failed. The service might have created a document whose ID was not received. Do not retry automatically: "
-          <> typed_error(detail),
+          <> tree_error.to_string(detail),
       )
     GotDocument(document) -> #(
       Model(..model, document: Some(document)),

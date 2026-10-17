@@ -3,6 +3,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/schema as document_schema
+import watershed/tree/schema_builder as declaration
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -22,6 +23,48 @@ pub type ChecklistInput {
 
 pub type ItemInput {
   ItemInput(id: String, text: String, completed: Bool)
+}
+
+pub fn compiled() -> declaration.Compiled(checklist.Checklist) {
+  let factory = declaration.factory("shared_tree_checklist")
+  let item =
+    declaration.object3(
+      factory,
+      "Item",
+      checklist.Item,
+      declaration.required("id", declaration.string(), fn(item: checklist.Item) {
+        item.id
+      }),
+      declaration.required(
+        "text",
+        declaration.string(),
+        fn(item: checklist.Item) { item.text },
+      ),
+      declaration.required(
+        "completed",
+        declaration.boolean(),
+        fn(item: checklist.Item) { item.completed },
+      ),
+    )
+  let assert Ok(compiled) =
+    declaration.object2(
+      factory,
+      "Checklist",
+      checklist.Checklist,
+      declaration.required(
+        "title",
+        declaration.string(),
+        fn(value: checklist.Checklist) { value.title },
+      ),
+      declaration.required(
+        "items",
+        declaration.array(factory, "Items", item),
+        fn(value: checklist.Checklist) { value.items },
+      ),
+    )
+    |> declaration.root
+    |> declaration.compile
+  compiled
 }
 
 pub fn definition() -> typed.Schema(Checklist, checklist.Checklist) {

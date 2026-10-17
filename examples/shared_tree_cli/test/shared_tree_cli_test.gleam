@@ -4,6 +4,7 @@ import shared_tree_cli/schema as note
 import startest
 import startest/expect
 import watershed/tree/schema
+import watershed/tree/schema_builder as builder
 import watershed/tree/typed
 import watershed/tree/types
 
@@ -30,6 +31,15 @@ pub fn initial_tree_matches_view_test() -> Nil {
 pub fn optional_note_can_be_absent_test() -> Nil {
   schema.validate_field(note.stored(), "shared_tree_cli.Note", "note", None)
   |> expect.to_equal(Ok(Nil))
+}
+
+pub fn compiled_creation_preserves_the_declared_document_test() -> Nil {
+  let compiled = note.compiled()
+  let initial = note.Note("Created", Some("Present"))
+  let assert Ok(Some(encoded)) = builder.encode_new(compiled, initial)
+  schema.validate_root_field(note.stored(), Some(encoded))
+  |> expect.to_equal(Ok(Nil))
+  builder.decode(compiled, Some(encoded)) |> expect.to_equal(Ok(initial))
 }
 
 pub fn title_descriptor_matches_schema_test() -> Nil {

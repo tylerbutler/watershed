@@ -30,16 +30,18 @@ import watershed/sluice/frame
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/error
 import watershed/tree/facade_fixture
 @target(erlang)
 import watershed/tree/identifier_fixture
 import watershed/tree/schema
-import watershed/tree/typed
+import watershed/tree/schema_builder as builder
 import watershed/tree/types
 @target(javascript)
 import watershed/wire/fluid_document
 @target(erlang)
 import watershed/wire/fluid_document
+import watershed/wire/fluid_summary
 @target(erlang)
 import watershed_beam
 
@@ -231,67 +233,127 @@ pub fn shared_tree_creation_checks_initial_value_before_network_test() -> Nil {
 
 @target(erlang)
 pub fn shared_tree_creation_typed_layout_checks_graph_before_network_test() {
-  let value = types.StringValue("secondary")
-  let view =
-    schema.view_from_json(schema.stored_to_json(stored())) |> expect.to_be_ok()
-  let definition = facade_fixture.definition(view) |> expect.to_be_ok()
-  let builder = facade_fixture.builder(value) |> expect.to_be_ok()
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
   let layout =
     container.layout()
     |> container.with_data_store("B", Some("public"))
-    |> watershed_beam.with_initial_tree(
-      "B",
-      "items",
-      definition,
-      builder,
-      Some(value),
-    )
+    |> watershed_beam.with_initial_tree("B", "items", compiled, "secondary")
     |> expect.to_be_ok()
     |> container.with_binding("A", "root", "other", "B", "root")
     |> container.with_data_store("B", None)
-  let assert Error(typed.AccessFailed(reason)) =
+  let assert Error(error.CreationFailed(container.InvalidSummary(fluid_summary.MalformedEntry(
+    path,
+    reason,
+  )))) =
     watershed_beam.create_tree_container_with_layout(
       container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-      definition,
-      builder,
-      Some(value),
+      compiled,
+      "secondary",
       layout,
     )
-  string.contains(reason, "duplicate initial datastore") |> expect.to_be_true()
+  path |> expect.to_equal("/.channels/B")
+  reason |> expect.to_equal("duplicate initial datastore")
 }
 
 @target(javascript)
 pub fn check_declared_layout_api() -> Promise(Nil) {
-  let value = types.StringValue("secondary")
-  let view =
-    schema.view_from_json(schema.stored_to_json(stored())) |> expect.to_be_ok()
-  let definition = facade_fixture.definition(view) |> expect.to_be_ok()
-  let builder = facade_fixture.builder(value) |> expect.to_be_ok()
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
   let layout =
     container.layout()
     |> container.with_data_store("B", Some("public"))
-    |> watershed.with_initial_tree(
-      "B",
-      "items",
-      definition,
-      builder,
-      Some(value),
-    )
+    |> watershed.with_initial_tree("B", "items", compiled, "secondary")
     |> expect.to_be_ok()
     |> container.with_binding("A", "root", "other", "B", "root")
     |> container.with_data_store("B", None)
   watershed.create_tree_container_with_layout(
     container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-    definition,
-    builder,
-    Some(value),
+    compiled,
+    "secondary",
     layout,
   )
   |> promise.map(fn(outcome) {
-    let assert Error(typed.AccessFailed(reason)) = outcome
-    string.contains(reason, "duplicate initial datastore")
-    |> expect.to_be_true()
+    let assert Error(error.CreationFailed(container.InvalidSummary(fluid_summary.MalformedEntry(
+      path,
+      reason,
+    )))) = outcome
+    path |> expect.to_equal("/.channels/B")
+    reason |> expect.to_equal("duplicate initial datastore")
   })
+}
+
+type Initial {
+  Text(String)
+  Unsupported
+}
+
+fn partial_schema() -> builder.Compiled(Initial) {
+  let assert Ok(compiled) =
+    builder.union([
+      builder.variant(builder.string(), Text, fn(value) {
+        case value {
+          Text(text) -> Some(text)
+          Unsupported -> None
+        }
+      }),
+    ])
+    |> builder.root
+    |> builder.compile
+  compiled
+}
+
+@target(erlang)
+pub fn tree_api_creation_preserves_invalid_value_before_network_test() {
+  let compiled = partial_schema()
+  let assert Error(original) = builder.encode_new(compiled, Unsupported)
+  watershed_beam.create_tree_container(
+    container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
+    compiled,
+    Unsupported,
+  )
+  |> expect.to_equal(Error(error.InvalidValue(original)))
+}
+
+@target(erlang)
+pub fn tree_api_creation_preserves_nested_storage_failure_test() {
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let assert Error(error.CreationFailed(container.StorageFailed(git_storage.RequestFailed(
+    url,
+    detail,
+  )))) =
+    watershed_beam.create_tree_container(
+      container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
+      compiled,
+      "Created",
+    )
+  string.contains(url, "/documents/tenant") |> expect.to_be_true
+  expect.to_equal(detail == "", False)
+}
+
+@target(javascript)
+pub fn check_creation_error_payloads() -> Promise(Nil) {
+  let config =
+    container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret")
+  let partial = partial_schema()
+  let assert Error(original) = builder.encode_new(partial, Unsupported)
+  use invalid <- promise.await(watershed.create_tree_container(
+    config,
+    partial,
+    Unsupported,
+  ))
+  invalid |> expect.to_equal(Error(error.InvalidValue(original)))
+  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  use outcome <- promise.await(watershed.create_tree_container(
+    config,
+    compiled,
+    "Created",
+  ))
+  let assert Error(error.CreationFailed(container.StorageFailed(git_storage.RequestFailed(
+    url,
+    detail,
+  )))) = outcome
+  string.contains(url, "/documents/tenant") |> expect.to_be_true
+  expect.to_equal(detail == "", False)
+  promise.resolve(Nil)
 }
 
 @target(erlang)

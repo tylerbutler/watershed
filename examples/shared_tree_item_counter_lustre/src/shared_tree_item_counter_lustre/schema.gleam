@@ -27,7 +27,7 @@ pub fn definition() -> Result(builder.Compiled(List(String)), types.TreeError) {
   |> builder.compile
 }
 
-fn compiled() -> builder.Compiled(List(String)) {
+pub fn compiled() -> builder.Compiled(List(String)) {
   let assert Ok(value) = definition()
   value
 }

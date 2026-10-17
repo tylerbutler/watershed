@@ -2,12 +2,9 @@ import gleam/io
 import gleam/json
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import gleam/string
 import watershed/container
 import watershed/tree/client_protocol
-import watershed/tree/facade_fixture
 import watershed/tree/schema
-import watershed/tree/typed
 import watershed/tree/types.{type TreeValue}
 
 @target(erlang)
@@ -16,10 +13,6 @@ import envoy
 import envoy as javascript_envoy
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
-@target(javascript)
-import watershed as watershed_javascript
-@target(erlang)
-import watershed_beam
 
 const marker = "WATERSHED_TREE_CREATION="
 
@@ -63,22 +56,12 @@ fn inputs(
   schema_json: String,
   root_json: String,
   expected: String,
-) -> #(
-  container.CreateConfig,
-  typed.Schema(facade_fixture.Dynamic, TreeValue),
-  typed.Builder(facade_fixture.Dynamic, TreeValue),
-  Option(TreeValue),
-  String,
-) {
+) -> #(container.CreateConfig, schema.StoredSchema, Option(TreeValue), String) {
   let assert Ok(stored) = schema.stored_from_string(schema_json)
-  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
-  let assert Ok(definition) = facade_fixture.definition(view)
   let assert Ok(root) = client_protocol.decode_tree_value(root_json)
-  let assert Ok(builder) = facade_fixture.builder(root)
   #(
     container.CreateConfig(base_url, tenant, token),
-    definition,
-    builder,
+    stored,
     Some(root),
     expected,
   )
@@ -92,32 +75,20 @@ pub fn main() -> Nil {
   let assert Ok(schema_json) = envoy.get("WATERSHED_TREE_CREATION_SCHEMA")
   let assert Ok(root_json) = envoy.get("WATERSHED_TREE_CREATION_ROOT")
   let assert Ok(expected) = envoy.get("WATERSHED_TREE_CREATION_EXPECT")
-  let #(config, definition, builder, root, expected) =
+  let #(config, stored, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
   let outcome = case envoy.get("WATERSHED_TREE_CREATION_LAYOUT") {
-    Error(_) ->
-      watershed_beam.create_tree_container(config, definition, builder, root)
+    Error(_) -> container.create_tree(config, stored, root)
     Ok("graph") -> {
-      use layout <- result.try(watershed_beam.with_initial_tree(
-        graph_layout(),
-        "B",
-        "items",
-        definition,
-        builder,
-        root,
-      ))
-      watershed_beam.create_tree_container_with_layout(
-        config,
-        definition,
-        builder,
-        root,
-        layout,
-      )
+      let layout =
+        graph_layout() |> container.with_tree("B", "items", stored, root)
+      container.create_tree_with_layout(config, stored, root, layout)
     }
-    Ok(_) -> Error(typed.AccessFailed("unsupported creation probe layout"))
+    Ok(_) ->
+      Error(container.InvalidConfiguration("Unsupported creation probe layout"))
   }
   outcome
-  |> result.map_error(string.inspect)
+  |> result.map_error(container.error_to_string)
   |> publish(expected)
 }
 
@@ -132,44 +103,23 @@ pub fn main() -> Promise(Nil) {
     javascript_envoy.get("WATERSHED_TREE_CREATION_ROOT")
   let assert Ok(expected) =
     javascript_envoy.get("WATERSHED_TREE_CREATION_EXPECT")
-  let #(config, definition, builder, root, expected) =
+  let #(config, stored, root, expected) =
     inputs(base_url, tenant, token, schema_json, root_json, expected)
   let pending = case javascript_envoy.get("WATERSHED_TREE_CREATION_LAYOUT") {
-    Error(_) ->
-      watershed_javascript.create_tree_container(
-        config,
-        definition,
-        builder,
-        root,
-      )
+    Error(_) -> container.create_tree(config, stored, root)
     Ok("graph") -> {
-      case
-        watershed_javascript.with_initial_tree(
-          graph_layout(),
-          "B",
-          "items",
-          definition,
-          builder,
-          root,
-        )
-      {
-        Error(error) -> promise.resolve(Error(error))
-        Ok(layout) ->
-          watershed_javascript.create_tree_container_with_layout(
-            config,
-            definition,
-            builder,
-            root,
-            layout,
-          )
-      }
+      let layout =
+        graph_layout() |> container.with_tree("B", "items", stored, root)
+      container.create_tree_with_layout(config, stored, root, layout)
     }
     Ok(_) ->
       promise.resolve(
-        Error(typed.AccessFailed("unsupported creation probe layout")),
+        Error(container.InvalidConfiguration(
+          "Unsupported creation probe layout",
+        )),
       )
   }
   use outcome <- promise.await(pending)
-  publish(result.map_error(outcome, string.inspect), expected)
+  publish(result.map_error(outcome, container.error_to_string), expected)
   promise.resolve(Nil)
 }

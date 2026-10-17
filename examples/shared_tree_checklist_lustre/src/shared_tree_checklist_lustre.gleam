@@ -69,7 +69,7 @@ pub type Model {
 
 @internal
 pub type Msg {
-  Created(Result(String, typed.Error))
+  Created(Result(String, tree_error.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
   Opened(
@@ -191,9 +191,8 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
         config.base_url,
         config.tenant,
         config.secret,
-        typed_schema.definition(),
-        typed_schema.builder(),
-        Some(typed_schema.initial()),
+        typed_schema.compiled(),
+        checklist.empty(),
         Created,
       ),
     )
@@ -221,7 +220,8 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       let model = Model(..model, phase: Connecting, document_id: document_id)
       #(model, connect(model.config, document_id))
     }
-    Created(Error(error)) -> fail(model, creation_error(typed_error(error)))
+    Created(Error(error)) ->
+      fail(model, creation_error(tree_error.to_string(error)))
     GotDocument(document) -> #(
       Model(..model, document: Some(document)),
       effect.none(),

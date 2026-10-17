@@ -31,7 +31,9 @@ summary storage. The Phoenix socket still connects to Floodgate on port 4000.
 ## Schema and edits
 
 `typed_schema.gleam` declares one
-`SharedTree(typed_schema.Checklist, checklist.Checklist)`. Its builder accepts
+`SharedTree(typed_schema.Checklist, checklist.Checklist)`. Container creation
+uses `typed_schema.compiled()` with the ordinary `checklist.Checklist` record;
+no raw value encoding or extra optional root is needed. Its edit builder accepts
 `ChecklistInput` and `ItemInput`; reads return the application's
 `checklist.Checklist` and `checklist.Item` records. The root has a required
 string `title` and a required `Items` array. Each item has required `id`,
