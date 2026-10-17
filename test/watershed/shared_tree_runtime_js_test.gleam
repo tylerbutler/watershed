@@ -49,6 +49,8 @@ import watershed/transport_js
 @target(javascript)
 import watershed/tree/compression_fixture
 @target(javascript)
+import watershed/tree/error as tree_error
+@target(javascript)
 import watershed/tree/facade_fixture
 @target(javascript)
 import watershed/tree/fixtures
@@ -1702,7 +1704,10 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
               ..transport_js.get_cell(live_settlements)
             ])
           })
-        None -> Error("missing live settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing live settlement registration",
+          ))
       }
       let second = case event.on_settled {
         Some(on_settled) ->
@@ -1712,7 +1717,10 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
               ..transport_js.get_cell(live_settlements)
             ])
           })
-        None -> Error("missing live settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing live settlement registration",
+          ))
       }
       transport_js.set_cell(live_registrations, [
         #(first, second),
@@ -1732,7 +1740,10 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
               ..transport_js.get_cell(closed_settlements)
             ])
           })
-        None -> Error("missing closing settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing closing settlement registration",
+          ))
       }
       let second = case event.on_settled {
         Some(on_settled) ->
@@ -1742,7 +1753,10 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
               ..transport_js.get_cell(closed_settlements)
             ])
           })
-        None -> Error("missing closing settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing closing settlement registration",
+          ))
       }
       transport_js.set_cell(closing_registrations, [
         #(first, second),
@@ -1856,7 +1870,8 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
       transport_js.set_cell(source_factory, [
         case event.get_revertible {
           Some(factory) -> factory()
-          None -> Error("missing source revertible factory")
+          None ->
+            Error(tree_error.RuntimeFailure("missing source revertible factory"))
         },
         ..transport_js.get_cell(source_factory)
       ])
@@ -1868,7 +1883,10 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
               ..transport_js.get_cell(source_outcomes)
             ])
           })
-        None -> Error("missing source settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing source settlement registration",
+          ))
       }
       transport_js.set_cell(registrations, [
         #("source", registration),
@@ -1886,7 +1904,10 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
               ..transport_js.get_cell(target_outcomes)
             ])
           })
-        None -> Error("missing target settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing target settlement registration",
+          ))
       }
       let second = case event.on_settled {
         Some(on_settled) ->
@@ -1896,7 +1917,10 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
               ..transport_js.get_cell(target_outcomes)
             ])
           })
-        None -> Error("missing target settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing target settlement registration",
+          ))
       }
       transport_js.set_cell(registrations, [
         #("target-later", second),
@@ -1914,7 +1938,10 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
               ..transport_js.get_cell(descendant_outcomes)
             ])
           })
-        None -> Error("missing descendant settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing descendant settlement registration",
+          ))
       }
       transport_js.set_cell(registrations, [
         #("descendant", registration),
@@ -1926,7 +1953,8 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
       transport_js.set_cell(main_factory, [
         case event.get_revertible {
           Some(factory) -> factory()
-          None -> Error("missing main revertible factory")
+          None ->
+            Error(tree_error.RuntimeFailure("missing main revertible factory"))
         },
         ..transport_js.get_cell(main_factory)
       ])
@@ -1938,7 +1966,10 @@ pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() 
               ..transport_js.get_cell(main_outcomes)
             ])
           })
-        None -> Error("missing main settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing main settlement registration",
+          ))
       }
       transport_js.set_cell(registrations, [
         #("main", registration),
@@ -2082,7 +2113,10 @@ pub fn facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
               ..transport_js.get_cell(outcomes)
             ])
           })
-        None -> Error("missing reconnect settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing reconnect settlement registration",
+          ))
       }
       transport_js.set_cell(registrations, [
         registration,

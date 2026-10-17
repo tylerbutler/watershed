@@ -4,6 +4,7 @@ import gleam/result
 import lustre/effect.{type Effect}
 import watershed
 import watershed/container
+import watershed/tree/error
 import watershed/tree/typed
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
@@ -104,8 +105,8 @@ pub fn subscribe(
 pub fn subscribe_commits(
   tree: watershed.SharedTree(s, r),
   subscribed: fn(watershed.SubscriptionToken) -> msg,
-  committed: fn(Result(CommitEvent, String)) -> msg,
-  settled: fn(Result(tree_types.TreeCommitOutcome, String)) -> msg,
+  committed: fn(Result(CommitEvent, error.Error)) -> msg,
+  settled: fn(Result(tree_types.TreeCommitOutcome, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let subscription =

@@ -405,9 +405,10 @@ pub type TreeCommitEvent {
   TreeCommitEvent(
     kind: tree_types.TreeCommitKind,
     local: Bool,
-    get_revertible: Option(fn() -> Result(TreeRevertible, String)),
+    get_revertible: Option(fn() -> Result(TreeRevertible, tree_error.Error)),
     on_settled: Option(
-      fn(fn(tree_types.TreeCommitOutcome) -> Nil) -> Result(Nil, String),
+      fn(fn(tree_types.TreeCommitOutcome) -> Nil) ->
+        Result(Nil, tree_error.Error),
     ),
   )
 }
@@ -3391,12 +3392,16 @@ pub fn live_request(
       })
     _ -> state.tree_commit_subscribers
   }
-  cell_set(
-    runtime.cell,
-    State(..state, phase: phase, tree_commit_subscribers: subscribers),
-  )
+  let state = State(..state, phase: phase, tree_commit_subscribers: subscribers)
+  let #(state, disposals) = case request {
+    tree_live.DisposeRevertible(id) | tree_live.Revert(id, True) ->
+      take_tree_revertible_disposals(state, address, selector, id)
+    _ -> #(state, [])
+  }
+  cell_set(runtime.cell, state)
   prime_scoped_tree_commit_deliveries(runtime.cell, events)
   queue_outbound(runtime.cell, outbound)
+  notify_tree_revertible_disposals(disposals)
   use _ <- result.try(case cell_get(runtime.cell).phase {
     Failed(reason) -> Error(tree_error.TransportFailed(reason))
     SuspendedPendingTree(_, reason) if writes ->
@@ -3409,13 +3414,13 @@ pub fn live_request(
 
 @target(javascript)
 @internal
-pub fn subscribe_live_tree(
+pub fn subscribe_live_commits(
   runtime: Runtime,
   address: String,
   selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
-  handler: fn() -> Nil,
+  handler: fn(TreeCommitEvent) -> Nil,
 ) -> Result(fn() -> Nil, tree_error.Error) {
   use _ <- result.try(live_request(
     runtime,
@@ -3429,13 +3434,7 @@ pub fn subscribe_live_tree(
   cell_set(
     runtime.cell,
     State(..state, tree_commit_subscribers: [
-      TreeCommitSubscriber(
-        id,
-        address,
-        selector,
-        fn(_) { handler() },
-        Some(token),
-      ),
+      TreeCommitSubscriber(id, address, selector, handler, Some(token)),
       ..state.tree_commit_subscribers
     ]),
   )
@@ -3849,6 +3848,14 @@ pub fn tree_revertible_revision(
 }
 
 @target(javascript)
+@internal
+pub fn tree_revertible_id(
+  revertible: TreeRevertible,
+) -> tree_types.RevertibleId {
+  revertible.id
+}
+
+@target(javascript)
 pub fn tree_revertible_status(
   revertible: TreeRevertible,
 ) -> TreeRevertibleStatus {
@@ -3905,17 +3912,19 @@ pub fn tree_dispose_revertible(
 pub fn tree_get_revertible(
   event: TreeCommitEvent,
   on_disposed: fn(TreeRevertible) -> Nil,
-) -> Result(TreeRevertible, String) {
+) -> Result(TreeRevertible, tree_error.Error) {
   use factory <- result.try(
     event.get_revertible
-    |> option.to_result("tree commit does not provide a revertible"),
+    |> option.to_result(tree_error.RuntimeFailure(
+      "tree commit does not provide a revertible",
+    )),
   )
   use revertible <- result.try(factory())
   let runtime = revertible.runtime
   let state = cell_get(runtime.cell)
   use _ <- result.try(
     core_from_phase(state.phase)
-    |> option.to_result("tree revertible is disposed"),
+    |> option.to_result(tree_error.ClosedRuntime),
   )
   cell_set(
     runtime.cell,
@@ -6120,15 +6129,21 @@ fn fan_out_tree_commit(
       Some(fn() {
         use _ <- result.try(
           case transport_js.get_cell(active), transport_js.get_cell(acquired) {
-            False, _ -> Error("tree revertible factory is no longer active")
-            True, True -> Error("tree revertible was already acquired")
+            False, _ ->
+              Error(tree_error.RuntimeFailure(
+                "tree revertible factory is no longer active",
+              ))
+            True, True ->
+              Error(tree_error.RuntimeFailure(
+                "tree revertible was already acquired",
+              ))
             True, False -> Ok(Nil)
           },
         )
         let state = cell_get(cell)
         use core <- result.try(
           core_from_phase(state.phase)
-          |> option.to_result("tree revertible factory is no longer active"),
+          |> option.to_result(tree_error.ClosedRuntime),
         )
         use #(core, id) <- result.try(
           runtime_core.retain_tree_revertible_on(
@@ -6138,7 +6153,7 @@ fn fan_out_tree_commit(
             revision,
             kind,
           )
-          |> result.map_error(string.inspect),
+          |> result.map_error(runtime_core.live_core_error),
         )
         transport_js.set_cell(acquired, True)
         cell_set(
@@ -6154,7 +6169,10 @@ fn fan_out_tree_commit(
       Some(fn(callback) {
         use _ <- result.try(case transport_js.get_cell(active) {
           True -> Ok(Nil)
-          False -> Error("tree settlement registration is no longer active")
+          False ->
+            Error(tree_error.RuntimeFailure(
+              "tree settlement registration is no longer active",
+            ))
         })
         let state = cell_get(cell)
         use _ <- result.try(
@@ -6167,7 +6185,10 @@ fn fan_out_tree_commit(
             ))
           {
             Ready(_, _), Ok(_) | Reconnecting(_), Ok(_) -> Ok(Nil)
-            _, _ -> Error("tree settlement registration is no longer active")
+            _, _ ->
+              Error(tree_error.RuntimeFailure(
+                "tree settlement registration is no longer active",
+              ))
           },
         )
         let key = #(address, selector, revision)

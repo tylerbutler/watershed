@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/callback
+import watershed/fluid_ids
 import watershed/tree/error as tree_error
 import watershed/tree/live_types as protocol
 import watershed/tree/schema
@@ -15,7 +16,8 @@ import watershed/tree/types
 pub type Backend {
   Backend(
     request: fn(protocol.Request) -> Result(protocol.Response, tree_error.Error),
-    subscribe: fn(fn() -> Nil) -> Result(fn() -> Nil, tree_error.Error),
+    subscribe: fn(fn(CommitEvent) -> Nil) ->
+      Result(fn() -> Nil, tree_error.Error),
     rebind: fn(protocol.ViewToken) -> Backend,
   )
 }
@@ -61,6 +63,153 @@ pub type SourcePolicy {
 pub type TransactionError(callback_error) {
   Aborted(callback_error)
   TransactionFailed(tree_error.Error)
+}
+
+pub type CommitKind {
+  DefaultCommit
+  UndoCommit
+  RedoCommit
+}
+
+pub type CommitOutcome {
+  FullyApplied
+  FullyDropped
+  NewContentOnly
+}
+
+pub type RevertPolicy {
+  KeepRevertible
+  DisposeRevertible
+}
+
+pub type RevertibleStatus {
+  RevertibleValid
+  RevertibleDisposed
+}
+
+pub opaque type Revertible {
+  Revertible(
+    backend: Backend,
+    id: types.RevertibleId,
+    revision: fluid_ids.StableId,
+  )
+}
+
+pub type CommitEvent {
+  CommitEvent(
+    kind: CommitKind,
+    local: Bool,
+    get_revertible: Option(
+      fn(fn(Revertible) -> Nil) -> Result(Revertible, tree_error.Error),
+    ),
+    on_settled: Option(
+      fn(fn(CommitOutcome) -> Nil) -> Result(Nil, tree_error.Error),
+    ),
+  )
+}
+
+@internal
+pub type RevertibleIdentity =
+  #(types.RevertibleId, fluid_ids.StableId)
+
+@internal
+pub fn from_commit(
+  backend: Backend,
+  kind: types.TreeCommitKind,
+  local: Bool,
+  acquire: Option(
+    fn(fn(RevertibleIdentity) -> Nil) ->
+      Result(RevertibleIdentity, tree_error.Error),
+  ),
+  settled: Option(
+    fn(fn(types.TreeCommitOutcome) -> Nil) -> Result(Nil, tree_error.Error),
+  ),
+) -> CommitEvent {
+  let wrap = fn(identity: RevertibleIdentity) {
+    Revertible(backend, identity.0, identity.1)
+  }
+  CommitEvent(
+    kind: case kind {
+      types.DefaultCommit -> DefaultCommit
+      types.UndoCommit -> UndoCommit
+      types.RedoCommit -> RedoCommit
+    },
+    local: local,
+    get_revertible: option.map(acquire, fn(acquire) {
+      fn(on_disposed) {
+        acquire(fn(identity) { on_disposed(wrap(identity)) })
+        |> result.map(wrap)
+      }
+    }),
+    on_settled: option.map(settled, fn(register) {
+      fn(handler) {
+        register(fn(outcome) {
+          handler(case outcome {
+            types.FullyApplied -> FullyApplied
+            types.FullyDropped -> FullyDropped
+            types.NewContentOnly -> NewContentOnly
+          })
+        })
+      }
+    }),
+  )
+}
+
+pub fn subscribe_commits(
+  tree: Tree(a),
+  handler: fn(CommitEvent) -> Nil,
+) -> Result(Subscription, tree_error.Error) {
+  tree.backend.subscribe(handler) |> result.map(Subscription)
+}
+
+pub fn get_revertible(
+  event: CommitEvent,
+  on_disposed: fn(Revertible) -> Nil,
+) -> Result(Revertible, tree_error.Error) {
+  use acquire <- result.try(
+    event.get_revertible
+    |> option.to_result(tree_error.RuntimeFailure(
+      "The commit does not provide a revertible",
+    )),
+  )
+  acquire(on_disposed)
+}
+
+pub fn revertible_revision(revertible: Revertible) -> fluid_ids.StableId {
+  revertible.revision
+}
+
+pub fn revertible_status(
+  revertible: Revertible,
+) -> Result(RevertibleStatus, tree_error.Error) {
+  case revertible.backend.request(protocol.RevertibleStatus(revertible.id)) {
+    Ok(protocol.RevertibleState(True)) -> Ok(RevertibleValid)
+    Ok(protocol.RevertibleState(False))
+    | Error(tree_error.ClosedRuntime)
+    | Error(tree_error.DisposedCheckout) -> Ok(RevertibleDisposed)
+    Ok(_) -> unexpected()
+    Error(error) -> Error(error)
+  }
+}
+
+pub fn revert(
+  revertible: Revertible,
+  policy: RevertPolicy,
+) -> Result(Nil, tree_error.Error) {
+  done(
+    revertible.backend,
+    protocol.Revert(revertible.id, policy == DisposeRevertible),
+  )
+}
+
+pub fn dispose_revertible(
+  revertible: Revertible,
+) -> Result(Nil, tree_error.Error) {
+  case done(revertible.backend, protocol.DisposeRevertible(revertible.id)) {
+    Error(tree_error.ClosedRuntime) | Error(tree_error.DisposedCheckout) ->
+      Ok(Nil)
+    outcome -> outcome
+  }
 }
 
 pub opaque type Constraint {
@@ -721,7 +870,7 @@ pub fn observe(
 ) -> Result(Subscription, tree_error.Error) {
   use _ <- result.try(read_root(view))
   use cancel <- result.try(
-    view.backend.subscribe(fn() { handler(read_root(view)) }),
+    view.backend.subscribe(fn(_) { handler(read_root(view)) }),
   )
   Ok(Subscription(cancel))
 }
@@ -732,7 +881,7 @@ pub fn observe_node(
 ) -> Result(Subscription, tree_error.Error) {
   use _ <- result.try(read(reference))
   use cancel <- result.try(
-    reference.backend.subscribe(fn() { handler(read(reference)) }),
+    reference.backend.subscribe(fn(_) { handler(read(reference)) }),
   )
   Ok(Subscription(cancel))
 }

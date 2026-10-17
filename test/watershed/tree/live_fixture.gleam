@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 @target(erlang)
 import gleam/erlang/process
 import gleam/json
@@ -131,6 +132,25 @@ pub fn remote_edit(
     operation_type: operation.operation_type,
     contents: operation.contents,
     metadata: operation.metadata,
+    timestamp: 0,
+    data: None,
+    compression: None,
+  )
+}
+
+pub fn acknowledgement(payload: json.Json) -> frame.Sequenced {
+  let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
+  let assert Ok(frame.SubmitOperation(sender, [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  frame.Sequenced(
+    client_id: Some(sender),
+    sequence_number: submitted.client_sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: submitted.client_sequence_number,
+    reference_sequence_number: submitted.reference_sequence_number,
+    operation_type: submitted.operation_type,
+    contents: submitted.contents,
+    metadata: submitted.metadata,
     timestamp: 0,
     data: None,
     compression: None,

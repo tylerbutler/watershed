@@ -338,6 +338,21 @@ insertions. Callback errors retain their application type inside `Aborted`;
 exceptions roll back and return `TransactionFailed`. Use `KeepSource` or
 `DisposeSource` to choose whether merging retains the source checkout.
 
+`subscribe_commits` reports `DefaultCommit`, `UndoCommit`, and `RedoCommit`
+with local/remote provenance. A local content event can provide a revertible
+and settlement registration; acquire or register during its callback, not
+later. Acquisition is shared across subscribers and succeeds only once per
+event. Remote commits do not provide local undo entries. Settlement reports
+the sequenced outcome, not just the local edit or merge.
+
+Revertibles belong to the application, not the tree handle that observed the
+commit. Disposing a document-tree handle does not dispose its retained history.
+Use `revert` with `KeepRevertible` or `DisposeRevertible`, and release unused
+entries with `dispose_revertible`. The optional acquisition callback reports
+disposal. `revertible_status` returns a checked status, and
+`revertible_revision` remains available after disposal or document closure.
+Fork history stays in its checkout until explicitly merged.
+
 `status` reports `Attached`, `Removed`, `Deleted`, or `Invalidated`.
 Only attached references can be read or edited. Retained removed nodes can
 reattach on undo; references do not keep repair data alive.

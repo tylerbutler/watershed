@@ -45,6 +45,8 @@ import watershed/sluice/frame
 @target(erlang)
 import watershed/summary_policy
 @target(erlang)
+import watershed/tree/error as tree_error
+@target(erlang)
 import watershed/tree/facade_fixture
 @target(erlang)
 import watershed/tree/fixtures
@@ -1913,7 +1915,10 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
                 watershed_beam.tree_branch_status(source),
               )
             })
-          None -> Error("missing source settlement registration")
+          None ->
+            Error(tree_error.RuntimeFailure(
+              "missing source settlement registration",
+            ))
         }),
       )
       process.send(
@@ -1921,7 +1926,10 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
         #("source-later", local, case on_settled {
           Some(on_settled) ->
             on_settled(fn(_) { process.send(later_started, "source") })
-          None -> Error("missing source settlement registration")
+          None ->
+            Error(tree_error.RuntimeFailure(
+              "missing source settlement registration",
+            ))
         }),
       )
     })
@@ -1933,7 +1941,10 @@ pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
         #("other", local, case on_settled {
           Some(on_settled) ->
             on_settled(fn(_) { process.send(later_started, "other") })
-          None -> Error("missing other settlement registration")
+          None ->
+            Error(tree_error.RuntimeFailure(
+              "missing other settlement registration",
+            ))
         }),
       )
     })
@@ -2112,12 +2123,16 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       process.send(localities, #("source", local))
       process.send(factories, case factory {
         Some(factory) -> factory()
-        None -> Error("missing source revertible factory")
+        None ->
+          Error(tree_error.RuntimeFailure("missing source revertible factory"))
       })
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) { process.send(source_outcomes, outcome) })
-        None -> Error("missing source settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing source settlement registration",
+          ))
       })
     })
   let _ =
@@ -2132,14 +2147,20 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
               watershed_beam.tree_dispose_branch(target),
             ))
           })
-        None -> Error("missing target settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing target settlement registration",
+          ))
       })
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) {
             process.send(target_outcomes, #(outcome, Ok(Nil)))
           })
-        None -> Error("missing target settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing target settlement registration",
+          ))
       })
     })
   let _ =
@@ -2149,12 +2170,18 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) { process.send(descendant_outcomes, outcome) })
-        None -> Error("missing descendant settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing descendant settlement registration",
+          ))
       })
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(_) { process.send(completed, "descendant") })
-        None -> Error("missing descendant settlement completion")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing descendant settlement completion",
+          ))
       })
     })
   let _ =
@@ -2163,17 +2190,22 @@ pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_te
       process.send(localities, #("main", local))
       process.send(factories, case factory {
         Some(factory) -> factory()
-        None -> Error("missing main revertible factory")
+        None ->
+          Error(tree_error.RuntimeFailure("missing main revertible factory"))
       })
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(outcome) { process.send(main_outcomes, outcome) })
-        None -> Error("missing main settlement registration")
+        None ->
+          Error(tree_error.RuntimeFailure(
+            "missing main settlement registration",
+          ))
       })
       process.send(registered, case on_settled {
         Some(on_settled) ->
           on_settled(fn(_) { process.send(completed, "main") })
-        None -> Error("missing main settlement completion")
+        None ->
+          Error(tree_error.RuntimeFailure("missing main settlement completion"))
       })
     })
   facade_fixture.set_erlang(
@@ -2334,7 +2366,10 @@ pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
         #(local, case on_settled {
           Some(on_settled) ->
             on_settled(fn(outcome) { process.send(outcomes, outcome) })
-          None -> Error("missing reconnect settlement registration")
+          None ->
+            Error(tree_error.RuntimeFailure(
+              "missing reconnect settlement registration",
+            ))
         }),
       )
     })

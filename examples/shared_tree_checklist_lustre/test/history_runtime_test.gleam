@@ -16,6 +16,7 @@ import watershed/runtime
 import watershed/runtime_core
 import watershed/sluice/frame
 import watershed/transport_js
+import watershed/tree/error as tree_error
 import watershed/tree/typed
 import watershed/tree/types
 import watershed/wire/fluid_document
@@ -41,8 +42,8 @@ type RuntimeMsg {
   ChangeSubscribed(watershed.SubscriptionToken)
   Changed
   CommitSubscribed(watershed.SubscriptionToken)
-  Captured(Result(tree.CommitEvent, String))
-  Settled(Result(types.TreeCommitOutcome, String))
+  Captured(Result(tree.CommitEvent, tree_error.Error))
+  Settled(Result(types.TreeCommitOutcome, tree_error.Error))
   Disposed(Result(Nil, String))
 }
 
@@ -433,9 +434,10 @@ pub fn application_lifecycle_surfaces_native_subscription_errors_test() -> Promi
   let state: lifecycle.State(watershed.TreeRevertible) =
     lifecycle.State(history.new(), None, 0)
   let assert lifecycle.Transition(_, [], Some(capture_error)) =
-    lifecycle.captured(state, True, Error(acquisition))
+    lifecycle.captured(state, True, Error(tree_error.to_string(acquisition)))
   let assert True = capture_error != ""
-  let assert Some(settlement_error) = lifecycle.settled(Error(registration))
+  let assert Some(settlement_error) =
+    lifecycle.settled(Error(tree_error.to_string(registration)))
   let assert True = settlement_error != ""
 
   watershed.unsubscribe(thief)

@@ -12,6 +12,7 @@ import watershed/runtime
 import watershed/runtime_core
 import watershed/sluice/frame
 import watershed/transport_js
+import watershed/tree/error as tree_error
 import watershed/tree/schema
 import watershed/tree/typed
 import watershed/tree/types
@@ -33,8 +34,8 @@ type Msg {
   TreeSubscribed(watershed.SubscriptionToken)
   Changed(tree_kernel.TreeEvent)
   Subscribed(watershed.SubscriptionToken)
-  Committed(Result(tree.CommitEvent, String))
-  Settled(Result(types.TreeCommitOutcome, String))
+  Committed(Result(tree.CommitEvent, tree_error.Error))
+  Settled(Result(types.TreeCommitOutcome, tree_error.Error))
   TransactionCompleted(Result(Int, watershed.TreeTransactionError(String)))
   TransactionTyped(Result(Int, watershed.TreeTransactionError(typed.Error)))
   TransactionText(

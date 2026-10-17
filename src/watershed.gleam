@@ -277,9 +277,10 @@ pub type TreeCommitEvent {
   TreeCommitEvent(
     kind: tree_types.TreeCommitKind,
     local: Bool,
-    get_revertible: Option(fn() -> Result(TreeRevertible, String)),
+    get_revertible: Option(fn() -> Result(TreeRevertible, tree_error.Error)),
     on_settled: Option(
-      fn(fn(tree_types.TreeCommitOutcome) -> Nil) -> Result(Nil, String),
+      fn(fn(tree_types.TreeCommitOutcome) -> Nil) ->
+        Result(Nil, tree_error.Error),
     ),
   )
 }
@@ -905,13 +906,34 @@ fn tree_backend(
       runtime.live_request(connection, address, selector, view, request)
     },
     subscribe: fn(handler) {
-      runtime.subscribe_live_tree(
+      runtime.subscribe_live_commits(
         connection,
         address,
         selector,
         view,
         token,
-        handler,
+        fn(event) {
+          let identity = fn(revertible) {
+            #(
+              runtime.tree_revertible_id(revertible),
+              runtime.tree_revertible_revision(revertible),
+            )
+          }
+          handler(tree_live.from_commit(
+            tree_backend(connection, address, view, token),
+            event.kind,
+            event.local,
+            option.map(event.get_revertible, fn(_) {
+              fn(on_disposed) {
+                runtime.tree_get_revertible(event, fn(value) {
+                  on_disposed(identity(value))
+                })
+                |> result.map(identity)
+              }
+            }),
+            event.on_settled,
+          ))
+        },
       )
     },
     rebind: fn(token) { tree_backend(connection, address, view, token) },
@@ -1035,7 +1057,7 @@ pub fn tree_revertible_status(
 pub fn tree_get_revertible(
   event: TreeCommitEvent,
   on_disposed: fn(TreeRevertible) -> Nil,
-) -> Result(TreeRevertible, String) {
+) -> Result(TreeRevertible, tree_error.Error) {
   let TreeCommitEvent(kind, local, get_revertible, on_settled) = event
   runtime.tree_get_revertible(
     runtime.TreeCommitEvent(kind, local, get_revertible, on_settled),

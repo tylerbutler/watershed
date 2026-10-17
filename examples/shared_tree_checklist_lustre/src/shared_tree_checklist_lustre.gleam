@@ -16,6 +16,7 @@ import shared_tree_checklist_lustre/lifecycle
 import shared_tree_checklist_lustre/typed_schema
 import watershed
 import watershed/id
+import watershed/tree/error as tree_error
 import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
@@ -80,8 +81,8 @@ pub type Msg {
   ChangeSubscribed(watershed.SubscriptionToken)
   CommitSubscribed(watershed.SubscriptionToken)
   TreeChanged(tree_kernel.TreeEvent)
-  CommitCaptured(Result(tree.CommitEvent, String))
-  CommitSettled(Result(types.TreeCommitOutcome, String))
+  CommitCaptured(Result(tree.CommitEvent, tree_error.Error))
+  CommitSettled(Result(types.TreeCommitOutcome, tree_error.Error))
   Read(
     Result(
       #(
@@ -277,6 +278,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         _, Some(shared_tree) -> #(model, read_effect(shared_tree))
       }
     CommitCaptured(outcome) -> {
+      let outcome = result.map_error(outcome, tree_error.to_string)
       let outcome =
         result.map(outcome, fn(event) {
           let tree.CommitEvent(kind, local, revertible) = event
@@ -296,7 +298,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       dispose_handles(model, dispose)
     }
     CommitSettled(outcome) ->
-      case lifecycle.settled(outcome) {
+      case lifecycle.settled(result.map_error(outcome, tree_error.to_string)) {
         Some(detail) -> #(append_error(model, detail), effect.none())
         None -> #(model, effect.none())
       }

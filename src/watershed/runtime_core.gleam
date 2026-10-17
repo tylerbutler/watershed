@@ -5197,6 +5197,40 @@ pub fn live_request(
     _, _ -> Ok(Nil)
   })
   case request {
+    tree_live.RevertibleStatus(id) ->
+      live_response(
+        core,
+        tree_live.RevertibleState(tree_revertible_is_valid_on(
+          core,
+          address,
+          selector,
+          id,
+        )),
+      )
+    tree_live.DisposeRevertible(id) -> {
+      use core <- result.try(
+        case tree_revertible_is_valid_on(core, address, selector, id) {
+          False -> Ok(core)
+          True ->
+            dispose_tree_revertible_on(core, address, selector, id)
+            |> result.map_error(live_core_error)
+        },
+      )
+      live_response(core, tree_live.Done)
+    }
+    tree_live.Revert(id, dispose) -> {
+      use #(core, events, outbound) <- result.try(
+        revert_tree_on(core, address, selector, id)
+        |> result.map_error(live_core_error),
+      )
+      use core <- result.try(case dispose {
+        False -> Ok(core)
+        True ->
+          dispose_tree_revertible_on(core, address, selector, id)
+          |> result.map_error(live_core_error)
+      })
+      Ok(#(core, tree_live.Done, events, outbound))
+    }
     tree_live.Bind(view) -> {
       use _ <- result.try(live_compatible(context, view))
       live_bind(core, context, view)
@@ -5277,7 +5311,8 @@ fn live_origin(
   }
 }
 
-fn live_core_error(error: CoreError) -> tree_error.Error {
+@internal
+pub fn live_core_error(error: CoreError) -> tree_error.Error {
   case error {
     TreeOperationFailed(_, error) -> tree_error.InvalidValue(error)
     WrongChannelType(_, expected, actual) ->
@@ -5391,7 +5426,11 @@ fn live_request_view(
     | tree_live.MapSet(anchor, _, _)
     | tree_live.MapDelete(anchor, _)
     | tree_live.Narrow(anchor, _) -> Ok(tree_live.anchor_view(anchor))
-    tree_live.Bind(_) | tree_live.Inspect(_) ->
+    tree_live.Bind(_)
+    | tree_live.Inspect(_)
+    | tree_live.Revert(_, _)
+    | tree_live.DisposeRevertible(_)
+    | tree_live.RevertibleStatus(_) ->
       Error(tree_error.RuntimeFailure("Bind has no existing view"))
   }
 }
@@ -5931,6 +5970,9 @@ fn live_dispatch(
     | tree_live.Compatibility(_)
     | tree_live.Upgrade(_)
     | tree_live.Abort(_)
+    | tree_live.Revert(_, _)
+    | tree_live.DisposeRevertible(_)
+    | tree_live.RevertibleStatus(_)
     | tree_live.Close(_) ->
       Error(tree_error.RuntimeFailure("Unexpected live request"))
   }

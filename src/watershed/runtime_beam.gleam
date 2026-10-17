@@ -370,9 +370,10 @@ pub type TreeCommitEvent {
   TreeCommitEvent(
     kind: tree_types.TreeCommitKind,
     local: Bool,
-    get_revertible: Option(fn() -> Result(TreeRevertible, String)),
+    get_revertible: Option(fn() -> Result(TreeRevertible, tree_error.Error)),
     on_settled: Option(
-      fn(fn(tree_types.TreeCommitOutcome) -> Nil) -> Result(Nil, String),
+      fn(fn(tree_types.TreeCommitOutcome) -> Nil) ->
+        Result(Nil, tree_error.Error),
     ),
   )
 }
@@ -820,7 +821,7 @@ pub type Msg {
     selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
     token: tree_live.ViewToken,
-    handler: fn() -> Nil,
+    handler: fn(TreeCommitEvent) -> Nil,
     reply: Subject(Result(SubscriptionToken, tree_error.Error)),
   )
   TreeTransactionBegin(
@@ -865,12 +866,12 @@ pub type Msg {
     revision: fluid_ids.StableId,
     kind: tree_types.TreeCommitKind,
     event_id: Int,
-    reply: Subject(Result(tree_types.RevertibleId, String)),
+    reply: Subject(Result(tree_types.RevertibleId, tree_error.Error)),
   )
   RegisterTreeRevertibleDisposal(
     revertible: TreeRevertible,
     handler: fn(TreeRevertible) -> Nil,
-    reply: Subject(Result(Nil, String)),
+    reply: Subject(Result(Nil, tree_error.Error)),
   )
   RegisterTreeSettlement(
     address: String,
@@ -878,7 +879,7 @@ pub type Msg {
     revision: fluid_ids.StableId,
     event_id: Int,
     handler: fn(tree_types.TreeCommitOutcome) -> Nil,
-    reply: Subject(Result(Nil, String)),
+    reply: Subject(Result(Nil, tree_error.Error)),
   )
   TreeRevertibleStatusRequested(
     address: String,
@@ -2123,13 +2124,13 @@ pub fn live_request(
 
 @target(erlang)
 @internal
-pub fn subscribe_live_tree(
+pub fn subscribe_live_commits(
   runtime: Subject(Msg),
   address: String,
   selector: tree_types.CheckoutSelector,
   view: tree_schema.ViewSchema,
   token: tree_live.ViewToken,
-  handler: fn() -> Nil,
+  handler: fn(TreeCommitEvent) -> Nil,
 ) -> Result(fn() -> Nil, tree_error.Error) {
   use subscription <- result.try(call_runtime_with_errors(
     runtime,
@@ -2299,6 +2300,14 @@ pub fn tree_revertible_revision(
 }
 
 @target(erlang)
+@internal
+pub fn tree_revertible_id(
+  revertible: TreeRevertible,
+) -> tree_types.RevertibleId {
+  revertible.id
+}
+
+@target(erlang)
 pub fn tree_revertible_status(
   revertible: TreeRevertible,
 ) -> TreeRevertibleStatus {
@@ -2362,21 +2371,20 @@ pub fn tree_dispose_revertible(
 pub fn tree_get_revertible(
   event: TreeCommitEvent,
   on_disposed: fn(TreeRevertible) -> Nil,
-) -> Result(TreeRevertible, String) {
+) -> Result(TreeRevertible, tree_error.Error) {
   use factory <- result.try(
     event.get_revertible
-    |> option.to_result("tree commit does not provide a revertible"),
+    |> option.to_result(tree_error.RuntimeFailure(
+      "tree commit does not provide a revertible",
+    )),
   )
   use revertible <- result.try(factory())
-  use _ <- result.try(
-    process.call(
-      revertible.runtime,
-      waiting: connect_timeout_milliseconds,
-      sending: fn(reply) {
-        RegisterTreeRevertibleDisposal(revertible, on_disposed, reply)
-      },
-    ),
-  )
+  use _ <- result.try(call_runtime_with_errors(
+    revertible.runtime,
+    fn(reply) { RegisterTreeRevertibleDisposal(revertible, on_disposed, reply) },
+    tree_error.ClosedRuntime,
+    tree_error.RequestTimeout,
+  ))
   Ok(revertible)
 }
 
@@ -3151,7 +3159,6 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
     | TreeTransactionCommit(_, _, reply)
     | TreeTransactionAbort(_, _, reply)
     | FinishTreeTransactionCommit(_, _, reply)
-    | RegisterTreeSettlement(_, _, _, _, _, reply)
     | RevertTree(_, _, _, _, reply)
     | DisposeTreeRevertible(_, _, _, reply)
     | TreeUpgradeSchema(_, _, _, reply) -> {
@@ -3163,11 +3170,12 @@ fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
     RetainTreeRevertible(_, _, _, _, _, reply) -> {
-      process.send(reply, Error("tree runtime is closing"))
+      process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
-    RegisterTreeRevertibleDisposal(_, _, reply) -> {
-      process.send(reply, Error("tree runtime is closing"))
+    RegisterTreeRevertibleDisposal(_, _, reply)
+    | RegisterTreeSettlement(_, _, _, _, _, reply) -> {
+      process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
     _ -> actor.continue(state)
@@ -4229,7 +4237,7 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
                   id,
                   address,
                   selector,
-                  fn(_) { handler() },
+                  handler,
                   Some(token),
                 ),
                 ..state.tree_commit_subscribers
@@ -5410,6 +5418,11 @@ fn handle_live_tree_request(
           )
         _, _ -> next
       }
+      let #(next, disposals) = case request {
+        tree_live.DisposeRevertible(id) | tree_live.Revert(id, True) ->
+          take_tree_revertible_disposals(next, address, selector, id)
+        _ -> #(next, [])
+      }
       let #(next, outcome) = case writes {
         True -> queue_or_send(next, core, None, outbound)
         False -> #(next, Ok(Nil))
@@ -5418,6 +5431,7 @@ fn handle_live_tree_request(
         Reconnecting(_), _ | _, Ok(Nil) -> Ok(response)
         _, Error(reason) -> Error(tree_error.TransportFailed(reason))
       }
+      notify_tree_revertible_disposals(disposals)
       let next = fan_out_scoped(next, events)
       case request {
         tree_live.Commit(_) | tree_live.Abort(_) ->
@@ -8277,10 +8291,9 @@ fn start_tree_commit_delivery(
       let get_revertible = case local && revertible {
         True ->
           Some(fn() {
-            process.call(
+            call_runtime_with_errors(
               state.self,
-              waiting: connect_timeout_milliseconds,
-              sending: fn(reply) {
+              fn(reply) {
                 RetainTreeRevertible(
                   address,
                   selector,
@@ -8290,6 +8303,8 @@ fn start_tree_commit_delivery(
                   reply,
                 )
               },
+              tree_error.ClosedRuntime,
+              tree_error.RequestTimeout,
             )
             |> result.map(fn(id) {
               TreeRevertible(state.self, address, selector, id, revision)
@@ -8300,10 +8315,9 @@ fn start_tree_commit_delivery(
       let on_settled = case local {
         True ->
           Some(fn(handler) {
-            process.call(
+            call_runtime_with_errors(
               state.self,
-              waiting: connect_timeout_milliseconds,
-              sending: fn(reply) {
+              fn(reply) {
                 RegisterTreeSettlement(
                   address,
                   selector,
@@ -8313,6 +8327,8 @@ fn start_tree_commit_delivery(
                   reply,
                 )
               },
+              tree_error.ClosedRuntime,
+              tree_error.RequestTimeout,
             )
           })
         False -> None
@@ -8367,7 +8383,7 @@ fn handle_retain_tree_revertible(
   revision: fluid_ids.StableId,
   kind: tree_types.TreeCommitKind,
   event_id: Int,
-  reply: Subject(Result(tree_types.RevertibleId, String)),
+  reply: Subject(Result(tree_types.RevertibleId, tree_error.Error)),
 ) -> actor.Next(State, Msg) {
   case state.active_tree_commit_delivery {
     Some(active)
@@ -8379,10 +8395,7 @@ fn handle_retain_tree_revertible(
     ->
       case phase_core(state.phase) {
         None -> {
-          process.send(
-            reply,
-            Error("tree revertible factory is no longer active"),
-          )
+          process.send(reply, Error(tree_error.ClosedRuntime))
           actor.continue(state)
         }
         Some(core) ->
@@ -8396,7 +8409,7 @@ fn handle_retain_tree_revertible(
             )
           {
             Error(error) -> {
-              process.send(reply, Error(string.inspect(error)))
+              process.send(reply, Error(runtime_core.live_core_error(error)))
               actor.continue(state)
             }
             Ok(#(core, id)) -> {
@@ -8413,7 +8426,12 @@ fn handle_retain_tree_revertible(
           }
       }
     _ -> {
-      process.send(reply, Error("tree revertible factory is no longer active"))
+      process.send(
+        reply,
+        Error(tree_error.RuntimeFailure(
+          "tree revertible factory is no longer active",
+        )),
+      )
       actor.continue(state)
     }
   }
@@ -8424,7 +8442,7 @@ fn handle_register_tree_revertible_disposal(
   state: State,
   revertible: TreeRevertible,
   handler: fn(TreeRevertible) -> Nil,
-  reply: Subject(Result(Nil, String)),
+  reply: Subject(Result(Nil, tree_error.Error)),
 ) -> actor.Next(State, Msg) {
   case phase_core(state.phase) {
     Some(core) ->
@@ -8446,12 +8464,15 @@ fn handle_register_tree_revertible_disposal(
           )
         }
         False -> {
-          process.send(reply, Error("tree revertible is disposed"))
+          process.send(
+            reply,
+            Error(tree_error.RuntimeFailure("tree revertible is disposed")),
+          )
           actor.continue(state)
         }
       }
     None -> {
-      process.send(reply, Error("tree revertible is disposed"))
+      process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
   }
@@ -8465,7 +8486,7 @@ fn handle_register_tree_settlement(
   revision: fluid_ids.StableId,
   event_id: Int,
   handler: fn(tree_types.TreeCommitOutcome) -> Nil,
-  reply: Subject(Result(Nil, String)),
+  reply: Subject(Result(Nil, tree_error.Error)),
 ) -> actor.Next(State, Msg) {
   case state.active_tree_commit_delivery, phase_core(state.phase) {
     Some(active), Some(_)
@@ -8492,7 +8513,9 @@ fn handle_register_tree_settlement(
     _, _ -> {
       process.send(
         reply,
-        Error("tree settlement registration is no longer active"),
+        Error(tree_error.RuntimeFailure(
+          "tree settlement registration is no longer active",
+        )),
       )
       actor.continue(state)
     }

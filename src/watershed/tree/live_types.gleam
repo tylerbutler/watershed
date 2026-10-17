@@ -23,6 +23,9 @@ pub type Request {
   Begin(ViewToken, List(AnchorToken))
   Commit(ViewToken)
   Abort(ViewToken)
+  Revert(types.RevertibleId, Bool)
+  DisposeRevertible(types.RevertibleId)
+  RevertibleStatus(types.RevertibleId)
   RootRead(ViewToken)
   RootReplace(ViewToken, Option(types.TreeValue))
   RootAcquire(ViewToken, schema.Cardinality)
@@ -60,6 +63,7 @@ pub type Response {
   Acquired(Option(NodeEvidence))
   ReferenceState(error.ReferenceStatus)
   SchemaCompatibility(schema.Compatibility)
+  RevertibleState(Bool)
 }
 
 @internal
@@ -73,6 +77,7 @@ pub fn writes(request: Request) -> Bool {
     | Begin(_, _)
     | Commit(_)
     | Abort(_)
+    | Revert(_, _)
     | PropertySet(_, _, _)
     | ArrayInsert(_, _, _)
     | ArrayRemove(_, _, _)
