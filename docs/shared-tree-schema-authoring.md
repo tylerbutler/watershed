@@ -325,6 +325,12 @@ Explicit edits use `replace_root`, `set`, `array_insert`, `array_remove`,
 `Generate` identifiers. Ordinary writes use strict snapshot encoding.
 Identifier properties themselves are read-only.
 
+When an action targets a saved item reference, use `array_remove_node` or
+`array_move_before` instead of looking up its current index. Both resolve the
+item's identity and array membership in the edit itself, so preceding remote
+insertions cannot redirect the action. Pass `None` as `before` to append; a
+reference from another document or checkout is rejected.
+
 The same `Tree(a)` supports typed operations, `transaction`, `fork`, `merge`,
 and `rebase_onto`. An abort restores the content and invalidates references to
 preview-only nodes; it does not make those node identities available for later

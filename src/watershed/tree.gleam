@@ -599,6 +599,30 @@ pub fn array_move(
   )
 }
 
+pub fn array_remove_node(
+  source: Ref(List(a)),
+  item: Ref(a),
+) -> Result(Nil, tree_error.Error) {
+  done(source.backend, protocol.ArrayRemoveNode(source.anchor, item.anchor))
+}
+
+pub fn array_move_before(
+  source: Ref(List(a)),
+  item: Ref(a),
+  destination: Ref(List(a)),
+  before: Option(Ref(a)),
+) -> Result(Nil, tree_error.Error) {
+  done(
+    source.backend,
+    protocol.ArrayMoveBefore(
+      source.anchor,
+      item.anchor,
+      destination.anchor,
+      option.map(before, fn(reference) { reference.anchor }),
+    ),
+  )
+}
+
 fn map_codec(reference: Ref(Dict(String, a))) -> Codec(a) {
   Codec(
     fn(mode, value) {

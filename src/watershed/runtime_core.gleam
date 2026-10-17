@@ -5384,6 +5384,8 @@ fn live_request_view(
     | tree_live.ArrayInsert(anchor, _, _)
     | tree_live.ArrayRemove(anchor, _, _)
     | tree_live.ArrayMove(anchor, _, _, _, _)
+    | tree_live.ArrayRemoveNode(anchor, _)
+    | tree_live.ArrayMoveBefore(anchor, _, _, _)
     | tree_live.MapRead(anchor, _)
     | tree_live.MapAcquire(anchor, _)
     | tree_live.MapSet(anchor, _, _)
@@ -5433,18 +5435,7 @@ fn live_reference(
   context: LiveContext,
   anchor: tree_live.AnchorToken,
 ) -> Result(#(tree_types.FieldPath, tree_types.TreeValue), tree_error.Error) {
-  use _ <- result.try(live_check_view(
-    core,
-    context,
-    tree_live.anchor_view(anchor),
-  ))
-  use reference <- result.try(live_anchor.resolve(
-    core.live_anchors,
-    context.origin,
-    context.selector,
-    anchor,
-    tree_kernel.visible_forest(context.state),
-  ))
+  use reference <- result.try(live_resolve(core, context, anchor))
   use path <- result.try(
     tree_kernel.path_of_reference(context.state, reference)
     |> result.map_error(tree_error.InvalidValue),
@@ -5454,6 +5445,25 @@ fn live_reference(
     |> result.map_error(tree_error.InvalidValue),
   )
   Ok(#(path, value))
+}
+
+fn live_resolve(
+  core: Core,
+  context: LiveContext,
+  anchor: tree_live.AnchorToken,
+) -> Result(forest.NodeRef, tree_error.Error) {
+  use _ <- result.try(live_check_view(
+    core,
+    context,
+    tree_live.anchor_view(anchor),
+  ))
+  live_anchor.resolve(
+    core.live_anchors,
+    context.origin,
+    context.selector,
+    anchor,
+    tree_kernel.visible_forest(context.state),
+  )
 }
 
 type LiveKind {
@@ -5811,6 +5821,33 @@ fn live_dispatch(
         path,
         proof.definition.cardinality == tree_schema.Required,
       )
+    }
+    tree_live.ArrayRemoveNode(source, item) -> {
+      use source <- result.try(live_resolve(core, context, source))
+      use item <- result.try(live_resolve(core, context, item))
+      use edit <- result.try(
+        node.resolve(context.state, source, node.RemoveNode(item))
+        |> result.map_error(tree_error.InvalidValue),
+      )
+      live_edit(core, context, edit)
+    }
+    tree_live.ArrayMoveBefore(source, item, destination, before) -> {
+      use source <- result.try(live_resolve(core, context, source))
+      use item <- result.try(live_resolve(core, context, item))
+      use destination <- result.try(live_resolve(core, context, destination))
+      use before <- result.try(case before {
+        None -> Ok(None)
+        Some(anchor) -> live_resolve(core, context, anchor) |> result.map(Some)
+      })
+      use edit <- result.try(
+        node.resolve(
+          context.state,
+          source,
+          node.MoveNode(item, destination, before),
+        )
+        |> result.map_error(tree_error.InvalidValue),
+      )
+      live_edit(core, context, edit)
     }
     tree_live.ArrayRead(anchor, index) -> {
       use path <- result.try(live_path(core, context, anchor, ArrayKind))

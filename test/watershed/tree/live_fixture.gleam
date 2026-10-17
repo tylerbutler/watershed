@@ -194,10 +194,22 @@ pub fn tree(
   #(document, tree)
 }
 
-@target(javascript)
 pub fn tree_with_operations(
   compiled: builder.Compiled(a),
   initial: a,
+) -> #(
+  facade.Document(Nil),
+  facade.SharedTree(NativeRoot, types.TreeValue),
+  fn(List(frame.Sequenced)) -> Nil,
+) {
+  tree_with_submissions(compiled, initial, fn(_) { Nil })
+}
+
+@target(javascript)
+pub fn tree_with_submissions(
+  compiled: builder.Compiled(a),
+  initial: a,
+  on_submit: fn(json.Json) -> Nil,
 ) -> #(
   facade.Document(Nil),
   facade.SharedTree(NativeRoot, types.TreeValue),
@@ -213,7 +225,12 @@ pub fn tree_with_operations(
       transport: runtime.Transport(connect: fn(handlers) {
         transport_js.set_cell(callbacks, Some(handlers))
         runtime.TransportHandle(
-          push: fn(_, _) { Nil },
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> on_submit(payload)
+              _ -> Nil
+            }
+          },
           close: fn() { Nil },
           drop: fn() { Nil },
           hold: fn() { Nil },
@@ -237,9 +254,10 @@ pub fn tree_with_operations(
 }
 
 @target(erlang)
-pub fn tree_with_operations(
+pub fn tree_with_submissions(
   compiled: builder.Compiled(a),
   initial: a,
+  on_submit: fn(json.Json) -> Nil,
 ) -> #(
   facade.Document(Nil),
   facade.SharedTree(NativeRoot, types.TreeValue),
@@ -259,7 +277,13 @@ pub fn tree_with_operations(
   let assert Ok(callbacks) = process.receive(connections, 1000)
   callbacks.on_ready(
     runtime_beam.TransportHandle(
-      push: fn(_, _) { Ok(Nil) },
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> on_submit(payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
       close: fn() { Nil },
       drop: fn() { Nil },
     ),

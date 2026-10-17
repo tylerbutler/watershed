@@ -36,6 +36,8 @@ pub type Request {
   ArrayInsert(AnchorToken, Int, List(types.TreeValue))
   ArrayRemove(AnchorToken, Int, Int)
   ArrayMove(AnchorToken, Int, Int, AnchorToken, Int)
+  ArrayRemoveNode(AnchorToken, AnchorToken)
+  ArrayMoveBefore(AnchorToken, AnchorToken, AnchorToken, Option(AnchorToken))
   MapRead(AnchorToken, String)
   MapAcquire(AnchorToken, String)
   MapSet(AnchorToken, String, types.TreeValue)
@@ -75,6 +77,8 @@ pub fn writes(request: Request) -> Bool {
     | ArrayInsert(_, _, _)
     | ArrayRemove(_, _, _)
     | ArrayMove(_, _, _, _, _)
+    | ArrayRemoveNode(_, _)
+    | ArrayMoveBefore(_, _, _, _)
     | MapSet(_, _, _)
     | MapDelete(_, _) -> True
     _ -> False
