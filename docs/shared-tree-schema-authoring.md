@@ -353,6 +353,14 @@ disposal. `revertible_status` returns a checked status, and
 `revertible_revision` remains available after disposal or document closure.
 Fork history stays in its checkout until explicitly merged.
 
+`watershed/tree/history_stack` supplies an optional pure stack policy. Pass a
+commit's kind, locality, and acquired entry to `route`; dispose the returned
+`dispose` list when a new edit clears redo. Select with `next_undo` or
+`next_redo`, and call `consume_undo` or `consume_redo` only after a successful
+revert. Disposal notifications can `prune` obsolete entries. `clear` returns
+the remaining entries for application-owned cleanup. The helper subscribes to
+nothing, owns no document, and does not acquire or dispose revertibles itself.
+
 `status` reports `Attached`, `Removed`, `Deleted`, or `Invalidated`.
 Only attached references can be read or edited. Retained removed nodes can
 reattach on undo; references do not keep repair data alive.
