@@ -47,6 +47,8 @@ import watershed/summary_policy
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree as tree_api
+@target(javascript)
 import watershed/tree/compression_fixture
 @target(javascript)
 import watershed/tree/error as tree_error
@@ -57,9 +59,13 @@ import watershed/tree/fixtures
 @target(javascript)
 import watershed/tree/identifier_fixture
 @target(javascript)
+import watershed/tree/live_fixture
+@target(javascript)
 import watershed/tree/runtime_fixture
 @target(javascript)
 import watershed/tree/schema as tree_schema
+@target(javascript)
+import watershed/tree/schema_builder as builder
 @target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
@@ -2423,7 +2429,19 @@ pub fn identifier_refusals_preserve_installed_runtime_test() {
 
 @target(javascript)
 pub fn routed_facade_root_serializes_its_absolute_handle_test() {
-  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(compiled) =
+    live_fixture.card_schema().node |> builder.root |> builder.compile
+  let assert Ok(Some(initial)) =
+    builder.encode(
+      compiled,
+      live_fixture.Card(builder.Assigned("original"), "First"),
+    )
+  let assert Ok(input) =
+    runtime_fixture.routed_tree_seed_input(
+      builder.stored(compiled),
+      builder.view(compiled),
+      initial,
+    )
   let assert Ok(seed) =
     runtime_core.bootstrap_seed(
       runtime_core.BootstrapSeedInput(
@@ -2478,7 +2496,6 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
   )
   let assert Ok(root) = watershed.resolve_root(document)
   let assert [view] = input.tree_views
-  let definition = facade_fixture.definition(view.view) |> expect.to_be_ok()
   let assert Ok(marker) = watershed.get(root, "tree")
   let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
   facade_fixture.handle_of(tree)
@@ -2488,20 +2505,25 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
     document,
     typed,
     schema.channel_field("tree"),
-    definition,
+    compiled,
   )
-  |> result.map(fn(value) { option.map(value, watershed.tree_handle_of) })
+  |> result.map(fn(value) { option.map(value, tree_api.handle_of) })
   |> expect.to_equal(Ok(Some(marker)))
   watershed.resolve_tree_field(
     document,
     typed,
     schema.channel_field("absent-tree"),
-    definition,
+    compiled,
   )
   |> expect.to_equal(Ok(None))
-  let assert Ok(native_tree) =
-    watershed.resolve_tree(document, marker, definition)
-  watershed.set_tree_field(typed, schema.channel_field("tree"), native_tree)
+  let assert Ok(opened) =
+    runtime.open_live_tree(
+      watershed.runtime_of(document),
+      None,
+      compiled,
+      False,
+    )
+  watershed.set_tree_field(typed, schema.channel_field("tree"), opened)
   watershed.get(root, "tree") |> expect.to_equal(Ok(marker))
   let changed = transport_js.new_cell([])
   let subscription =

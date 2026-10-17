@@ -45,6 +45,8 @@ import watershed/sluice/frame
 @target(erlang)
 import watershed/summary_policy
 @target(erlang)
+import watershed/tree as tree_api
+@target(erlang)
 import watershed/tree/error as tree_error
 @target(erlang)
 import watershed/tree/facade_fixture
@@ -53,9 +55,13 @@ import watershed/tree/fixtures
 @target(erlang)
 import watershed/tree/identifier_fixture
 @target(erlang)
+import watershed/tree/live_fixture
+@target(erlang)
 import watershed/tree/runtime_fixture
 @target(erlang)
 import watershed/tree/schema as tree_schema
+@target(erlang)
+import watershed/tree/schema_builder as builder
 @target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
@@ -4815,7 +4821,19 @@ pub fn invalid_bootstrap_message_fails_ready_without_crashing_actor_test() {
 
 @target(erlang)
 pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
-  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(compiled) =
+    live_fixture.card_schema().node |> builder.root |> builder.compile
+  let assert Ok(Some(initial)) =
+    builder.encode(
+      compiled,
+      live_fixture.Card(builder.Assigned("original"), "First"),
+    )
+  let assert Ok(input) =
+    runtime_fixture.routed_tree_seed_input(
+      builder.stored(compiled),
+      builder.view(compiled),
+      initial,
+    )
   let assert Ok(seed) =
     runtime_core.bootstrap_seed(
       runtime_core.BootstrapSeedInput(
@@ -4870,7 +4888,6 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   let assert Ok(root) = watershed_beam.resolve_root(document)
   let assert [view] = input.tree_views
-  let definition = facade_fixture.definition(view.view) |> expect.to_be_ok()
   let assert Ok(marker) = watershed_beam.get(root, "tree")
   let assert Ok(tree) = facade_fixture.resolve(document, marker, view.view)
   facade_fixture.handle_of(tree)
@@ -4880,24 +4897,20 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
     document,
     typed,
     schema.channel_field("tree"),
-    definition,
+    compiled,
   )
-  |> result.map(fn(value) { option.map(value, watershed_beam.tree_handle_of) })
+  |> result.map(fn(value) { option.map(value, tree_api.handle_of) })
   |> expect.to_equal(Ok(Some(marker)))
   watershed_beam.resolve_tree_field(
     document,
     typed,
     schema.channel_field("absent-tree"),
-    definition,
+    compiled,
   )
   |> expect.to_equal(Ok(None))
-  let assert Ok(native_tree) =
-    watershed_beam.resolve_tree(document, marker, definition)
-  watershed_beam.set_tree_field(
-    typed,
-    schema.channel_field("tree"),
-    native_tree,
-  )
+  let assert Ok(opened) =
+    runtime_beam.open_live_tree(actor, None, compiled, False)
+  watershed_beam.set_tree_field(typed, schema.channel_field("tree"), opened)
   watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
   let events = facade_fixture.subscribe(tree)
   runtime_beam.resolve_root(actor) |> expect.to_be_ok()

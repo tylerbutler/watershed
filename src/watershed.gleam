@@ -2327,9 +2327,9 @@ pub fn resolve_map_field(
 pub fn set_tree_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TreeChannel),
-  tree: SharedTree(tree_schema, record),
+  tree: tree_live.Tree(a),
 ) -> Nil {
-  put_channel_field(typed_map, field, tree_handle_of(tree))
+  put_channel_field(typed_map, field, tree_live.handle_of(tree))
 }
 
 @target(javascript)
@@ -2337,11 +2337,13 @@ pub fn resolve_tree_field(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TreeChannel),
-  definition: typed.Schema(tree_schema, record),
-) -> Result(Option(SharedTree(tree_schema, record)), typed.Error) {
+  compiled: tree_builder.Compiled(a),
+) -> Result(Option(tree_live.Tree(a)), tree_error.Error) {
   case get(typed_map.map, schema.channel_field_key(field)) {
     Error(Nil) -> Ok(None)
-    Ok(value) -> resolve_tree(document, value, definition) |> result.map(Some)
+    Ok(value) ->
+      runtime.open_live_tree(document.runtime, Some(value), compiled, False)
+      |> result.map(Some)
   }
 }
 

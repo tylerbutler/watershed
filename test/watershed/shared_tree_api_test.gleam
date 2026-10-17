@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import startest/expect
 @target(javascript)
 import watershed as facade
+import watershed/schema
 import watershed/tree
 import watershed/tree/error
 import watershed/tree/live_fixture as fixture
@@ -28,6 +29,47 @@ pub fn tree_api_reads_and_edits_with_one_handle_test() {
   tree.get(root, definition.title) |> expect.to_equal(Ok("Updated"))
   tree.read_root(tree)
   |> expect.to_equal(Ok(fixture.Card(builder.Assigned("original"), "Updated")))
+  facade.close(document)
+}
+
+pub fn tree_api_typed_channel_fields_return_canonical_handles_test() {
+  let #(document, original, definition) = card()
+  let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
+  let assert Ok(root) = facade.resolve_root(document)
+  let fields = facade.typed(root)
+  let field = schema.channel_field("other-tree")
+  facade.resolve_tree_field(document, fields, field, compiled)
+  |> expect.to_equal(Ok(None))
+  facade.set_tree_field(fields, field, original)
+  let assert Ok(Some(opened)) =
+    facade.resolve_tree_field(document, fields, field, compiled)
+  tree.handle_of(opened)
+  |> json.to_string
+  |> expect.to_equal(tree.handle_of(original) |> json.to_string)
+  let assert Ok(reference) = tree.required_root(opened)
+  tree.set(reference, definition.title, "From field")
+  |> expect.to_equal(Ok(Nil))
+  tree.read_root(original)
+  |> expect.to_equal(
+    Ok(fixture.Card(builder.Assigned("original"), "From field")),
+  )
+  tree.dispose(opened) |> expect.to_equal(Ok(Nil))
+  tree.read_root(original)
+  |> expect.to_equal(
+    Ok(fixture.Card(builder.Assigned("original"), "From field")),
+  )
+  let assert Ok(incompatible) =
+    builder.string() |> builder.root |> builder.compile
+  facade.resolve_tree_field(document, fields, field, incompatible)
+  |> expect.to_equal(Error(error.IncompatibleView))
+  facade.set(root, "not-a-tree", facade.handle_of(root))
+  let assert Error(error.WrongChannel(_, _)) =
+    facade.resolve_tree_field(
+      document,
+      fields,
+      schema.channel_field("not-a-tree"),
+      compiled,
+    )
   facade.close(document)
 }
 

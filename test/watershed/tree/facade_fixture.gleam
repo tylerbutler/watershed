@@ -18,13 +18,10 @@ import watershed/runtime
 import watershed/runtime_beam as runtime
 import watershed/tree/forest
 import watershed/tree/schema
-import watershed/tree/typed
 import watershed/tree/types
 import watershed/tree_kernel
 @target(erlang)
 import watershed_beam as facade
-
-pub type Dynamic
 
 pub opaque type RawTree(connection) {
   RawTree(
@@ -54,21 +51,6 @@ pub type Constraint {
 pub type TransactionError(e) {
   Aborted(e)
   TransactionFailed(String)
-}
-
-pub fn definition(
-  view: schema.ViewSchema,
-) -> Result(typed.Schema(Dynamic, types.TreeValue), String) {
-  let schema.FieldSchema(_, allowed) =
-    schema.root_field_schema(schema.view_to_stored(view))
-  use identifier <- result.try(case allowed {
-    [identifier] -> Ok(identifier)
-    _ -> Error("root declaration does not have one node type")
-  })
-  use codec <- result.try(
-    typed.dynamic_node(identifier) |> result.map_error(string.inspect),
-  )
-  typed.schema(view, codec) |> result.map_error(string.inspect)
 }
 
 @target(javascript)
