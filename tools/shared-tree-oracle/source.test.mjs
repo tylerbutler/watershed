@@ -100,6 +100,21 @@ test("typed API capture injects a verified source and uses an isolated final bat
   assert.ok(!source.sourceTestBatches(false).flat().includes("lib/test/watershedTypedApi.spec.js"));
 });
 
+test("schema authoring capture injects a verified independent source", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  assert.equal(source.schemaAuthoringInjectedTestPath,
+    "packages/dds/tree/src/test/watershedSchemaAuthoring.spec.ts");
+  await source.injectSource(directory, commit);
+  const target = join(directory, source.schemaAuthoringInjectedTestPath);
+  assert.deepEqual(await readFile(target),
+    await readFile(new URL("./upstream-schema-authoring.spec.ts", import.meta.url)));
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+  assert.ok(!source.sourceTestBatches(false).flat().includes(
+    "lib/test/watershedSchemaAuthoring.spec.js"));
+});
+
 test("package verification refuses a mismatched dependency", async (t) => {
   const directory = await packageFixture(t);
   await writeJson(join(directory, "node_modules/@fluidframework/tree/package.json"), {
@@ -350,7 +365,7 @@ test("Identifier replacement evidence uses real reference identity", async () =>
   assert.match(contents, /assert\.notEqual\(replacementNodes\.at\(-2\), replacementNodes\.at\(-1\)\)/);
 });
 
-test("source runner isolates transaction entropy from the existing corpus", () => {
+test("source runner isolates independent capture entropy from the existing corpus", () => {
   assert.deepEqual(source.sourceTestBatches(true), [
     [
       "lib/test/watershedOracle.spec.js",
@@ -366,6 +381,7 @@ test("source runner isolates transaction entropy from the existing corpus", () =
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
     ["lib/test/watershedBranch.spec.js"],
+    ["lib/test/watershedSchemaAuthoring.spec.js"],
     ["lib/test/watershedTypedApi.spec.js"],
   ]);
 });

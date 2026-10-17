@@ -20,6 +20,7 @@ const arraySupportSource = join(directory, "upstream-array-support.ts");
 const sequenceSource = join(directory, "upstream-sequence.spec.ts");
 const replaySource = join(directory, "upstream-replay.spec.ts");
 const schemaEvolutionSource = join(directory, "upstream-schema-evolution.spec.ts");
+const schemaAuthoringSource = join(directory, "upstream-schema-authoring.spec.ts");
 const transactionSource = join(directory, "upstream-transaction.spec.ts");
 const identifierSource = join(directory, "upstream-identifier.spec.ts");
 const undoRedoSource = join(directory, "upstream-undo-redo.spec.ts");
@@ -61,6 +62,8 @@ export const sequenceInjectedTestPath = "packages/dds/tree/src/test/watershedSeq
 export const replayInjectedTestPath = "packages/dds/tree/src/test/watershedReplay.spec.ts";
 export const schemaEvolutionInjectedTestPath =
   "packages/dds/tree/src/test/watershedSchemaEvolution.spec.ts";
+export const schemaAuthoringInjectedTestPath =
+  "packages/dds/tree/src/test/watershedSchemaAuthoring.spec.ts";
 export const transactionInjectedTestPath =
   "packages/dds/tree/src/test/watershedTransaction.spec.ts";
 export const identifierInjectedTestPath =
@@ -110,6 +113,7 @@ const injections = new Map([
   [sequenceInjectedTestPath, sequenceSource],
   [replayInjectedTestPath, replaySource],
   [schemaEvolutionInjectedTestPath, schemaEvolutionSource],
+  [schemaAuthoringInjectedTestPath, schemaAuthoringSource],
   [transactionInjectedTestPath, transactionSource],
   [identifierInjectedTestPath, identifierSource],
   [undoRedoInjectedTestPath, undoRedoSource],
@@ -319,6 +323,7 @@ export function sourceTestBatches(corpus) {
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
     ["lib/test/watershedBranch.spec.js"],
+    ["lib/test/watershedSchemaAuthoring.spec.js"],
     ["lib/test/watershedTypedApi.spec.js"],
   ];
 }

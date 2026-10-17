@@ -1387,48 +1387,6 @@ function envelope(id: string, domain: string, input: object, observations: objec
 }
 
 describe("Watershed schema evolution oracle", () => {
-	it("captures the pinned schema authoring subset", () => {
-		const output = process.env.WATERSHED_ORACLE_OUTPUT;
-		assert(output !== undefined && isAbsolute(output), "An absolute output directory is required");
-		assert.equal(process.env.WATERSHED_ORACLE_COMMIT, expectedCommit);
-		const sf = new SchemaFactory("com.example.authoring");
-		const other = new SchemaFactory("com.example.other");
-		class Words extends sf.array("Words", sf.string) {}
-		class Numbers extends sf.map("Numbers", sf.number) {}
-		class Card extends sf.object("Card", {
-			title: sf.string,
-			owner: sf.optional(sf.string),
-		}) {}
-		class Empty extends sf.object("Empty", {}) {}
-		class Cards extends sf.array("Cards", Card) {}
-		class Groups extends sf.map("Groups", Cards) {}
-		class Nested extends sf.object("Nested", { groups: Groups, words: Words }) {}
-		class Repeated extends sf.object("Repeated", { left: Card, right: Card }) {}
-		class Foreign extends other.object("Foreign", { label: other.string }) {}
-		class CrossFactory extends sf.object("CrossFactory", { foreign: Foreign }) {}
-		const declarations: [string, ImplicitFieldSchema][] = [
-			["string-root", sf.string],
-			["number-root", sf.number],
-			["boolean-root", sf.boolean],
-			["null-root", sf.null],
-			["handle-root", sf.handle],
-			["optional-string-root", sf.optional(sf.string)],
-			["string-array", Words],
-			["number-map", Numbers],
-			["card", Card],
-			["empty-object", Empty],
-			["nested", Nested],
-			["repeated-child", Repeated],
-			["cross-factory", CrossFactory],
-		];
-		mkdirSync(output, { recursive: true });
-		writeFileSync(join(output, "schema-authoring.json"), `${JSON.stringify({
-			formatVersion,
-			reference: { package: packageName, version: packageVersion, commit: expectedCommit },
-			observations: declarations.map(([id, declaration]) => ({ id, schema: persisted(declaration) })),
-		}, undefined, 2)}\n`, "utf8");
-	});
-
 	it("captures the pinned schema evolution contract", async () => {
 		const output = process.env.WATERSHED_ORACLE_OUTPUT;
 		assert(output !== undefined && isAbsolute(output), "An absolute output directory is required");

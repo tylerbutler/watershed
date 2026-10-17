@@ -1638,9 +1638,10 @@ main-corpus generation preserves them; `pnpm check` compares only files that
 generator owns. Use their dedicated capture and comparison commands when
 changing those contracts.
 
-The schema-evolution source batch also writes `schema-authoring.json`. Its 13
-independent `SchemaFactory` declarations cover leaves, optional roots, named
-collections, records, shared children, nesting, and cross-factory composition.
+An isolated schema-authoring source batch writes `schema-authoring.json`, so
+registering its tests cannot change the main corpus's deterministic identities.
+Its 13 independent `SchemaFactory` declarations cover leaves, optional roots,
+named collections, records, shared children, nesting, and cross-factory composition.
 The native schema-builder tests check the reference pins, exact case set,
 two-way compatibility, and normalized persisted schemas.
 
