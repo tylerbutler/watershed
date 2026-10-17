@@ -6,7 +6,7 @@ import startest/expect
 @target(javascript)
 import watershed as facade
 import watershed/tree/error as tree_error
-import watershed/tree/live
+import watershed/tree as live
 import watershed/tree/live_fixture as fixture
 import watershed/tree/schema_builder as builder
 import watershed/tree/typed

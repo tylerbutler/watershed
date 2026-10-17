@@ -119,11 +119,11 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree as tree_live
+@target(erlang)
 import watershed/tree/error as tree_error
 @target(erlang)
 import watershed/tree/forest
-@target(erlang)
-import watershed/tree/live as tree_live
 @target(erlang)
 import watershed/tree/live_types
 @target(erlang)
@@ -1019,7 +1019,7 @@ pub fn open_tree(
 pub fn tree_typed(
   tree: SharedTree(s, r),
   compiled: tree_builder.Compiled(a),
-) -> Result(tree_live.View(a), tree_error.Error) {
+) -> Result(tree_live.Tree(a), tree_error.Error) {
   let request = fn(value) {
     runtime_beam.live_request(
       tree.runtime,
@@ -1036,21 +1036,38 @@ pub fn tree_typed(
     live_types.Bound(token) ->
       Ok(tree_live.from_bound(
         compiled,
-        tree_live.Backend(request, fn(handler) {
-          runtime_beam.subscribe_live_tree(
-            tree.runtime,
-            tree.address,
-            tree.selector,
-            tree.view,
-            token,
-            handler,
-          )
-        }),
+        tree_backend(tree.runtime, tree.address, tree.view, token),
         token,
       ))
     _ ->
       Error(tree_error.RuntimeFailure("Unexpected typed tree binding response"))
   }
+}
+
+@target(erlang)
+fn tree_backend(
+  connection: Subject(runtime_beam.Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  token: live_types.ViewToken,
+) -> tree_live.Backend {
+  let selector = live_types.checkout(token)
+  tree_live.Backend(
+    request: fn(request) {
+      runtime_beam.live_request(connection, address, selector, view, request)
+    },
+    subscribe: fn(handler) {
+      runtime_beam.subscribe_live_tree(
+        connection,
+        address,
+        selector,
+        view,
+        token,
+        handler,
+      )
+    },
+    rebind: fn(token) { tree_backend(connection, address, view, token) },
+  )
 }
 
 @target(erlang)

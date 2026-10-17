@@ -1,5 +1,5 @@
 import watershed/tree/error
-import watershed/tree/live
+import watershed/tree as live
 import watershed/tree/schema_builder as builder
 
 pub type Card {

@@ -298,7 +298,7 @@ a local list does not submit an edit.
 
 ## Typed live access
 
-Import `watershed/tree/live` and bind an existing native tree with
+Import `watershed/tree as live` and bind an existing native tree with
 `watershed.tree_typed(tree, compiled)`. On BEAM, use
 `watershed_beam.tree_typed` with the same compiled descriptor. Keep the
 property descriptors used to build your object so you can use them for reads
@@ -325,10 +325,12 @@ Explicit edits use `replace_root`, `set`, `array_insert`, `array_remove`,
 `Generate` identifiers. Ordinary writes use strict snapshot encoding.
 Identifier properties themselves are read-only.
 
-Typed operations run inside the existing native tree transactions. An abort
-restores the content and invalidates references to preview-only nodes; it does
-not make those node identities available for later insertions. Existing native
-fork, merge, rebase, undo, and reconnect operations remain the history API.
+The same `Tree(a)` supports typed operations, `transaction`, `fork`, `merge`,
+and `rebase_onto`. An abort restores the content and invalidates references to
+preview-only nodes; it does not make those node identities available for later
+insertions. Callback errors retain their application type inside `Aborted`;
+exceptions roll back and return `TransactionFailed`. Use `KeepSource` or
+`DisposeSource` to choose whether merging retains the source checkout.
 
 `status` reports `Attached`, `Removed`, `Deleted`, or `Invalidated`.
 Only attached references can be read or edited. Retained removed nodes can

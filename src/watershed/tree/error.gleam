@@ -29,6 +29,7 @@ pub type Error {
   ForeignOrigin
   NotReady
   TransactionConflict(detail: String)
+  TransactionRollbackFailed(cause: Error, rollback: Error)
   ReentrantEdit
   RequestTimeout
   TransportFailed(detail: String)
@@ -57,6 +58,10 @@ pub fn to_string(error: Error) -> String {
     ForeignOrigin -> "The tree handles have different origins"
     NotReady -> "The document connection is not ready"
     TransactionConflict(detail) -> "Tree transaction conflict: " <> detail
+    TransactionRollbackFailed(cause, rollback) ->
+      to_string(cause)
+      <> "; transaction rollback failed: "
+      <> to_string(rollback)
     ReentrantEdit -> "Tree edits are not allowed during commit delivery"
     RequestTimeout -> "The tree request timed out"
     TransportFailed(detail) -> "Tree transport failed: " <> detail

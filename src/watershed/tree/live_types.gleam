@@ -13,7 +13,16 @@ pub type FieldProof {
 
 pub type Request {
   Bind(schema.ViewSchema)
+  Inspect(schema.ViewSchema)
   Close(ViewToken)
+  Fork(ViewToken)
+  Rebase(ViewToken, ViewToken)
+  Merge(ViewToken, ViewToken, Bool)
+  Compatibility(ViewToken)
+  Upgrade(ViewToken)
+  Begin(ViewToken, List(AnchorToken))
+  Commit(ViewToken)
+  Abort(ViewToken)
   RootRead(ViewToken)
   RootReplace(ViewToken, Option(types.TreeValue))
   RootAcquire(ViewToken, schema.Cardinality)
@@ -48,12 +57,20 @@ pub type Response {
   Snapshot(Option(types.TreeValue))
   Acquired(Option(NodeEvidence))
   ReferenceState(error.ReferenceStatus)
+  SchemaCompatibility(schema.Compatibility)
 }
 
 @internal
 pub fn writes(request: Request) -> Bool {
   case request {
     RootReplace(_, _)
+    | Fork(_)
+    | Rebase(_, _)
+    | Merge(_, _, _)
+    | Upgrade(_)
+    | Begin(_, _)
+    | Commit(_)
+    | Abort(_)
     | PropertySet(_, _, _)
     | ArrayInsert(_, _, _)
     | ArrayRemove(_, _, _)
@@ -62,6 +79,16 @@ pub fn writes(request: Request) -> Bool {
     | MapDelete(_, _) -> True
     _ -> False
   }
+}
+
+@internal
+pub fn checkout(token: ViewToken) -> types.CheckoutSelector {
+  token.checkout
+}
+
+@internal
+pub fn same_origin(first: ViewToken, second: ViewToken) -> Bool {
+  first.origin == second.origin
 }
 
 pub opaque type ViewToken {

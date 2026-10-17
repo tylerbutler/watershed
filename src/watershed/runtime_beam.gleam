@@ -810,6 +810,11 @@ pub type Msg {
     request: tree_live.Request,
     reply: Subject(Result(tree_live.Response, tree_error.Error)),
   )
+  FinishLiveTreeTransaction(
+    core: runtime_core.Core,
+    outcome: Result(tree_live.Response, tree_error.Error),
+    reply: Subject(Result(tree_live.Response, tree_error.Error)),
+  )
   SubscribeLiveTree(
     address: String,
     selector: tree_types.CheckoutSelector,
@@ -2890,7 +2895,8 @@ fn handle_closing(state: State, msg: Msg) -> actor.Next(State, Msg) {
 @target(erlang)
 fn reject_closing_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
-    LiveTreeRequest(_, _, _, _, reply) -> {
+    LiveTreeRequest(_, _, _, _, reply)
+    | FinishLiveTreeTransaction(_, _, reply) -> {
       process.send(reply, Error(tree_error.ClosedRuntime))
       actor.continue(state)
     }
@@ -4189,6 +4195,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
       }
     LiveTreeRequest(address, selector, view, request, reply) ->
       handle_live_tree_request(state, address, selector, view, request, reply)
+    FinishLiveTreeTransaction(core, outcome, reply) ->
+      finish_live_tree_transaction(state, core, outcome, reply)
     SubscribeLiveTree(address, selector, view, token, handler, reply) -> {
       let checked = {
         use _ <- result.try(
@@ -5339,6 +5347,12 @@ fn handle_live_tree_request(
       transaction_tree_access(state, address, reply)
       |> result.map_error(tree_error.TransactionConflict),
     )
+    use caller <- result.try(
+      process.subject_owner(reply)
+      |> result.map_error(fn(_) {
+        tree_error.TransactionConflict("The transaction caller is unavailable")
+      }),
+    )
     use #(core, install, writable) <- result.try(case state.phase {
       Ready(core, marker) -> Ok(#(core, Ready(_, marker), marker == None))
       Reconnecting(core) -> Ok(#(core, Reconnecting, False))
@@ -5347,7 +5361,7 @@ fn handle_live_tree_request(
       Connecting(_) -> Error(tree_error.NotReady)
       Failed(reason) -> Error(tree_error.TransportFailed(reason))
     })
-    use _ <- result.try(case writes && !writable {
+    use _ <- result.try(case writes && !writable && !live_tree_abort(request) {
       True -> Error(tree_error.NotReady)
       False -> Ok(Nil)
     })
@@ -5362,14 +5376,14 @@ fn handle_live_tree_request(
       view,
       request,
     ))
-    Ok(#(install, transition))
+    Ok(#(install, transition, caller))
   }
   case prepared {
     Error(error) -> {
       process.send(reply, Error(error))
       actor.continue(state)
     }
-    Ok(#(install, #(core, response, events, outbound))) -> {
+    Ok(#(install, #(core, response, events, outbound), caller)) -> {
       let subscribers = case request {
         tree_live.Close(token) ->
           list.filter(state.tree_commit_subscribers, fn(subscriber) {
@@ -5383,17 +5397,75 @@ fn handle_live_tree_request(
           phase: install(core),
           tree_commit_subscribers: subscribers,
         )
+      let next = case request, next.active_tree_transaction {
+        tree_live.Begin(_, _), None ->
+          State(
+            ..next,
+            active_tree_transaction: Some(ActiveTreeTransaction(
+              address,
+              selector,
+              caller,
+              process.monitor(caller),
+            )),
+          )
+        _, _ -> next
+      }
       let #(next, outcome) = case writes {
         True -> queue_or_send(next, core, None, outbound)
         False -> #(next, Ok(Nil))
       }
-      process.send(reply, case next.phase, outcome {
+      let outcome = case next.phase, outcome {
         Reconnecting(_), _ | _, Ok(Nil) -> Ok(response)
         _, Error(reason) -> Error(tree_error.TransportFailed(reason))
-      })
-      actor.continue(fan_out_scoped(next, events))
+      }
+      let next = fan_out_scoped(next, events)
+      case request {
+        tree_live.Commit(_) | tree_live.Abort(_) ->
+          case next.active_tree_commit_delivery {
+            Some(_) -> {
+              process.send(
+                next.self,
+                FinishLiveTreeTransaction(core, outcome, reply),
+              )
+              actor.continue(next)
+            }
+            None -> finish_live_tree_transaction(next, core, outcome, reply)
+          }
+        _ -> {
+          process.send(reply, outcome)
+          actor.continue(next)
+        }
+      }
     }
   }
+}
+
+@target(erlang)
+fn live_tree_abort(request: tree_live.Request) -> Bool {
+  case request {
+    tree_live.Abort(_) -> True
+    _ -> False
+  }
+}
+
+@target(erlang)
+fn finish_live_tree_transaction(
+  state: State,
+  core: runtime_core.Core,
+  outcome: Result(tree_live.Response, tree_error.Error),
+  reply: Subject(Result(tree_live.Response, tree_error.Error)),
+) -> actor.Next(State, Msg) {
+  let state = finish_tree_transaction_caller(state, core)
+  let #(state, drain_outcome) = case outcome {
+    Ok(_) -> finish_tree_transaction_in_phase(state)
+    Error(_) -> #(discard_deferred_operations(state), Ok(Nil))
+  }
+  process.send(reply, case outcome, drain_outcome {
+    Error(error), _ -> Error(error)
+    Ok(_), Error(reason) -> Error(tree_error.TransportFailed(reason))
+    Ok(response), Ok(Nil) -> Ok(response)
+  })
+  actor.continue(state)
 }
 
 @target(erlang)

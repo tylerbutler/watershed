@@ -1,8 +1,10 @@
-//// Typed snapshots and checkout-local references for native SharedTree.
+//// Typed snapshots, identity references, and checkout-local tree operations.
 
 import gleam/dict.{type Dict}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import watershed/callback
 import watershed/tree/error as tree_error
 import watershed/tree/live_types as protocol
 import watershed/tree/schema
@@ -14,6 +16,7 @@ pub type Backend {
   Backend(
     request: fn(protocol.Request) -> Result(protocol.Response, tree_error.Error),
     subscribe: fn(fn() -> Nil) -> Result(fn() -> Nil, tree_error.Error),
+    rebind: fn(protocol.ViewToken) -> Backend,
   )
 }
 
@@ -29,8 +32,8 @@ type Codec(a) {
   )
 }
 
-pub opaque type View(a) {
-  View(
+pub opaque type Tree(a) {
+  Tree(
     token: protocol.ViewToken,
     compiled: builder.Compiled(a),
     backend: Backend,
@@ -50,11 +53,112 @@ pub opaque type Subscription {
   Subscription(cancel: fn() -> Nil)
 }
 
+pub type SourcePolicy {
+  KeepSource
+  DisposeSource
+}
+
+pub type TransactionError(callback_error) {
+  Aborted(callback_error)
+  TransactionFailed(tree_error.Error)
+}
+
+pub opaque type Constraint {
+  NodeInDocument(protocol.AnchorToken)
+}
+
+pub fn node_in_document(reference: Ref(a)) -> Constraint {
+  NodeInDocument(reference.anchor)
+}
+
+pub fn fork(tree: Tree(a)) -> Result(Tree(a), tree_error.Error) {
+  use response <- result.try(tree.backend.request(protocol.Fork(tree.token)))
+  case response {
+    protocol.Bound(token) ->
+      Ok(from_bound(tree.compiled, tree.backend.rebind(token), token))
+    _ -> unexpected()
+  }
+}
+
+pub fn rebase_onto(
+  source: Tree(a),
+  target: Tree(a),
+) -> Result(Nil, tree_error.Error) {
+  done(source.backend, protocol.Rebase(source.token, target.token))
+}
+
+pub fn merge(
+  target: Tree(a),
+  source: Tree(a),
+  policy: SourcePolicy,
+) -> Result(Nil, tree_error.Error) {
+  done(
+    target.backend,
+    protocol.Merge(target.token, source.token, policy == DisposeSource),
+  )
+}
+
+pub fn compatibility(
+  tree: Tree(a),
+) -> Result(schema.Compatibility, tree_error.Error) {
+  use response <- result.try(
+    tree.backend.request(protocol.Compatibility(tree.token)),
+  )
+  case response {
+    protocol.SchemaCompatibility(value) -> Ok(value)
+    _ -> unexpected()
+  }
+}
+
+pub fn upgrade_schema(tree: Tree(a)) -> Result(Nil, tree_error.Error) {
+  done(tree.backend, protocol.Upgrade(tree.token))
+}
+
+pub fn transaction(
+  tree: Tree(a),
+  constraints: List(Constraint),
+  callback: fn(Tree(a)) -> Result(value, callback_error),
+) -> Result(value, TransactionError(callback_error)) {
+  let anchors =
+    list.map(constraints, fn(value) {
+      let NodeInDocument(anchor) = value
+      anchor
+    })
+  use _ <- result.try(
+    done(tree.backend, protocol.Begin(tree.token, anchors))
+    |> result.map_error(TransactionFailed),
+  )
+  case callback.capture(fn() { callback(tree) }) {
+    Ok(Ok(value)) ->
+      case done(tree.backend, protocol.Commit(tree.token)) {
+        Ok(Nil) -> Ok(value)
+        Error(error) -> Error(transaction_failure(tree, error))
+      }
+    Ok(Error(error)) ->
+      case done(tree.backend, protocol.Abort(tree.token)) {
+        Ok(Nil) -> Error(Aborted(error))
+        Error(error) -> Error(TransactionFailed(error))
+      }
+    Error(reason) ->
+      Error(transaction_failure(tree, tree_error.RuntimeFailure(reason)))
+  }
+}
+
+fn transaction_failure(
+  tree: Tree(a),
+  cause: tree_error.Error,
+) -> TransactionError(e) {
+  TransactionFailed(case done(tree.backend, protocol.Abort(tree.token)) {
+    Ok(Nil) -> cause
+    Error(rollback) -> tree_error.TransactionRollbackFailed(cause, rollback)
+  })
+}
+
 @internal
 pub fn bind(
   compiled: builder.Compiled(a),
   backend: Backend,
-) -> Result(View(a), tree_error.Error) {
+) -> Result(Tree(a), tree_error.Error) {
   use response <- result.try(
     backend.request(protocol.Bind(builder.view(compiled))),
   )
@@ -69,8 +173,8 @@ pub fn from_bound(
   compiled: builder.Compiled(a),
   backend: Backend,
   token: protocol.ViewToken,
-) -> View(a) {
-  View(token, compiled, backend)
+) -> Tree(a) {
+  Tree(token, compiled, backend)
 }
 
 fn unexpected() -> Result(a, tree_error.Error) {
@@ -174,23 +278,23 @@ fn require(reference: Option(Ref(a))) -> Result(Ref(a), tree_error.Error) {
   option.to_result(reference, tree_error.InvalidValue(absent()))
 }
 
-pub fn read_root(view: View(a)) -> Result(a, tree_error.Error) {
+pub fn read_root(view: Tree(a)) -> Result(a, tree_error.Error) {
   snapshot(view.backend, protocol.RootRead(view.token), codec(view.compiled))
 }
 
-pub fn replace_root(view: View(a), value: a) -> Result(Nil, tree_error.Error) {
+pub fn replace_root(view: Tree(a), value: a) -> Result(Nil, tree_error.Error) {
   replace(view, value, Snapshot)
 }
 
 pub fn replace_root_new(
-  view: View(a),
+  view: Tree(a),
   value: a,
 ) -> Result(Nil, tree_error.Error) {
   replace(view, value, NewContent)
 }
 
 fn replace(
-  view: View(a),
+  view: Tree(a),
   value: a,
   mode: Encoding,
 ) -> Result(Nil, tree_error.Error) {
@@ -201,7 +305,7 @@ fn replace(
   done(view.backend, protocol.RootReplace(view.token, encoded))
 }
 
-pub fn required_root(view: View(a)) -> Result(Ref(a), tree_error.Error) {
+pub fn required_root(view: Tree(a)) -> Result(Ref(a), tree_error.Error) {
   use _ <- result.try(cardinality(
     builder.root_cardinality(view.compiled),
     schema.Required,
@@ -216,7 +320,7 @@ pub fn required_root(view: View(a)) -> Result(Ref(a), tree_error.Error) {
 }
 
 pub fn optional_root(
-  view: View(Option(a)),
+  view: Tree(Option(a)),
 ) -> Result(Option(Ref(a)), tree_error.Error) {
   use _ <- result.try(cardinality(
     builder.root_cardinality(view.compiled),
@@ -246,7 +350,7 @@ pub fn status(
   }
 }
 
-pub fn dispose(view: View(a)) -> Result(Nil, tree_error.Error) {
+pub fn dispose(view: Tree(a)) -> Result(Nil, tree_error.Error) {
   done(view.backend, protocol.Close(view.token))
 }
 
@@ -588,7 +692,7 @@ pub fn map_delete(
 }
 
 pub fn observe(
-  view: View(a),
+  view: Tree(a),
   handler: fn(Result(a, tree_error.Error)) -> Nil,
 ) -> Result(Subscription, tree_error.Error) {
   use _ <- result.try(read_root(view))

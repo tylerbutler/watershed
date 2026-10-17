@@ -4,7 +4,7 @@ import startest/expect
 import watershed as facade
 import watershed/runtime_core as core
 import watershed/tree/error
-import watershed/tree/live
+import watershed/tree as live
 import watershed/tree/live_fixture as fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema_builder as builder

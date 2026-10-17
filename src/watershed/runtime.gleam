@@ -3366,7 +3366,11 @@ pub fn live_request(
     Ready(_, None), None -> True
     _, _ -> False
   }
-  use _ <- result.try(case writes && !writable {
+  let aborting = case request {
+    tree_live.Abort(_) -> True
+    _ -> False
+  }
+  use _ <- result.try(case writes && !writable && !aborting {
     True -> Error(tree_error.NotReady)
     False -> Ok(Nil)
   })

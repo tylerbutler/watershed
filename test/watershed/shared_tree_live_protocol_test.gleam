@@ -1,7 +1,7 @@
 import gleam/option.{None, Some}
 import startest/expect
+import watershed/tree as live
 import watershed/tree/branch
-import watershed/tree/live
 import watershed/tree/error as tree_error
 import watershed/tree/live_types as protocol
 import watershed/tree/schema_builder as builder
@@ -26,6 +26,7 @@ fn backend(response: protocol.Response) -> live.Backend {
     subscribe: fn(_) {
       Error(tree_error.RuntimeFailure("No subscription in this protocol case"))
     },
+    rebind: fn(_) { backend(response) },
   )
 }
 
@@ -39,9 +40,11 @@ pub fn live_protocol_rejects_wrong_response_variants_test() {
   live.replace_root(view, "new") |> expect.to_equal(Error(expected))
   live.dispose(view) |> expect.to_equal(Error(expected))
   let bad =
-    live.Backend(request: fn(_) { Ok(protocol.Done) }, subscribe: fn(_) {
-      Error(tree_error.ClosedTree)
-    })
+    live.Backend(
+      request: fn(_) { Ok(protocol.Done) },
+      subscribe: fn(_) { Error(tree_error.ClosedTree) },
+      rebind: fn(_) { backend(protocol.Done) },
+    )
   live.bind(compiled, bad) |> expect.to_equal(Error(expected))
 }
 

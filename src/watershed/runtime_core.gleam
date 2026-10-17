@@ -5199,20 +5199,32 @@ pub fn live_request(
   case request {
     tree_live.Bind(view) -> {
       use _ <- result.try(live_compatible(context, view))
-      let #(anchors, token) =
-        live_anchor.open(core.live_anchors, context.origin, selector)
-      live_response(
-        Core(
-          ..core,
-          live_anchors: anchors,
-          live_views: dict.insert(core.live_views, token, #(
-            address,
-            selector,
-            view,
-          )),
-        ),
-        tree_live.Bound(token),
+      live_bind(core, context, view)
+    }
+    tree_live.Inspect(view) -> live_bind(core, context, view)
+    tree_live.Compatibility(token) -> {
+      use view <- result.try(live_view_schema(core, context, token))
+      use compatibility <- result.try(
+        tree_compatibility_on(core, address, selector, view)
+        |> result.map_error(live_core_error),
       )
+      live_response(core, tree_live.SchemaCompatibility(compatibility))
+    }
+    tree_live.Upgrade(token) -> {
+      use view <- result.try(live_view_schema(core, context, token))
+      use #(core, events, outbound) <- result.try(
+        submit_tree_upgrade_on(core, address, selector, view)
+        |> result.map_error(live_core_error),
+      )
+      Ok(#(core, tree_live.Done, events, outbound))
+    }
+    tree_live.Abort(token) -> {
+      use _ <- result.try(live_view_schema(core, context, token))
+      use #(core, events) <- result.try(
+        abort_tree_transaction_on(core, address, selector)
+        |> result.map_error(live_core_error),
+      )
+      Ok(#(core, tree_live.Done, events, []))
     }
     tree_live.Close(view) -> {
       use _ <- result.try(live_owner(context, view))
@@ -5231,6 +5243,27 @@ pub fn live_request(
       live_dispatch(core, context, request)
     }
   }
+}
+
+fn live_bind(
+  core: Core,
+  context: LiveContext,
+  view: tree_schema.ViewSchema,
+) -> LiveResult {
+  let #(anchors, token) =
+    live_anchor.open(core.live_anchors, context.origin, context.selector)
+  live_response(
+    Core(
+      ..core,
+      live_anchors: anchors,
+      live_views: dict.insert(core.live_views, token, #(
+        context.address,
+        context.selector,
+        view,
+      )),
+    ),
+    tree_live.Bound(token),
+  )
 }
 
 fn live_origin(
@@ -5308,12 +5341,21 @@ fn live_check_view(
   context: LiveContext,
   view: tree_live.ViewToken,
 ) -> Result(Nil, tree_error.Error) {
+  use schema <- result.try(live_view_schema(core, context, view))
+  live_compatible(context, schema)
+}
+
+fn live_view_schema(
+  core: Core,
+  context: LiveContext,
+  view: tree_live.ViewToken,
+) -> Result(tree_schema.ViewSchema, tree_error.Error) {
   use _ <- result.try(live_owner(context, view))
   use #(_, _, schema) <- result.try(
     dict.get(core.live_views, view)
     |> result.map_error(fn(_) { tree_error.ClosedTree }),
   )
-  live_compatible(context, schema)
+  Ok(schema)
 }
 
 fn live_request_view(
@@ -5323,6 +5365,14 @@ fn live_request_view(
     tree_live.RootRead(view)
     | tree_live.RootReplace(view, _)
     | tree_live.RootAcquire(view, _)
+    | tree_live.Fork(view)
+    | tree_live.Rebase(view, _)
+    | tree_live.Merge(view, _, _)
+    | tree_live.Compatibility(view)
+    | tree_live.Upgrade(view)
+    | tree_live.Begin(view, _)
+    | tree_live.Commit(view)
+    | tree_live.Abort(view)
     | tree_live.Close(view) -> Ok(view)
     tree_live.Read(anchor)
     | tree_live.Status(anchor)
@@ -5339,7 +5389,7 @@ fn live_request_view(
     | tree_live.MapSet(anchor, _, _)
     | tree_live.MapDelete(anchor, _)
     | tree_live.Narrow(anchor, _) -> Ok(tree_live.anchor_view(anchor))
-    tree_live.Bind(_) ->
+    tree_live.Bind(_) | tree_live.Inspect(_) ->
       Error(tree_error.RuntimeFailure("Bind has no existing view"))
   }
 }
@@ -5592,12 +5642,109 @@ fn live_finish_preview(
   Ok(Core(..core, live_anchors: anchors))
 }
 
+fn live_sibling(
+  core: Core,
+  context: LiveContext,
+  token: tree_live.ViewToken,
+) -> Result(Nil, tree_error.Error) {
+  let selector = tree_live.checkout(token)
+  use _ <- result.try(
+    case tree_live.view_matches(token, context.origin, selector) {
+      True -> Ok(Nil)
+      False -> Error(tree_error.ForeignOrigin)
+    },
+  )
+  use _ <- result.try(
+    dict.get(core.live_views, token)
+    |> result.map_error(fn(_) { tree_error.ClosedTree }),
+  )
+  case tree_branch_status(core, context.address, selector) {
+    BranchDisposed -> Error(tree_error.DisposedCheckout)
+    DocumentBranch | BranchValid -> Ok(Nil)
+  }
+}
+
 fn live_dispatch(
   core: Core,
   context: LiveContext,
   request: tree_live.Request,
 ) -> LiveResult {
   case request {
+    tree_live.Fork(token) -> {
+      use view <- result.try(live_view_schema(core, context, token))
+      use #(core, id) <- result.try(
+        fork_tree(core, context.address, context.selector, view)
+        |> result.map_error(live_core_error),
+      )
+      live_bind(
+        core,
+        LiveContext(..context, selector: tree_types.LocalCheckout(id)),
+        view,
+      )
+    }
+    tree_live.Rebase(_, target) -> {
+      use _ <- result.try(live_sibling(core, context, target))
+      use #(core, events) <- result.try(
+        rebase_tree_onto(
+          core,
+          context.address,
+          context.selector,
+          tree_live.checkout(target),
+        )
+        |> result.map_error(live_core_error),
+      )
+      Ok(#(core, tree_live.Done, events, []))
+    }
+    tree_live.Merge(_, source, dispose_source) -> {
+      use _ <- result.try(live_sibling(core, context, source))
+      use #(core, events, outbound) <- result.try(
+        merge_tree(
+          core,
+          context.address,
+          context.selector,
+          tree_live.checkout(source),
+          dispose_source,
+        )
+        |> result.map_error(live_core_error),
+      )
+      Ok(#(core, tree_live.Done, events, outbound))
+    }
+    tree_live.Begin(token, constraints) -> {
+      use view <- result.try(live_view_schema(core, context, token))
+      use _ <- result.try(case core.active_tree_transaction {
+        Some(#(address, selector, _, _))
+          if address != context.address || selector != context.selector
+        ->
+          Error(tree_error.TransactionConflict(
+            "The transaction belongs to another tree or checkout",
+          ))
+        _ -> Ok(Nil)
+      })
+      use paths <- result.try(
+        list.try_map(constraints, fn(anchor) {
+          use #(path, _) <- result.try(live_reference(core, context, anchor))
+          Ok(path)
+        }),
+      )
+      use core <- result.try(
+        begin_tree_transaction_on(
+          core,
+          context.address,
+          context.selector,
+          view,
+          paths,
+        )
+        |> result.map_error(live_core_error),
+      )
+      live_response(core, tree_live.Done)
+    }
+    tree_live.Commit(_) -> {
+      use #(core, events, outbound) <- result.try(
+        commit_tree_transaction_on(core, context.address, context.selector)
+        |> result.map_error(live_core_error),
+      )
+      Ok(#(core, tree_live.Done, events, outbound))
+    }
     tree_live.RootRead(_) ->
       live_snapshot(core, tree_kernel.read(context.state, []))
     tree_live.RootReplace(_, value) ->
@@ -5742,7 +5889,12 @@ fn live_dispatch(
         }),
       )
     }
-    tree_live.Bind(_) | tree_live.Close(_) ->
+    tree_live.Bind(_)
+    | tree_live.Inspect(_)
+    | tree_live.Compatibility(_)
+    | tree_live.Upgrade(_)
+    | tree_live.Abort(_)
+    | tree_live.Close(_) ->
       Error(tree_error.RuntimeFailure("Unexpected live request"))
   }
 }
