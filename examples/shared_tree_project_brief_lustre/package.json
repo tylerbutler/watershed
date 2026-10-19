@@ -1,0 +1,18 @@
+{
+  "name": "shared_tree_project_brief_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Matched live SharedTree project briefs in Gleam and Fluid",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_project_brief_lustre/shared_tree_project_brief_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_project_brief_lustre.mjs",
+    "serve": "node serve.mjs",
+    "test": "gleam test --target javascript",
+    "test:browser": "node smoke/browser.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.1",
+    "phoenix": "1.8.14"
+  },
+  "packageManager": "pnpm@11.13.1"
+}
