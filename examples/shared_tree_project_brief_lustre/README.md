@@ -106,6 +106,9 @@ run every two seconds with a 6.5-second expiry window. Reconnect starts with
 empty remote badges while keeping invalidated-selection token watermarks.
 Review replacement invalidates selections on the captured old object even
 when no observer saw an intermediate absence.
+The watershed review subtree has an identity-lifetime key: it changes when the
+captured review reference is detached, not when its immutable content changes.
+Replacement removes the native controls as well as their composition and focus.
 
 Fluid uses `InsecureTokenProvider` with development-only local credentials.
 Do not deploy these credentials or this authentication flow. A failed or
@@ -123,6 +126,10 @@ The suite covers schema reads, captured-node edits, selection policy, and the
 local input/composition policy without a server. App-level runtime regressions
 also check driver startup, fresh reconnect awareness and expiry, composition
 cleanup and rendered value bindings, and review replacement between captures.
+The harness unit checks cover overwritten concurrent edits and stalled or late
+probes. Canceled composition remains canceled across reconnect: a late end and
+its final input cannot write. Fresh focus, keyboard/pointer interaction, or a
+new composition permits editing again.
 Run `pnpm test` for both suites. Repository `just build` and `just test`
 discover the Gleam package through Trellis; no manual workspace list is needed.
 These checks alone do not imply real Chromium/two-service acceptance.
@@ -138,6 +145,18 @@ pnpm build
 
 These tests use real in-memory Fluid trees; connection and signal delivery are
 test doubles. They do not replace the separate Chromium/two-service browser gate.
+
+With Chromium set as described below, run the focused native-DOM regressions
+without either service:
+
+```sh
+pnpm --dir examples/shared_tree_project_brief_lustre test:dom
+```
+
+This mounts the actual Lustre app against its in-memory runtime and tests review
+replacement without an absent render, detached composition events, and stable
+controls on ordinary edits. It also mounts the React input to check identity
+cancellation, late composition after reconnect, and fresh keyboard editing.
 
 ## Two-client browser acceptance
 
@@ -186,6 +205,14 @@ optional-review replacement, stable milestone identities, heartbeat/expiry,
 disconnect during composition, reconnect, service-backed reload after both
 sessions close, and inert Close behavior. Delivery waits are condition-based;
 expiry must occur within 8.5 seconds of the last received selection.
+Concurrent submissions are checked separately from winner-independent
+convergence; neither local string must survive long enough for a snapshot.
+Each CDP command and diagnostic has a five-second bound inside the existing
+condition deadline. Late results fail, and failures name the active phase.
+The native partition records socket creation, close requests, close events, and
+ready states. It waits for real socket closure before applying network-offline
+mode, and closes native reconnect attempts until recovery. No SDK connection
+events or presence messages are fabricated.
 
 Only the composing input is exempt from remote value reconciliation until
 composition ends. Composition events are dispatched deterministically; this is

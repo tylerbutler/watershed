@@ -168,6 +168,7 @@ test("rendered input omits value during composition and offline cleanup permits 
     state.send(new app.Poll(), false);
     state.send(helpers.capture(state.model));
     assert.match(fieldHtml(state), /value="Release brief"/, "Offline DOM events must not change the tree");
+    state.send(new app.Input(title, write, new app.Interacted(0, 0)));
     state.send(new app.Input(title, write, new app.Changed("later", 5, 5)));
     await flush();
     state.send(helpers.capture(state.model));
@@ -217,5 +218,45 @@ test("review remove/recreate between app captures invalidates old local and remo
     await flush();
     assert.deepEqual(state.peers()[0].meta.selected, new Some(review));
     assert.equal(state.model.rendered[0].value.review[0].reviewer, "New");
+  } finally { state.close(); watershed.close(document); }
+});
+
+test("reconnect rejects a canceled composition's late end and input, then accepts fresh composition", async () => {
+  const [document, callbacks, submissions] = fixture.pending(helpers.initial());
+  const state = harness();
+  try {
+    state.send(new app.GotDocument(document));
+    await flush();
+    fixture.handshake(callbacks, "local-1");
+    state.send(new app.Connected(new Ok(undefined)));
+    await flush();
+    state.send(new app.Poll(), false);
+    const write = helpers.title_write(state.model);
+    state.send(new app.Input(title, write, new app.CompositionStarted()));
+    watershed.go_offline(document);
+    state.send(new app.Poll(), false);
+    watershed.go_online(document);
+    fixture.handshake(callbacks, "local-2");
+    await flush();
+    state.send(new app.Poll(), false);
+    state.send(new app.Input(title, write, new app.CompositionEnded("CANCELED", 8, 8)));
+    state.send(new app.Input(title, write, new app.Changed("CANCELED", 8, 8)));
+    await flush();
+    assert.equal(operations(submissions).length, 0);
+    state.send(new app.Focus(new Some(title)));
+    state.send(new app.Input(title, write, new app.CompositionEnded("CANCELED", 8, 8)));
+    state.send(new app.Input(title, write, new app.Changed("CANCELED", 8, 8)));
+    await flush();
+    assert.equal(operations(submissions).length, 0, "fresh focus cannot revive an old composition's final input");
+    state.send(helpers.capture(state.model));
+    assert.match(fieldHtml(state), /value="Release brief"/);
+    state.send(new app.Input(title, write, new app.CompositionStarted()));
+    state.send(new app.Input(title, write, new app.CompositionEnded("fresh", 5, 5)));
+    state.send(new app.Input(title, write, new app.Changed("fresh", 5, 5)));
+    await flush();
+    assert.equal(operations(submissions).length, 1);
+    state.send(new app.Input(title, write, new app.Changed("fresh!", 6, 6)));
+    await flush();
+    assert.equal(operations(submissions).length, 2);
   } finally { state.close(); watershed.close(document); }
 });

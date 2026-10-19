@@ -31,6 +31,8 @@ export function BriefInput({ field, value, disabled, node, onValue, onFocus, onB
   useLayoutEffect(() => () => { composition.current.cancel(); }, []);
   return <input ref={ref} type="text" data-field={field} disabled={disabled}
     onFocus={() => { composition.current.resume(); onFocus(); }}
+    onKeyDown={() => { if (!disabled) composition.current.resume(); }}
+    onPointerDown={() => { if (!disabled) composition.current.resume(); }}
     onBlur={() => {
       composition.current.cancel();
       onBlur();

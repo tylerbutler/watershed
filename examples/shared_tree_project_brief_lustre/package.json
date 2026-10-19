@@ -7,7 +7,8 @@
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_project_brief_lustre/shared_tree_project_brief_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_project_brief_lustre.mjs",
     "serve": "node serve.mjs",
-    "test": "gleam test --target javascript && node --test test/app_runtime.test.mjs",
+    "test": "gleam test --target javascript && node --test test/app_runtime.test.mjs test/browser_harness.test.mjs",
+    "test:dom": "gleam test --target javascript && node --test test/app_dom.test.mjs",
     "test:browser": "node smoke/browser.mjs"
   },
   "dependencies": {

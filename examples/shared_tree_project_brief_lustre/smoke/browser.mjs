@@ -5,24 +5,28 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import {
-  devtoolsEndpoint, findBrowser, sleep, stopBrowser, withPage,
+  devtoolsEndpoint, findBrowser, stopBrowser, withPage,
 } from "../../../smoke/cdp.mjs";
 import { startChecklistServer } from "../../shared_tree_checklist_lustre/serve.mjs";
+import { bounded, wait as condition } from "./conditions.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const option = process.argv.slice(2);
-assert(option.length <= 1 && option.every((arg) =>
-  /^--implementation=(watershed|fluid)$/.test(arg)), "Use --implementation=watershed|fluid");
-const implementations = option.length ? [option[0].split("=")[1]] : ["watershed", "fluid"];
 const field = (key) => `input[data-field=${JSON.stringify(key)}]`;
 const badge = (key) => `[data-selection-for=${JSON.stringify(key)}]`;
 const action = (name) => `[data-action=${JSON.stringify(name)}]`;
 const row = (id) => `[data-milestone-id=${JSON.stringify(id)}]`;
 const consoleErrors = new Map();
+let phase = "preflight";
+function wait(label, ...args) {
+  phase = label;
+  return condition(label, ...args);
+}
+const pageCommands = (send, name) => (method, params) =>
+  bounded(`${name}: ${phase}: ${method}`, () => send(method, params));
 
 // Observe real transport traffic and browser failures without replacing delivery.
 const instrumentation = `(() => {
-  window.__gate = { errors: [], console: [], packets: [], sockets: [], operations: [], submitted: [] };
+  window.__gate = { errors: [], console: [], packets: [], sockets: [], socketEvents: [], operations: [], submitted: [] };
   addEventListener("error", e => __gate.errors.push(e.message || "resource: " + e.target?.src), true);
   addEventListener("unhandledrejection", e => __gate.errors.push(String(e.reason)));
   const original = console.error.bind(console);
@@ -31,6 +35,16 @@ const instrumentation = `(() => {
   window.WebSocket = new Proxy(Native, { construct(Target, args) {
     const socket = new Target(...args);
     __gate.sockets.push(socket);
+    const log = event => __gate.socketEvents.push({
+      event, time: Date.now(), url: socket.url, readyState: socket.readyState
+    });
+    log("created");
+    socket.addEventListener("open", () => log("open"));
+    socket.addEventListener("close", e => {
+      log("close:" + e.code);
+    });
+    const close = socket.close.bind(socket);
+    socket.close = (...args) => { log("close requested"); return close(...args); };
     const send = socket.send.bind(socket);
     socket.send = data => {
       if (typeof data === "string" && data.includes("submitOp")) {
@@ -107,6 +121,11 @@ async function snapshot(send) {
     console: window.__gate?.console ?? [],
     packets: window.__gate?.packets ?? [],
     operations: window.__gate?.operations ?? [],
+    transport: window.__gate && {
+      offline: __gate.offline,
+      sockets: __gate.sockets.map(s => ({ url: s.url, readyState: s.readyState })),
+      events: __gate.socketEvents.slice(-24),
+    },
     url: location.href,
   }));
   if (!consoleErrors.has(send)) consoleErrors.set(send, new Set());
@@ -114,19 +133,6 @@ async function snapshot(send) {
   assert.deepEqual(value.errors, [], `visible errors: ${JSON.stringify(value)}`);
   assert.deepEqual(value.browserErrors, [], `browser errors: ${JSON.stringify(value)}`);
   return value;
-}
-
-async function wait(label, probe, predicate, timeout = 20_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (true) {
-    last = await probe();
-    if (predicate(last)) return last;
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    await sleep(Math.min(50, remaining));
-  }
-  throw new Error(`${label} timed out (deadline ${deadline}): ${JSON.stringify(last)}`);
 }
 
 const state = (send, label, predicate, timeout) =>
@@ -140,7 +146,8 @@ const disconnected = async (send) => {
     console.error("disconnect transport diagnostics", await call(send, () => ({
       offline: __gate.offline,
       sockets: __gate.sockets.map(s => ({ url: s.url, readyState: s.readyState })),
-    })));
+      events: __gate.socketEvents,
+    })).catch(diagnostic => ({ diagnostic: diagnostic.message })));
     throw error;
   }
 };
@@ -162,9 +169,13 @@ async function focus(send, key, start, end = start) {
   await state(send, `focus ${key}`, s => s.active === key);
 }
 
-async function type(send, key, text) {
+export async function submitText(send, key, text) {
   await focus(send, key, 0, 10000);
   await send("Input.insertText", { text });
+}
+
+async function type(send, key, text) {
+  await submitText(send, key, text);
   await value(send, key, text);
 }
 
@@ -218,11 +229,20 @@ async function composition(send, key, event, text, isComposing = false) {
 
 async function offline(send, enabled) {
   await call(send, enabled => { __gate.offline = enabled; }, enabled);
+  // close() can return while a socket is still CLOSING. Wait for real close
+  // events before blocking network traffic and asserting the partition.
+  if (enabled) {
+    await call(send, () => {
+      for (const socket of __gate.sockets) if (socket.readyState < 2) socket.close();
+    });
+    const closed = await wait("native transport close", () => call(send, () => ({
+      sockets: __gate.sockets.map(s => s.readyState),
+      events: __gate.socketEvents.slice(-16),
+    })), s => s.sockets.every(state => state === WebSocket.CLOSED), 5000);
+    console.log(`  native partition: ${JSON.stringify(closed)}`);
+  }
   await send("Network.emulateNetworkConditions", {
     offline: enabled, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
-  });
-  if (enabled) await call(send, () => {
-    for (const socket of __gate.sockets) if (socket.readyState < 2) socket.close();
   });
 }
 
@@ -263,7 +283,11 @@ async function scenarios(a, b, sharedUrl) {
   await focus(b, "owner.name");
   await awareness(a, "owner.name", "Sam");
   await awareness(b, "owner.name", "Morgan");
-  await Promise.all([type(a, "owner.name", "Morgan concurrent"), type(b, "owner.name", "Sam concurrent")]);
+  const beforeContention = await Promise.all([snapshot(a), snapshot(b)]);
+  await Promise.all([submitText(a, "owner.name", "Morgan concurrent"), submitText(b, "owner.name", "Sam concurrent")]);
+  await wait("both contention actions submitted durable operations", async () =>
+    Promise.all([snapshot(a), snapshot(b)]), pair => pair.every((s, i) =>
+    s.operations.length > beforeContention[i].operations.length));
   await wait("same-field resolved agreement", async () =>
     Promise.all([snapshot(a), snapshot(b)]), ([x, y]) =>
     x.values["owner.name"] === y.values["owner.name"] &&
@@ -424,14 +448,16 @@ async function scenarios(a, b, sharedUrl) {
   await composition(b, "owner.name", "input", "CANCELED OFFLINE", true);
   await offline(b, true);
   await disconnected(b);
-  await composition(b, "owner.name", "compositionend", "CANCELED OFFLINE");
-  await composition(b, "owner.name", "input", "CANCELED OFFLINE");
   await offline(b, false);
   await ready(b);
+  await composition(b, "owner.name", "compositionend", "CANCELED OFFLINE");
+  await composition(b, "owner.name", "input", "CANCELED OFFLINE");
   await type(a, "schedule.target", "2026-11-25");
   await value(b, "schedule.target", "2026-11-25");
   await value(a, "owner.name", durable);
   await value(b, "owner.name", durable);
+  await type(b, "owner.name", "Fresh after reconnect");
+  await value(a, "owner.name", "Fresh after reconnect");
 
   await call(a, () => document.activeElement.blur());
   await call(b, () => document.activeElement.blur());
@@ -534,12 +560,13 @@ async function scenarios(a, b, sharedUrl) {
 }
 
 async function command(endpoint, method, params = {}) {
-  return withPage(endpoint, 30_000, `${method} timeout`, send => send(method, params));
+  return withPage(endpoint, 5000, `${phase}: ${method} timeout`, send => send(method, params));
 }
 
 async function targetEndpoint(endpoint, id) {
   return wait("CDP target", async () => {
-    const response = await fetch(`http://${new URL(endpoint).host}/json/list`);
+    const response = await fetch(`http://${new URL(endpoint).host}/json/list`,
+      { signal: AbortSignal.timeout(5000) });
     return (await response.json()).find(t => t.id === id)?.webSocketDebuggerUrl;
   }, Boolean);
 }
@@ -581,12 +608,13 @@ async function run(implementation, browser) {
     } else {
       server = await startChecklistServer({ appRoot, port });
     }
-    const html = await (existing ?? await fetch(origin)).text();
+    const html = await bounded("static HTML response", async () =>
+      (existing ?? await fetch(origin, { signal: AbortSignal.timeout(5000) })).text());
     assert(html.includes("./" + bundle),
       "static server must serve the selected implementation");
-    const servedBundle = await fetch(origin + bundle);
+    const servedBundle = await fetch(origin + bundle, { signal: AbortSignal.timeout(5000) });
     assert(servedBundle.ok);
-    assert.equal((await servedBundle.text()) === readFileSync(resolve(appRoot, bundle), "utf8"), true,
+    assert.equal((await bounded("static bundle response", () => servedBundle.text())) === readFileSync(resolve(appRoot, bundle), "utf8"), true,
       "static server must serve the current build, not an old or different app");
     chrome = spawn(browser, [
       "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
@@ -606,14 +634,16 @@ async function run(implementation, browser) {
     }
     const [aEndpoint, bEndpoint] = await Promise.all([page(), page()]);
     await withPage(aEndpoint, 240_000, "A acceptance timeout", async a => {
+      a = pageCommands(a, "A");
       const created = await prepare(a, origin + "?name=Morgan");
       const url = new URL(created.url);
       url.searchParams.set("name", "Sam");
       await withPage(bEndpoint, 240_000, "B acceptance timeout", async b => {
+        b = pageCommands(b, "B");
         await prepare(b, url.href);
         await scenarios(a, b, created.url);
       });
-    });
+    }).catch(error => { throw new Error(`${implementation} during ${phase}: ${error.message}`, { cause: error }); });
     console.log(`${implementation}: all ten acceptance cases PASS`);
   } finally {
     if (endpoint) for (const browserContextId of contexts) {
@@ -626,12 +656,20 @@ async function run(implementation, browser) {
   }
 }
 
-try {
-  const browser = findBrowser();
-  assert(browser, "Chromium REQUIRED. Set WATERSHED_CHROME to an existing executable; skipping is not acceptance.");
-  for (const implementation of implementations) await preflight(implementation);
-  for (const implementation of implementations) await run(implementation, browser);
-} catch (error) {
-  console.error(error.stack ?? error);
-  process.exitCode = 1;
+async function main() {
+  try {
+    const option = process.argv.slice(2);
+    assert(option.length <= 1 && option.every((arg) =>
+      /^--implementation=(watershed|fluid)$/.test(arg)), "Use --implementation=watershed|fluid");
+    const implementations = option.length ? [option[0].split("=")[1]] : ["watershed", "fluid"];
+    const browser = findBrowser();
+    assert(browser, "Chromium REQUIRED. Set WATERSHED_CHROME to an existing executable; skipping is not acceptance.");
+    for (const implementation of implementations) await preflight(implementation);
+    for (const implementation of implementations) await run(implementation, browser);
+  } catch (error) {
+    console.error(error.stack ?? error);
+    process.exitCode = 1;
+  }
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

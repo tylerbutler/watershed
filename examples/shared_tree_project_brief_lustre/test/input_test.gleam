@@ -41,5 +41,5 @@ pub fn remote_update_is_local_to_one_input_test() {
   let other = input.new("other") |> input.selected(2, 5)
   let changed = input.new("first") |> input.remote("remote")
   changed.value |> should.equal("remote")
-  other |> should.equal(input.Input("other", False, None, Some(#(2, 5))))
+  other |> should.equal(input.Input("other", False, None, Some(#(2, 5)), False))
 }

@@ -19,6 +19,7 @@ pub fn model() -> app.Model {
     tree: None,
     subscription: None,
     rendered: None,
+    review_generation: 0,
     inputs: dict.new(),
     metadata: s.Metadata("Local", s.Blue, 0, None),
     policy: s.new(),

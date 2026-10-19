@@ -38,6 +38,7 @@ pub type Model {
     tree: Option(shared_tree.Tree(brief.ProjectBrief)),
     subscription: Option(shared_tree.Subscription),
     rendered: Option(edits.RenderState),
+    review_generation: Int,
     inputs: Dict(String, input.Input),
     metadata: s.Metadata,
     policy: s.Policy,
@@ -56,6 +57,7 @@ pub type InputEvent {
   CompositionStarted
   CompositionEnded(String, Int, Int)
   Selected(Int, Int)
+  Interacted(Int, Int)
 }
 
 @internal
@@ -119,6 +121,7 @@ fn init(_: Nil) -> #(Model, Effect(Msg)) {
       tree: None,
       subscription: None,
       rendered: None,
+      review_generation: 0,
       inputs: dict.new(),
       metadata: s.Metadata(query_parameter("name", "Editor"), s.Blue, 0, None),
       policy: s.new(),
@@ -278,6 +281,11 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           rendered: Some(rendered),
+          review_generation: model.review_generation
+            + case review_removed {
+              True -> 1
+              False -> 0
+            },
           inputs:,
           metadata:,
           policy:,
@@ -316,6 +324,11 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
               input.composition_ended(input.selected(local, start, end), value)
             Selected(start, end) ->
               input.Transition(input.selected(local, start, end), None)
+            Interacted(start, end) ->
+              input.Transition(
+                input.selected(input.interacted(local), start, end),
+                None,
+              )
           }
           let next =
             Model(
@@ -357,7 +370,21 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     }
     // docs:snippet-start project-brief-watershed-presence-focus
     Focus(field) -> {
-      let model = Model(..model, metadata: s.focus(model.metadata, field))
+      let inputs = case field {
+        Some(field) ->
+          case dict.get(model.inputs, s.field_key(field)) {
+            Ok(local) ->
+              dict.insert(
+                model.inputs,
+                s.field_key(field),
+                input.interacted(local),
+              )
+            Error(_) -> model.inputs
+          }
+        None -> model.inputs
+      }
+      let model =
+        Model(..model, metadata: s.focus(model.metadata, field), inputs:)
       #(model, announce(model))
     }
     // docs:snippet-end project-brief-watershed-presence-focus
@@ -518,12 +545,7 @@ fn cancel_inputs(model: Model) -> Dict(String, input.Input) {
     None -> dict.new()
   }
   dict.map_values(model.inputs, fn(key, local) {
-    input.Input(
-      ..local,
-      value: dict.get(values, key) |> result.unwrap(local.value),
-      composing: False,
-      composition_end: None,
-    )
+    input.cancel(local, dict.get(values, key) |> result.unwrap(local.value))
   })
 }
 
@@ -654,7 +676,20 @@ fn text_field(
     event.on("select", decode.map(selection_event(), handler)),
     event.on("click", decode.map(selection_event(), handler)),
     event.on("keyup", decode.map(selection_event(), handler)),
-    event.on("keydown", decode.map(selection_event(), handler)),
+    event.on(
+      "keydown",
+      decode.map(
+        value_event(fn(_, start, end) { Interacted(start, end) }),
+        handler,
+      ),
+    ),
+    event.on(
+      "pointerdown",
+      decode.map(
+        value_event(fn(_, start, end) { Interacted(start, end) }),
+        handler,
+      ),
+    ),
   ]
   let bindings = case local.composing {
     True -> bindings
@@ -818,45 +853,58 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
     ]),
     html.fieldset([], [
       html.legend([], [html.text("Review")]),
-      case state.review, state.value.review {
-        Some(node), Some(value) ->
-          html.div([], [
-            text_field(model, s.Fixed(s.ReviewReviewer), "Reviewer", fn(value) {
-              shared_tree.set(node, schema.review_reviewer(), value)
-            }),
-            checkbox(
-              model,
-              s.Fixed(s.ReviewApproved),
-              "Approved",
-              value.approved,
-              fn(value) {
-                shared_tree.set(node, schema.review_approved(), value)
-              },
-            ),
+      keyed.div([], case state.review, state.value.review {
+        Some(node), Some(value) -> [
+          #(
+            int.to_string(model.review_generation),
+            html.div([], [
+              text_field(
+                model,
+                s.Fixed(s.ReviewReviewer),
+                "Reviewer",
+                fn(value) {
+                  shared_tree.set(node, schema.review_reviewer(), value)
+                },
+              ),
+              checkbox(
+                model,
+                s.Fixed(s.ReviewApproved),
+                "Approved",
+                value.approved,
+                fn(value) {
+                  shared_tree.set(node, schema.review_approved(), value)
+                },
+              ),
+              button(
+                "remove-review",
+                "Remove review",
+                Action(fn() {
+                  use _ <- result.try(shared_tree.read(node))
+                  shared_tree.set(state.root, schema.review(), None)
+                }),
+                !editable(model),
+              ),
+            ]),
+          ),
+        ]
+        _, _ -> [
+          #(
+            "absent",
             button(
-              "remove-review",
-              "Remove review",
+              "add-review",
+              "Add review",
               Action(fn() {
-                use _ <- result.try(shared_tree.read(node))
-                shared_tree.set(state.root, schema.review(), None)
+                shared_tree.set(
+                  state.root,
+                  schema.review(),
+                  Some(brief.Review("", False)),
+                )
               }),
               !editable(model),
             ),
-          ])
-        _, _ ->
-          button(
-            "add-review",
-            "Add review",
-            Action(fn() {
-              shared_tree.set(
-                state.root,
-                schema.review(),
-                Some(brief.Review("", False)),
-              )
-            }),
-            !editable(model),
-          )
-      },
+          ),
+        ]
+      }),
     ]),
   ])
 }
