@@ -59,8 +59,58 @@ WebSocket connects to Floodgate on port 4000.
 The browser mints local development tokens using a tenant secret. Do not deploy
 this authentication flow; production tokens must come from a backend. This
 app shares URLs with other watershed instances, not with Fluid documents.
-The independently authored Fluid counterpart lives under `fluid/`; its runnable
-UI and the real two-client browser gate are separate tasks.
+The independently authored Fluid counterpart lives under `fluid/`. The two apps
+use separate local services and cannot open each other's document URLs.
+
+## Run the Fluid counterpart
+
+Install and build from this example's `fluid/` directory:
+
+```sh
+cd fluid
+pnpm install
+pnpm build
+```
+
+In one terminal, run the Fluid local development service on port 7070:
+
+```sh
+pnpm service
+```
+
+In another terminal, from the same `fluid/` directory, start the static app:
+
+```sh
+pnpm serve
+```
+
+Open <http://127.0.0.1:8081>. Wait for `?document=...` in the URL, then copy the
+full URL to another tab; add `&name=Sam` for a different display name. The service
+must remain running. The static server does not start it. This reuses the
+existing example server with the Fluid app's root and port, not a second proxy.
+The browser connects directly to `http://localhost:7070` through AzureClient
+in local mode with compatibility mode `"2.0.0"`.
+
+This is the same compact brief, owner, schedule, milestone, and optional review
+form. Native inputs publish whole-property assignments, preserve caret ranges,
+and publish completed IME composition once. Rows and captured-node edits stay
+with a milestone, not its old array index. Invalid milestone IDs disable the
+form instead of rendering ambiguous rows. Disconnect disables edits and cancels
+composition; Close disposes the view, container, and selection adapter. Neither
+closing nor typing confirms that pending edits reached the service.
+
+Field selection uses the **experimental** exported `Signaler` from
+`@fluid-experimental/data-objects` 3.1.0 alongside SharedTree. It is advisory,
+supports multiple names per field, and sends no durable tree edits. Heartbeats
+run every two seconds with a 6.5-second expiry window. Reconnect starts with
+empty remote badges while keeping invalidated-selection token watermarks.
+Review replacement invalidates selections on the captured old object even
+when no observer saw an intermediate absence.
+
+Fluid uses `InsecureTokenProvider` with development-only local credentials.
+Do not deploy these credentials or this authentication flow. A failed or
+uncertain create/attach is shown as an error and never automatically retried.
+Loaded documents are not initialized again or silently schema-upgraded.
 
 ## Checks
 
@@ -76,3 +126,15 @@ cleanup and rendered value bindings, and review replacement between captures.
 Run `pnpm test` for both suites. Repository `just build` and `just test`
 discover the Gleam package through Trellis; no manual workspace list is needed.
 Real Chromium/two-service acceptance is not implied by these checks.
+
+For the Fluid schema, edits, input policy, selection, and lifecycle checks:
+
+```sh
+cd fluid
+pnpm test
+pnpm check
+pnpm build
+```
+
+These tests use real in-memory Fluid trees; connection and signal delivery are
+test doubles. They do not replace the separate Chromium/two-service browser gate.

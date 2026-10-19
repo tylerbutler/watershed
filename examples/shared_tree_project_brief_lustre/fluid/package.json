@@ -7,7 +7,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/*.test.ts",
-    "build": "esbuild src/index.tsx --bundle --format=esm --outfile=dist/index.js",
+    "build": "esbuild src/index.tsx --bundle --format=esm --define:process.env.NODE_ENV='\"production\"' --outfile=dist/index.js",
     "serve": "node serve.mjs",
     "service": "azure-local-service"
   },

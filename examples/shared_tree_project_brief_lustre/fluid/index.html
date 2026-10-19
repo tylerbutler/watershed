@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fluid SharedTree project brief</title>
+    <style>
+      :root { font: 16px/1.5 system-ui, sans-serif; color: #182c35; background: #f4f7f8; }
+      body { margin: 0; }
+      main { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+      h1 { line-height: 1.2; }
+      fieldset { border: 1px solid #9caeb5; border-radius: .3rem; margin: 1rem 0; padding: 1rem; }
+      legend { font-weight: 650; padding: 0 .4rem; }
+      .field { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .6rem 0; }
+      input[type="text"] { flex: 1 1 15rem; min-width: 0; padding: .4rem; }
+      input, button { font: inherit; }
+      button { padding: .35rem .6rem; cursor: pointer; }
+      button:disabled { cursor: default; }
+      input:focus-visible, button:focus-visible { outline: 3px solid #12638a; outline-offset: 2px; }
+      .milestone { border-top: 1px solid #c5cfd3; padding: .6rem 0; }
+      .selectors { display: inline-flex; flex-wrap: wrap; gap: .3rem; }
+      .field:has(.badge) input { outline: 2px solid #567687; outline-offset: 2px; }
+      .badge { border: 1px solid currentColor; border-radius: .2rem; padding: 0 .3rem; font-size: .85rem; }
+      .blue { color: #114d83; background: #e4f1ff; }
+      .green { color: #155a38; background: #e4f8e9; }
+      .amber { color: #744200; background: #fff3cf; }
+      .violet { color: #633981; background: #f5e9ff; }
+      [data-error] { color: #a22020; overflow-wrap: anywhere; }
+      [data-document-id] { overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./dist/index.js"></script>
+  </body>
+</html>
