@@ -48,6 +48,12 @@ const fluidSource =
         see a native tree running in the page, try the{" "}
         <a href="/sharedtree/checklist">live checklist</a>.
       </p>
+      <p>
+        In Gleam, <code>Tree(List(String))</code> ties the view to its compiled
+        schema. Reads give you ordinary list snapshots; edits go through a
+        <code>Ref(List(String))</code> that identifies the array in the tree.
+        Changing a snapshot won't change the shared document.
+      </p>
       <p class="provenance">
         Fluid source is an MIT-licensed snapshot from{" "}
         <a href={fluidSource}>commit <code>{upstreamCommit.slice(0, 12)}</code></a>.
@@ -86,6 +92,13 @@ const fluidSource =
         open-tree flow. The Gleam example uses its own schema namespace
         and the native Floodgate container layout. These apps aren't presented
         as opening each other's documents.
+      </p>
+      <p>
+        The Gleam list is a snapshot, not a live Fluid node. The typed reference
+        gives you access to the shared array, but reads and edits can fail.
+        The example handles those failures through
+        <code>watershed/tree/error.Error</code> rather than treating a missing
+        or unreadable root as an empty list.
       </p>
       <p>
         And despite the name, this isn't a numeric counter DDS. The displayed
