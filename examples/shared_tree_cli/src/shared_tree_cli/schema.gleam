@@ -6,16 +6,20 @@ pub type Note {
 }
 
 pub fn title() -> builder.Property(Note, String) {
-  builder.required("title", builder.string(), fn(note: Note) { note.title })
+  builder.required(key: "title", node: builder.string(), get: fn(note: Note) {
+    note.title
+  })
 }
 
 pub fn configuration() -> builder.Root(Note) {
   builder.object2(
-    builder.factory("shared_tree_cli"),
+    builder.factory(scope: "shared_tree_cli"),
     "Note",
     Note,
     title(),
-    builder.optional("note", builder.string(), fn(note: Note) { note.note }),
+    builder.optional(key: "note", node: builder.string(), get: fn(note: Note) {
+      note.note
+    }),
   )
   |> builder.root
 }

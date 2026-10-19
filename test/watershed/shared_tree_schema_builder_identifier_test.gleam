@@ -24,7 +24,7 @@ fn point() -> builder.Node(Point) {
     builder.factory("com.example.typed"),
     "Point",
     Point,
-    builder.identifier("id", fn(v: Point) { v.id }),
+    builder.identifier(key: "id", get: fn(v: Point) { v.id }),
     builder.required("label", builder.string(), fn(v: Point) { v.label }),
   )
 }

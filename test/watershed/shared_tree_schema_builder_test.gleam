@@ -35,16 +35,21 @@ fn compiled_schema(node: builder.Node(a)) -> schema.StoredSchema {
 }
 
 fn authoring_schemas() -> List(#(String, schema.StoredSchema)) {
-  let f = builder.factory("com.example.authoring")
+  let f = builder.factory(scope: "com.example.authoring")
   let card =
     builder.object2(
       f,
       "Card",
       Card,
-      builder.required("title", builder.string(), fn(v: Card) { v.title }),
-      builder.optional("owner", builder.string(), fn(v: Card) { v.owner }),
+      builder.required(key: "title", node: builder.string(), get: fn(v: Card) {
+        v.title
+      }),
+      builder.optional(key: "owner", node: builder.string(), get: fn(v: Card) {
+        v.owner
+      }),
     )
-  let words = builder.array(f, "Words", builder.string())
+  let words =
+    builder.array(factory: f, name: "Words", element: builder.string())
   let foreign =
     builder.object1(
       builder.factory("com.example.other"),
@@ -64,10 +69,17 @@ fn authoring_schemas() -> List(#(String, schema.StoredSchema)) {
     #("string-array", compiled_schema(words)),
     #(
       "number-map",
-      compiled_schema(builder.map(f, "Numbers", builder.number())),
+      compiled_schema(builder.map(
+        factory: f,
+        name: "Numbers",
+        value: builder.number(),
+      )),
     ),
     #("card", compiled_schema(card)),
-    #("empty-object", compiled_schema(builder.object0(f, "Empty"))),
+    #(
+      "empty-object",
+      compiled_schema(builder.object0(factory: f, name: "Empty")),
+    ),
     #(
       "nested",
       compiled_schema(builder.object2(

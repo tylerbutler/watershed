@@ -190,21 +190,35 @@ pub type Card {
 }
 
 pub fn title() -> builder.Property(Card, String) {
-  builder.required("title", builder.string(), fn(card: Card) { card.title })
+  builder.required(
+    key: "title",
+    node: builder.string(),
+    get: fn(card: Card) { card.title },
+  )
 }
 
 pub fn configuration() -> builder.Root(Card) {
   builder.object5(
-    builder.factory("example"),
+    builder.factory(scope: "example"),
     "Card",
     Card,
-    builder.identifier("id", fn(card: Card) { card.id }),
+    builder.identifier(key: "id", get: fn(card: Card) { card.id }),
     title(),
-    builder.optional("note", builder.string(), fn(card: Card) { card.note }),
-    builder.required("status", builder.null(), fn(card: Card) { card.status }),
-    builder.optional("deletedAt", builder.null(), fn(card: Card) {
-      card.deleted_at
-    }),
+    builder.optional(
+      key: "note",
+      node: builder.string(),
+      get: fn(card: Card) { card.note },
+    ),
+    builder.required(
+      key: "status",
+      node: builder.null(),
+      get: fn(card: Card) { card.status },
+    ),
+    builder.optional(
+      key: "deletedAt",
+      node: builder.null(),
+      get: fn(card: Card) { card.deleted_at },
+    ),
   )
   |> builder.root
 }

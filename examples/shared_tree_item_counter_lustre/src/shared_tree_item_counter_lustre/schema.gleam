@@ -10,9 +10,9 @@ pub const array_type = "shared_tree_item_counter.StringArray"
 // Declare a root array of strings, as sf.array("StringArray", sf.string) does.
 pub fn configuration() -> builder.Root(List(String)) {
   builder.array(
-    builder.factory("shared_tree_item_counter"),
-    "StringArray",
-    builder.string(),
+    factory: builder.factory(scope: "shared_tree_item_counter"),
+    name: "StringArray",
+    element: builder.string(),
   )
   |> builder.root
 }

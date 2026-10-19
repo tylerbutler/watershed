@@ -11,11 +11,12 @@ The item-counter example declares its document like this:
 
 ```gleam
 import watershed/tree/schema_builder as builder
+
 pub fn configuration() -> builder.Root(List(String)) {
   builder.array(
-    builder.factory("shared_tree_item_counter"),
-    "StringArray",
-    builder.string(),
+    factory: builder.factory(scope: "shared_tree_item_counter"),
+    name: "StringArray",
+    element: builder.string(),
   )
   |> builder.root
 }
@@ -25,6 +26,11 @@ The persisted type identifier is `shared_tree_item_counter.StringArray`.
 Factory scopes and local names must be nonempty. A factory joins them with
 `.`; it does not generate names. Descriptors from different factories can
 compose.
+
+Argument labels are optional; existing positional calls still work. Use labels
+when a declaration needs to stand on its own in a snippet. The fixed-arity
+`object1` through `object8` constructors keep their positional arguments; use
+the compositional `object` builder for a fully labeled object declaration.
 
 Pass this declaration to creation or opening. Those APIs compile it and return
 `tree/error.InvalidSchema` if the declaration is invalid, before creating a
@@ -47,11 +53,19 @@ pub type Card {
 
 pub fn card() -> builder.Node(Card) {
   builder.object2(
-    builder.factory("com.example.board"),
+    builder.factory(scope: "com.example.board"),
     "Card",
     Card,
-    builder.required("title", builder.string(), fn(card: Card) { card.title }),
-    builder.optional("owner", builder.string(), fn(card: Card) { card.owner }),
+    builder.required(
+      key: "title",
+      node: builder.string(),
+      get: fn(card: Card) { card.title },
+    ),
+    builder.optional(
+      key: "owner",
+      node: builder.string(),
+      get: fn(card: Card) { card.owner },
+    ),
   )
 }
 ```
@@ -67,16 +81,26 @@ For larger records, `object` accepts a list of `property` descriptors and a
 typed reader callback, with no fixed property count:
 
 ```gleam
-let title = builder.required("title", builder.string(), fn(v: Card) { v.title })
-let owner = builder.optional("owner", builder.string(), fn(v: Card) { v.owner })
-builder.object(factory, "Card", [
-  builder.property(title),
-  builder.property(owner),
-], fn(reader) {
-  use title <- result.try(builder.read_property(reader, title))
-  use owner <- result.try(builder.read_property(reader, owner))
-  Ok(Card(title, owner))
-})
+let title = builder.required(
+  key: "title",
+  node: builder.string(),
+  get: fn(v: Card) { v.title },
+)
+let owner = builder.optional(
+  key: "owner",
+  node: builder.string(),
+  get: fn(v: Card) { v.owner },
+)
+builder.object(
+  factory: builder.factory(scope: "com.example.board"),
+  name: "Card",
+  properties: [builder.property(title), builder.property(owner)],
+  construct: fn(reader) {
+    use title <- result.try(builder.read_property(reader:, property: title))
+    use owner <- result.try(builder.read_property(reader:, property: owner))
+    Ok(Card(title, owner))
+  },
+)
 ```
 
 `read_property` checks the property against the declaration. A property from
@@ -148,13 +172,21 @@ pub type Choice {
 }
 
 pub fn choice() -> builder.Node(Choice) {
-  builder.union([
-    builder.variant(builder.string(), Text, fn(value) {
-      case value { Text(text) -> Some(text) Count(_) -> None }
-    }),
-    builder.variant(builder.number(), Count, fn(value) {
-      case value { Count(number) -> Some(number) Text(_) -> None }
-    }),
+  builder.union(variants: [
+    builder.variant(
+      node: builder.string(),
+      inject: Text,
+      project: fn(value) {
+        case value { Text(text) -> Some(text) Count(_) -> None }
+      },
+    ),
+    builder.variant(
+      node: builder.number(),
+      inject: Count,
+      project: fn(value) {
+        case value { Count(number) -> Some(number) Text(_) -> None }
+      },
+    ),
   ])
 }
 ```
@@ -182,17 +214,21 @@ pub type Outline {
 }
 
 pub fn outline() -> builder.Node(Outline) {
-  let f = builder.factory("com.example")
-  let self = builder.lazy(f, "Outline", outline)
+  let f = builder.factory(scope: "com.example")
+  let self = builder.lazy(factory: f, name: "Outline", resolve: outline)
   builder.object2(
     f,
     "Outline",
     Outline,
-    builder.required("label", builder.string(), fn(v: Outline) { v.label }),
     builder.required(
-      "children",
-      builder.array(f, "Children", self),
-      fn(v: Outline) { v.children },
+      key: "label",
+      node: builder.string(),
+      get: fn(v: Outline) { v.label },
+    ),
+    builder.required(
+      key: "children",
+      node: builder.array(factory: f, name: "Children", element: self),
+      get: fn(v: Outline) { v.children },
     ),
   )
 }
@@ -222,11 +258,15 @@ pub type Item {
 
 pub fn item() -> builder.Node(Item) {
   builder.object2(
-    builder.factory("com.example"),
+    builder.factory(scope: "com.example"),
     "Item",
     Item,
-    builder.identifier("id", fn(v: Item) { v.id }),
-    builder.required("label", builder.string(), fn(v: Item) { v.label }),
+    builder.identifier(key: "id", get: fn(v: Item) { v.id }),
+    builder.required(
+      key: "label",
+      node: builder.string(),
+      get: fn(v: Item) { v.label },
+    ),
   )
 }
 ```

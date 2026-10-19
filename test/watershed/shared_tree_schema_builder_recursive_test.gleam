@@ -14,7 +14,7 @@ type Outline {
 
 fn outline() -> builder.Node(Outline) {
   let f = builder.factory("com.example.typed")
-  let self = builder.lazy(f, "Outline", outline)
+  let self = builder.lazy(factory: f, name: "Outline", resolve: outline)
   builder.object2(
     f,
     "Outline",

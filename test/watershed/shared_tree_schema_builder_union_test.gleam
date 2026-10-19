@@ -18,7 +18,7 @@ type Choice {
 }
 
 fn text() -> builder.Variant(Choice) {
-  builder.variant(builder.string(), Text, fn(value) {
+  builder.variant(node: builder.string(), inject: Text, project: fn(value) {
     case value {
       Text(value) -> Some(value)
       _ -> None
@@ -36,7 +36,7 @@ fn count() -> builder.Variant(Choice) {
 }
 
 fn choice() -> builder.Node(Choice) {
-  builder.union([text(), count()])
+  builder.union(variants: [text(), count()])
 }
 
 pub fn typed_union_round_trip_test() {

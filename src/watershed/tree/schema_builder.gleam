@@ -17,7 +17,7 @@ pub opaque type Factory {
   Factory(scope: String)
 }
 
-pub fn factory(scope: String) -> Factory {
+pub fn factory(scope scope: String) -> Factory {
   Factory(scope)
 }
 
@@ -112,26 +112,26 @@ pub opaque type ObjectReader(record) {
 }
 
 pub fn required(
-  key: String,
-  node: Node(a),
-  get: fn(record) -> a,
+  key key: String,
+  node node: Node(a),
+  get get: fn(record) -> a,
 ) -> Property(record, a) {
   let root = root(node)
   Property(key, root, fn(mode, record) { root.encode(mode, get(record)) })
 }
 
 pub fn optional(
-  key: String,
-  node: Node(a),
-  get: fn(record) -> Option(a),
+  key key: String,
+  node node: Node(a),
+  get get: fn(record) -> Option(a),
 ) -> Property(record, Option(a)) {
   let root = optional_root(node)
   Property(key, root, fn(mode, record) { root.encode(mode, get(record)) })
 }
 
 pub fn identifier(
-  key: String,
-  get: fn(record) -> Identifier,
+  key key: String,
+  get get: fn(record) -> Identifier,
 ) -> Property(record, Identifier) {
   let node = string()
   let root =
@@ -175,8 +175,8 @@ pub fn property(property: Property(record, a)) -> ObjectProperty(record) {
 }
 
 pub fn read_property(
-  reader: ObjectReader(record),
-  property: Property(record, a),
+  reader reader: ObjectReader(record),
+  property property: Property(record, a),
 ) -> Result(a, TreeError) {
   use definition <- result.try(
     list.key_find(reader.properties, property.key)
@@ -205,10 +205,10 @@ fn decode_property(
 }
 
 pub fn object(
-  factory: Factory,
-  name: String,
-  properties: List(ObjectProperty(record)),
-  construct: fn(ObjectReader(record)) -> Result(record, TreeError),
+  factory factory: Factory,
+  name name: String,
+  properties properties: List(ObjectProperty(record)),
+  construct construct: fn(ObjectReader(record)) -> Result(record, TreeError),
 ) -> Node(record) {
   object_codec(factory, name, properties, fn(fields) {
     construct(ObjectReader(
@@ -271,7 +271,7 @@ fn object_codec(
   )
 }
 
-pub fn object0(factory: Factory, name: String) -> Node(Nil) {
+pub fn object0(factory factory: Factory, name name: String) -> Node(Nil) {
   object_codec(factory, name, [], fn(fields) {
     case fields {
       [] -> Ok(Nil)
@@ -533,9 +533,9 @@ pub opaque type Variant(sum) {
 }
 
 pub fn variant(
-  node: Node(a),
-  inject: fn(a) -> sum,
-  project: fn(sum) -> Option(a),
+  node node: Node(a),
+  inject inject: fn(a) -> sum,
+  project project: fn(sum) -> Option(a),
 ) -> Variant(sum) {
   Variant(
     node.identifiers,
@@ -551,7 +551,7 @@ pub fn variant(
   )
 }
 
-pub fn union(variants: List(Variant(sum))) -> Node(sum) {
+pub fn union(variants variants: List(Variant(sum))) -> Node(sum) {
   let identifiers = list.flat_map(variants, fn(v) { v.identifiers })
   let errors = case variants {
     [] -> [types.InvalidSchema("Union must have at least one variant")]
@@ -592,9 +592,9 @@ pub fn union(variants: List(Variant(sum))) -> Node(sum) {
 }
 
 pub fn lazy(
-  factory: Factory,
-  name: String,
-  resolve: fn() -> Node(a),
+  factory factory: Factory,
+  name name: String,
+  resolve resolve: fn() -> Node(a),
 ) -> Node(a) {
   let identifier = factory.scope <> "." <> name
   Node(
@@ -657,9 +657,9 @@ pub fn handle() -> Node(handle.Reference) {
 }
 
 pub fn array(
-  factory: Factory,
-  name: String,
-  element: Node(a),
+  factory factory: Factory,
+  name name: String,
+  element element: Node(a),
 ) -> Node(List(a)) {
   let identifier = factory.scope <> "." <> name
   Node(
@@ -689,9 +689,9 @@ pub fn array(
 }
 
 pub fn map(
-  factory: Factory,
-  name: String,
-  value: Node(a),
+  factory factory: Factory,
+  name name: String,
+  value value: Node(a),
 ) -> Node(Dict(String, a)) {
   let identifier = factory.scope <> "." <> name
   Node(
@@ -733,7 +733,7 @@ pub fn map(
   )
 }
 
-pub fn root(node: Node(a)) -> Root(a) {
+pub fn root(node node: Node(a)) -> Root(a) {
   Root(
     schema.FieldSchema(schema.Required, node.identifiers),
     node.definitions,
@@ -748,7 +748,7 @@ pub fn root(node: Node(a)) -> Root(a) {
   )
 }
 
-pub fn optional_root(node: Node(a)) -> Root(Option(a)) {
+pub fn optional_root(node node: Node(a)) -> Root(Option(a)) {
   Root(
     schema.FieldSchema(schema.Optional, node.identifiers),
     node.definitions,
