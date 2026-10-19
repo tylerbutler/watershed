@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>watershed · SharedTree project brief</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; }
+      #app { max-width: 46rem; margin: 2rem auto; padding: 1rem; }
+      fieldset { margin: 1rem 0; border: 1px solid #888; border-radius: .3rem; }
+      legend { font-weight: 700; }
+      .field { margin: .6rem 0; }
+      label { display: block; margin-bottom: .25rem; }
+      input[type=text] { box-sizing: border-box; width: 100%; font: inherit; padding: .4rem; }
+      .checkbox { display: flex; gap: .5rem; align-items: center; }
+      .checkbox label { margin: 0; }
+      button { margin: .4rem .5rem .4rem 0; padding: .4rem .7rem; }
+      [data-milestone-id] { border-top: 1px solid #888; margin-top: 1rem; padding-top: .25rem; }
+      [data-document-id] { overflow-wrap: anywhere; }
+      .selectors:empty { display: none; }
+      .field:has(.badge) input { outline: 2px solid #777; outline-offset: 2px; }
+      .badge { display: inline-block; border: 1px solid currentColor; padding: .1rem .4rem; margin: .25rem .3rem 0 0; border-radius: .3rem; }
+      .blue { color: light-dark(#174f9c, #95c3ff); }
+      .green { color: light-dark(#176336, #8ce0a9); }
+      .amber { color: light-dark(#795300, #ffd476); }
+      .violet { color: light-dark(#6d329c, #d5aeff); }
+      :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+      [data-error] { color: light-dark(#a51a32, #ff9fae); }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import { main } from "./dist/shared_tree_project_brief_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

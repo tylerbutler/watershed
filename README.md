@@ -762,6 +762,12 @@ one transaction and undo step, clears invalidated history, and releases its
 subscriptions and handles on close. Reload restores committed data but not the
 page-local history stacks.
 
+The [live project brief](examples/shared_tree_project_brief_lustre) adds a
+nested owner and schedule, an optional review, and milestone rows keyed by
+immutable IDs. Native inputs publish individual property assignments while
+Ripple presence shows advisory field selections without editing the tree.
+It uses the same local development service and authentication limitations.
+
 ### Declare an initial container layout
 
 Start with `container.layout()` and declare additions to the standard bootstrap.
