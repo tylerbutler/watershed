@@ -432,12 +432,12 @@ fn build_connect_message(
 /// Obtain a token for that ID, then call `connect`. This call does not retry.
 pub fn create_tree_container(
   config: container.CreateConfig,
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
   initial: a,
 ) -> Promise(Result(String, tree_error.Error)) {
   create_tree_container_with_layout(
     config,
-    compiled,
+    declaration,
     initial,
     container.layout(),
   )
@@ -447,6 +447,21 @@ pub fn create_tree_container(
 /// Create a persisted container with declared initial stores and channels.
 /// Creation does not open a runtime or retry an uncertain response.
 pub fn create_tree_container_with_layout(
+  config: container.CreateConfig,
+  declaration: tree_builder.Root(a),
+  initial: a,
+  layout: container.Layout,
+) -> Promise(Result(String, tree_error.Error)) {
+  case tree_builder.compile(declaration) {
+    Error(reason) -> promise.resolve(Error(tree_error.InvalidSchema(reason)))
+    Ok(compiled) ->
+      create_tree_container_from_compiled(config, compiled, initial, layout)
+  }
+}
+
+@target(javascript)
+@internal
+pub fn create_tree_container_from_compiled(
   config: container.CreateConfig,
   compiled: tree_builder.Compiled(a),
   initial: a,
@@ -474,9 +489,13 @@ pub fn with_initial_tree(
   layout: container.Layout,
   store: String,
   channel: String,
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
   initial: a,
 ) -> Result(container.Layout, tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   use root <- result.try(
     tree_builder.encode_new(compiled, initial)
     |> result.map_error(tree_error.InvalidValue),
@@ -625,9 +644,13 @@ pub fn create_map_in(
 /// Create a detached tree in the bootstrap datastore.
 pub fn create_tree(
   document: Document(root),
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
   initial: a,
 ) -> Result(tree_live.Tree(a), tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   runtime.create_live_tree(document.runtime, None, compiled, initial)
 }
 
@@ -636,13 +659,17 @@ pub fn create_tree(
 pub fn create_tree_in(
   document: Document(root),
   store: DataStore,
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
   initial: a,
 ) -> Result(tree_live.Tree(a), tree_error.Error) {
   use _ <- result.try(case document.runtime == store.runtime {
     True -> Ok(Nil)
     False -> Error(tree_error.ForeignOrigin)
   })
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   runtime.create_live_tree(document.runtime, Some(store.id), compiled, initial)
 }
 
@@ -651,8 +678,12 @@ pub fn create_tree_in(
 /// This call does not initialize content or upgrade the stored schema.
 pub fn open_tree(
   document: Document(root),
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
 ) -> Result(tree_live.Tree(a), tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   runtime.open_live_tree(document.runtime, None, compiled, False)
 }
 
@@ -662,18 +693,26 @@ pub fn open_tree(
 pub fn inspect_tree(
   document: Document(root),
   marker: Json,
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
 ) -> Result(tree_live.Tree(a), tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   runtime.open_live_tree(document.runtime, Some(marker), compiled, True)
 }
 
 @target(javascript)
-/// Open a checked tree route with a compatible compiled declaration.
+/// Open a checked tree route with a compatible declaration.
 pub fn resolve_tree(
   document: Document(root),
   marker: Json,
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
 ) -> Result(tree_live.Tree(a), tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   runtime.open_live_tree(document.runtime, Some(marker), compiled, False)
 }
 
@@ -1040,8 +1079,12 @@ pub fn resolve_tree_field(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TreeChannel),
-  compiled: tree_builder.Compiled(a),
+  declaration: tree_builder.Root(a),
 ) -> Result(Option(tree_live.Tree(a)), tree_error.Error) {
+  use compiled <- result.try(
+    tree_builder.compile(declaration)
+    |> result.map_error(tree_error.InvalidSchema),
+  )
   case get(typed_map.map, schema.channel_field_key(field)) {
     Error(Nil) -> Ok(None)
     Ok(value) ->

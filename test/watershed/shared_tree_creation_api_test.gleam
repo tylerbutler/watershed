@@ -53,6 +53,51 @@ fn stored() -> schema.StoredSchema {
   stored
 }
 
+fn invalid_declaration() -> builder.Root(List(String)) {
+  builder.array(builder.factory(""), "Items", builder.string())
+  |> builder.root
+}
+
+@target(erlang)
+pub fn tree_api_rejects_invalid_declaration_before_network_test() {
+  let declaration = invalid_declaration()
+  let expected =
+    error.InvalidSchema(types.InvalidSchema(
+      "Schema scope and name must not be empty",
+    ))
+  watershed_beam.create_tree_container(
+    container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
+    declaration,
+    [],
+  )
+  |> expect.to_equal(Error(expected))
+  watershed_beam.with_initial_tree(
+    container.layout(),
+    "B",
+    "items",
+    declaration,
+    [],
+  )
+  |> expect.to_equal(Error(expected))
+}
+
+@target(javascript)
+pub fn check_invalid_declaration_api() -> Promise(Nil) {
+  let declaration = invalid_declaration()
+  let expected =
+    error.InvalidSchema(types.InvalidSchema(
+      "Schema scope and name must not be empty",
+    ))
+  watershed.with_initial_tree(container.layout(), "B", "items", declaration, [])
+  |> expect.to_equal(Error(expected))
+  watershed.create_tree_container(
+    container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
+    declaration,
+    [],
+  )
+  |> promise.map(fn(outcome) { outcome |> expect.to_equal(Error(expected)) })
+}
+
 @target(javascript)
 pub fn native_created_tree_supports_revertible_facade_test() {
   let stored = stored()
@@ -106,15 +151,14 @@ pub fn native_created_tree_supports_revertible_facade_test() {
     )
       |> json.to_string,
   )
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let assert Error(error.InvalidSchema(_)) =
+    watershed.open_tree(document, invalid_declaration())
+  let assert Error(error.InvalidSchema(_)) =
+    watershed.create_tree(document, invalid_declaration(), [])
   let tree =
-    runtime.open_live_tree(
-      watershed.runtime_of(document),
-      None,
-      compiled,
-      False,
-    )
+    watershed.open_tree(document, builder.string() |> builder.root)
     |> expect.to_be_ok()
+  tree.read_root(tree) |> expect.to_equal(Ok("initial"))
   let handle = transport_js.new_cell(None)
   let token =
     tree.subscribe_commits(tree, fn(event) {
@@ -191,15 +235,14 @@ pub fn native_created_tree_supports_beam_revertible_facade_test() {
       presence_v1: False,
     ),
   )
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let assert Error(error.InvalidSchema(_)) =
+    watershed_beam.open_tree(document, invalid_declaration())
+  let assert Error(error.InvalidSchema(_)) =
+    watershed_beam.create_tree(document, invalid_declaration(), [])
   let tree =
-    runtime_beam.open_live_tree(
-      watershed_beam.runtime_subject(document),
-      None,
-      compiled,
-      False,
-    )
+    watershed_beam.open_tree(document, builder.string() |> builder.root)
     |> expect.to_be_ok()
+  tree.read_root(tree) |> expect.to_equal(Ok("initial"))
   let token =
     tree.subscribe_commits(tree, fn(event) {
       event.local |> expect.to_equal(True)
@@ -232,11 +275,11 @@ pub fn shared_tree_creation_checks_initial_value_before_network_test() -> Nil {
 
 @target(erlang)
 pub fn shared_tree_creation_typed_layout_checks_graph_before_network_test() {
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let declaration = builder.string() |> builder.root
   let layout =
     container.layout()
     |> container.with_data_store("B", Some("public"))
-    |> watershed_beam.with_initial_tree("B", "items", compiled, "secondary")
+    |> watershed_beam.with_initial_tree("B", "items", declaration, "secondary")
     |> expect.to_be_ok()
     |> container.with_binding("A", "root", "other", "B", "root")
     |> container.with_data_store("B", None)
@@ -246,7 +289,7 @@ pub fn shared_tree_creation_typed_layout_checks_graph_before_network_test() {
   )))) =
     watershed_beam.create_tree_container_with_layout(
       container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-      compiled,
+      declaration,
       "secondary",
       layout,
     )
@@ -256,17 +299,17 @@ pub fn shared_tree_creation_typed_layout_checks_graph_before_network_test() {
 
 @target(javascript)
 pub fn check_declared_layout_api() -> Promise(Nil) {
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let declaration = builder.string() |> builder.root
   let layout =
     container.layout()
     |> container.with_data_store("B", Some("public"))
-    |> watershed.with_initial_tree("B", "items", compiled, "secondary")
+    |> watershed.with_initial_tree("B", "items", declaration, "secondary")
     |> expect.to_be_ok()
     |> container.with_binding("A", "root", "other", "B", "root")
     |> container.with_data_store("B", None)
   watershed.create_tree_container_with_layout(
     container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-    compiled,
+    declaration,
     "secondary",
     layout,
   )
@@ -285,28 +328,26 @@ type Initial {
   Unsupported
 }
 
-fn partial_schema() -> builder.Compiled(Initial) {
-  let assert Ok(compiled) =
-    builder.union([
-      builder.variant(builder.string(), Text, fn(value) {
-        case value {
-          Text(text) -> Some(text)
-          Unsupported -> None
-        }
-      }),
-    ])
-    |> builder.root
-    |> builder.compile
-  compiled
+fn partial_schema() -> builder.Root(Initial) {
+  builder.union([
+    builder.variant(builder.string(), Text, fn(value) {
+      case value {
+        Text(text) -> Some(text)
+        Unsupported -> None
+      }
+    }),
+  ])
+  |> builder.root
 }
 
 @target(erlang)
 pub fn tree_api_creation_preserves_invalid_value_before_network_test() {
-  let compiled = partial_schema()
+  let declaration = partial_schema()
+  let assert Ok(compiled) = builder.compile(declaration)
   let assert Error(original) = builder.encode_new(compiled, Unsupported)
   watershed_beam.create_tree_container(
     container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-    compiled,
+    declaration,
     Unsupported,
   )
   |> expect.to_equal(Error(error.InvalidValue(original)))
@@ -314,14 +355,14 @@ pub fn tree_api_creation_preserves_invalid_value_before_network_test() {
 
 @target(erlang)
 pub fn tree_api_creation_preserves_nested_storage_failure_test() {
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let declaration = builder.string() |> builder.root
   let assert Error(error.CreationFailed(container.StorageFailed(git_storage.RequestFailed(
     url,
     detail,
   )))) =
     watershed_beam.create_tree_container(
       container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
-      compiled,
+      declaration,
       "Created",
     )
   string.contains(url, "/documents/tenant") |> expect.to_be_true
@@ -333,17 +374,18 @@ pub fn check_creation_error_payloads() -> Promise(Nil) {
   let config =
     container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret")
   let partial = partial_schema()
-  let assert Error(original) = builder.encode_new(partial, Unsupported)
+  let assert Ok(compiled) = builder.compile(partial)
+  let assert Error(original) = builder.encode_new(compiled, Unsupported)
   use invalid <- promise.await(watershed.create_tree_container(
     config,
     partial,
     Unsupported,
   ))
   invalid |> expect.to_equal(Error(error.InvalidValue(original)))
-  let assert Ok(compiled) = builder.string() |> builder.root |> builder.compile
+  let declaration = builder.string() |> builder.root
   use outcome <- promise.await(watershed.create_tree_container(
     config,
-    compiled,
+    declaration,
     "Created",
   ))
   let assert Error(error.CreationFailed(container.StorageFailed(git_storage.RequestFailed(

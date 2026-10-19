@@ -24,10 +24,10 @@ fn object() {
 
 fn create(
   document: facade.Document(root),
-  compiled: builder.Compiled(a),
+  declaration: builder.Root(a),
   initial: a,
 ) -> Result(tree.Tree(a), error.Error) {
-  facade.create_tree(document, compiled, initial)
+  facade.create_tree(document, declaration, initial)
 }
 
 @target(javascript)
@@ -174,7 +174,7 @@ pub fn tree_api_declared_references_reject_foreign_checkouts_channels_and_docume
   |> expect.to_equal(Error(error.ForeignOrigin))
   tree.dispose(branch) |> expect.to_equal(Ok(Nil))
   let assert Ok(other) =
-    create(document, compiled(fixture.node()), fixture.initial())
+    create(document, builder.root(fixture.node()), fixture.initial())
   let assert Ok(other_root) = tree.required_root(other)
   let assert Ok(other_array) = tree.child(other_root, fixture.items())
   let assert Ok(Some(other_item)) = tree.array_node(other_array, 0)
@@ -217,7 +217,7 @@ pub fn tree_api_declared_leaf_and_map_roots_need_no_native_adapters_test() {
   let node =
     builder.map(builder.factory("typed.test"), "Entries", builder.string())
   let assert Ok(handle) =
-    create(document, compiled(node), dict.from_list([#("first", "value")]))
+    create(document, builder.root(node), dict.from_list([#("first", "value")]))
   let assert Ok(entries) = tree.required_root(handle)
   tree.map_get(entries, "first") |> expect.to_equal(Ok(Some("value")))
   tree.map_set(entries, "second", "other") |> expect.to_equal(Ok(Nil))

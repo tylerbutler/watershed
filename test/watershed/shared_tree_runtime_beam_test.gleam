@@ -4897,7 +4897,7 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
     document,
     typed,
     schema.channel_field("tree"),
-    compiled,
+    live_fixture.card_schema().node |> builder.root,
   )
   |> result.map(fn(value) { option.map(value, tree_api.handle_of) })
   |> expect.to_equal(Ok(Some(marker)))
@@ -4905,7 +4905,7 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
     document,
     typed,
     schema.channel_field("absent-tree"),
-    compiled,
+    live_fixture.card_schema().node |> builder.root,
   )
   |> expect.to_equal(Ok(None))
   let assert Ok(opened) =

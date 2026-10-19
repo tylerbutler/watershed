@@ -34,15 +34,15 @@ pub fn tree_api_reads_and_edits_with_one_handle_test() {
 
 pub fn tree_api_typed_channel_fields_return_canonical_handles_test() {
   let #(document, original, definition) = card()
-  let assert Ok(compiled) = definition.node |> builder.root |> builder.compile
+  let declaration = definition.node |> builder.root
   let assert Ok(root) = facade.resolve_root(document)
   let fields = facade.typed(root)
   let field = schema.channel_field("other-tree")
-  facade.resolve_tree_field(document, fields, field, compiled)
+  facade.resolve_tree_field(document, fields, field, declaration)
   |> expect.to_equal(Ok(None))
   facade.set_tree_field(fields, field, original)
   let assert Ok(Some(opened)) =
-    facade.resolve_tree_field(document, fields, field, compiled)
+    facade.resolve_tree_field(document, fields, field, declaration)
   tree.handle_of(opened)
   |> json.to_string
   |> expect.to_equal(tree.handle_of(original) |> json.to_string)
@@ -58,8 +58,7 @@ pub fn tree_api_typed_channel_fields_return_canonical_handles_test() {
   |> expect.to_equal(
     Ok(fixture.Card(builder.Assigned("original"), "From field")),
   )
-  let assert Ok(incompatible) =
-    builder.string() |> builder.root |> builder.compile
+  let incompatible = builder.string() |> builder.root
   facade.resolve_tree_field(document, fields, field, incompatible)
   |> expect.to_equal(Error(error.IncompatibleView))
   facade.set(root, "not-a-tree", facade.handle_of(root))
@@ -68,7 +67,7 @@ pub fn tree_api_typed_channel_fields_return_canonical_handles_test() {
       document,
       fields,
       schema.channel_field("not-a-tree"),
-      compiled,
+      declaration,
     )
   facade.close(document)
 }
