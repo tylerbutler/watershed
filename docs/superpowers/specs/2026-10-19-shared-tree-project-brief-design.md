@@ -14,6 +14,10 @@ surface while another field is being edited, plus field-selection awareness
 through signals/ripples. Selection is advisory; simultaneous same-field editing
 is allowed.
 
+During planning, the user also approved an array of milestone objects nested
+under schedule. Arrays support the object-centered demonstration rather than
+replacing it with another top-level list.
+
 ## Deliverables and boundaries
 
 - A Gleam/Lustre app under `examples/shared_tree_project_brief_lustre/`.
@@ -46,6 +50,10 @@ ProjectBrief
   schedule: Schedule
     start: string
     target: string
+    milestones: Milestone[]
+      id: string
+      title: string
+      completed: boolean
   review?: Review
     reviewer: string
     approved: boolean
@@ -53,24 +61,35 @@ ProjectBrief
 
 Declare equivalent named object types and field optionality in both SDKs.
 Watershed uses ordinary Gleam records, `Option(Review)`, and the existing typed
-schema builder. Fluid uses its public object-schema APIs. No array is needed.
+schema builder. Fluid uses its public object-schema APIs. Milestones are the
+only array in the schema.
 
 Provide the same initial brief in both apps, with meaningful populated owner
 and schedule fields and no review. Dates are plain string properties, not a
 date-validation demonstration. Text fields must accept intermediate values
 while typing; do not use native email/date validation to block publication.
-Adding review inserts an object with an empty reviewer and `approved = false`.
+Start with two named, incomplete milestones. Each inserted milestone receives
+a fresh UUID in its immutable application `id` field. Validate uniqueness on
+construction/read and never reuse IDs. Adding review inserts an object with
+an empty reviewer and `approved = false`.
 Removing review clears the optional property.
 
 Property edits must target the existing object's property. Do not encode and
 replace the whole brief, owner, or schedule to update one leaf. Review
 creation/removal deliberately demonstrates changing tree structure.
 
+The milestone array supports append, remove, live title edits, and completion
+toggles. Do not add reordering controls. Use node references for edits/removal
+and stable milestone IDs for keyed rendering and presence. Never capture an
+array index as the identity of a later action. An edit to one milestone and
+an insertion/removal of a different milestone must both survive.
+
 ## Surface and editing behavior
 
 Both apps present the same compact form, grouped as brief, owner, schedule,
 and optional review. Use text inputs for string properties and a checkbox for
-approval. Include Add review, Remove review, connection state, local session
+approval and milestone completion. Include Add milestone, per-milestone Remove,
+Add review, Remove review, connection state, local session
 identity, and a visible error area. Do not add Apply or Save buttons.
 
 Publish each ordinary input change to its corresponding tree property.
@@ -117,6 +136,11 @@ Each session advertises a display name, color, and optional field selection.
 Use an enumerated set of field identifiers such as `owner.name` and
 `schedule.target`; reject unrecognized fields. A session is a tab, not a user:
 two tabs belonging to one user must remain independently visible.
+
+Milestone targets contain the milestone ID and either `title` or `completed`.
+They do not contain an array index. Removing a milestone clears its local and
+remote selections; no badge can move to a surviving neighbor. Ignore presence
+for milestone IDs not present in the current document.
 
 Focus announces selection immediately. Moving focus announces the new field;
 leaving the form announces no selection. Apply the same rule to the approval
@@ -178,6 +202,7 @@ presented as production authentication.
 Follow the existing side-by-side comparison structure, with sections for:
 
 - Nested object schema and the optional review.
+- The milestone array inside schedule, including stable node-targeted edits.
 - Creation, opening, and resource lifetime.
 - Live observation: Fluid's live view versus watershed's typed snapshots.
 - Property edits through object identity rather than parent replacement.
@@ -230,6 +255,12 @@ Use event/state conditions and bounded waits, not sleeps that assume delivery.
    edits are confirmed delivered and recover content, not old presence.
 9. Verify visible connection/error states and close behavior, including no
    editing after close and no late callback reopening the view.
+10. Focus a milestone title in A, then remove a preceding milestone in B.
+    Verify A's field, caret, and remote selection badge remain attached to the
+    same milestone ID. Append a milestone while another client edits an
+    existing milestone; verify both changes survive. Remove the selected
+    milestone and verify its controls and badges disappear and a retained
+    stale action cannot edit another item.
 
 Use focused pure tests for selection-state transitions, invalid messages,
 expiry, stale review selections, and any extracted input-reconciliation logic.
@@ -244,7 +275,7 @@ example/test entry points.
 
 ## Non-goals
 
-No list editing, rich text, character cursors, locking, undo/redo, schema
+No array reordering, rich text, character cursors, locking, undo/redo, schema
 evolution, offline authoring, persistent presence, production authentication,
 or arbitrary form generation. The example demonstrates nested object edits
 and live awareness; it is not a promise of application-level validation or
