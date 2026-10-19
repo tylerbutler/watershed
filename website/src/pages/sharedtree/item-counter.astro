@@ -51,9 +51,10 @@ const fluidSource =
       <p>
         In Gleam, one <code>Root(List(String))</code> declaration configures
         creation and opening of a <code>Tree(List(String))</code>.
-        Reads give you ordinary list snapshots; edits go through a
+        Reads return immutable Gleam lists containing the array's values at
+        the time of the read. List operations produce new local lists. To
+        change the shared array, call the tree's edit API with a
         <code>Ref(List(String))</code> that identifies the array in the tree.
-        Changing a snapshot won't change the shared document.
       </p>
       <p class="provenance">
         Fluid source is an MIT-licensed snapshot from{" "}
@@ -95,11 +96,13 @@ const fluidSource =
         as opening each other's documents.
       </p>
       <p>
-        The Gleam list is a snapshot, not a live Fluid node. The typed reference
-        gives you access to the shared array, but reads and edits can fail.
-        The example handles those failures through
-        <code>watershed/tree/error.Error</code> rather than treating a missing
-        or unreadable root as an empty list.
+        When another client edits the array, an existing Gleam list stays
+        unchanged. The example subscribes to changes and receives a new list
+        for each successful update. Reads and edits return a
+        <code>Result</code>. A read of <code>Ok([])</code> means the array is
+        empty; <code>Error(detail)</code> means the operation failed. The example
+        displays errors from <code>watershed/tree/error.Error</code> instead
+        of showing a failed read as a count of zero.
       </p>
       <p>
         And despite the name, this isn't a numeric counter DDS. The displayed
