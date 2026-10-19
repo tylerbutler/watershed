@@ -39,3 +39,7 @@ export function restoreSelection(id, start, end) {
   if (element.selectionStart === start && element.selectionEnd === end) return;
   element.setSelectionRange(start, end);
 }
+
+export function queueMicrotask(action) {
+  globalThis.queueMicrotask(action);
+}

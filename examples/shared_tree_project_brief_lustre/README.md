@@ -40,8 +40,9 @@ remote selectors, including checkbox selectors. Awareness uses the existing
 Ripple presence driver, with its two-second heartbeat and 6.5-second expiry
 window; it never changes the durable tree. A late joiner sees existing
 selections on a heartbeat. Disconnect disables durable edits and clears
-visible peers; reconnect rebuilds awareness with a fresh driver while retaining
-invalidated-selection watermarks.
+visible peers and cancels local composition without writing its unfinished
+text. Reconnect keeps the initialized driver but only displays freshly observed
+remote announcements, while retaining invalidated-selection watermarks.
 
 **Close** stops presence, unsubscribes, and closes the document. Reload to
 reopen its URL. Closing does not confirm that pending edits reached the
@@ -64,11 +65,14 @@ UI and the real two-client browser gate are separate tasks.
 ## Checks
 
 ```sh
-gleam test --target javascript
+pnpm test
 pnpm build
 ```
 
 The suite covers schema reads, captured-node edits, selection policy, and the
-local input/composition policy without a server. Repository `just build` and
-`just test` discover this package through Trellis; no manual workspace list is
-needed. Real Chromium/two-service acceptance is not implied by these checks.
+local input/composition policy without a server. App-level runtime regressions
+also check driver startup, fresh reconnect awareness and expiry, composition
+cleanup and rendered value bindings, and review replacement between captures.
+Run `pnpm test` for both suites. Repository `just build` and `just test`
+discover the Gleam package through Trellis; no manual workspace list is needed.
+Real Chromium/two-service acceptance is not implied by these checks.

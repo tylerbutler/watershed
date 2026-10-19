@@ -22,6 +22,19 @@ pub type Fixture {
 }
 
 pub fn new(initial: brief.ProjectBrief) -> Fixture {
+  let #(document, callbacks, _) = pending(initial)
+  handshake(callbacks, "reader")
+  let assert Ok(tree) = watershed.open_tree(document, schema.configuration())
+  Fixture(document:, tree:)
+}
+
+pub fn pending(
+  initial: brief.ProjectBrief,
+) -> #(
+  watershed.Document(Nil),
+  runtime.TransportCallbacks,
+  transport_js.Cell(List(#(String, String))),
+) {
   let declaration = schema.configuration()
   let assert Ok(compiled) = builder.compile(declaration)
   let assert Ok(encoded) = builder.encode_new(compiled, initial)
@@ -38,6 +51,7 @@ pub fn new(initial: brief.ProjectBrief) -> Fixture {
     )
   let assert Ok(seed) = runtime_core.document_seed(summary)
   let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
   let document =
     watershed.connect_via_seed(
       tenant: "default",
@@ -47,7 +61,12 @@ pub fn new(initial: brief.ProjectBrief) -> Fixture {
       transport: runtime.Transport(connect: fn(handlers) {
         transport_js.set_cell(callbacks, Some(handlers))
         runtime.TransportHandle(
-          push: fn(_, _) { Nil },
+          push: fn(event, payload) {
+            transport_js.set_cell(submissions, [
+              #(event, stringify(payload)),
+              ..transport_js.get_cell(submissions)
+            ])
+          },
           close: fn() { Nil },
           drop: fn() { Nil },
           hold: fn() { Nil },
@@ -57,21 +76,34 @@ pub fn new(initial: brief.ProjectBrief) -> Fixture {
       on_ready: fn(_) { Nil },
     )
   let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  #(document, callbacks, submissions)
+}
+
+pub fn handshake(
+  callbacks: runtime.TransportCallbacks,
+  session: String,
+) -> Nil {
+  handshake_at(callbacks, session, 0)
+}
+
+pub fn handshake_at(
+  callbacks: runtime.TransportCallbacks,
+  session: String,
+  checkpoint: Int,
+) -> Nil {
   callbacks.on_event(
     "connect_document_success",
     frame.encode_connected(
-      client_id: "reader",
+      client_id: session,
       tenant_id: "default",
       document_id: "project-brief",
       scopes: ["doc:read", "doc:write"],
-      checkpoint_sequence_number: 0,
-      initial_clients: ["reader"],
+      checkpoint_sequence_number: checkpoint,
+      initial_clients: [session],
       initial_messages: [],
       timestamp: 0,
       presence_v1: False,
     )
       |> stringify,
   )
-  let assert Ok(tree) = watershed.open_tree(document, declaration)
-  Fixture(document:, tree:)
 }

@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -26,7 +27,8 @@ import watershed/tree/error as tree_error
 import watershed_lustre
 import watershed_lustre/tree
 
-type Model {
+@internal
+pub type Model {
   Model(
     status: String,
     connection: String,
@@ -39,23 +41,25 @@ type Model {
     inputs: Dict(String, input.Input),
     metadata: s.Metadata,
     policy: s.Policy,
+    fresh: Dict(String, presence.PresenceEntry(s.Metadata)),
     presence: Option(presence_js.Handle(s.Metadata)),
     generation: Int,
-    presence_starting: Bool,
     change_count: Int,
     pending: Int,
     errors: List(String),
   )
 }
 
-type InputEvent {
+@internal
+pub type InputEvent {
   Changed(String, Int, Int)
   CompositionStarted
   CompositionEnded(String, Int, Int)
   Selected(Int, Int)
 }
 
-type Msg {
+@internal
+pub type Msg {
   Created(Result(String, tree_error.Error))
   GotDocument(watershed.Document(Nil))
   Connected(Result(Nil, String))
@@ -69,6 +73,7 @@ type Msg {
   Focus(Option(s.Field))
   PresenceStarted(Int, presence_js.Handle(s.Metadata))
   PresenceEvent(Int, presence.Event(s.Metadata))
+  PresenceObserved(Option(String), watershed.Ripple)
   Poll
   Close
 }
@@ -87,6 +92,9 @@ fn replace_document(document_id: String) -> Nil
 
 @external(javascript, "./shared_tree_project_brief_lustre_ffi.mjs", "restoreSelection")
 fn restore_selection(element_id: String, start: Int, end: Int) -> Nil
+
+@external(javascript, "./shared_tree_project_brief_lustre_ffi.mjs", "queueMicrotask")
+fn queue_microtask(action: fn() -> Nil) -> Nil
 
 pub fn main() -> Nil {
   let assert Ok(_) =
@@ -113,9 +121,9 @@ fn init(_: Nil) -> #(Model, Effect(Msg)) {
       inputs: dict.new(),
       metadata: s.Metadata(query_parameter("name", "Editor"), s.Blue, 0, None),
       policy: s.new(),
+      fresh: dict.new(),
       presence: None,
       generation: 0,
-      presence_starting: False,
       change_count: 0,
       pending: 0,
       errors: [],
@@ -146,7 +154,8 @@ fn connect(document_id: String) -> Effect(Msg) {
   )
 }
 
-fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
+@internal
+pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case model.status, message {
     "closed", Created(Ok(document_id)) -> {
       replace_document(document_id)
@@ -193,10 +202,23 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         "Creation failed. The document might exist. Do not retry automatically: "
           <> tree_error.to_string(error),
       )
-    GotDocument(document) -> #(
-      Model(..model, document: Some(document)),
-      watershed_lustre.after(250, Poll),
-    )
+    GotDocument(document) -> {
+      let next = Model(..model, document: Some(document))
+      #(
+        next,
+        effect.batch([
+          observe_presence(document),
+          watershed_lustre.presence(
+            document:,
+            config: s.config(),
+            initial: next.metadata,
+            started: fn(handle) { PresenceStarted(next.generation, handle) },
+            on_event: fn(event) { PresenceEvent(next.generation, event) },
+          ),
+          watershed_lustre.after(250, Poll),
+        ]),
+      )
+    }
     Connected(Error(detail)) -> fatal(model, detail)
     Connected(Ok(_)) ->
       case model.document {
@@ -217,17 +239,34 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     TreeChanged -> capture(Model(..model, change_count: model.change_count + 1))
     Captured(Error(error)) -> fatal(model, tree_error.to_string(error))
     Captured(Ok(rendered)) -> {
+      // A replacement can arrive without a capture of the absent review.
+      let review_removed = case model.rendered {
+        Some(previous) ->
+          case previous.review {
+            Some(node) -> shared_tree.status(node) != Ok(tree_error.Attached)
+            None -> False
+          }
+        None -> False
+      }
+      let selection_value = case review_removed {
+        True -> brief.ProjectBrief(..rendered.value, review: None)
+        False -> rendered.value
+      }
       let inputs =
         list.fold(string_values(rendered.value), dict.new(), fn(inputs, pair) {
           let #(field, value) = pair
           let key = s.field_key(field)
-          let local =
-            dict.get(model.inputs, key) |> result.unwrap(input.new(value))
+          let local = case review_removed, field {
+            True, s.Fixed(s.ReviewReviewer) -> input.new(value)
+            _, _ ->
+              dict.get(model.inputs, key) |> result.unwrap(input.new(value))
+          }
           dict.insert(inputs, key, input.remote(local, value))
         })
-      let metadata = s.reconcile_local(model.metadata, rendered.value)
+      let metadata = s.reconcile_local(model.metadata, selection_value)
       let policy =
-        s.reconcile(model.policy, s.peers(model.policy), rendered.value)
+        s.reconcile(model.policy, s.peers(model.policy), selection_value)
+      let policy = s.reconcile(policy, s.peers(policy), rendered.value)
       let next =
         Model(
           ..model,
@@ -257,7 +296,8 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       }
       #(next, effect.batch([caret, announce(next)]))
     }
-    Input(field, write, input_event) ->
+    Input(field, write, input_event) -> {
+      let model = connection_state(model)
       case editable(model), dict.get(model.inputs, s.field_key(field)) {
         True, Ok(local) -> {
           let transition = case input_event {
@@ -284,13 +324,20 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
             Some(value) -> perform(next, fn() { write(value) })
           }
         }
+        False, Ok(_) -> #(
+          Model(..model, inputs: cancel_inputs(model)),
+          effect.none(),
+        )
         _, _ -> #(model, effect.none())
       }
-    Action(operation) ->
+    }
+    Action(operation) -> {
+      let model = connection_state(model)
       case editable(model) {
         True -> perform(model, operation)
         False -> #(model, effect.none())
       }
+    }
     Edited(outcome) -> {
       let model = Model(..model, pending: int.max(0, model.pending - 1))
       case outcome {
@@ -306,39 +353,81 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       #(model, announce(model))
     }
     PresenceStarted(generation, handle) ->
-      case generation == model.generation && model.connection == "ready" {
+      case generation == model.generation {
         False -> #(model, watershed_lustre.stop_presence(handle))
         True -> {
-          let next =
-            Model(..model, presence: Some(handle), presence_starting: False)
+          let next = Model(..model, presence: Some(handle))
           #(next, announce(next))
         }
       }
-    PresenceEvent(generation, event) ->
+    PresenceEvent(generation, event) -> {
+      let model = connection_state(model)
+      case generation == model.generation, event, model.rendered {
+        True, presence.Failed(error), _ ->
+          problem(model, "Presence failed: " <> string.inspect(error))
+        True, presence.State(entries), Some(rendered)
+        | True, presence.Changed(_, entries), Some(rendered)
+          if model.connection == "ready"
+        -> {
+          let entries =
+            presence.remote_entries(entries, option.unwrap(model.session, ""))
+            |> list.filter(fn(peer) {
+              dict.has_key(model.fresh, peer.session_id)
+            })
+          let fresh =
+            list.fold(entries, dict.new(), fn(fresh, peer) {
+              dict.insert(fresh, peer.session_id, peer)
+            })
+          #(
+            Model(
+              ..model,
+              fresh:,
+              policy: s.reconcile(model.policy, entries, rendered.value),
+            ),
+            effect.none(),
+          )
+        }
+        _, _, _ -> #(model, effect.none())
+      }
+    }
+    PresenceObserved(session, ripple) -> {
+      let model = connection_state(model)
       case
-        generation == model.generation && model.connection == "ready",
-        event,
+        model.connection == "ready" && session == model.session,
+        watershed.ripple_client_id(ripple),
+        json.parse(
+          json.to_string(watershed.ripple_content(ripple)),
+          presence.ripple_decoder(s.decoder()),
+        ),
         model.rendered,
         model.presence
       {
-        True, presence.Failed(error), _, _ ->
-          problem(model, "Presence failed: " <> string.inspect(error))
-        True, _, Some(rendered), Some(handle) ->
-          case presence_js.local_session(handle) == model.session {
-            False -> #(model, effect.none())
+        True, Some(id), Ok(#(key, metadata)), Some(rendered), Some(handle)
+          if Some(id) != model.session
+        -> {
+          case presence_js.local_session(handle) == session {
             True -> {
-              let local = presence_js.local_session(handle) |> option.unwrap("")
+              let peer = presence.PresenceEntry(id, key, metadata)
+              let fresh = dict.insert(model.fresh, id, peer)
               #(
                 Model(
                   ..model,
-                  policy: s.on_event(model.policy, event, rendered.value, local),
+                  fresh:,
+                  policy: s.reconcile(
+                    model.policy,
+                    dict.values(fresh),
+                    rendered.value,
+                  ),
                 ),
                 effect.none(),
               )
             }
+            False -> #(model, effect.none())
           }
-        _, _, _, _ -> #(model, effect.none())
+        }
+        _, _, _, _, _ -> #(model, effect.none())
       }
+    }
     Poll -> poll(model)
     Close -> {
       let unsubscribe = case model.subscription {
@@ -359,6 +448,8 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           tree: None,
           subscription: None,
           presence: None,
+          fresh: dict.new(),
+          inputs: cancel_inputs(model),
           generation: model.generation + 1,
           policy: clear_peers(model),
           metadata: s.focus(model.metadata, None),
@@ -377,60 +468,67 @@ fn clear_peers(model: Model) -> s.Policy {
 }
 
 fn poll(model: Model) -> #(Model, Effect(Msg)) {
+  let next = connection_state(model)
+  #(next, case next.document {
+    Some(_) -> watershed_lustre.after(250, Poll)
+    None -> effect.none()
+  })
+}
+
+fn connection_state(model: Model) -> Model {
   case model.document {
-    None -> #(model, effect.none())
+    None -> model
     Some(document) -> {
       let diagnostics = watershed.diagnostics(document)
       let phase = diagnostics.phase
       let online = phase == "ready"
-      let lost =
-        model.connection == "ready"
-        && { !online || diagnostics.client_id != model.session }
-      let next = case lost {
+      let lost = !online || diagnostics.client_id != model.session
+      case lost {
         True ->
           Model(
             ..model,
             connection: phase,
             session: diagnostics.client_id,
-            presence: None,
-            presence_starting: False,
-            generation: model.generation + 1,
             policy: clear_peers(model),
+            fresh: dict.new(),
+            inputs: cancel_inputs(model),
           )
         False ->
           Model(..model, connection: phase, session: diagnostics.client_id)
       }
-      let #(next, start) = case
-        online,
-        next.presence,
-        next.presence_starting,
-        next.rendered
-      {
-        True, None, False, Some(_) -> #(
-          Model(..next, presence_starting: True),
-          watershed_lustre.presence(
-            document:,
-            config: s.config(),
-            initial: next.metadata,
-            started: fn(handle) { PresenceStarted(next.generation, handle) },
-            on_event: fn(event) { PresenceEvent(next.generation, event) },
-          ),
-        )
-        _, _, _, _ -> #(next, effect.none())
-      }
-      #(
-        next,
-        effect.batch([
-          case lost {
-            True -> stop_presence(model)
-            False -> effect.none()
-          },
-          start,
-          watershed_lustre.after(250, Poll),
-        ]),
-      )
     }
   }
+}
+
+fn cancel_inputs(model: Model) -> Dict(String, input.Input) {
+  let values = case model.rendered {
+    Some(rendered) ->
+      string_values(rendered.value)
+      |> list.map(fn(pair) { #(s.field_key(pair.0), pair.1) })
+      |> dict.from_list
+    None -> dict.new()
+  }
+  dict.map_values(model.inputs, fn(key, local) {
+    input.Input(
+      ..local,
+      value: dict.get(values, key) |> result.unwrap(local.value),
+      composing: False,
+      composition_end: None,
+    )
+  })
+}
+
+fn observe_presence(document: watershed.Document(Nil)) -> Effect(Msg) {
+  // Unchanged heartbeats emit no driver event. Observe freshness only.
+  use dispatch <- effect.from
+  watershed.subscribe_ripples(document, fn(ripple) {
+    let diagnostics = watershed.diagnostics(document)
+    let session = case diagnostics.phase {
+      "ready" -> diagnostics.client_id
+      _ -> None
+    }
+    queue_microtask(fn() { dispatch(PresenceObserved(session, ripple)) })
+  })
 }
 
 fn capture(model: Model) -> #(Model, Effect(Msg)) {
@@ -466,7 +564,10 @@ fn problem(model: Model, detail: String) -> #(Model, Effect(Msg)) {
 }
 
 fn fatal(model: Model, detail: String) -> #(Model, Effect(Msg)) {
-  problem(Model(..model, status: "failed"), detail)
+  problem(
+    Model(..model, status: "failed", inputs: cancel_inputs(model)),
+    detail,
+  )
 }
 
 fn editable(model: Model) -> Bool {
@@ -744,7 +845,8 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
   ])
 }
 
-fn view(model: Model) -> Element(Msg) {
+@internal
+pub fn view(model: Model) -> Element(Msg) {
   let session = case model.presence {
     Some(handle) ->
       presence_js.local_session(handle) |> option.unwrap("pending")
