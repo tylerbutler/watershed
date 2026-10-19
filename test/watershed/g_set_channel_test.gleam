@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -18,7 +19,7 @@ import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
-fn connected_message() -> message.ConnectedMessage {
+fn connected_message() -> message.ConnectedMessage(dynamic.Dynamic) {
   message.ConnectedMessage(
     claims: token.TokenClaims(
       document_id: "doc",

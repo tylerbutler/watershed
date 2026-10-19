@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -96,7 +97,7 @@ fn message(
   sender: runtime_core.Core,
   outbound: wire.OutboundOperation,
   sequence: Int,
-) -> document.SequencedDocumentMessage {
+) -> document.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {
@@ -443,7 +444,7 @@ fn sequenced_root(core: runtime_core.Core) -> types.TreeValue {
 fn deliver(
   writer: runtime_core.Core,
   reader: runtime_core.Core,
-  message: document.SequencedDocumentMessage,
+  message: document.SequencedDocumentMessage(dynamic.Dynamic),
 ) -> #(runtime_core.Core, runtime_core.Core) {
   let assert Ok(#(writer, writer_update)) =
     runtime_core.handle_sequenced(writer, message)

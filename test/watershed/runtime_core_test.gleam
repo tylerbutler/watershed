@@ -19,6 +19,7 @@ import startest/expect
 
 import signet/types as token
 import spillway/message
+import spillway/summary
 import spillway/types
 
 import lattice_core/replica_id
@@ -67,7 +68,7 @@ fn map_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: map_kernel.MapOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   channel_operation_message(
     address: "watershed/root",
     client_id: client_id,
@@ -83,7 +84,7 @@ fn channel_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: map_kernel.MapOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -101,7 +102,7 @@ fn attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: List(#(String, Json)),
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -119,7 +120,7 @@ fn attach_message(
 fn join_message(
   sequence_number sequence_number: Int,
   joining joining: String,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: None,
     sequence_number: sequence_number,
@@ -137,7 +138,7 @@ fn sequenced_message(
   client_sequence_number client_sequence_number: Int,
   message_type message_type: String,
   contents contents: Dynamic,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   types.SequencedDocumentMessage(
     client_id: client_id,
     sequence_number: sequence_number,
@@ -156,9 +157,11 @@ fn sequenced_message(
 }
 
 fn connected_message(
-  initial_messages initial_messages: List(types.SequencedDocumentMessage),
+  initial_messages initial_messages: List(
+    types.SequencedDocumentMessage(Dynamic),
+  ),
   checkpoint checkpoint: Int,
-) -> message.ConnectedMessage {
+) -> message.ConnectedMessage(Dynamic) {
   message.ConnectedMessage(
     claims: token.TokenClaims(
       document_id: "dice",
@@ -195,7 +198,9 @@ fn connected_message(
 }
 
 fn bootstrap(
-  initial_messages initial_messages: List(types.SequencedDocumentMessage),
+  initial_messages initial_messages: List(
+    types.SequencedDocumentMessage(Dynamic),
+  ),
   checkpoint checkpoint: Int,
 ) -> Core {
   case
@@ -216,7 +221,7 @@ fn bootstrap(
 fn reconnect_connected(
   client_id client_id: String,
   checkpoint checkpoint: Int,
-) -> message.ConnectedMessage {
+) -> message.ConnectedMessage(Dynamic) {
   let base = connected_message([], checkpoint)
   message.ConnectedMessage(..base, client_id: client_id)
 }
@@ -225,7 +230,7 @@ fn echo_outbound(
   client_id: String,
   outbound: wire.OutboundOperation,
   sequence: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   let base =
     sequenced_message(
       Some(client_id),
@@ -243,7 +248,7 @@ fn echo_outbound(
 
 fn apply(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
 ) -> #(Core, List(map_kernel.MapEvent)) {
   case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(core, root_events(ingested.events))
@@ -253,7 +258,7 @@ fn apply(
 
 fn apply_tagged(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
 ) -> #(Core, List(#(String, channel.ChannelEvent))) {
   case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
@@ -263,7 +268,7 @@ fn apply_tagged(
 
 fn apply_summary(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
 ) -> #(Core, List(runtime_core.RuntimeEvent)) {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, ingested)) -> #(core, ingested.runtime_events)
@@ -273,7 +278,7 @@ fn apply_summary(
 
 fn ingest(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
 ) -> #(Core, List(map_kernel.MapEvent), option.Option(Int)) {
   case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(
@@ -287,8 +292,8 @@ fn ingest(
 
 fn with_pending_rsn(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
-) -> types.SequencedDocumentMessage {
+  sequenced: types.SequencedDocumentMessage(Dynamic),
+) -> types.SequencedDocumentMessage(Dynamic) {
   case sequenced.client_id, core.in_flight {
     Some(client),
       [
@@ -374,7 +379,7 @@ fn rich_text_operation_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   operation operation: rich_text_kernel.RichTextWireOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -2379,7 +2384,7 @@ fn counter_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: counter_kernel.CounterOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -2397,7 +2402,7 @@ fn counter_attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   value value: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -2919,7 +2924,7 @@ fn claim_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: claims_kernel.ClaimOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -2937,7 +2942,7 @@ fn claim_attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   entries entries: List(#(String, Json, Int)),
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -3117,7 +3122,7 @@ fn or_map_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: or_map_kernel.OrMapOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -3135,7 +3140,7 @@ fn or_map_attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: channel.Snapshot,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -4047,7 +4052,7 @@ fn register_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: register_collection_kernel.WriteOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -4068,7 +4073,7 @@ fn register_attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   registers registers: List(#(String, register_collection_kernel.Register)),
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -4427,7 +4432,7 @@ fn text_operation_message(
   sequence_number sequence_number: Int,
   client_sequence_number client_sequence_number: Int,
   operation operation: text_kernel.TextOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -4448,7 +4453,7 @@ fn text_attach_message(
   client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: channel.Snapshot,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -5070,7 +5075,7 @@ pub fn text_anchor_from_json_rejects_malformed_json_test() -> Nil {
 fn summarize_message(
   sequence_number sequence_number: Int,
   by by: String,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   sequenced_message(
     client_id: Some(by),
     sequence_number: sequence_number,
@@ -5091,7 +5096,7 @@ fn summary_response_message(
   sequence_number: Int,
   proposal_sequence_number: Int,
   response: String,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   let fields = case response {
     "summaryAck" -> [#("handle", json.string("commit-1"))]
     _ -> [#("message", json.string("Summary parent is not the published head"))]
@@ -5154,7 +5159,7 @@ pub fn bootstrap_summary_context_seeds_the_published_head_test() -> Nil {
   let connected =
     message.ConnectedMessage(
       ..connected_message([], 5),
-      summary_context: Some(message.SummaryContext("commit-1", 5)),
+      summary_context: Some(summary.SummaryContext("commit-1", 5)),
     )
   let assert Ok(runtime_core.Complete(core)) =
     runtime_core.bootstrap(connected, summary: Some(root_summary(5, [])))

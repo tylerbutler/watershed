@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
@@ -1307,7 +1308,7 @@ fn retention_command(
 }
 
 fn retention_original_client(
-  message: types.SequencedDocumentMessage,
+  message: types.SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(String, String) {
   use metadata <- result.try(
     message.metadata |> option.to_result("operation metadata is missing"),
@@ -2321,7 +2322,7 @@ fn retention_prefix(
   decoder_input: Json,
   first: Int,
   last: Int,
-) -> Result(List(types.SequencedDocumentMessage), String) {
+) -> Result(List(types.SequencedDocumentMessage(dynamic.Dynamic)), String) {
   use prefix <- result.try(read_field(
     decoder_input,
     "deliveryPrefix",
@@ -2359,7 +2360,9 @@ fn deliver_retention_envelope(
   |> result.map_error(string.inspect)
 }
 
-fn sequenced_message_json(message: types.SequencedDocumentMessage) -> Json {
+fn sequenced_message_json(
+  message: types.SequencedDocumentMessage(dynamic.Dynamic),
+) -> Json {
   json.object([
     #("clientId", case message.client_id {
       Some(value) -> json.string(value)
@@ -6414,7 +6417,7 @@ fn sequenced(
   outbound: wire.OutboundOperation,
   client_id: String,
   sequence_number: Int,
-) -> Result(types.SequencedDocumentMessage, String) {
+) -> Result(types.SequencedDocumentMessage(dynamic.Dynamic), String) {
   use contents <- result.try(
     json.parse(json.to_string(outbound.contents), decode.dynamic)
     |> result.map_error(fn(_) { "invalid outbound contents" }),

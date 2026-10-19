@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -73,7 +74,7 @@ fn map_message(
   sender: runtime_core.Core,
   outbound: wire.OutboundOperation,
   sequence: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   types.SequencedDocumentMessage(
     ..from_outbound(outbound),
     client_id: Some(sender.client_id),
@@ -2054,7 +2055,7 @@ fn core_from(input: runtime_core.BootstrapSeedInput) -> runtime_core.Core {
 
 fn batch_message(
   kinds: List(fluid_container.MessageKind),
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(encoded) =
     fluid_container.encode_batch(fluid_container.DecodedBatch(
       True,
@@ -3666,7 +3667,7 @@ fn remote_writer_core() -> runtime_core.Core {
 
 fn from_outbound(
   outbound: wire.OutboundOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {

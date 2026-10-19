@@ -3,6 +3,7 @@
 import envoy
 import gleam/bit_array
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/io
 import gleam/json
@@ -115,7 +116,7 @@ fn sequenced(
   outbound: wire.OutboundOperation,
   client_id: String,
   sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   types.SequencedDocumentMessage(
     client_id: Some(client_id),
     sequence_number: sequence_number,
@@ -471,7 +472,7 @@ fn membership_message(
   client: String,
   sequence_number: Int,
   joined: Bool,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   types.SequencedDocumentMessage(
     ..sequenced(
       wire.OutboundOperation(0, 0, "op", json.null(), None),

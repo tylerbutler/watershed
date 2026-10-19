@@ -3,6 +3,7 @@
 //// the client's own codecs, so the assertions are on real wire shapes.
 
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -115,7 +116,9 @@ fn of_event(frames: List(Outbound), event: String) -> List(Outbound) {
   list.filter(frames, fn(frame) { frame.event == event })
 }
 
-fn operation_of(frame: Outbound) -> types.SequencedDocumentMessage {
+fn operation_of(
+  frame: Outbound,
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(message) =
     json.parse(
       json.to_string(frame.payload),

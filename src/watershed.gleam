@@ -45,6 +45,8 @@ pub const compilation_target = "javascript"
 @target(javascript)
 import gleam/dict
 @target(javascript)
+import gleam/dynamic
+@target(javascript)
 import gleam/javascript/promise.{type Promise}
 @target(javascript)
 import gleam/json.{type Json}
@@ -56,7 +58,9 @@ import gleam/option.{type Option, None, Some}
 @target(javascript)
 import signet/types as token
 @target(javascript)
-import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
+import spillway/message.{type ConnectMessage, ConnectMessage}
+@target(javascript)
+import spillway/signals.{type SignalMessage}
 @target(javascript)
 import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
@@ -4268,7 +4272,7 @@ pub fn client_id(document: Document(root)) -> Option(String) {
 /// which is a cursor, a selection, or a typing indicator. Such data must
 /// **not** go into a DDS.
 pub opaque type Ripple {
-  Ripple(signal: SignalMessage)
+  Ripple(signal: SignalMessage(dynamic.Dynamic))
 }
 
 @target(javascript)

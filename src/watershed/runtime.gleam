@@ -47,9 +47,11 @@ import gleam/string
 import gleam/uri
 
 @target(javascript)
-import spillway/message.{
-  type ConnectMessage, type SignalMessage, type SummaryContext,
-}
+import spillway/message.{type ConnectMessage}
+@target(javascript)
+import spillway/signals.{type SignalMessage}
+@target(javascript)
+import spillway/summary.{type SummaryContext}
 @target(javascript)
 import spillway/types.{WriteMode}
 
@@ -323,7 +325,7 @@ type State {
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
     /// document and does not sequence, so the fan-out is separate from the
     /// operation event stream.
-    ripple_subscribers: List(fn(SignalMessage) -> Nil),
+    ripple_subscribers: List(fn(SignalMessage(Dynamic)) -> Nil),
     /// The subscribers on the presence lane. Presence does not sequence and
     /// never touches the core, the same as a ripple.
     presence_subscribers: List(fn(PresenceFrame) -> Nil),
@@ -332,7 +334,7 @@ type State {
     /// intact across a reconnect. A capability on the core would thus outlive
     /// the connection that negotiated it, and it could claim support on a
     /// server that does not have it.
-    supported_features: Dict(String, Dynamic),
+    supported_features: Dict(String, Bool),
     writable: Bool,
     alias_waiters: Dict(
       #(String, String),
@@ -4289,7 +4291,7 @@ pub fn send_ripple(
 /// to decode.
 pub fn subscribe_ripples(
   runtime: Runtime,
-  handler: fn(SignalMessage) -> Nil,
+  handler: fn(SignalMessage(Dynamic)) -> Nil,
 ) -> Nil {
   let state = cell_get(runtime.cell)
   cell_set(
@@ -6063,7 +6065,7 @@ fn read(
 }
 
 @target(javascript)
-fn nack_is_fatal(item: Nack) -> Bool {
+fn nack_is_fatal(item: Nack(Dynamic)) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
     nack.LimitExceededError -> True

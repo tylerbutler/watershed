@@ -34,7 +34,7 @@ const warmupCount = 2;
 const timedCount = 7;
 const maxRatio = 8;
 const maxOutputBytes = 16 * 1024 * 1024;
-const spillwayRevision = "25f515cf67027e4b2db2344c3abb2141056e45fc";
+const spillwayRevision = "49549eb65f67460d10d3bad2f8a35c3d3aafb050";
 const floodgateRevision = "0eb493fc46d1bb9baf1151a6ccdde93544e057e7";
 const legacyProfileSha256 =
   "29fe106785ec1705cd1ac4d45de8e88f9a6cc89487c3b7cd1df6ad65b318b1de";

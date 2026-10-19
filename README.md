@@ -42,6 +42,11 @@ watershed_lustre = { git = "https://github.com/tylerbutler/watershed", ref = "<c
 That pulls `watershed` along with it; declare `watershed` yourself only if you
 also use it directly. Pin both to the same commit.
 
+Watershed pins Spillway and Signet to compatible commits. If your application
+also declares either package as a Git dependency, use the same revisions as
+Watershed's `gleam.toml`; Gleam rejects conflicting Git revisions, including
+those introduced by transitive dependencies.
+
 ## Quick start
 
 ```gleam

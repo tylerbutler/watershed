@@ -22,10 +22,11 @@ import gleam/result
 import signet/types as token
 import spillway/message.{
   type ConnectError, type ConnectMessage, type ConnectedMessage, type OpMessage,
-  type SignalMessage, type SummaryContext, ConnectError, ConnectedMessage,
-  OpMessage, SignalMessage, SummaryContext,
+  ConnectError, ConnectedMessage, OpMessage,
 }
 import spillway/nack.{type Nack, type NackContent, Nack, NackContent}
+import spillway/signals.{type SignalMessage, SignalMessage}
+import spillway/summary.{type SummaryContext, SummaryContext}
 import spillway/types.{
   type Client, type ClientDetails, type ConnectionMode, type DocumentMessage,
   type SequencedDocumentMessage, type ServiceConfiguration, type SignalClient,
@@ -86,7 +87,7 @@ pub fn encode_connect_document(
       optional_field("epoch", message.epoch, json.string),
       case message.supported_features {
         Some(features) -> [
-          #("supportedFeatures", encode_dynamic_dict(features)),
+          #("supportedFeatures", encode_feature_dict(features)),
         ]
         None -> []
       },
@@ -219,11 +220,9 @@ fn encode_user(user: token.User) -> Json {
   ])
 }
 
-fn encode_dynamic_dict(values: dict.Dict(String, Dynamic)) -> Json {
+fn encode_feature_dict(values: dict.Dict(String, Bool)) -> Json {
   json.object(
-    list.map(dict.to_list(values), fn(pair) {
-      #(pair.0, wire.dynamic_to_json(pair.1))
-    }),
+    list.map(dict.to_list(values), fn(pair) { #(pair.0, json.bool(pair.1)) }),
   )
 }
 
@@ -261,7 +260,7 @@ fn mode_decoder() -> Decoder(ConnectionMode) {
 }
 
 /// The `connect_document_success` payload.
-pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
+pub fn connected_message_decoder() -> Decoder(ConnectedMessage(Dynamic)) {
   connected_message_with_initial_messages_decoder(
     decode.list(sequenced_document_message_decoder()),
     fn(handshake, initial_messages) {
@@ -284,7 +283,7 @@ pub fn connection_envelope_decoder() -> Decoder(ConnectionEnvelope) {
 
 fn connected_message_with_initial_messages_decoder(
   initial_messages_decoder: Decoder(List(a)),
-  finish: fn(ConnectedMessage, List(a)) -> b,
+  finish: fn(ConnectedMessage(Dynamic), List(a)) -> b,
 ) -> Decoder(b) {
   use claims <- decode.field("claims", token_claims_decoder())
   use client_id <- decode.field("clientId", decode.string)
@@ -318,7 +317,11 @@ fn connected_message_with_initial_messages_decoder(
   use supported_features <- decode.optional_field(
     "supportedFeatures",
     dict.new(),
-    decode.dict(decode.string, decode.dynamic),
+    decode.map(decode.dict(decode.string, decode.dynamic), fn(features) {
+      dict.map_values(features, fn(_, value) {
+        decode.run(value, decode.bool) == Ok(True)
+      })
+    }),
   )
   use version <- decode.field("version", decode.string)
   use timestamp <- decode.optional_field(
@@ -393,18 +396,14 @@ pub const feature_presence_v1 = "presence_v1"
 /// message, so a runtime can answer the same question from the value that it
 /// stored at handshake time.
 ///
-/// The test is strict on purpose. The key must be present, *and* it must decode
-/// as `True`. A server that does not know a feature omits the key. If this
-/// function accepted a value that it cannot decode, the client would send that
-/// server traffic that the server cannot answer.
+/// The key must be present and its value must be `True`. The decoder treats
+/// non-boolean feature values as `False`. A server that does not know a feature
+/// omits the key.
 pub fn supports_feature(
-  features: dict.Dict(String, Dynamic),
+  features: dict.Dict(String, Bool),
   feature: String,
 ) -> Bool {
-  case dict.get(features, feature) {
-    Ok(value) -> decode.run(value, decode.bool) == Ok(True)
-    Error(Nil) -> False
-  }
+  dict.get(features, feature) == Ok(True)
 }
 
 fn resolve_summary_context(
@@ -451,7 +450,7 @@ pub fn connect_error_decoder() -> Decoder(ConnectError) {
 /// already gives. This decoder accepts both shapes, so one client works with
 /// either server. `document_id` is `""` for the bare shape, and no caller reads
 /// it.
-pub fn operation_message_decoder() -> Decoder(OpMessage) {
+pub fn operation_message_decoder() -> Decoder(OpMessage(Dynamic)) {
   operation_envelopes_with_decoder(
     sequenced_document_message_decoder(),
     fn(document_id, operations) {
@@ -498,7 +497,9 @@ fn bare_operation_envelopes_decoder(
 /// One sequenced message, as the `session_logic.build_sequenced_op` function
 /// of spillway builds it. `clientId` is null for a system message, which is a
 /// join, a leave, or a summary message.
-pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage) {
+pub fn sequenced_document_message_decoder() -> Decoder(
+  SequencedDocumentMessage(Dynamic),
+) {
   sequenced_envelope_decoder()
   |> decode.then(fn(envelope) {
     case envelope.compression {
@@ -565,12 +566,12 @@ pub fn sequenced_envelope_decoder() -> Decoder(SequencedEnvelope) {
 
 /// The `nack` event payload: `{clientId, nacks}`. This decoder reads the nack
 /// list only.
-pub fn nacks_decoder() -> Decoder(List(Nack)) {
+pub fn nacks_decoder() -> Decoder(List(Nack(Dynamic))) {
   use nacks <- decode.field("nacks", decode.list(nack_decoder()))
   decode.success(nacks)
 }
 
-fn nack_decoder() -> Decoder(Nack) {
+fn nack_decoder() -> Decoder(Nack(Dynamic)) {
   use operation <- decode.optional_field(
     "operation",
     None,
@@ -613,7 +614,7 @@ fn nack_error_type_decoder() -> Decoder(nack.NackErrorType) {
 }
 
 /// An operation that a client wrote, as a nack echoes it back.
-pub fn document_message_decoder() -> Decoder(DocumentMessage) {
+pub fn document_message_decoder() -> Decoder(DocumentMessage(Dynamic)) {
   use client_sequence_number <- decode.field("clientSequenceNumber", decode.int)
   use reference_sequence_number <- decode.field(
     "referenceSequenceNumber",
@@ -722,7 +723,7 @@ fn ripple_client_decoder() -> Decoder(SignalClient) {
 /// The decoder for an inbound `ripple` broadcast, which is a `SignalMessage`.
 /// A ripple is ephemeral: the server does not sequence it, store it, or ack
 /// it. `content` stays `Dynamic`, for the application to decode.
-pub fn ripple_message_decoder() -> Decoder(SignalMessage) {
+pub fn ripple_message_decoder() -> Decoder(SignalMessage(Dynamic)) {
   use client_id <- decode.optional_field(
     "clientId",
     None,

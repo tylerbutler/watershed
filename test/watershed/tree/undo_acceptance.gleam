@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -1237,7 +1238,7 @@ fn message(
   outbound: wire.OutboundOperation,
   sequence_number: Int,
   minimum_sequence_number: Int,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {

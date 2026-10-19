@@ -1,3 +1,4 @@
+import gleam/dynamic
 import gleam/dynamic/decode
 @target(erlang)
 import gleam/erlang/process
@@ -279,7 +280,7 @@ fn sequenced(
   core: runtime_core.Core,
   outbound: wire.OutboundOperation,
   sequence_number: Int,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let contents =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
     |> expect.to_be_ok()

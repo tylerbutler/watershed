@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
@@ -37,16 +38,16 @@ pub type RuntimeInput {
     compressor: fluid_ids.Compressor,
     sequence_number: Int,
     minimum_sequence_number: Int,
-    prefix: List(SequencedDocumentMessage),
-    operations: List(SequencedDocumentMessage),
+    prefix: List(SequencedDocumentMessage(dynamic.Dynamic)),
+    operations: List(SequencedDocumentMessage(dynamic.Dynamic)),
   )
 }
 
 pub fn connected(
   client_id: String,
-  messages: List(SequencedDocumentMessage),
+  messages: List(SequencedDocumentMessage(dynamic.Dynamic)),
   checkpoint: Int,
-) -> message.ConnectedMessage {
+) -> message.ConnectedMessage(dynamic.Dynamic) {
   message.ConnectedMessage(
     claims: token.TokenClaims(
       document_id: "tree",
@@ -82,7 +83,9 @@ pub fn connected(
   )
 }
 
-pub fn sequenced_frame(message: SequencedDocumentMessage) -> frame.Sequenced {
+pub fn sequenced_frame(
+  message: SequencedDocumentMessage(dynamic.Dynamic),
+) -> frame.Sequenced {
   frame.Sequenced(
     client_id: message.client_id,
     sequence_number: message.sequence_number,
@@ -246,7 +249,10 @@ pub fn read_snapshot(
 }
 
 pub fn routed_seed_input() -> Result(
-  #(runtime_core.BootstrapSeedInput, List(SequencedDocumentMessage)),
+  #(
+    runtime_core.BootstrapSeedInput,
+    List(SequencedDocumentMessage(dynamic.Dynamic)),
+  ),
   String,
 ) {
   use fixture <- result.try(fixtures.load("batched-commits"))
@@ -553,7 +559,9 @@ fn tree_history(core: runtime_core.Core) -> Result(#(Int, Json), String) {
   }
 }
 
-fn outer(operation: SequencedDocumentMessage) -> Result(Json, String) {
+fn outer(
+  operation: SequencedDocumentMessage(dynamic.Dynamic),
+) -> Result(Json, String) {
   use client <- result.try(
     operation.client_id
     |> option.to_result("runtime fixture outer operation has no client"),
@@ -574,7 +582,7 @@ fn outer(operation: SequencedDocumentMessage) -> Result(Json, String) {
 
 fn deliver_with_events(
   core: runtime_core.Core,
-  operation: SequencedDocumentMessage,
+  operation: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(#(runtime_core.Core, runtime_core.Ingested), String) {
   runtime_core.handle_sequenced(core, operation)
   |> result.map_error(string.inspect)

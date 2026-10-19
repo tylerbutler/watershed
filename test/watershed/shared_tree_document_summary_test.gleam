@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -897,7 +898,7 @@ fn create_summary_test_tree(
 fn summary_outbound_message(
   core: runtime_core.Core,
   outbound: wire.OutboundOperation,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {
@@ -996,7 +997,7 @@ fn document_message(
   timestamp: Int,
   kind: String,
   contents: json.Json,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) = json.parse(json.to_string(contents), decode.dynamic)
   spillway_types.SequencedDocumentMessage(
     client_id: Some("gc-writer"),

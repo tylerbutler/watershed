@@ -310,12 +310,12 @@ fn sequence_operation(
       operation.reference_sequence_number,
     )
   {
-    sequencing.SequenceError(_) -> sluice
-    sequencing.SequenceOk(
+    Error(_) -> sluice
+    Ok(sequencing.SequenceAssignment(
       state: sequence_state,
       assigned_sn: sequence_number,
       msn: minimum_sequence_number,
-    ) -> {
+    )) -> {
       let sequenced =
         Sequenced(
           client_id: Some(client_id),

@@ -26,14 +26,14 @@ import spillway/types.{type SequencedDocumentMessage}
 
 pub type SequencedEnvelope {
   SequencedEnvelope(
-    message: SequencedDocumentMessage,
+    message: SequencedDocumentMessage(Dynamic),
     compression: Option(String),
   )
 }
 
 pub type ConnectionEnvelope {
   ConnectionEnvelope(
-    handshake: ConnectedMessage,
+    handshake: ConnectedMessage(Dynamic),
     initial_messages: List(SequencedEnvelope),
   )
 }

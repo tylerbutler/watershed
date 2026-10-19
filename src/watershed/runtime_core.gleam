@@ -14,6 +14,7 @@
 import gleam/bit_array
 import gleam/bool
 import gleam/dict.{type Dict}
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
@@ -758,7 +759,7 @@ pub fn summary_from_blob(blob: SummaryBlob) -> Summary {
 }
 
 pub fn bootstrap(
-  connected: ConnectedMessage,
+  connected: ConnectedMessage(dynamic.Dynamic),
   summary summary: Option(Summary),
 ) -> Result(Bootstrapped, CoreError) {
   bootstrap_enveloped(lift_connection(connected), summary)
@@ -818,7 +819,7 @@ pub fn bootstrap_enveloped(
 }
 
 pub fn bootstrap_seeded(
-  connected: ConnectedMessage,
+  connected: ConnectedMessage(dynamic.Dynamic),
   seed: BootstrapSeed,
 ) -> Result(Bootstrapped, CoreError) {
   bootstrap_seeded_enveloped(lift_connection(connected), seed)
@@ -880,7 +881,7 @@ fn bootstrap_seeded_with_persistence(
 }
 
 pub fn bootstrap_document(
-  connected: ConnectedMessage,
+  connected: ConnectedMessage(dynamic.Dynamic),
   summary: fluid_document.DocumentSummary,
 ) -> Result(Bootstrapped, CoreError) {
   bootstrap_document_enveloped(lift_connection(connected), summary)
@@ -894,7 +895,9 @@ pub fn bootstrap_document_enveloped(
   bootstrap_seeded_with_persistence(connected, seed, Some(summary))
 }
 
-fn lift_connection(connected: ConnectedMessage) -> wire.ConnectionEnvelope {
+fn lift_connection(
+  connected: ConnectedMessage(dynamic.Dynamic),
+) -> wire.ConnectionEnvelope {
   wire.ConnectionEnvelope(
     handshake: ConnectedMessage(..connected, initial_messages: []),
     initial_messages: list.map(connected.initial_messages, fn(message) {
@@ -1257,7 +1260,7 @@ pub fn new_channel_address_in(
 pub fn resume_bootstrap(
   core: Core,
   checkpoint checkpoint: Int,
-  deltas deltas: List(SequencedDocumentMessage),
+  deltas deltas: List(SequencedDocumentMessage(dynamic.Dynamic)),
 ) -> Result(Bootstrapped, CoreError) {
   resume_bootstrap_envelopes(
     core,
@@ -1632,7 +1635,7 @@ fn load_channels(
 /// closes.
 pub fn adopt_reconnect(
   core: Core,
-  connected: ConnectedMessage,
+  connected: ConnectedMessage(dynamic.Dynamic),
 ) -> Result(Core, CoreError) {
   use _ <- result.try(require_no_tree_transaction(core, "reconnect"))
   use recovery_replay <- result.try(case core.recovery_replay {
@@ -1790,7 +1793,7 @@ fn quorum_with_live_defences(core: Core, author: Option(String)) -> List(Int) {
 /// The function adds this client, because the server builds `initialClients`
 /// from the presence map of the document, and that map does not have to contain
 /// the client that the server answers.
-fn roster_of(connected: ConnectedMessage) -> Set(Int) {
+fn roster_of(connected: ConnectedMessage(dynamic.Dynamic)) -> Set(Int) {
   connected.initial_clients
   |> list.map(fn(client) { client_id_to_int(client.client_id) })
   |> set.from_list
@@ -2743,7 +2746,7 @@ fn restamp_directory(
 
 pub fn handle_sequenced(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(#(Core, Ingested), CoreError) {
   handle_envelope(core, wire.SequencedEnvelope(msg, None))
 }
@@ -3214,7 +3217,7 @@ fn without_runtime_events(
 
 fn apply_summary_response(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(
   #(
     Core,
@@ -3258,7 +3261,7 @@ fn apply_summary_response(
 /// shape.
 fn handle_join(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
@@ -3301,7 +3304,7 @@ fn handle_join(
 /// a malformed payload. Native map documents retain their existing behavior.
 fn handle_leave(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
@@ -3424,7 +3427,7 @@ fn buffer_insert(
 
 fn handle_operation(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
   batch: fluid_container.DecodedBatch,
 ) -> Result(
   #(
@@ -3845,7 +3848,7 @@ fn alias_available(core: Core, datastore: String, alias: String) -> Bool {
 
 fn recover_resubmission(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
   batch: fluid_container.DecodedBatch,
   batch_id: Option(String),
 ) -> Result(Core, CoreError) {
@@ -3910,7 +3913,7 @@ fn recover_resubmission(
 
 fn recovery_submission_candidate(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
   batch: fluid_container.DecodedBatch,
   first: InFlight,
 ) -> Result(Option(InFlight), CoreError) {
@@ -4066,7 +4069,7 @@ fn same_batch_items(
 
 fn handle_channel_operation(
   core: Core,
-  msg: SequencedDocumentMessage,
+  msg: SequencedDocumentMessage(dynamic.Dynamic),
   container_index_in_batch: Int,
   operation: wire_op.OperationContents,
 ) -> Result(

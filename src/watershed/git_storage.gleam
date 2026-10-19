@@ -20,6 +20,7 @@
 
 import gleam/bit_array
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http
 import gleam/http/request.{type Request}
@@ -228,7 +229,7 @@ pub fn fetch_deltas(
   document document: String,
   from from: Int,
   to to: Int,
-) -> Result(List(SequencedDocumentMessage), StorageError) {
+) -> Result(List(SequencedDocumentMessage(dynamic.Dynamic)), StorageError) {
   fetch_delta_values(
     base_url,
     tenant,
@@ -335,7 +336,9 @@ pub fn fetch_deltas(
   document document: String,
   from from: Int,
   to to: Int,
-) -> Promise(Result(List(SequencedDocumentMessage), StorageError)) {
+) -> Promise(
+  Result(List(SequencedDocumentMessage(dynamic.Dynamic)), StorageError),
+) {
   fetch_delta_values(
     base_url,
     tenant,
@@ -1412,7 +1415,7 @@ fn sha_decoder() -> Decoder(String) {
 }
 
 /// The strict plain deltas response `{value: [SequencedDocumentMessage]}`.
-fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
+fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage(dynamic.Dynamic))) {
   decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
 }
 

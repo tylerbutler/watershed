@@ -320,7 +320,10 @@ fn null_dynamic() -> Dynamic {
   }
 }
 
-fn apply(core: Core, sequenced: types.SequencedDocumentMessage) -> Core {
+fn apply(
+  core: Core,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
+) -> Core {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, _)) -> core
     Error(_) -> panic as "expected handle_sequenced to succeed"
@@ -345,7 +348,9 @@ fn bootstrap_from_summary(
   channels channels: List(#(String, channel.Snapshot)),
   at at: Int,
   initial_clients initial_clients: List(String),
-  initial_messages initial_messages: List(types.SequencedDocumentMessage),
+  initial_messages initial_messages: List(
+    types.SequencedDocumentMessage(Dynamic),
+  ),
 ) -> Core {
   let connected =
     message.ConnectedMessage(
@@ -374,7 +379,7 @@ fn pact_set_message(
   sequence_number sequence_number: Int,
   key key: String,
   value value: json.Json,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   let contents =
     expect.to_be_ok(wire_op.encode_pact_map_envelope(
       "watershed/pact",
@@ -400,7 +405,7 @@ fn json_to_dynamic(value: json.Json) -> Dynamic {
 fn join_message(
   joining: String,
   sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   system_message(
     "join",
     Some(
@@ -420,7 +425,7 @@ fn join_message(
 fn leave_message(
   leaving: String,
   sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   system_message(
     "leave",
     Some(json.to_string(json.string(leaving))),
@@ -432,7 +437,7 @@ fn system_message(
   message_type: String,
   data: option.Option(String),
   sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   types.SequencedDocumentMessage(
     client_id: None,
     sequence_number: sequence_number,
@@ -452,7 +457,7 @@ fn system_message(
 
 fn connected_message(
   initial_clients: List(String),
-) -> message.ConnectedMessage {
+) -> message.ConnectedMessage(Dynamic) {
   message.ConnectedMessage(
     claims: token.TokenClaims(
       document_id: "doc",

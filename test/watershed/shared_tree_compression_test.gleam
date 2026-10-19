@@ -173,8 +173,11 @@ fn split_compressed(
 fn normalize_all(
   state: fluid_inbound.State,
   envelopes: List(wire.SequencedEnvelope),
-  completions: List(#(SequencedDocumentMessage, DecodedBatch)),
-) -> #(fluid_inbound.State, List(#(SequencedDocumentMessage, DecodedBatch))) {
+  completions: List(#(SequencedDocumentMessage(Dynamic), DecodedBatch)),
+) -> #(
+  fluid_inbound.State,
+  List(#(SequencedDocumentMessage(Dynamic), DecodedBatch)),
+) {
   case envelopes {
     [] -> #(state, list.reverse(completions))
     [envelope, ..rest] -> {

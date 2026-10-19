@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -54,7 +55,7 @@ fn sequenced(
   client_id: String,
   sequence_number: Int,
   minimum_sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   let contents =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
     |> expect.to_be_ok

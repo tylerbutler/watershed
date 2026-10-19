@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -1746,7 +1747,7 @@ type RetryState {
     connected: Bool,
     live: Bool,
     outbound: Option(wire.OutboundOperation),
-    accepted: Option(spillway_types.SequencedDocumentMessage),
+    accepted: Option(spillway_types.SequencedDocumentMessage(dynamic.Dynamic)),
     authored_identifier: Option(types.TreeValue),
     old_client_id: String,
     reconnect_checkpoint: Int,
@@ -2127,7 +2128,10 @@ fn is_edit_operation(operation: String) -> Bool {
 fn accept_retry_submission(
   state: RetryState,
   outbound: wire.OutboundOperation,
-) -> Result(#(RetryState, spillway_types.SequencedDocumentMessage), String) {
+) -> Result(
+  #(RetryState, spillway_types.SequencedDocumentMessage(dynamic.Dynamic)),
+  String,
+) {
   let message =
     sequenced_from_outbound(
       outbound,
@@ -2184,7 +2188,7 @@ fn sequenced_from_outbound(
   outbound: wire.OutboundOperation,
   client_id: String,
   sequence_number: Int,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {

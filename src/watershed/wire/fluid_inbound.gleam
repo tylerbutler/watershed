@@ -42,7 +42,7 @@ pub type Payload {
   NonOperation
   Incomplete
   Complete(
-    representative: SequencedDocumentMessage,
+    representative: SequencedDocumentMessage(Dynamic),
     batch: fluid_container.DecodedBatch,
   )
 }
@@ -400,7 +400,7 @@ fn container_dynamic(contents: Dynamic) -> Result(Dynamic, Nil) {
 
 fn finish(
   state: State,
-  representative: SequencedDocumentMessage,
+  representative: SequencedDocumentMessage(Dynamic),
   contents: Dynamic,
   json_contents: Json,
 ) -> Result(Step, Error) {

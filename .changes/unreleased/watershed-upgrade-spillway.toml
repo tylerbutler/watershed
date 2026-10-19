@@ -1,0 +1,3 @@
+package = "watershed"
+kind = "Breaking"
+body = "Upgrade Spillway and Signet to compatible pinned revisions, fixing fresh dependency resolution and Cloudflare builds. Spillway message types now take a payload parameter: use `ConnectedMessage(Dynamic)`, `SequencedDocumentMessage(Dynamic)`, `DocumentMessage(Dynamic)`, `OpMessage(Dynamic)`, and `Nack(Dynamic)` at Watershed's wire boundary. Import `SignalMessage(Dynamic)` from `spillway/signals` and `SummaryContext` from `spillway/summary`. Supported feature dictionaries now contain `Bool` values; malformed inbound feature values remain unsupported. Fluid wire formats are unchanged."

@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -212,7 +213,7 @@ fn sequenced(
   outbound: wire.OutboundOperation,
   client_id: String,
   sequence_number: Int,
-) -> spillway_types.SequencedDocumentMessage {
+) -> spillway_types.SequencedDocumentMessage(dynamic.Dynamic) {
   let contents =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
     |> expect.to_be_ok()

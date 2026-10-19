@@ -1,3 +1,4 @@
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
@@ -122,7 +123,10 @@ pub fn run(input: Json) -> Result(Json, String) {
 fn messages(
   input: Json,
   name: String,
-) -> Result(List(spillway_types.SequencedDocumentMessage), String) {
+) -> Result(
+  List(spillway_types.SequencedDocumentMessage(dynamic.Dynamic)),
+  String,
+) {
   json.parse(
     json.to_string(input),
     decode.at(
@@ -163,7 +167,7 @@ fn complete(
 
 fn replay(
   core: runtime_core.Core,
-  messages: List(spillway_types.SequencedDocumentMessage),
+  messages: List(spillway_types.SequencedDocumentMessage(dynamic.Dynamic)),
 ) -> Result(runtime_core.Core, String) {
   list.try_fold(messages, core, fn(core, message) {
     runtime_core.handle_sequenced(core, message)

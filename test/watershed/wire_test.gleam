@@ -25,6 +25,7 @@ import startest/expect
 import signet/types as token
 import spillway/message
 import spillway/nack
+import spillway/summary as protocol_summary
 import spillway/types
 
 import lattice_core/replica_id
@@ -700,7 +701,10 @@ pub fn decode_connected_message_with_summary_context_test() -> Nil {
     |> parse(socket.connected_message_decoder())
   connected.summary_context
   |> expect.to_equal(
-    Some(message.SummaryContext(handle: "tree-abc", sequence_number: 40)),
+    Some(protocol_summary.SummaryContext(
+      handle: "tree-abc",
+      sequence_number: 40,
+    )),
   )
 }
 
@@ -712,7 +716,10 @@ pub fn decode_connected_message_with_flat_summary_fields_test() -> Nil {
     |> parse(socket.connected_message_decoder())
   connected.summary_context
   |> expect.to_equal(
-    Some(message.SummaryContext(handle: "commit-abc", sequence_number: 40)),
+    Some(protocol_summary.SummaryContext(
+      handle: "commit-abc",
+      sequence_number: 40,
+    )),
   )
 }
 
@@ -734,7 +741,7 @@ pub fn nested_summary_context_wins_over_flat_fields_test() -> Nil {
     |> parse(socket.connected_message_decoder())
   connected.summary_context
   |> expect.to_equal(
-    Some(message.SummaryContext(handle: "nested", sequence_number: 40)),
+    Some(protocol_summary.SummaryContext(handle: "nested", sequence_number: 40)),
   )
 }
 

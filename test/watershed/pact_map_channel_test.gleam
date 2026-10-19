@@ -49,7 +49,7 @@ fn json_to_dynamic(value: Json) -> Dynamic {
   }
 }
 
-fn connected_message(client_id: String) -> message.ConnectedMessage {
+fn connected_message(client_id: String) -> message.ConnectedMessage(Dynamic) {
   message.ConnectedMessage(
     claims: token.TokenClaims(
       document_id: "doc",
@@ -95,7 +95,7 @@ fn sequenced_message(
   author: String,
   sequence_number: Int,
   out: wire.OutboundOperation,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(Dynamic) {
   types.SequencedDocumentMessage(
     client_id: Some(author),
     sequence_number: sequence_number,
@@ -128,7 +128,7 @@ fn expect_ok(
 
 fn ingest(
   core: Core,
-  sequenced: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage(Dynamic),
 ) -> #(Core, runtime_core.Ingested) {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(pair) -> pair

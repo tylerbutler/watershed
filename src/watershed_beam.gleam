@@ -33,6 +33,8 @@ import gleam/crypto
 @target(erlang)
 import gleam/dict
 @target(erlang)
+import gleam/dynamic
+@target(erlang)
 import gleam/erlang/process.{type Subject}
 @target(erlang)
 import gleam/json.{type Json}
@@ -49,7 +51,9 @@ import lattice_sequence/sequence.{After, Before}
 @target(erlang)
 import signet/types as token
 @target(erlang)
-import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
+import spillway/message.{type ConnectMessage, ConnectMessage}
+@target(erlang)
+import spillway/signals.{type SignalMessage}
 @target(erlang)
 import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
@@ -4484,7 +4488,7 @@ pub fn subscribe_ordered_collection(
 /// a ripple for transient presence, which is a cursor, a selection, or a typing
 /// indicator. Such data must **not** go into a DDS.
 pub opaque type Ripple {
-  Ripple(signal: SignalMessage)
+  Ripple(signal: SignalMessage(dynamic.Dynamic))
 }
 
 @target(erlang)

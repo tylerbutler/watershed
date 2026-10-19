@@ -2,6 +2,7 @@
 
 import gleam/bit_array
 import gleam/dict.{type Dict}
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
@@ -1506,7 +1507,7 @@ fn member_int(id: String) -> Int {
 
 pub fn advance(
   summary: DocumentSummary,
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(DocumentSummary, SummaryError) {
   use normalized <- result.try(
     fluid_inbound.step(summary.inbound, wire.SequencedEnvelope(message, None))
@@ -2307,7 +2308,7 @@ fn reference_timestamp(metadata: Json) -> Result(Int, SummaryError) {
 fn advance_gc_references(
   gc: Json,
   intervening: List(#(String, String)),
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
   batch: fluid_container.DecodedBatch,
 ) -> Result(#(Json, List(#(String, String))), SummaryError) {
   case message.message_type {
@@ -2481,7 +2482,7 @@ fn update_routes(
 fn advance_members(
   members: Json,
   ids: List(String),
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(#(Json, List(String), Option(String)), SummaryError) {
   use entries <- result.try(
     json.parse(
@@ -2594,7 +2595,7 @@ fn advance_members(
 }
 
 fn last_message(
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(Json, SummaryError) {
   Ok(
     json.object([
@@ -2614,7 +2615,7 @@ fn last_message(
 
 pub fn check_batch(
   summary: DocumentSummary,
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(Nil, SummaryError) {
   use identity <- result.try(effective_batch_id(message))
   case identity, summary.recent_batches {
@@ -2653,7 +2654,7 @@ pub fn check_batch(
 }
 
 fn effective_batch_id(
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(Option(String), SummaryError) {
   case message.message_type, message.client_id {
     "op", Some(id) -> {
@@ -2696,7 +2697,7 @@ fn effective_batch_id(
 
 fn advance_batches(
   previous: Option(Json),
-  message: SequencedDocumentMessage,
+  message: SequencedDocumentMessage(dynamic.Dynamic),
 ) -> Result(Option(Json), SummaryError) {
   use entries <- result.try(case previous {
     Some(value) ->

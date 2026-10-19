@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -665,7 +666,7 @@ fn sequenced(
   outbound: wire.OutboundOperation,
   client_id: String,
   sequence_number: Int,
-) -> types.SequencedDocumentMessage {
+) -> types.SequencedDocumentMessage(dynamic.Dynamic) {
   let assert Ok(contents) =
     json.parse(json.to_string(outbound.contents), decode.dynamic)
   let metadata = case outbound.metadata {

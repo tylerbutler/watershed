@@ -68,9 +68,11 @@ import aquamarine/channel.{type Channel}
 import aquamarine/phoenix
 
 @target(erlang)
-import spillway/message.{
-  type ConnectMessage, type SignalMessage, type SummaryContext,
-}
+import spillway/message.{type ConnectMessage}
+@target(erlang)
+import spillway/signals.{type SignalMessage}
+@target(erlang)
+import spillway/summary.{type SummaryContext}
 
 @target(erlang)
 pub fn try_set_alias(
@@ -1126,7 +1128,7 @@ pub type Msg {
   SubmitRipple(ripple_type: String, content: Json)
   /// Register a subscriber that the runtime calls for every inbound ripple on
   /// the document.
-  SubscribeRipple(subscriber: fn(SignalMessage) -> Nil)
+  SubscribeRipple(subscriber: fn(SignalMessage(Dynamic)) -> Nil)
   /// Push a command on the presence lane, which is `joinPresence`,
   /// `updatePresence`, or `leavePresence`. Unlike a ripple, this command needs
   /// no client id. The payload carries no identity, because the server derives
@@ -1273,7 +1275,7 @@ type State {
     next_tree_commit_event_id: Int,
     deferred_messages: List(Msg),
     replaying_messages: List(Msg),
-    ripple_subscribers: List(fn(SignalMessage) -> Nil),
+    ripple_subscribers: List(fn(SignalMessage(Dynamic)) -> Nil),
     /// The subscribers on the presence lane. Presence does not sequence and
     /// never touches the core, the same as a ripple.
     presence_subscribers: List(fn(PresenceFrame) -> Nil),
@@ -1282,7 +1284,7 @@ type State {
     /// intact across a reconnect. A capability on the core would thus outlive
     /// the connection that negotiated it, and it could claim support on a
     /// server that does not have it.
-    supported_features: Dict(String, Dynamic),
+    supported_features: Dict(String, Bool),
     writable: Bool,
     alias_waiters: Dict(
       #(String, String),
@@ -7981,7 +7983,7 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
 }
 
 @target(erlang)
-fn nack_is_fatal(item: Nack) -> Bool {
+fn nack_is_fatal(item: Nack(Dynamic)) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
     nack.LimitExceededError -> True
