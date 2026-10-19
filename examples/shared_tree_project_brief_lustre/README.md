@@ -125,7 +125,7 @@ also check driver startup, fresh reconnect awareness and expiry, composition
 cleanup and rendered value bindings, and review replacement between captures.
 Run `pnpm test` for both suites. Repository `just build` and `just test`
 discover the Gleam package through Trellis; no manual workspace list is needed.
-Real Chromium/two-service acceptance is not implied by these checks.
+These checks alone do not imply real Chromium/two-service acceptance.
 
 For the Fluid schema, edits, input policy, selection, and lifecycle checks:
 
@@ -138,3 +138,63 @@ pnpm build
 
 These tests use real in-memory Fluid trees; connection and signal delivery are
 test doubles. They do not replace the separate Chromium/two-service browser gate.
+
+## Two-client browser acceptance
+
+Keep Floodgate on port 4000 (`just integration-up` from the repository root)
+and the Fluid local service on port 7070 running:
+
+```sh
+corepack pnpm --dir examples/shared_tree_project_brief_lustre/fluid service
+```
+
+Reuse already-running services; do not stop someone else's process. Dependencies
+must already be installed in the repository and both example packages. Chromium
+is required: a missing browser or service fails the gate, never skips it. If
+`smoke/cdp.mjs` cannot find your existing Chromium, set its executable explicitly.
+For example, with a Playwright browser already installed on macOS:
+
+```sh
+export WATERSHED_CHROME="$HOME/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+```
+
+From the repository root:
+
+```sh
+# The example-root test includes both pure Gleam and Node app-runtime cases.
+corepack pnpm --dir examples/shared_tree_project_brief_lustre test
+corepack pnpm --dir examples/shared_tree_project_brief_lustre/fluid test
+corepack pnpm --dir examples/shared_tree_project_brief_lustre/fluid check
+
+# Build each app, then run the same real two-client scenarios against each SDK.
+just shared-tree-project-brief-comparison
+
+# Or build/run just one implementation.
+just shared-tree-project-brief
+just shared-tree-project-brief-fluid
+
+# After building both, the harness defaults to both implementations.
+node examples/shared_tree_project_brief_lustre/smoke/browser.mjs
+```
+
+The harness serves watershed on 8080 and the Fluid directory on 8081. It uses
+two isolated Chromium contexts per implementation, actual native typing and
+input selections, and real Ripple/Signaler traffic. The checks cover live
+on-form updates without blur, advisory same-field contention, DOM identity and
+caret preservation, deterministic composition events and duplicate suppression,
+optional-review replacement, stable milestone identities, heartbeat/expiry,
+disconnect during composition, reconnect, service-backed reload after both
+sessions close, and inert Close behavior. Delivery waits are condition-based;
+expiry must occur within 8.5 seconds of the last received selection.
+
+Only the composing input is exempt from remote value reconciliation until
+composition ends. Composition events are dispatched deterministically; this is
+not a test of an operating system's IME candidate window. String edits remain
+whole-property assignments, not character-level merges. Selection is advisory
+and never saved. Each app shares its URL only with the same implementation:
+this gate makes no cross-SDK interoperability claim.
+
+The gate records page errors and unhandled rejections and fails on visible app
+errors. It removes its own contexts, browser, profile and static servers even
+on failure; it never stops the Floodgate or Fluid service. Credentials are
+development-only, and Fluid's exported Signaler remains experimental.

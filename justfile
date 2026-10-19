@@ -342,6 +342,17 @@ shared-tree-item-counter:
     cd examples/shared_tree_item_counter_lustre && corepack pnpm run build
     node examples/shared_tree_item_counter_lustre/smoke/browser.mjs
 
+# Matched live forms; Chromium and both implementations' local services required.
+shared-tree-project-brief:
+    cd examples/shared_tree_project_brief_lustre && corepack pnpm run build
+    node examples/shared_tree_project_brief_lustre/smoke/browser.mjs --implementation=watershed
+
+shared-tree-project-brief-fluid:
+    cd examples/shared_tree_project_brief_lustre/fluid && corepack pnpm run build
+    node examples/shared_tree_project_brief_lustre/smoke/browser.mjs --implementation=fluid
+
+shared-tree-project-brief-comparison: shared-tree-project-brief shared-tree-project-brief-fluid
+
 # === INTEGRATION (live floodgate server) ===
 
 # Start a floodgate dev server in Docker, built from the levee repo's
