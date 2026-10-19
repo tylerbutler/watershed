@@ -59,7 +59,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "edits",
     title: "Insert or remove the first entry.",
     explanation:
-      "Fluid methods edit the array. watershed calls required_root to get a Ref(List(String)), then passes it to array_insert or array_remove. The tree uses the item codec from its declaration, so the caller does not prepare a separate edit value. Both applications insert an empty string at index zero; Remove has no effect on an empty array. watershed checks for the first entry with array_get. Its removal range [0, 1) includes index zero and excludes index one.",
+      "Fluid methods edit the array. watershed calls required_root to get a Ref(List(String)), then passes it to array_insert or array_remove. The tree uses the item codec from its declaration, so the caller does not prepare a separate edit value. Both applications insert an empty string at index zero; Remove has no effect on an empty array. watershed checks for the first entry with array_get. To remove the first entry, pass start index 0 and end index 1. The end index is excluded.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-edits"))],
     watershed: [
       watershedSnippet(sourceSnippet("item-counter-watershed-edits")),
