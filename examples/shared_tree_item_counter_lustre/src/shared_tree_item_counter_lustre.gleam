@@ -145,8 +145,8 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
 }
 
 fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
+  // docs:snippet-start item-counter-watershed-open
   case message {
-    // docs:snippet-start item-counter-watershed-open
     Created(Ok(document_id)) -> {
       // Keep the new ID in the URL, as the container.attach result is kept.
       replace_document(document_id)
@@ -231,7 +231,9 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         effect.batch([cleanup, close]),
       )
     }
+    // docs:snippet-start item-counter-watershed-case-end
   }
+  // docs:snippet-end item-counter-watershed-case-end
 }
 
 fn fail(model: Model, detail: String) -> #(Model, Effect(Msg)) {

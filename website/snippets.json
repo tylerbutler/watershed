@@ -80,7 +80,8 @@
       "id": "item-counter-watershed-open",
       "sourcePath": "examples/shared_tree_item_counter_lustre/src/shared_tree_item_counter_lustre.gleam",
       "language": "gleam",
-      "markers": ["item-counter-watershed-open"]
+      "markers": ["item-counter-watershed-open", "item-counter-watershed-case-end"],
+      "separator": "\n"
     },
     {
       "id": "item-counter-watershed-observe",

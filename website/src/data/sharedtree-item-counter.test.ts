@@ -70,3 +70,14 @@ test("the generated schema snippet quotes the typed array declaration", () => {
     markers: ["item-counter-watershed-definition", "item-counter-watershed-schema"],
   });
 });
+
+test("the create and open excerpt includes its enclosing case statement", () => {
+  const row = itemCounterRows.find(row => row.id === "lifecycle");
+  assert.ok(row);
+  const snippet = row.watershed.find(snippet =>
+    snippet.origin.kind === "source" &&
+    snippet.origin.markers.includes("item-counter-watershed-open"));
+  assert.ok(snippet);
+  assert.match(snippet.code, /^case message \{\n  Created\(Ok\(document_id\)\)/);
+  assert.match(snippet.code, /\n\}$/);
+});
