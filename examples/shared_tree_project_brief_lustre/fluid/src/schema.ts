@@ -1,6 +1,7 @@
 import { SchemaFactory, TreeViewConfiguration } from "fluid-framework";
 import type { InsertableTreeNodeFromImplicitAllowedTypes } from "fluid-framework";
 
+// docs:snippet-start project-brief-fluid-schema
 const factory = new SchemaFactory("shared_tree_project_brief");
 
 export class Milestone extends factory.object("Milestone", {
@@ -35,6 +36,7 @@ export class ProjectBrief extends factory.object("ProjectBrief", {
 export const treeConfiguration = new TreeViewConfiguration({
   schema: ProjectBrief,
 });
+// docs:snippet-end project-brief-fluid-schema
 
 export function initial(
   firstId: string,

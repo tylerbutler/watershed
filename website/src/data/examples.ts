@@ -146,6 +146,16 @@ export const examples: Example[] = [
       "Concurrent notes and votes survive; cross-channel moves render honestly without pretending to be atomic.",
   },
   {
+    id: "shared_tree_project_brief_lustre",
+    name: "SharedTree project brief",
+    group: "composition",
+    summary:
+      "A nested-object editor in Lustre and a locally authored Fluid counterpart, with optional review, UUID-keyed milestones, and transient field selection.",
+    structures: ["SharedTree", "Presence"],
+    payoff:
+      "Edit different fields together, remove an earlier milestone without moving someone's caret, and compare the native APIs side by side.",
+  },
+  {
     id: "sudoku_lustre",
     name: "Collaborative Sudoku",
     group: "composition",

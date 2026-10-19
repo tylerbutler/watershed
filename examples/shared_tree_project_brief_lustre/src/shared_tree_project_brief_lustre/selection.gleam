@@ -198,10 +198,13 @@ pub fn reconcile_local(metadata: Metadata, value: ProjectBrief) -> Metadata {
   }
 }
 
+// docs:snippet-start project-brief-watershed-presence
 /// Use the existing driver for the heartbeat, expiry, and connection state.
 pub fn config() -> presence.Config(Metadata) {
   presence.config(encode, decoder()) |> presence.with_mode(presence.Ripple)
 }
+
+// docs:snippet-end project-brief-watershed-presence
 
 pub fn new() -> Policy {
   Policy(dict.new(), dict.new(), [])

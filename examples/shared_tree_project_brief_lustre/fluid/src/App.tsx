@@ -54,6 +54,7 @@ function Checkbox({ session, field, node, label, checked, edit }: FieldProps & {
   </label>;
 }
 
+// docs:snippet-start project-brief-fluid-milestones-view
 function Form({ session }: { session: BriefSession }) {
   const root = session.root;
   const owner = root.owner;
@@ -105,6 +106,7 @@ function Form({ session }: { session: BriefSession }) {
     </fieldset>
   </div>;
 }
+// docs:snippet-end project-brief-fluid-milestones-view
 
 export function App({ session }: { session: BriefSession }) {
   useSyncExternalStore(session.subscribe, session.snapshot);

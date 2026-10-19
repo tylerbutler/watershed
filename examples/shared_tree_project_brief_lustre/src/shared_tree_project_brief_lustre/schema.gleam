@@ -68,6 +68,7 @@ pub fn schedule_target() -> builder.Property(brief.Schedule, String) {
   )
 }
 
+// docs:snippet-start project-brief-watershed-schema-schedule
 pub fn milestones() -> builder.Property(brief.Schedule, List(brief.Milestone)) {
   builder.required(
     key: "milestones",
@@ -109,6 +110,8 @@ fn schedule_node() -> builder.Node(brief.Schedule) {
   )
 }
 
+// docs:snippet-end project-brief-watershed-schema-schedule
+
 pub fn milestone_id() -> builder.Property(brief.Milestone, String) {
   builder.required(
     key: "id",
@@ -144,6 +147,7 @@ fn milestone_node() -> builder.Node(brief.Milestone) {
   )
 }
 
+// docs:snippet-start project-brief-watershed-schema-review
 pub fn review() -> builder.Property(brief.ProjectBrief, Option(brief.Review)) {
   builder.optional(
     key: "review",
@@ -151,6 +155,8 @@ pub fn review() -> builder.Property(brief.ProjectBrief, Option(brief.Review)) {
     get: fn(value: brief.ProjectBrief) { value.review },
   )
 }
+
+// docs:snippet-end project-brief-watershed-schema-review
 
 pub fn review_reviewer() -> builder.Property(brief.Review, String) {
   builder.required(
@@ -178,6 +184,7 @@ fn review_node() -> builder.Node(brief.Review) {
   )
 }
 
+// docs:snippet-start project-brief-watershed-schema
 pub fn configuration() -> builder.Root(brief.ProjectBrief) {
   builder.object4(
     factory(),
@@ -190,3 +197,4 @@ pub fn configuration() -> builder.Root(brief.ProjectBrief) {
   )
   |> builder.root
 }
+// docs:snippet-end project-brief-watershed-schema

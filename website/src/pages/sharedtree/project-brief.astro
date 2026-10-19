@@ -1,0 +1,204 @@
+---
+import Ecosystem from "../../components/Ecosystem.astro";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import Sheet from "../../layouts/Sheet.astro";
+import { projectBriefRows } from "../../data/sharedtree-project-brief";
+
+const source =
+  "https://github.com/tylerbutler/watershed/tree/main/examples/shared_tree_project_brief_lustre";
+---
+
+<Sheet
+  title="watershed — Compare live SharedTree project briefs"
+  description="Two people, one nested brief. Compare locally authored Fluid and watershed editors: object identity, live field edits, UUID-keyed milestones, and selection that isn't a lock."
+>
+  <header class="comparison-hero">
+    <div>
+      <p class="back-link"><a href="/sharedtree">Back to the SharedTree comparison</a></p>
+      <h1>Two people.<br /><em>One living brief.</em></h1>
+      <p class="lede">
+        Change the owner while someone else moves the target date. Add a
+        milestone without taking their input away. These two runnable editors
+        put the same nested form on native SharedTree—one in Fluid and React,
+        one in watershed and Lustre. Here's where their APIs meet, and where
+        they don't.
+      </p>
+      <div class="source-links">
+        <a href={source}>Run the Gleam editor</a>
+        <a href={`${source}/fluid`}>Run the Fluid editor</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    <div class="g-block introduction">
+      <h2>More than a shared array.</h2>
+      <p>
+        A title, an owner, a schedule, an optional review. Milestones sit inside
+        the schedule's only array. The interesting part isn't the form—it's
+        keeping an edit attached to the right object while another person
+        changes what's around it. Start with the{" "}
+        <a href="/sharedtree/item-counter">item-counter comparison</a>{" "}
+        if you'd rather trace one array first.
+      </p>
+      <p>
+        Both columns are <strong>locally authored example code in this repository</strong>.
+        The Fluid app is not an official Fluid example or an upstream snapshot.
+        It uses Fluid 3.1.0 and the <strong>experimental Signaler</strong> helper
+        for field selection. Both apps run independently, against separate
+        local services; neither opens the other's documents.
+      </p>
+      <nav aria-label="Comparison sections">
+        {projectBriefRows.map(row => <a href={`#${row.id}`}>{
+          { schema: "Schema", lifecycle: "Create and open", observe: "Read and subscribe",
+            edits: "Property edits", milestones: "Milestone identity", presence: "Field selection" }[row.id]
+        }</a>)}
+      </nav>
+    </div>
+
+    {projectBriefRows.map(row => (
+      <section class="g-block comparison-row" id={row.id} data-comparison-row={row.id} aria-labelledby={`${row.id}-title`}>
+        <h2 id={`${row.id}-title`}>{row.title}</h2>
+        <p>{row.explanation}</p>
+        <div class="comparison-pair">
+          <div class="comparison-column" data-comparison-column="fluid">
+            <h3>Fluid · TypeScript</h3>
+            {row.fluid.map(snippet => <SnippetBlock snippet={snippet} />)}
+          </div>
+          <div class="comparison-column" data-comparison-column="watershed">
+            <h3>watershed · Gleam</h3>
+            {row.watershed.map(snippet => <SnippetBlock snippet={snippet} />)}
+          </div>
+        </div>
+      </section>
+    ))}
+
+    <section class="g-block run-guide" aria-labelledby="run-title">
+      <h2>Try two fields at once.</h2>
+      <p>
+        From the repository root, start Floodgate on port 4000 with{" "}
+        <code>just integration-up</code>. In{" "}
+        <code>examples/shared_tree_project_brief_lustre</code>, run{" "}
+        <code>pnpm install</code>, <code>pnpm build</code>, then{" "}
+        <code>pnpm serve</code>. Open <code>http://127.0.0.1:8080</code>.
+        Wait for the URL's <code>document</code> parameter, then copy the full
+        URL into a second tab. Add <code>&amp;name=Sam</code> to give it another name.
+      </p>
+      <p>
+        For Fluid, work in the example's <code>fluid/</code> directory:
+        run <code>pnpm install</code> and <code>pnpm build</code>, then keep{" "}
+        <code>pnpm service</code> running on port 7070 in one terminal and{" "}
+        <code>pnpm serve</code> in another. Open{" "}
+        <code>http://127.0.0.1:8081</code> and share that app's URL with another
+        tab. The static host doesn't start the service. These are two separate
+        runs, not two clients opening a cross-SDK document.
+      </p>
+      <p>
+        In either app, focus <code>owner.name</code> in one tab and{" "}
+        <code>schedule.target</code> in the other. Type without blurring:
+        each remote value should appear while the fields are still focused.
+        There's no Apply or Save step. Now select the same field in both tabs.
+        Both names can appear; both people can type. The final resolved string
+        agrees across clients, but simultaneous whole-string assignments can
+        overwrite one another. This isn't collaborative character-level text.
+      </p>
+      <p>
+        Keep a caret inside a milestone title and remove a preceding milestone
+        from the other tab. The caret and selection badge belong to the UUID,
+        not the old row number. Add and remove review remotely, too. A badge
+        on a removed review or milestone must disappear rather than jump to a
+        replacement.
+      </p>
+    </section>
+
+    <section class="g-block limits" aria-labelledby="limits-title">
+      <h2>The boundary is part of the example.</h2>
+      <p>
+        Dates and email stay ordinary strings so intermediate typing remains
+        valid. Only an input in IME composition defers remote value writes;
+        other fields keep updating. Completed composition publishes once,
+        and native caret ranges are clamped when a remote string gets shorter.
+        Disconnect disables edits and clears visible peers. Close stops
+        awareness and disposes resources—it doesn't confirm delivery of pending
+        edits. To check persistence, wait until the other tab receives an edit,
+        then reload. Content returns; old selection doesn't.
+      </p>
+      <p>
+        These apps mint development tokens in the browser. Don't deploy that
+        authentication flow or put production secrets in browser code; issue
+        production tokens on a backend. An uncertain creation isn't retried
+        automatically. See the <a href={source}>README and complete sources</a>{" "}
+        for setup, error handling, cleanup, and the real two-client browser gate.
+        This is a comparison of these APIs, not a claim of full Fluid SDK parity.
+      </p>
+    </section>
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<style>
+  .comparison-hero {
+    padding: clamp(3rem, 7vw, 6rem) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .comparison-hero > div { max-width: 72rem; margin-inline: auto; }
+  .back-link { margin-bottom: var(--space-xl); font-size: var(--text-sm); }
+  h1 {
+    max-width: 20ch;
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+  h1 em { color: var(--overprint-deep); font-style: normal; }
+  .lede {
+    margin-top: var(--space-xl);
+    max-width: 60ch;
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+  }
+  a { color: var(--waterline); text-underline-offset: 0.15em; }
+  a:hover { color: var(--overprint-deep); }
+  .source-links, nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md) var(--space-xl);
+    margin-top: var(--space-xl);
+  }
+  .doc-body { max-width: 76rem; }
+  .run-guide code { overflow-wrap: anywhere; }
+  .comparison-row {
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--hairline);
+    scroll-margin-top: var(--space-xl);
+  }
+  .comparison-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-xl);
+  }
+  .comparison-column { min-width: 0; }
+  .comparison-column h3 {
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 1rem;
+  }
+  .comparison-column :global(.g-file) {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .comparison-column :global(.g-code pre:focus-visible) {
+    outline: 2px solid var(--overprint);
+    outline-offset: 3px;
+  }
+  .limits { margin-bottom: var(--space-2xl); }
+  @media (max-width: 60rem) {
+    .comparison-pair { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
+  }
+  @media (max-width: 30rem) {
+    h1 { font-size: clamp(2rem, 8.5vw, 2.7rem); font-stretch: 100%; }
+  }
+</style>

@@ -102,6 +102,7 @@ pub fn main() -> Nil {
   Nil
 }
 
+// docs:snippet-start project-brief-watershed-lifecycle
 fn init(_: Nil) -> #(Model, Effect(Msg)) {
   proxy_floodgate_http("http://127.0.0.1:4000")
   let document_id = query_parameter("document", "")
@@ -154,6 +155,8 @@ fn connect(document_id: String) -> Effect(Msg) {
   )
 }
 
+// docs:snippet-end project-brief-watershed-lifecycle
+
 @internal
 pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case model.status, message {
@@ -202,6 +205,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         "Creation failed. The document might exist. Do not retry automatically: "
           <> tree_error.to_string(error),
       )
+    // docs:snippet-start project-brief-watershed-presence-start
     GotDocument(document) -> {
       let next = Model(..model, document: Some(document))
       #(
@@ -219,6 +223,8 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         ]),
       )
     }
+    // docs:snippet-end project-brief-watershed-presence-start
+    // docs:snippet-start project-brief-watershed-lifecycle-open
     Connected(Error(detail)) -> fatal(model, detail)
     Connected(Ok(_)) ->
       case model.document {
@@ -237,6 +243,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Subscribed(Ok(subscription)) ->
       capture(Model(..model, subscription: Some(subscription)))
     TreeChanged -> capture(Model(..model, change_count: model.change_count + 1))
+    // docs:snippet-end project-brief-watershed-lifecycle-open
     Captured(Error(error)) -> fatal(model, tree_error.to_string(error))
     Captured(Ok(rendered)) -> {
       // A replacement can arrive without a capture of the absent review.
@@ -348,10 +355,12 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     }
+    // docs:snippet-start project-brief-watershed-presence-focus
     Focus(field) -> {
       let model = Model(..model, metadata: s.focus(model.metadata, field))
       #(model, announce(model))
     }
+    // docs:snippet-end project-brief-watershed-presence-focus
     PresenceStarted(generation, handle) ->
       case generation == model.generation {
         False -> #(model, watershed_lustre.stop_presence(handle))
@@ -545,12 +554,15 @@ fn perform(
   #(Model(..model, pending: model.pending + 1), tree.perform(operation, Edited))
 }
 
+// docs:snippet-start project-brief-watershed-presence-update
 fn announce(model: Model) -> Effect(Msg) {
   case model.presence {
     Some(handle) -> watershed_lustre.update_presence(handle, model.metadata)
     None -> effect.none()
   }
 }
+
+// docs:snippet-end project-brief-watershed-presence-update
 
 fn stop_presence(model: Model) -> Effect(Msg) {
   case model.presence {
@@ -737,6 +749,7 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
         shared_tree.set(state.root, schema.brief_title(), value)
       }),
     ]),
+    // docs:snippet-start project-brief-watershed-edits
     html.fieldset([], [
       html.legend([], [html.text("Owner")]),
       text_field(model, s.Fixed(s.OwnerName), "Name", fn(value) {
@@ -746,6 +759,7 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
         shared_tree.set(state.owner, schema.owner_email(), value)
       }),
     ]),
+    // docs:snippet-end project-brief-watershed-edits
     html.fieldset([], [
       html.legend([], [html.text("Schedule")]),
       text_field(model, s.Fixed(s.ScheduleStart), "Start", fn(value) {
@@ -754,6 +768,7 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
       text_field(model, s.Fixed(s.ScheduleTarget), "Target", fn(value) {
         shared_tree.set(state.schedule, schema.schedule_target(), value)
       }),
+      // docs:snippet-start project-brief-watershed-milestones-view
       keyed.div(
         [attribute.class("milestones")],
         list.filter_map(state.milestone_nodes, fn(pair) {
@@ -799,6 +814,7 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
         Action(fn() { edits.append(state.schedule, id.uuid_v4()) }),
         !editable(model),
       ),
+      // docs:snippet-end project-brief-watershed-milestones-view
     ]),
     html.fieldset([], [
       html.legend([], [html.text("Review")]),

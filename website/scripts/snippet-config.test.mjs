@@ -402,8 +402,12 @@ describe("inventory counts by area", () => {
     assert.equal(count("item-counter-"), 11);
   });
 
-  it("total: 117 snippets", () => {
-    assert.equal(ids.length, 117);
+  it("native SharedTree project-brief comparison: 17 snippets", () => {
+    assert.equal(count("project-brief-"), 17);
+  });
+
+  it("total: 134 snippets", () => {
+    assert.equal(ids.length, 134);
   });
 });
 

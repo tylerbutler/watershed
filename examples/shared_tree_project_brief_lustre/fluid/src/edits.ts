@@ -18,13 +18,16 @@ function requireCurrent(brief: ProjectBrief, node: EditableNode): void {
   if (!current(brief, node)) throw new Error("Edit target was removed or replaced");
 }
 
+// docs:snippet-start project-brief-fluid-edits
 export function assign<T extends EditableNode, K extends Property<T>>(
   brief: ProjectBrief, node: T, property: K, value: T[K],
 ): void {
   requireCurrent(brief, node);
   node[property] = value;
 }
+// docs:snippet-end project-brief-fluid-edits
 
+// docs:snippet-start project-brief-fluid-milestones
 export function appendMilestone(brief: ProjectBrief): void {
   brief.schedule.milestones.insertAtEnd({
     id: crypto.randomUUID(), title: "", completed: false,
@@ -37,6 +40,7 @@ export function removeMilestone(brief: ProjectBrief, node: Milestone): void {
   if (index < 0) throw new Error("Milestone was removed");
   brief.schedule.milestones.removeAt(index);
 }
+// docs:snippet-end project-brief-fluid-milestones
 
 export function removeReview(brief: ProjectBrief, node: Review): void {
   requireCurrent(brief, node);

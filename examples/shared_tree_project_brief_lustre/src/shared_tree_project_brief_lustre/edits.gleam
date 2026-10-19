@@ -18,6 +18,7 @@ pub type RenderState {
   )
 }
 
+// docs:snippet-start project-brief-watershed-observe
 pub fn capture(
   handle: tree.Tree(brief.ProjectBrief),
 ) -> Result(RenderState, error.Error) {
@@ -39,6 +40,8 @@ pub fn capture(
   ))
 }
 
+// docs:snippet-end project-brief-watershed-observe
+
 fn capture_milestones(
   array: tree.Ref(List(brief.Milestone)),
   index: Int,
@@ -54,6 +57,7 @@ fn capture_milestones(
   }
 }
 
+// docs:snippet-start project-brief-watershed-milestones
 pub fn append(
   schedule: tree.Ref(brief.Schedule),
   id: String,
@@ -71,3 +75,4 @@ pub fn remove(
 ) -> Result(Nil, error.Error) {
   tree.array_remove_node(array, item)
 }
+// docs:snippet-end project-brief-watershed-milestones

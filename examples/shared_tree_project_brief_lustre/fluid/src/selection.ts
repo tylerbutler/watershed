@@ -147,6 +147,7 @@ export function reconcile(state: SelectionPolicy, peers: Peer[], brief: BriefSha
 
 const signalName = "project-brief-selection";
 
+// docs:snippet-start project-brief-fluid-presence
 /** Experimental Fluid Signaler; no document/tree writes belong in this adapter. */
 export function startPresence(
   signaler: ISignaler,
@@ -215,3 +216,4 @@ export function startPresence(
     },
   };
 }
+// docs:snippet-end project-brief-fluid-presence

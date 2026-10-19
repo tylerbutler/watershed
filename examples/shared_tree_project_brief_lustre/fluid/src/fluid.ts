@@ -12,9 +12,11 @@ import {
   type Field, type Peer, type PresenceSession, type SelectionMetadata,
 } from "./selection.ts";
 
+// docs:snippet-start project-brief-fluid-lifecycle-container
 export const containerSchema = {
   initialObjects: { brief: SharedTree, selection: Signaler },
 } satisfies ContainerSchema;
+// docs:snippet-end project-brief-fluid-lifecycle-container
 
 export function validateBrief(brief: ProjectBrief): void {
   validateUniqueIds(brief.schedule.milestones);
@@ -54,6 +56,7 @@ export class BriefSession {
     this.documentId = documentId;
     this.sessionId = sessionId;
     this.metadata = decode(metadata);
+    // docs:snippet-start project-brief-fluid-observe
     const changed = () => {
       if (this.closed) return;
       this.treeChangeCount++;
@@ -66,6 +69,7 @@ export class BriefSession {
       this.read();
       this.emit();
     }));
+    // docs:snippet-end project-brief-fluid-observe
     const connected = () => {
       if (this.closed) return;
       this.read();
@@ -203,6 +207,7 @@ export class BriefSession {
     try { action(); } catch (error) { this.report(error); }
   }
 
+  // docs:snippet-start project-brief-fluid-lifecycle-close
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -214,8 +219,10 @@ export class BriefSession {
     if (!this.container.disposed) this.container.dispose();
     this.emit();
   }
+  // docs:snippet-end project-brief-fluid-lifecycle-close
 }
 
+// docs:snippet-start project-brief-fluid-lifecycle
 /** Called once by the entry point, never by a React mount effect. */
 export async function openSession(url: URL, signal: AbortSignal): Promise<BriefSession> {
   const name = Array.from(url.searchParams.get("name") || "Alex").slice(0, 80).join("");
@@ -257,3 +264,4 @@ export async function openSession(url: URL, signal: AbortSignal): Promise<BriefS
     throw error;
   } finally { signal.removeEventListener("abort", abort); }
 }
+// docs:snippet-end project-brief-fluid-lifecycle

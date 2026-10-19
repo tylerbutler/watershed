@@ -22,6 +22,108 @@
   ],
   "snippets": [
     {
+      "id": "project-brief-fluid-schema",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/schema.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-schema"]
+    },
+    {
+      "id": "project-brief-fluid-lifecycle",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/fluid.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-lifecycle-container", "project-brief-fluid-lifecycle"]
+    },
+    {
+      "id": "project-brief-fluid-lifecycle-close",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/fluid.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-lifecycle-close"]
+    },
+    {
+      "id": "project-brief-fluid-observe",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/fluid.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-observe"]
+    },
+    {
+      "id": "project-brief-fluid-edits",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/edits.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-edits"]
+    },
+    {
+      "id": "project-brief-fluid-milestones",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/edits.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-milestones"]
+    },
+    {
+      "id": "project-brief-fluid-milestones-view",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/App.tsx",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-milestones-view"]
+    },
+    {
+      "id": "project-brief-fluid-presence",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/fluid/src/selection.ts",
+      "language": "typescript",
+      "markers": ["project-brief-fluid-presence"]
+    },
+    {
+      "id": "project-brief-watershed-schema",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre/schema.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-schema", "project-brief-watershed-schema-review", "project-brief-watershed-schema-schedule"]
+    },
+    {
+      "id": "project-brief-watershed-lifecycle",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-lifecycle"]
+    },
+    {
+      "id": "project-brief-watershed-lifecycle-open",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-lifecycle-open"]
+    },
+    {
+      "id": "project-brief-watershed-observe",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre/edits.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-observe"]
+    },
+    {
+      "id": "project-brief-watershed-edits",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-edits"]
+    },
+    {
+      "id": "project-brief-watershed-milestones",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre/edits.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-milestones"]
+    },
+    {
+      "id": "project-brief-watershed-milestones-view",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-milestones-view"]
+    },
+    {
+      "id": "project-brief-watershed-presence",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre/selection.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-presence"]
+    },
+    {
+      "id": "project-brief-watershed-presence-wiring",
+      "sourcePath": "examples/shared_tree_project_brief_lustre/src/shared_tree_project_brief_lustre.gleam",
+      "language": "gleam",
+      "markers": ["project-brief-watershed-presence-start", "project-brief-watershed-presence-focus", "project-brief-watershed-presence-update"]
+    },
+    {
       "id": "item-counter-fluid-schema",
       "sourcePath": "examples/shared_tree_item_counter_lustre/upstream/src/schema.ts",
       "language": "typescript",

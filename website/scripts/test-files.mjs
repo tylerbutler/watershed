@@ -9,6 +9,7 @@ export const nodeTestFiles = [
   "src/data/navigation.test.ts",
   "src/data/practice-snippets.test.ts",
   "src/data/sharedtree-item-counter.test.ts",
+  "src/data/sharedtree-project-brief.test.ts",
   "src/data/standalone-snippets.test.ts",
   "src/data/structures.test.ts",
   "src/lib/snippet-manifest.test.ts",
@@ -34,5 +35,6 @@ export const browserTestFiles = [
   "scripts/runtime-demos.test.mjs",
   "scripts/shared-tree-checklist-demo.test.mjs",
   "scripts/sharedtree-item-counter-page.test.mjs",
+  "scripts/sharedtree-project-brief-page.test.mjs",
   "scripts/structure-runtime-contract.test.mjs",
 ];
