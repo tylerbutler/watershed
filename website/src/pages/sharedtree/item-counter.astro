@@ -11,19 +11,19 @@ const fluidSource =
 ---
 
 <Sheet
-  title="watershed — Fluid SharedTree item-counter, side by side"
-  description="The Fluid website's string-array example, rebuilt with native SharedTree and Lustre. Compare real TypeScript and Gleam source for schemas, container setup, subscriptions, and edits."
+  title="watershed — Compare the SharedTree item-counter examples"
+  description="Compare the Fluid string-array example with its watershed and Lustre implementation. See the TypeScript and Gleam source for schemas, container setup, subscriptions, and edits."
 >
   <header class="comparison-hero">
     <div>
       <p class="back-link"><a href="/sharedtree">Back to the SharedTree comparison</a></p>
-      <h1>One array.<br /><em>Two ways to work it.</em></h1>
+      <h1>Compare two implementations<br /><em>of one shared array.</em></h1>
       <p class="lede">
-        Insert an entry. Remove the first. Watch the count change in another
-        tab. The Fluid website's{" "}
+        Insert an entry. Remove the first entry. See the count change in another
+        browser tab. This page compares the Fluid website's{" "}
         <a href="https://fluidframework.com/docs/start/examples">simple SharedTree example</a>{" "}
-        is small enough to put the whole idea on the table. Here's the same
-        behavior in watershed, with the source beside it.
+        with a watershed implementation. Read the source for each implementation
+        below.
       </p>
       <div class="source-links">
         <a href={watershedSource}>Run the Gleam example</a>
@@ -34,18 +34,19 @@ const fluidSource =
 
   <main class="doc-body">
     <div class="g-block introduction">
-      <h2>Native tree against native tree.</h2>
+      <h2>Compare the native SharedTree APIs.</h2>
       <p>
         Both implementations store an array of strings and display its length.
-        Both insert an empty string at the start and leave an empty array alone
-        on Remove. The Fluid app uses React; this port uses Lustre. The UI
-        frameworks differ, but the shared data and actions don't.
+        Both insert an empty string at the start. Remove has no effect on an
+        empty array. The Fluid application uses React. The watershed
+        application uses Lustre. Both applications use the same shared data
+        and actions.
       </p>
       <p>
         This page compares watershed's <strong>native SharedTree API</strong>.
         The <a href="/sharedtree">typed-map comparison</a> follows a different
-        design: a graph of channels with a decode boundary. If you'd rather
-        see a native tree running in the page, try the{" "}
+        design. It uses a graph of channels and decodes values when it reads
+        them. To try a native tree in your browser, open the{" "}
         <a href="/sharedtree/checklist">live checklist</a>.
       </p>
       <p>
@@ -57,12 +58,11 @@ const fluidSource =
         <code>Ref(List(String))</code> that identifies the array in the tree.
       </p>
       <p class="provenance">
-        Fluid source is an MIT-licensed snapshot from{" "}
+        The Fluid source uses the MIT license. This page uses the source from{" "}
         <a href={fluidSource}>commit <code>{upstreamCommit.slice(0, 12)}</code></a>.
-        The linked upstream package requests Fluid <code>^3.1.0</code>; that
-        isn't a claim that watershed implements that entire SDK release.
-        Both columns are extracted from checked-in source, not retyped for
-        this page.
+        The upstream package specifies Fluid <code>^3.1.0</code> as a dependency.
+        This comparison does not imply that watershed implements the full Fluid
+        SDK. This page extracts both columns from source files in the repository.
       </p>
       <nav aria-label="Comparison sections">
         {itemCounterRows.map(row => <a href={`#${row.id}`}>{row.id === "lifecycle" ? "Create and open" : row.id === "observe" ? "Read and subscribe" : row.id === "schema" ? "Schema" : "Edits"}</a>)}
@@ -87,39 +87,40 @@ const fluidSource =
     ))}
 
     <section class="g-block limits" aria-labelledby="limits-title">
-      <h2 id="limits-title">The same task isn't the same container.</h2>
+      <h2 id="limits-title">Account for differences between the implementations.</h2>
       <p>
-        Fluid's detached create, initialize, and attach sequence isn't a
-        one-for-one match for watershed's create-with-schema, connect, and
-        open-tree flow. The Gleam example uses its own schema namespace
-        and the native Floodgate container layout. These apps aren't presented
-        as opening each other's documents.
+        Fluid creates a detached container, initializes its tree, and attaches
+        the container. watershed creates a container with a schema, connects,
+        and opens the tree. The Gleam example uses its own schema namespace
+        and the native Floodgate container layout. This comparison does not
+        show either application opening documents from the other.
       </p>
       <p>
-        When another client edits the array, an existing Gleam list stays
+        When another client edits the array, an existing Gleam list remains
         unchanged. The example subscribes to changes and receives a new list
         for each successful update. Reads and edits return a
         <code>Result</code>. A read of <code>Ok([])</code> means the array is
         empty; <code>Error(detail)</code> means the operation failed. The example
         displays errors from <code>watershed/tree/error.Error</code> instead
-        of showing a failed read as a count of zero.
+        of displaying a count of zero after a failed read.
       </p>
       <p>
-        And despite the name, this isn't a numeric counter DDS. The displayed
+        This example does not use a numeric counter DDS. The displayed
         number is the array's length. Two concurrent removals can target the
-        same entry, so two Remove clicks don't promise a global decrement of
-        two. What survives is decided by the array's merge rules.
+        same entry. Thus, two Remove clicks do not guarantee a decrease of two
+        in the shared count. The array's merge rules determine which entries
+        remain.
       </p>
       <p>
-        The complete example includes setup, typed reads, error handling, and
-        subscription cleanup that would distract from some of these excerpts.
-        It uses development-only browser token minting. Production
-        authentication belongs on a backend, not in a shipped tenant secret.
+        The complete example also includes setup, typed reads, error handling,
+        and subscription cleanup. The example creates authentication tokens
+        in the browser for development. In production, create tokens on a
+        server. Do not include a tenant secret in browser code.
       </p>
     </section>
 
     <section class="g-block run-guide" aria-labelledby="run-title">
-      <h2 id="run-title">Put it in two tabs.</h2>
+      <h2 id="run-title">Run the example in two browser tabs.</h2>
       <p>
         Start Floodgate with <code>just integration-up</code>. In{" "}
         <code>examples/shared_tree_item_counter_lustre</code>, run{" "}
@@ -129,10 +130,10 @@ const fluidSource =
         another tab.
       </p>
       <p>
-        Insert in either tab. Remove at zero. Reload after an edit reaches the
-        other tab. The{" "}
+        Click Insert in either tab. Click Remove when the count is zero.
+        Reload after an edit appears in the other tab. The{" "}
         <a href={watershedSource}>README and complete Gleam source</a>{" "}
-        explain the development profile and browser gate. To run the Fluid
+        explain the development configuration and browser tests. To run the Fluid
         version, follow the{" "}
         <a href={fluidSource}>original project's instructions</a>.
       </p>

@@ -27,17 +27,17 @@ function watershedSnippet(snippet: Snippet): Snippet {
 export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
   {
     id: "schema",
-    title: "Start with the same array.",
+    title: "Define the array schema.",
     explanation:
-      "Fluid derives a typed StringArray class from SchemaFactory and passes it to TreeViewConfiguration. In watershed, configuration() declares the same shape as Root(List(String)). Pass it to create or open; those APIs compile the stored schema, view schema, and snapshot codecs for you.",
+      "Fluid derives a typed StringArray class from SchemaFactory and passes it to TreeViewConfiguration. In watershed, configuration() declares the array schema as Root(List(String)). Pass this declaration to the create or open API. These APIs compile the stored schema, view schema, and snapshot codecs.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-schema"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-schema"))],
   },
   {
     id: "lifecycle",
-    title: "Same empty root. Different way in.",
+    title: "Create or open a container.",
     explanation:
-      "Fluid creates or loads a container, gets its tree view, initializes it if allowed, and attaches a new detached container. watershed passes configuration() and an ordinary empty list to create_dev, keeps the returned ID, then connects and opens a Tree(List(String)) with the same declaration. Opening doesn't initialize content or upgrade the stored schema. These are excerpts from the complete applications; surrounding configuration and UI setup stay in the linked source.",
+      "Fluid creates or loads a container and gets its tree view. It initializes the tree if allowed and attaches a new detached container. watershed passes configuration() and an empty list to create_dev, then saves the returned ID. It connects and opens a Tree(List(String)) with the same declaration. Opening does not initialize content or upgrade the stored schema. The complete applications include configuration and UI setup that these excerpts omit.",
     fluid: [
       fluidSnippet(sourceSnippet("item-counter-fluid-container")),
       fluidSnippet(sourceSnippet("item-counter-fluid-view")),
@@ -49,17 +49,17 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
   },
   {
     id: "observe",
-    title: "Let the tree tell the view.",
+    title: "Read the array and subscribe to changes.",
     explanation:
-      "Both apps derive the count from the array, not from button clicks. React listens for nodeChanged and reads length. Lustre registers observe and requests the initial snapshot with read_root. Both deliver Result(List(String), error.Error), so the app can count the entries without another decoder. Observation checks that the root is readable but sends no initial value. Registration can fail too. Both apps unsubscribe when their view closes; the complete Gleam app also handles a subscription delivered after Close.",
+      "Both applications calculate the count from the array length. The React application subscribes to nodeChanged and reads length. The Lustre application uses observe to subscribe and read_root to request the initial values. Both Gleam operations deliver Result(List(String), error.Error); observe checks that the root is readable but sends no initial value. Subscription registration can also fail. Both applications unsubscribe when their view closes; the complete Gleam application also handles a subscription that arrives after Close.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-observe"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-observe"))],
   },
   {
     id: "edits",
-    title: "Insert an entry. Remove the first.",
+    title: "Insert or remove the first entry.",
     explanation:
-      "Fluid's methods edit the array directly. watershed calls required_root to acquire a Ref(List(String)), then passes it to array_insert or array_remove. The tree retains the item codec from its declaration; there's no intermediate edit value to prepare or dispatch. Both insert an empty string at index zero and leave an empty array alone on Remove. watershed checks for the first entry with array_get, and its remove range is half-open: [0, 1).",
+      "Fluid methods edit the array. watershed calls required_root to get a Ref(List(String)), then passes it to array_insert or array_remove. The tree uses the item codec from its declaration, so the caller does not prepare a separate edit value. Both applications insert an empty string at index zero; Remove has no effect on an empty array. watershed checks for the first entry with array_get. Its removal range [0, 1) includes index zero and excludes index one.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-edits"))],
     watershed: [
       watershedSnippet(sourceSnippet("item-counter-watershed-edits")),
