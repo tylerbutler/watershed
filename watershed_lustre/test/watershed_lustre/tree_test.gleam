@@ -48,10 +48,64 @@ type Fixture(root) {
   Fixture(
     document: watershed.Document(root),
     tree: shared_tree.Tree(Option(String)),
-    definition: builder.Compiled(Option(String)),
+    definition: builder.Root(Option(String)),
     callbacks: runtime.TransportCallbacks,
     submissions: transport_js.Cell(List(json.Json)),
   )
+}
+
+pub fn open_rejects_invalid_declaration_and_defers_dispatch_test() -> Promise(
+  Nil,
+) {
+  let fixture = fixture(False)
+  let sink = transport_js.new_cell([])
+  let declaration =
+    builder.object0(builder.factory(""), "Invalid")
+    |> builder.optional_root
+  let pending =
+    tree.open(fixture.document, declaration, fn(outcome) {
+      case outcome {
+        Error(reason) -> Performed(Error(reason))
+        Ok(_) -> panic as "invalid schema opened"
+      }
+    })
+  let assert [] = messages(sink)
+  run(pending, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(promise.wait(0))
+  let assert [Performed(Error(tree_error.InvalidSchema(_)))] = messages(sink)
+  let assert Ok(Some("initial")) = shared_tree.read_root(fixture.tree)
+  let assert [] = transport_js.get_cell(fixture.submissions)
+  watershed.close(fixture.document)
+  promise.resolve(Nil)
+}
+
+pub fn create_dev_rejects_schema_and_defers_dispatch_test() -> Promise(Nil) {
+  let sink = transport_js.new_cell([])
+  let calls = transport_js.new_cell(0)
+  let declaration =
+    builder.lazy(builder.factory("effects"), "Invalid", fn() {
+      transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+      builder.array(builder.factory(""), "Invalid", builder.string())
+    })
+    |> builder.root
+  let pending =
+    tree.create_dev(
+      "http://127.0.0.1:1",
+      "tenant",
+      "not-a-secret",
+      declaration,
+      [],
+      Created,
+    )
+  let assert 0 = transport_js.get_cell(calls)
+  let assert [] = messages(sink)
+  run(pending, sink)
+  let assert 1 = transport_js.get_cell(calls)
+  let assert [] = messages(sink)
+  use _ <- promise.await(promise.wait(0))
+  let assert [Created(Error(tree_error.InvalidSchema(_)))] = messages(sink)
+  promise.resolve(Nil)
 }
 
 pub fn open_is_lazy_and_resolves_on_perform_test() -> Promise(Nil) {
@@ -401,7 +455,7 @@ pub fn commit_subscription_omits_factories_for_schema_commits_test() -> Promise(
   let fixture = fixture(False)
   let assert Ok(root) = watershed.resolve_root(fixture.document)
   let assert Ok(marker) = watershed.get(root, "tree")
-  let assert Ok(upgraded_schema) =
+  let upgraded_schema =
     builder.union([
       builder.variant(text_node(), TextValue, fn(value) {
         case value {
@@ -417,7 +471,6 @@ pub fn commit_subscription_omits_factories_for_schema_commits_test() -> Promise(
       }),
     ])
     |> builder.optional_root
-    |> builder.compile
   let assert Ok(upgraded_tree) =
     watershed.inspect_tree(fixture.document, marker, upgraded_schema)
   let sink = transport_js.new_cell([])
@@ -852,11 +905,12 @@ fn fixture_named(
   inline_ack: Bool,
 ) -> Fixture(root) {
   let definition = text_definition()
-  let stored = builder.stored(definition)
+  let assert Ok(compiled) = builder.compile(definition)
+  let stored = builder.stored(compiled)
   let assert Ok(session) = fluid_ids.session_id(session_id)
   let assert Ok(view_id) =
     fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
-  let assert Ok(initial_root) = builder.encode_new(definition, Some("initial"))
+  let assert Ok(initial_root) = builder.encode_new(compiled, Some("initial"))
   let assert Ok(summary) =
     fluid_document.initial_tree(stored, initial_root, session, view_id)
   let assert Ok(seed) = runtime_core.document_seed(summary)
@@ -917,24 +971,19 @@ fn fixture_named(
   Fixture(document:, tree:, definition:, callbacks:, submissions:)
 }
 
-fn counting_declaration(
-  calls: transport_js.Cell(Int),
-) -> builder.Compiled(String) {
+fn counting_declaration(calls: transport_js.Cell(Int)) -> builder.Root(String) {
   let property =
     builder.required("value", builder.string(), fn(value: String) {
       transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
       value
     })
-  let assert Ok(compiled) =
-    builder.object1(
-      builder.factory("effects"),
-      "Created",
-      fn(value) { value },
-      property,
-    )
-    |> builder.root
-    |> builder.compile
-  compiled
+  builder.object1(
+    builder.factory("effects"),
+    "Created",
+    fn(value) { value },
+    property,
+  )
+  |> builder.root
 }
 
 fn text_node() -> builder.Node(String) {
@@ -946,9 +995,8 @@ fn text_node() -> builder.Node(String) {
   )
 }
 
-fn text_definition() -> builder.Compiled(Option(String)) {
-  let assert Ok(value) = text_node() |> builder.optional_root |> builder.compile
-  value
+fn text_definition() -> builder.Root(Option(String)) {
+  text_node() |> builder.optional_root
 }
 
 fn acknowledgement(payload: json.Json) -> json.Json {

@@ -118,7 +118,7 @@ fn run(command: Command, config: Config) -> Result(Nil, String) {
       use id <- result.try(
         client.create_tree_container(
           container.CreateConfig(base_url(config), config.tenant, token),
-          schema.compiled(),
+          schema.configuration(),
           schema.initial(),
         )
         |> result.map_error(tree_error.to_string),
@@ -139,7 +139,7 @@ fn run(command: Command, config: Config) -> Promise(Result(Nil, String)) {
       use id <- promise.try_await(
         client.create_tree_container(
           container.CreateConfig(base_url(config), config.tenant, token),
-          schema.compiled(),
+          schema.configuration(),
           schema.initial(),
         )
         |> promise.map(result.map_error(_, tree_error.to_string)),
@@ -241,7 +241,7 @@ fn edit(
   title: Option(String),
 ) -> Result(tree.Tree(schema.Note), String) {
   use tree <- result.try(
-    client.open_tree(document, schema.compiled())
+    client.open_tree(document, schema.configuration())
     |> result.map_error(tree_error.to_string),
   )
   use _ <- result.try(case title {

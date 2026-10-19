@@ -12,31 +12,39 @@ pub fn main() -> Nil {
 }
 
 pub fn initial_tree_matches_view_test() -> Nil {
+  let assert Ok(compiled) = builder.compile(note.configuration())
   let initial = note.initial()
-  let assert Ok(Some(encoded)) = builder.encode_new(note.compiled(), initial)
+  let assert Ok(Some(encoded)) = builder.encode_new(compiled, initial)
   encoded
   |> expect.to_equal(
     types.ObjectValue("shared_tree_cli.Note", [
       #("title", types.StringValue("Created without an SDK seed")),
     ]),
   )
-  builder.decode(note.compiled(), Some(encoded))
+  builder.decode(compiled, Some(encoded))
   |> expect.to_equal(Ok(note.Note("Created without an SDK seed", None)))
-  schema.validate_root_field(note.stored(), Some(encoded))
+  schema.validate_root_field(builder.stored(compiled), Some(encoded))
   |> expect.to_equal(Ok(Nil))
-  schema.can_view(note.stored(), note.view()) |> expect.to_equal(Ok(Nil))
+  schema.can_view(builder.stored(compiled), builder.view(compiled))
+  |> expect.to_equal(Ok(Nil))
 }
 
 pub fn optional_note_can_be_absent_test() -> Nil {
-  schema.validate_field(note.stored(), "shared_tree_cli.Note", "note", None)
+  let assert Ok(compiled) = builder.compile(note.configuration())
+  schema.validate_field(
+    builder.stored(compiled),
+    "shared_tree_cli.Note",
+    "note",
+    None,
+  )
   |> expect.to_equal(Ok(Nil))
 }
 
 pub fn compiled_creation_preserves_the_declared_document_test() -> Nil {
-  let compiled = note.compiled()
+  let assert Ok(compiled) = builder.compile(note.configuration())
   let initial = note.Note("Created", Some("Present"))
   let assert Ok(Some(encoded)) = builder.encode_new(compiled, initial)
-  schema.validate_root_field(note.stored(), Some(encoded))
+  schema.validate_root_field(builder.stored(compiled), Some(encoded))
   |> expect.to_equal(Ok(Nil))
   builder.decode(compiled, Some(encoded)) |> expect.to_equal(Ok(initial))
 }
@@ -51,9 +59,13 @@ pub fn title_descriptor_matches_schema_test() -> Nil {
 }
 
 pub fn incompatible_root_is_rejected_test() -> Nil {
-  schema.validate_root(note.stored(), types.StringValue("not an object"))
+  let assert Ok(compiled) = builder.compile(note.configuration())
+  schema.validate_root(
+    builder.stored(compiled),
+    types.StringValue("not an object"),
+  )
   |> expect.to_be_error()
-  builder.decode(note.compiled(), Some(types.StringValue("not an object")))
+  builder.decode(compiled, Some(types.StringValue("not an object")))
   |> expect.to_be_error()
   Nil
 }

@@ -15,24 +15,24 @@ pub fn main() -> Nil {
 }
 
 pub fn typed_initial_tree_matches_the_unchanged_stored_schema_test() {
-  let compiled = document_schema.compiled()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let assert Ok(Some(initial)) =
     builder.encode_new(compiled, document_schema.initial())
-  let assert Ok(Nil) = schema.validate_root(document_schema.stored(), initial)
+  let assert Ok(Nil) = schema.validate_root(builder.stored(compiled), initial)
   let assert Ok(decoded) = builder.decode(compiled, Some(initial))
   let assert True = decoded == checklist.empty()
 }
 
 pub fn compiled_creation_preserves_application_records_and_stored_schema_test() {
-  let compiled = document_schema.compiled()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let initial =
     checklist.Checklist("SharedTree checklist", [
       checklist.Item("one", "First", False),
     ])
   let assert Ok(Some(encoded)) = builder.encode_new(compiled, initial)
   let assert Ok(Nil) =
-    schema.can_view(builder.stored(compiled), document_schema.view())
-  let assert Ok(Nil) = schema.validate_root(document_schema.stored(), encoded)
+    schema.can_view(builder.stored(compiled), builder.view(compiled))
+  let assert Ok(Nil) = schema.validate_root(builder.stored(compiled), encoded)
   let assert Ok(decoded) = builder.decode(compiled, Some(encoded))
   let assert True = decoded == initial
   Nil
@@ -150,7 +150,7 @@ pub fn new_items_trim_text_and_reject_empty_text_test() {
 }
 
 pub fn compiled_decoder_rejects_duplicate_ids_and_malformed_items_test() {
-  let compiled = document_schema.compiled()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let assert Ok(duplicate) =
     builder.encode(
       compiled,

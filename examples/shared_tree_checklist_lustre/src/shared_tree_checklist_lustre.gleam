@@ -172,7 +172,7 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
         config.base_url,
         config.tenant,
         config.secret,
-        document_schema.compiled(),
+        document_schema.configuration(),
         checklist.empty(),
         Created,
       ),
@@ -212,7 +212,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       case model.document {
         Some(document) -> #(
           model,
-          tree.open(document, document_schema.compiled(), Opened),
+          tree.open(document, document_schema.configuration(), Opened),
         )
         None ->
           fail(model, "connection completed before the document handle arrived")

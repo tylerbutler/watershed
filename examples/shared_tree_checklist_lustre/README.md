@@ -31,7 +31,7 @@ summary storage. The Phoenix socket still connects to Floodgate on port 4000.
 ## Schema and edits
 
 `schema.gleam` declares one `Tree(checklist.Checklist)`. Container creation
-uses `schema.compiled()` with the ordinary `checklist.Checklist` record;
+uses `schema.configuration()` with the ordinary `checklist.Checklist` record;
 no raw value encoding or extra optional root is needed. Reads and edits use
 `checklist.Checklist` and `checklist.Item` records. The root has a required
 string `title` and a required `Items` array. Each item has required `id`,

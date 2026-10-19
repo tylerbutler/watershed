@@ -597,13 +597,15 @@ pub fn queued_tokens_and_handles_after_close_are_released_test() -> Promise(Nil)
 }
 
 fn fixture(items: List(#(String, String, Bool))) -> Fixture(root) {
-  let stored = document_schema.stored()
+  let declaration = document_schema.configuration()
+  let assert Ok(compiled) = builder.compile(declaration)
+  let stored = builder.stored(compiled)
   let input =
     checklist.Checklist(
       "SharedTree checklist",
       list.map(items, fn(item) { checklist.Item(item.0, item.1, item.2) }),
     )
-  let assert Ok(initial) = builder.encode_new(document_schema.compiled(), input)
+  let assert Ok(initial) = builder.encode_new(compiled, input)
   let assert Ok(session) =
     fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
   let assert Ok(view_id) =
@@ -660,8 +662,7 @@ fn fixture(items: List(#(String, String, Bool))) -> Fixture(root) {
     )
       |> stringify,
   )
-  let assert Ok(tree) =
-    watershed.open_tree(document, document_schema.compiled())
+  let assert Ok(tree) = watershed.open_tree(document, declaration)
   Fixture(document:, tree:, callbacks:, submissions:, closes:)
 }
 

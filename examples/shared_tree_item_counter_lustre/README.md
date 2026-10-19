@@ -12,7 +12,8 @@ One `Tree(List(String))` supports reads, observation, and array edits, without
 raw `TreeValue` adapters.
 The [schema declaration](../../docs/shared-tree-schema-authoring.md) derives
 the stored schema, view schema, and `List(String)` snapshot codec from one
-typed array descriptor.
+typed array descriptor. Pass `schema.configuration()` to both creation and
+opening; those APIs compile the declaration internally.
 
 ## Run
 

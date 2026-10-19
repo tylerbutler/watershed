@@ -1,6 +1,5 @@
 import gleam/result
 import shared_tree_checklist_lustre/checklist
-import watershed/tree/schema
 import watershed/tree/schema_builder as builder
 import watershed/tree/types
 
@@ -47,35 +46,22 @@ pub fn items() -> builder.Property(checklist.Checklist, List(checklist.Item)) {
   )
 }
 
-pub fn compiled() -> builder.Compiled(checklist.Checklist) {
-  let assert Ok(compiled) =
-    builder.object(
-      factory(),
-      "Checklist",
-      [builder.property(title()), builder.property(items())],
-      fn(reader) {
-        use title <- result.try(builder.read_property(reader, title()))
-        use items <- result.try(builder.read_property(reader, items()))
-        use _ <- result.try(
-          checklist.validate_unique_ids(items)
-          |> result.map_error(fn(detail) {
-            types.InvalidEdit(["items"], detail)
-          }),
-        )
-        Ok(checklist.Checklist(title, items))
-      },
-    )
-    |> builder.root
-    |> builder.compile
-  compiled
-}
-
-pub fn stored() -> schema.StoredSchema {
-  builder.stored(compiled())
-}
-
-pub fn view() -> schema.ViewSchema {
-  builder.view(compiled())
+pub fn configuration() -> builder.Root(checklist.Checklist) {
+  builder.object(
+    factory(),
+    "Checklist",
+    [builder.property(title()), builder.property(items())],
+    fn(reader) {
+      use title <- result.try(builder.read_property(reader, title()))
+      use items <- result.try(builder.read_property(reader, items()))
+      use _ <- result.try(
+        checklist.validate_unique_ids(items)
+        |> result.map_error(fn(detail) { types.InvalidEdit(["items"], detail) }),
+      )
+      Ok(checklist.Checklist(title, items))
+    },
+  )
+  |> builder.root
 }
 
 pub fn initial() -> checklist.Checklist {

@@ -107,7 +107,7 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
         config.base_url,
         config.tenant,
         config.secret,
-        document_schema.compiled(),
+        document_schema.configuration(),
         [],
         Created,
       ),
@@ -171,7 +171,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Some(document) -> #(
           model,
           // Open the view, as viewWith does. Creation initialized the root.
-          tree.open(document, document_schema.compiled(), Opened),
+          tree.open(document, document_schema.configuration(), Opened),
         )
         None -> fail(model, "Connection completed without a document handle")
       }

@@ -30,15 +30,15 @@ pub fn main() -> Nil {
 }
 
 pub fn initial_root_is_a_valid_empty_string_array_test() {
-  let compiled = document_schema.compiled()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let assert Ok(Some(encoded)) =
     builder.encode_new(compiled, document_schema.initial())
-  let assert Ok(Nil) = schema.validate_root(document_schema.stored(), encoded)
+  let assert Ok(Nil) = schema.validate_root(builder.stored(compiled), encoded)
   let assert Ok([]) = builder.decode(compiled, Some(encoded))
 }
 
 pub fn compiled_schema_preserves_persisted_identity_test() {
-  let assert Ok(compiled) = document_schema.definition()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let assert Ok(previous) =
     schema.stored_from_string(
       "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"shared_tree_item_counter.StringArray\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"shared_tree_item_counter.StringArray\"]}}",
@@ -83,7 +83,7 @@ pub fn remove_targets_the_first_entry_only_test() {
 }
 
 pub fn malformed_roots_do_not_turn_into_zero_test() {
-  let compiled = document_schema.compiled()
+  let assert Ok(compiled) = builder.compile(document_schema.configuration())
   let assert Error(_) =
     builder.decode(compiled, Some(types.StringValue("not an array")))
   let assert Error(_) =
@@ -100,7 +100,8 @@ pub fn malformed_roots_do_not_turn_into_zero_test() {
 }
 
 fn fixture(initial: List(String)) -> Fixture(root) {
-  let compiled = document_schema.compiled()
+  let declaration = document_schema.configuration()
+  let assert Ok(compiled) = builder.compile(declaration)
   let assert Ok(encoded) = builder.encode_new(compiled, initial)
   let assert Ok(session) =
     fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
@@ -159,6 +160,6 @@ fn fixture(initial: List(String)) -> Fixture(root) {
     )
       |> stringify,
   )
-  let assert Ok(tree) = watershed.open_tree(document, compiled)
+  let assert Ok(tree) = watershed.open_tree(document, declaration)
   Fixture(document:, tree:, submissions:)
 }

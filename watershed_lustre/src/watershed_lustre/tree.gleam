@@ -21,7 +21,7 @@ pub type CommitEvent {
 
 pub fn create(
   config: container.CreateConfig,
-  compiled: builder.Compiled(a),
+  declaration: builder.Root(a),
   initial: a,
   created: fn(Result(String, error.Error)) -> msg,
 ) -> Effect(msg) {
@@ -29,7 +29,7 @@ pub fn create(
   let _ = {
     use outcome <- promise.map(watershed.create_tree_container(
       config,
-      compiled,
+      declaration,
       initial,
     ))
     queue_microtask(fn() { dispatch(created(outcome)) })
@@ -41,34 +41,45 @@ pub fn create_dev(
   base_url: String,
   tenant: String,
   secret: String,
-  compiled: builder.Compiled(a),
+  declaration: builder.Root(a),
   initial: a,
   created: fn(Result(String, error.Error)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  let _ = {
-    use token <- promise.map(watershed.dev_token(
-      secret: secret,
-      tenant: tenant,
-      document: "",
-      user_id: "shared-tree-checklist",
-    ))
-    use outcome <- promise.map(watershed.create_tree_container(
-      container.CreateConfig(base_url, tenant, token),
-      compiled,
-      initial,
-    ))
-    queue_microtask(fn() { dispatch(created(outcome)) })
+  case builder.compile(declaration) {
+    Error(reason) ->
+      queue_microtask(fn() {
+        dispatch(created(Error(error.InvalidSchema(reason))))
+      })
+    Ok(compiled) -> {
+      let _ = {
+        use token <- promise.map(watershed.dev_token(
+          secret: secret,
+          tenant: tenant,
+          document: "",
+          user_id: "shared-tree-checklist",
+        ))
+        use outcome <- promise.map(
+          watershed.create_tree_container_from_compiled(
+            container.CreateConfig(base_url, tenant, token),
+            compiled,
+            initial,
+            container.layout(),
+          ),
+        )
+        queue_microtask(fn() { dispatch(created(outcome)) })
+      }
+      Nil
+    }
   }
-  Nil
 }
 
 pub fn open(
   document: watershed.Document(root),
-  compiled: builder.Compiled(a),
+  declaration: builder.Root(a),
   opened: fn(Result(tree.Tree(a), error.Error)) -> msg,
 ) -> Effect(msg) {
-  perform(fn() { watershed.open_tree(document, compiled) }, opened)
+  perform(fn() { watershed.open_tree(document, declaration) }, opened)
 }
 
 pub fn subscribe_changes(

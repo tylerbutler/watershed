@@ -64,6 +64,10 @@ pub fn shared_tree_checklist_seed() -> Result(
   runtime_core.BootstrapSeed,
   String,
 ) {
+  use compiled <- result.try(
+    builder.compile(checklist_schema.configuration())
+    |> result.map_error(string.inspect),
+  )
   use session <- result.try(
     fluid_ids.session_id(id.uuid_v4()) |> result.map_error(string.inspect),
   )
@@ -72,7 +76,7 @@ pub fn shared_tree_checklist_seed() -> Result(
   )
   use initial <- result.try(
     builder.encode_new(
-      checklist_schema.compiled(),
+      compiled,
       checklist.Checklist("SharedTree checklist", [
         checklist.Item("inspect-spillway", "inspect spillway", False),
         checklist.Item("review-field-notes", "review field notes", False),
@@ -83,7 +87,7 @@ pub fn shared_tree_checklist_seed() -> Result(
   )
   use summary <- result.try(
     fluid_document.initial_tree(
-      checklist_schema.stored(),
+      builder.stored(compiled),
       initial,
       session,
       view,
@@ -97,7 +101,7 @@ pub fn shared_tree_checklist_seed() -> Result(
 pub fn open_shared_tree_checklist(
   document: watershed.Document(root),
 ) -> Result(SharedTreeChecklist, String) {
-  watershed.open_tree(document, checklist_schema.compiled())
+  watershed.open_tree(document, checklist_schema.configuration())
   |> result.map(SharedTreeChecklist)
   |> result.map_error(tree_error.to_string)
 }
