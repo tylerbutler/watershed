@@ -71,7 +71,9 @@ document ripples.
 ### SharedTree effects
 
 `watershed_lustre/tree` accepts the same `watershed/tree.Tree(a)` as the core
-API. `open` takes a compiled declaration; `read_root` returns its application
+API. `create`, `create_dev`, and `open` take a `schema_builder.Root(a)`
+declaration and compile it when performed; schema failures reach their result
+callbacks as `InvalidSchema`. `read_root` returns its application
 value directly. `perform` takes a thunk, so the edit runs only when Lustre
 performs the effect. Message construction and dispatch happen in a later
 microtask, including subscription registration and failure messages.

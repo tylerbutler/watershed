@@ -29,7 +29,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "schema",
     title: "Start with the same array.",
     explanation:
-      "Fluid derives a typed StringArray class from SchemaFactory. watershed compiles an array descriptor into Compiled(List(String)), which carries the stored schema, view schema, and snapshot codecs together. Pass that declaration to create or open the tree. You don't need separate root or item codecs.",
+      "Fluid derives a typed StringArray class from SchemaFactory and passes it to TreeViewConfiguration. In watershed, configuration() declares the same shape as Root(List(String)). Pass it to create or open; those APIs compile the stored schema, view schema, and snapshot codecs for you.",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-schema"))],
     watershed: [watershedSnippet(sourceSnippet("item-counter-watershed-schema"))],
   },
@@ -37,7 +37,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "lifecycle",
     title: "Same empty root. Different way in.",
     explanation:
-      "Fluid creates or loads a container, gets its tree view, initializes it if allowed, and attaches a new detached container. watershed passes the compiled declaration and an ordinary empty list to create_dev, keeps the returned ID, then connects and opens a Tree(List(String)) with the same declaration. Opening doesn't initialize content or upgrade the stored schema. These are excerpts from the complete applications; surrounding configuration and UI setup stay in the linked source.",
+      "Fluid creates or loads a container, gets its tree view, initializes it if allowed, and attaches a new detached container. watershed passes configuration() and an ordinary empty list to create_dev, keeps the returned ID, then connects and opens a Tree(List(String)) with the same declaration. Opening doesn't initialize content or upgrade the stored schema. These are excerpts from the complete applications; surrounding configuration and UI setup stay in the linked source.",
     fluid: [
       fluidSnippet(sourceSnippet("item-counter-fluid-container")),
       fluidSnippet(sourceSnippet("item-counter-fluid-view")),
@@ -59,7 +59,7 @@ export const itemCounterRows: readonly ItemCounterComparisonRow[] = [
     id: "edits",
     title: "Insert an entry. Remove the first.",
     explanation:
-      "Fluid's methods edit the array directly. watershed calls required_root to acquire a Ref(List(String)), then passes it to array_insert or array_remove. The compiled declaration supplies the item codec; there's no intermediate edit value to prepare or dispatch. Both insert an empty string at index zero and leave an empty array alone on Remove. watershed checks for the first entry with array_get, and its remove range is half-open: [0, 1).",
+      "Fluid's methods edit the array directly. watershed calls required_root to acquire a Ref(List(String)), then passes it to array_insert or array_remove. The tree retains the item codec from its declaration; there's no intermediate edit value to prepare or dispatch. Both insert an empty string at index zero and leave an empty array alone on Remove. watershed checks for the first entry with array_get, and its remove range is half-open: [0, 1).",
     fluid: [fluidSnippet(sourceSnippet("item-counter-fluid-edits"))],
     watershed: [
       watershedSnippet(sourceSnippet("item-counter-watershed-edits")),

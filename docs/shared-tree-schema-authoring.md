@@ -11,16 +11,13 @@ The item-counter example declares its document like this:
 
 ```gleam
 import watershed/tree/schema_builder as builder
-import watershed/tree/types
-
-pub fn definition() -> Result(builder.Compiled(List(String)), types.TreeError) {
+pub fn configuration() -> builder.Root(List(String)) {
   builder.array(
     builder.factory("shared_tree_item_counter"),
     "StringArray",
     builder.string(),
   )
   |> builder.root
-  |> builder.compile
 }
 ```
 
@@ -29,9 +26,14 @@ Factory scopes and local names must be nonempty. A factory joins them with
 `.`; it does not generate names. Descriptors from different factories can
 compose.
 
-Compile the descriptor once during initialization. Keep the resulting
-`Compiled(a)` for creation, opening, encoding, and decoding. Check compilation
-errors before starting a connection or creating a document.
+Pass this declaration to creation or opening. Those APIs compile it and return
+`tree/error.InvalidSchema` if the declaration is invalid, before creating a
+document or registering a tree view. You don't need separate stored-schema or
+view-schema helpers.
+
+For offline encoding, decoding, or schema inspection, call
+`builder.compile(configuration())` and keep the resulting `Compiled(a)`.
+These low-level uses still expose compilation as a checked operation.
 
 ## Records and properties
 
@@ -255,16 +257,15 @@ collection entry declarations.
 
 ## Container creation
 
-Both facades accept a compiled declaration and an ordinary application value.
-The declaration supplies the stored schema and construction encoder together:
+Both facades accept a root declaration and an ordinary application value.
+They compile the stored schema and construction encoder together:
 
 ```gleam
 import shared_tree_item_counter_lustre/schema as document_schema
 
-let assert Ok(compiled) = document_schema.definition()
 watershed.create_tree_container(
   create_config,
-  compiled,
+  document_schema.configuration(),
   [],
 )
 ```
@@ -273,7 +274,8 @@ watershed.create_tree_container(
 result; the BEAM facade returns the result. Both return structured
 `watershed/tree/error.Error` values. Encoding failures retain the original
 `TreeError` in `InvalidValue`; `CreationFailed` retains the complete
-`container.CreateError`, including nested storage failures. Use `error.to_string`
+`container.CreateError`, including nested storage failures. Declaration failures
+retain the original `TreeError` in `InvalidSchema`. Use `error.to_string`
 for a presentation that does not expose credentials or response bodies.
 
 Creation uses `encode_new`, so generated identifiers are allowed. Required
@@ -282,18 +284,18 @@ declaration's `Option(a)` value, without another surrounding `Some`.
 Invalid construction values fail before allocation or network work.
 Creation does not connect the document and does not retry an uncertain result.
 
-For declared layouts, `with_initial_tree(layout, store, channel, compiled,
+For declared layouts, `with_initial_tree(layout, store, channel, declaration,
 initial)` uses the same construction rules. Pass the resulting layout to
-`create_tree_container_with_layout(config, compiled, initial, layout)`.
+`create_tree_container_with_layout(config, declaration, initial, layout)`.
 
 ## Open and edit a tree
 
 After connecting and reaching readiness, call
-`watershed.open_tree(document, compiled)`. It checks the bootstrap map and
+`watershed.open_tree(document, declaration)`. It checks the bootstrap map and
 its `"tree"` binding, then returns `watershed/tree.Tree(a)` for your
 declaration's application type. BEAM uses `watershed_beam.open_tree` with
 the same inputs. Custom layouts can use
-`resolve_tree(document, marker, compiled)` instead.
+`resolve_tree(document, marker, declaration)` instead.
 
 The [item-counter application](../examples/shared_tree_item_counter_lustre)
 shows the corresponding Lustre effects, subscriptions, cleanup, and error
@@ -306,7 +308,7 @@ Keep the property descriptors used to build your object so you can use them
 for reads and writes on that same tree:
 
 ```gleam
-let assert Ok(handle) = watershed.open_tree(document, compiled)
+let assert Ok(handle) = watershed.open_tree(document, declaration)
 let assert Ok(item) = tree.required_root(handle)
 let assert Ok(Nil) = tree.set(item, label_property, "Renamed")
 let assert Ok(label) = tree.get(item, label_property)
@@ -408,7 +410,7 @@ transaction ownership, and reentrant writes have distinct error variants;
 | Allowed-type array | `union([variant(node, inject, project), ...])` |
 | Recursive schema reference | `lazy(factory, name, resolve)` |
 | `sf.identifier` | `identifier(key, getter)` |
-| View configuration | `open_tree(document, compiled)`; `view(compiled)` for schema inspection |
+| View configuration | `root(node)` or `optional_root(node)`, passed to `open_tree(document, declaration)` |
 
 Anonymous names, custom codecs, automatic schema migration, and code generation
 are outside this API. The arity constructors support up to eight properties;

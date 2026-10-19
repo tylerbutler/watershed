@@ -49,8 +49,9 @@ const fluidSource =
         <a href="/sharedtree/checklist">live checklist</a>.
       </p>
       <p>
-        In Gleam, <code>Tree(List(String))</code> ties the view to its compiled
-        schema. Reads give you ordinary list snapshots; edits go through a
+        In Gleam, one <code>Root(List(String))</code> declaration configures
+        creation and opening of a <code>Tree(List(String))</code>.
+        Reads give you ordinary list snapshots; edits go through a
         <code>Ref(List(String))</code> that identifies the array in the tree.
         Changing a snapshot won't change the shared document.
       </p>

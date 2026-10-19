@@ -62,6 +62,9 @@ test("the generated schema snippet quotes the typed array declaration", () => {
   assert.match(snippet.code, /builder\.array\(/);
   assert.match(snippet.code, /"shared_tree_item_counter"/);
   assert.match(snippet.code, /"StringArray"/);
+  assert.match(snippet.code, /pub fn configuration\(\) -> builder\.Root\(List\(String\)\)/);
+  assert.doesNotMatch(snippet.code, /builder\.(compile|stored|view)\(/);
+  assert.doesNotMatch(snippet.code, /pub fn (definition|compiled|stored|view)\(/);
   assert.deepEqual(snippet.origin, {
     kind: "source",
     markers: ["item-counter-watershed-definition", "item-counter-watershed-schema"],

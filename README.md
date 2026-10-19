@@ -152,15 +152,16 @@ resolution requires an absolute marker. Use
 `bind_handle(document, source_handle, value)` to resolve a relative marker in
 its source channel's datastore.
 
-After readiness, call `open_tree(document, compiled)` to check the bootstrap
-map's `"tree"` binding and open a `watershed/tree.Tree(a)`. The compiled
-declaration supplies its schema and snapshot codecs. Use
-`resolve_tree(document, marker, compiled)` for an explicit custom route.
+After readiness, call `open_tree(document, declaration)` to check the bootstrap
+map's `"tree"` binding and open a `watershed/tree.Tree(a)`. The API compiles the
+declaration's schema and snapshot codecs. Use
+`resolve_tree(document, marker, declaration)` for an explicit custom route.
 
 ### Typed SharedTree application API
 
-Declare ordinary Gleam records with `watershed/tree/schema_builder`, compile
-once, and keep the resulting `Compiled(a)`. Within a connected document,
+Declare ordinary Gleam records with `watershed/tree/schema_builder` and pass
+the `Root(a)` declaration to creation or opening. These APIs compile it for
+you and return `InvalidSchema` for invalid declarations. Within a connected document,
 `create_tree` and `open_tree` return the same `watershed/tree.Tree(a)` used for
 edits, observation, transactions, branches, and undo. There is no separate
 live-view binding.
@@ -192,41 +193,38 @@ pub fn title() -> builder.Property(Card, String) {
   builder.required("title", builder.string(), fn(card: Card) { card.title })
 }
 
-pub fn compiled() -> builder.Compiled(Card) {
-  let assert Ok(compiled) =
-    builder.object5(
-      builder.factory("example"),
-      "Card",
-      Card,
-      builder.identifier("id", fn(card: Card) { card.id }),
-      title(),
-      builder.optional("note", builder.string(), fn(card: Card) { card.note }),
-      builder.required("status", builder.null(), fn(card: Card) { card.status }),
-      builder.optional("deletedAt", builder.null(), fn(card: Card) {
-        card.deleted_at
-      }),
-    )
-    |> builder.root
-    |> builder.compile
-  compiled
+pub fn configuration() -> builder.Root(Card) {
+  builder.object5(
+    builder.factory("example"),
+    "Card",
+    Card,
+    builder.identifier("id", fn(card: Card) { card.id }),
+    title(),
+    builder.optional("note", builder.string(), fn(card: Card) { card.note }),
+    builder.required("status", builder.null(), fn(card: Card) { card.status }),
+    builder.optional("deletedAt", builder.null(), fn(card: Card) {
+      card.deleted_at
+    }),
+  )
+  |> builder.root
 }
 
 pub fn create(
   config: container.CreateConfig,
-  compiled: builder.Compiled(Card),
+  declaration: builder.Root(Card),
 ) -> Promise(Result(String, error.Error)) {
   watershed.create_tree_container(
     config,
-    compiled,
+    declaration,
     Card(builder.Generate, "Draft", None, Nil, None),
   )
 }
 
 pub fn open(
   document: watershed.Document(root),
-  compiled: builder.Compiled(Card),
+  declaration: builder.Root(Card),
 ) -> Result(tree.Tree(Card), error.Error) {
-  watershed.open_tree(document, compiled)
+  watershed.open_tree(document, declaration)
 }
 
 pub fn rename(
@@ -257,10 +255,10 @@ pub fn release(
 ```
 
 Creation returns a document ID; it does not connect or automatically retry a
-lost response. After connecting and reaching readiness, pass the same compiled
+lost response. After connecting and reaching readiness, pass the same root
 declaration to `open_tree`. It checks the bootstrap map's `"tree"` binding
 instead of assuming a fixed channel address. The BEAM facade has the same
-compiled inputs and returns the same `Tree(a)`; its container creation result
+declaration inputs and returns the same `Tree(a)`; its container creation result
 is synchronous rather than a promise.
 
 `read_root` and `read` return immutable snapshots. Changing a local record or
@@ -271,8 +269,8 @@ For a selected array item, use `array_remove_node` or `array_move_before`;
 index operations instead use the sequence as it exists when the call runs.
 Refs are not data to insert and are not an application equality key.
 
-Required roots take their value directly. `optional_root(node)` compiles to
-`Compiled(Option(a))`, so creation takes `None` or `Some(value)`, not another
+Required roots take their value directly. `optional_root(node)` returns
+`Root(Option(a))`, so creation takes `None` or `Some(value)`, not another
 outer option. Optional properties distinguish absence from a present null:
 `None` differs from `Some(Nil)`. Identifier reads return `Assigned(string)`.
 Creation and `*_new` edits permit `Generate`; ordinary snapshot writes reject
@@ -292,7 +290,7 @@ a commit elsewhere in the same tree and checkout can repeat an equal value.
 reports commit metadata and history hooks. Callbacks can read committed state
 and unsubscribe, but reentrant edits return `ReentrantEdit`.
 
-For a custom route, use `resolve_tree(document, marker, compiled)`. To inspect
+For a custom route, use `resolve_tree(document, marker, declaration)`. To inspect
 an incompatible schema, use `inspect_tree`, then `tree.compatibility`.
 `can_view`, `can_upgrade`, and `is_equivalent` answer different questions.
 Request `tree.upgrade_schema` explicitly; opening never initializes content or
@@ -596,12 +594,12 @@ A ready, writable service document can grow beyond its bootstrap layout.
 `create_data_store(document)` creates a detached datastore, and
 `data_store_root(store)` returns its entry-point map. Use
 `create_map_in(document, store)` and
-`create_tree_in(document, store, compiled, initial)` to add
+`create_tree_in(document, store, declaration, initial)` to add
 detached channels there. `create_tree` adds a detached tree to the bootstrap
 datastore. The JavaScript and BEAM facades expose the same calls with matching
 `Result` return types. Both also expose
-`resolve_tree(document, marker, compiled)` and
-`open_tree(document, compiled)`. Use `tree.handle_of(tree)` for its route and
+`resolve_tree(document, marker, declaration)` and
+`open_tree(document, declaration)`. Use `tree.handle_of(tree)` for its route and
 `tree.revertible_revision(revertible)` for a retained revision.
 
 Detached creation is local. It sends no transport message, but tree
@@ -706,9 +704,9 @@ arity, and required/optional roots on JavaScript and BEAM.
 `Promise(Result(String, error.Error))`;
 `watershed_beam.create_tree_container` returns
 `Result(String, error.Error)`, with errors from `watershed/tree/error`. Pass a
-`container.CreateConfig(base_url, tenant, token)`, a `builder.Compiled(a)`,
+`container.CreateConfig(base_url, tenant, token)`, a `builder.Root(a)`,
 and an initial value of type `a`. Required roots take their value directly;
-optional roots already use `Option(value)`. The compiled declaration encodes
+optional roots already use `Option(value)`. The API compiles the declaration and encodes
 construction data; callers do not pass `TreeValue` through the application
 facade.
 
@@ -716,7 +714,7 @@ Creation sends one authenticated POST to the pinned Floodgate service and
 returns its assigned document ID. It does not start a WebSocket connection or
 document runtime. Obtain
 a document-scoped token for that ID, call the existing `connect`, then follow
-`open_tree(document, compiled)`. Keep the returned ID if token
+`open_tree(document, declaration)`. Keep the returned ID if token
 acquisition or opening fails; retry opening that document, not creation.
 If the creation response is lost or invalid, the service may have created a
 document. Watershed reports that uncertainty and does not retry the POST.
@@ -769,11 +767,11 @@ pub fn initial_layout() -> container.Layout {
 ```
 
 Both facades expose
-`with_initial_tree(layout, store, channel, compiled, initial)`.
+`with_initial_tree(layout, store, channel, declaration, initial)`.
 It returns `Result(container.Layout, error.Error)` and supports a different
 schema for each additional tree, including channels in datastore `A`.
 Pass the completed layout as the last argument to
-`create_tree_container_with_layout(config, compiled, initial, layout)`.
+`create_tree_container_with_layout(config, declaration, initial, layout)`.
 Its return type and creation uncertainty match `create_tree_container`.
 All initial trees share one document ID compressor.
 
