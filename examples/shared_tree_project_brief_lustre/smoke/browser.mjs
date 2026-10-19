@@ -132,8 +132,18 @@ async function wait(label, probe, predicate, timeout = 20_000) {
 const state = (send, label, predicate, timeout) =>
   wait(label, () => snapshot(send), predicate, timeout);
 const ready = (send) => state(send, "ready document", s => s.status === "ready" && !!s.id);
-const disconnected = (send) => state(send, "visible disconnect", s =>
-  ["disconnected", "reconnecting"].includes(s.status));
+const disconnected = async (send) => {
+  try {
+    return await state(send, "visible disconnect", s =>
+      ["disconnected", "reconnecting"].includes(s.status));
+  } catch (error) {
+    console.error("disconnect transport diagnostics", await call(send, () => ({
+      offline: __gate.offline,
+      sockets: __gate.sockets.map(s => ({ url: s.url, readyState: s.readyState })),
+    })));
+    throw error;
+  }
+};
 const value = (send, key, expected) =>
   state(send, `native ${key}=${expected}`, s => s.values[key] === expected);
 const awareness = (send, key, name) =>
@@ -261,6 +271,7 @@ async function scenarios(a, b, sharedUrl) {
   pass(4, "advisory same-field contention; agreement without a chosen winner");
 
   await focus(a, "owner.name");
+  const operationsBeforeIME = (await snapshot(a)).operations.length;
   await composition(a, "owner.name", "compositionstart");
   await composition(a, "owner.name", "input", "編集中", true);
   await type(b, "owner.name", "Remote during IME");
@@ -268,8 +279,11 @@ async function scenarios(a, b, sharedUrl) {
   await value(a, "schedule.target", "2026-11-24");
   await value(a, "owner.name", "編集中");
   const composing = await snapshot(a);
+  // B's later delivered field edit fences the earlier partial composing input.
+  assert.equal(composing.operations.length, operationsBeforeIME,
+    "partial composition must not submit a durable operation");
+  // Remote edits legitimately added callbacks while A was composing.
   const beforeIME = composing.count;
-  const operationsBeforeIME = composing.operations.length;
   await composition(a, "owner.name", "compositionend", "完成");
   await value(b, "owner.name", "完成");
   await state(a, "one composition tree callback", s => s.count === beforeIME + 1);
@@ -450,17 +464,54 @@ async function scenarios(a, b, sharedUrl) {
   const recovered = await snapshot(a);
   assert.equal(new URL(recovered.url).searchParams.get("document"), new URL(sharedUrl).searchParams.get("document"));
   assert.deepEqual(recovered.values, saved, "service recovery after both sessions closed");
-  assert(Object.values(recovered.badges).every(x => !x), "no saved presence");
+  assert(Object.values(recovered.badges).every(x => !x), "no awareness after clean close");
   assert.equal((await snapshot(b)).status, "closed", "late callbacks cannot reopen B");
   assert.equal((await snapshot(b)).count, closedCount);
   await click(a, action("close"));
-  pass(8, "same-URL reload recovers real service content with no saved presence");
+  pass(8, "same-URL reload recovers real service content after clean close");
   pass(9, "visible disconnect/ready/closed, canceled offline composition, inert close and no late reopen");
   for (const [name, send] of [["A", a], ["B", b]]) {
     const final = await snapshot(send);
     console.log(`  ${name} browser errors=${final.browserErrors.length}; console errors=${JSON.stringify([...consoleErrors.get(send)])}`);
   }
 
+  await a("Page.navigate", { url: sharedUrl });
+  await ready(a);
+  const peerUrl = new URL(sharedUrl);
+  peerUrl.searchParams.set("name", "Sam");
+  await b("Page.navigate", { url: peerUrl.href });
+  await ready(b);
+  await focus(b, "owner.email", 1, 4);
+  await type(a, "title", "Recovery with live selection");
+  await value(b, "title", "Recovery with live selection");
+  await awareness(a, "owner.email", "Sam");
+  await awareness(b, "title", "Morgan");
+  await state(b, "non-collapsed selection retained through delivered content", s =>
+    s.active === "owner.email" && s.start === 1 && s.end === 4);
+  const savedWithAwareness = (await snapshot(a)).values;
+  assert.deepEqual((await snapshot(b)).values, savedWithAwareness);
+  // Cut transport before unloading, so no blur/close can deliver an empty selection.
+  // The delivered title assignment above establishes real saved content while
+  // both clients still have nonempty awareness, without mocking persistence.
+  await offline(b, true);
+  await offline(a, true);
+  for (const send of [b, a]) {
+    await send("Page.navigate", { url: "about:blank" });
+    await wait("old document unloaded", () => call(send, () => location.href),
+      url => url === "about:blank");
+  }
+  await offline(a, false);
+  await a("Page.navigate", { url: sharedUrl });
+  await ready(a);
+  const isolated = await snapshot(a);
+  assert.equal(new URL(isolated.url).searchParams.get("document"), new URL(sharedUrl).searchParams.get("document"));
+  assert.deepEqual(isolated.values, savedWithAwareness, "service recovery after abrupt unload with live awareness");
+  assert(Object.values(isolated.badges).every(x => !x), "isolated recovery must not restore saved awareness");
+  assert.equal(await call(b, () => location.href), "about:blank", "no live peer can supply recovery");
+  await click(a, action("close"));
+  pass(8, "live selections survive until transport cut; isolated service recovery restores content, not awareness");
+
+  await offline(b, false);
   const missing = new URL(sharedUrl);
   missing.searchParams.set("document", crypto.randomUUID());
   await b("Page.navigate", { url: missing.href });
