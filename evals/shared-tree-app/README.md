@@ -21,8 +21,8 @@ Lifecycle schedules include Close during held initialization and bounded
 observation for delayed creation retries. Native SDK summary uploads are not
 counted as document-creation attempts.
 Protected-file hashing, candidate-only overlays, native SDK materialization,
-and portable workspace preparation are implemented. The grading CLI, isolated
-agent execution, and the comparison runner are not implemented yet.
+portable workspace preparation, and the trusted grading CLI are implemented.
+Isolated agent execution and the comparison runner are not implemented yet.
 This directory does not yet provide a runnable agent eval.
 
 The design and implementation sequence are in:
@@ -203,3 +203,32 @@ release lines remain intact. Preparation generates the Fluid lockfile; subsequen
 installs use `--frozen-lockfile`. The roots contain source and SDK build packages,
 not host-installed app dependencies. Linux task/grading images must install their
 own native dependencies before a trial. Container isolation is still pending.
+
+## Grade a submission
+
+Install the prepared grading baseline's dependencies before grading, then use
+its entry point with the separate submitted workspace:
+
+```sh
+pnpm --dir /absolute/prepared/grading/workspace install --frozen-lockfile
+node /absolute/prepared/grading/graders/main.mjs \
+  --sdk watershed --workspace /absolute/prepared/agent \
+  --run-id watershed-validation --output /absolute/results/report.json
+```
+
+Use `--sdk fluid` for a Fluid preparation. The trusted baseline must check and
+build, its native service must be healthy, and Chromium must start before a
+candidate build is graded. Only permitted candidate source files are overlaid;
+candidate build scripts and generated bundles are never executed.
+
+Every graded trial produces all 35 required checks, including checks not reached
+after a failure. Exit codes are `0` for passed, `1` for agent failure, and `2`
+for invalid infrastructure or configuration. The success marker is printed only
+after the complete validated report is saved. Reports are published atomically
+without replacing existing output; choose a fresh report path for each trial.
+The adjacent `.build.log` preserves trusted check/build output.
+
+Actual prepared-SDK integration checks require both reference models to pass,
+then introduce a model syntax error and require a complete failing report.
+They also poison candidate-generated bundles to prove grading rebuilds from
+trusted inputs. These are harness checks, not agent-performance measurements.

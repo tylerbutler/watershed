@@ -8,9 +8,7 @@ import test from "node:test";
 import { parse } from "yaml";
 import { prepare } from "../../prepare.mjs";
 import { verifyIntegrity } from "../../lib/staging.mjs";
-import { startServices } from "../../lib/services.mjs";
-import { launchBrowser } from "../../lib/cdp.mjs";
-import { runScenarios } from "../../graders/scenarios.mjs";
+import { validateReport, verdict } from "../../lib/report.mjs";
 
 const exec = promisify(execFile);
 const benchmark = fileURLToPath(new URL("../../", import.meta.url));
@@ -22,8 +20,6 @@ for (const name of ["watershed", "fluid"]) {
   test(`${name} prepared SDK passes native grading without host layout, registry fallback, or SDK tests`, async () => {
     await mkdir(join(benchmark, ".work"), { recursive: true });
     const temporary = await mkdtemp(join(benchmark, `.work/local-${name}-sdk-`));
-    let services;
-    let browser;
     try {
       const selectedSource = name === "fluid" ? source : fileURLToPath(new URL("../../../../", import.meta.url));
       const selectedRevision = name === "fluid" ? revision
@@ -48,9 +44,6 @@ for (const name of ["watershed", "fluid"]) {
       for (const module of ["model", "schema"]) await cp(
         join(benchmark, "validation/solutions", name, `${module}.${extension}`),
         join(root, name === "fluid" ? "src" : "src/incident_eval", `${module}.${extension}`));
-      await exec("pnpm", ["install", "--frozen-lockfile"], { cwd: root, timeout: 300_000 });
-      await exec("pnpm", ["check"], { cwd: root, timeout: 180_000 });
-      await exec("pnpm", ["build"], { cwd: root, timeout: 180_000 });
       if (name === "fluid") {
         const lock = parse(await readFile(join(root, "pnpm-lock.yaml"), "utf8"));
         for (const pkg of sdk.packages) {
@@ -65,27 +58,38 @@ for (const name of ["watershed", "fluid"]) {
       assert.equal(files.some(path => /(^|\/)(test|tests|examples|validation|\.git)(\/|$)/.test(path)), false);
       assert.equal(sdk.build.mode, name === "fluid" ? "esm" : "source");
       assert.equal(sdk.build.revision, selectedRevision);
-      await cp(join(benchmark, "graders", name, "native.mjs"), join(root, "grade-native.mjs"));
-      const entry = name === "fluid" ? "./src/index.tsx"
-        : "./build/dev/javascript/incident_eval/incident_eval/shell.mjs";
-      await writeFile(join(root, "grade-entry.mjs"),
-        `export * from ${JSON.stringify(entry)};\nimport "./grade-native.mjs";\n`);
-      await exec(process.execPath, ["--input-type=module", "-e", `
-import { build } from "esbuild";
-await build({ entryPoints: ["grade-entry.mjs"], bundle: true, format: "esm",
-outfile: "dist/app.js", define: { "process.env.NODE_ENV": '"production"' } });
-`], { cwd: root, timeout: 180_000 });
-      services = await startServices({ sdk: name, root, runId: "local-sdk-validation" });
-      browser = await launchBrowser();
-      const checks = [];
-      await runScenarios({ sdk: name, services, browser, record: check => checks.push(check) });
+      const baseline = join(prepared.gradingRoot, "workspace");
+      await exec("pnpm", ["install", "--frozen-lockfile"], { cwd: baseline, timeout: 300_000 });
+      await exec("pnpm", ["check"], { cwd: baseline, timeout: 180_000 });
+      await exec("pnpm", ["build"], { cwd: baseline, timeout: 180_000 });
+      await mkdir(join(root, "dist"));
+      await writeFile(join(root, "dist/app.js"), 'throw new Error("Untrusted generated output must not run");');
+      const output = join(temporary, "passed.json");
+      const cli = join(prepared.gradingRoot, "graders/main.mjs");
+      const args = [cli, "--sdk", name, "--workspace", root, "--run-id", "local-sdk-validation",
+        "--output", output];
+      const passed = await exec(process.execPath, args, { timeout: 300_000, maxBuffer: 4 * 1024 * 1024 });
+      assert.match(passed.stdout, /^SHARED_TREE_EVAL_ALL_REQUIRED_PASSED\n$/);
       const contract = JSON.parse(await readFile(join(benchmark, "contract.json"), "utf8"));
-      assert.deepEqual(checks.map(check => check.id).sort(),
-        contract.checks.filter(check => check.group !== "integrity").map(check => check.id).sort());
-      assert.ok(checks.every(check => check.passed));
+      const report = JSON.parse(await readFile(output, "utf8"));
+      validateReport(report, contract);
+      assert.equal(verdict(report, contract), "passed");
+      const failedOutput = join(temporary, "failed.json");
+      await writeFile(join(root, name === "fluid" ? "src/model.ts" : "src/incident_eval/model.gleam"),
+        name === "fluid" ? "export function invalid(" : "pub fn invalid(");
+      await assert.rejects(exec(process.execPath, [
+        cli, "--sdk", name, "--workspace", root, "--run-id", "invalid-candidate", "--output", failedOutput,
+      ], { timeout: 300_000, maxBuffer: 4 * 1024 * 1024 }), error => {
+        assert.equal(error.code, 1);
+        assert.equal(error.stdout.includes("SHARED_TREE_EVAL_ALL_REQUIRED_PASSED"), false);
+        return true;
+      });
+      const failed = JSON.parse(await readFile(failedOutput, "utf8"));
+      validateReport(failed, contract);
+      assert.equal(failed.classification, "agent");
+      assert.equal(failed.checks.find(check => check.id === "integrity.build").passed, false);
+      assert.equal(verdict(failed, contract), "failed");
     } finally {
-      if (browser) await browser.close();
-      if (services) await services.close();
       await rm(temporary, { recursive: true, force: true });
     }
   });

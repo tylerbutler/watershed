@@ -501,7 +501,7 @@ accounting only, not SDK convergence.
   held initialization completes, compiler-cache failure cleanup, and idle
   headless browser contexts. Count document-creation requests separately from
   native SDK summary uploads.
-- [ ] **Step 7:** Run `graders/main.mjs` against a deliberately broken
+- [x] **Step 7:** Run `graders/main.mjs` against a deliberately broken
   candidate; require nonzero exit and a complete failing JSON report.
   Run against both solutions; require valid passing reports and the marker
   `SHARED_TREE_EVAL_ALL_REQUIRED_PASSED`. Commit:

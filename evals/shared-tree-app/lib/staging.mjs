@@ -96,7 +96,7 @@ export async function verifyIntegrity({ workspace, manifest }) {
   };
 }
 
-export async function overlayCandidate({ workspace, manifest, trusted }) {
+export async function assertSeparateRoots({ workspace, trusted }) {
   const source = await realpath(workspace);
   const destination = await realpath(trusted);
   const nested = (parent, child) => {
@@ -106,6 +106,11 @@ export async function overlayCandidate({ workspace, manifest, trusted }) {
   if (nested(source, destination) || nested(destination, source)) {
     throw new Error("Trusted grading root must be separate from and outside the agent workspace");
   }
+  return { source, destination };
+}
+
+export async function overlayCandidate({ workspace, manifest, trusted }) {
+  const { source, destination } = await assertSeparateRoots({ workspace, trusted });
   const integrity = await verifyIntegrity({ workspace, manifest });
   if (!integrity.passed) throw new Error(`Candidate integrity failed:\n${integrity.evidence}`);
   for (const entry of await entries(workspace)) {
