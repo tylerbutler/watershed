@@ -509,8 +509,8 @@ accounting only, not SDK convergence.
 
 ### Task 6: Portable allowlisted workspace preparation
 
-**Files:** Create `prepare.mjs`, `lib/{staging,sdk}.mjs`,
-`test/{staging,sdk}.test.mjs`.
+**Files:** Create `prepare.mjs`, `lib/{staging,sdk,sdk-build}.mjs`,
+`test/{staging,sdk,prepare}.test.mjs`, `test/integration/sdk.test.mjs`.
 
 **Interfaces:**
 
@@ -532,7 +532,7 @@ pack/build the requested local workspace packages and stage their required
 dependencies and public source/docs; reject mixed versions or registry
 fallback for packages selected from the local SDK build.
 
-- [ ] **Step 1:** Write a staging test with a temporary fake host checkout:
+- [x] **Step 1:** Write a staging test with a temporary fake host checkout:
 
 ```js
 test("does not stage answers, history, or sibling starter", async () => {
@@ -548,14 +548,17 @@ test("does not stage answers, history, or sibling starter", async () => {
 Define `fixtureOptions` with `sdk: "fluid"`, a temporary fake source root,
 a fixed fake revision, and a temporary output path. `listRelativeFiles` is
 a test helper using `fs.readdir({ recursive: true })` and normalized paths.
+The implemented full-preparation fixture uses Watershed. Fluid has fake
+source-resolution fixtures and an actual fresh source build rather than a
+fake compiler/package build.
 
-- [ ] **Step 2:** Run `node --test test/staging.test.mjs test/sdk.test.mjs`;
+- [x] **Step 2:** Run `node --test test/staging.test.mjs test/sdk.test.mjs`;
   confirm missing preparation logic fails.
-- [ ] **Step 3:** Implement explicit source/docs allowlists, reject symlink
+- [x] **Step 3:** Implement explicit source/docs allowlists, reject symlink
   escapes and paths outside selected roots, and hash staged files. Separate
   hidden staging input from agent-visible directories. Preserve the complete
   original SDK revision in the manifest even though `.git` is absent.
-- [ ] **Step 4:** Materialize `gleam.toml.in` with staged relative dependencies
+- [x] **Step 4:** Materialize `gleam.toml.in` with staged relative dependencies
   and exact lockfiles. Keep generated workspaces outside Trellis discovery.
   Include clear configuration errors for missing local packages, dirty source
   revisions, unresolved dependencies, and unsupported toolchains. Require
@@ -564,12 +567,16 @@ a test helper using `fs.readdir({ recursive: true })` and normalized paths.
   dependency/build configuration. Overlay only candidate-owned model/schema
   files and candidate test files onto a trusted grader workspace. Never
   execute an agent-modified build script as the grading authority.
-- [ ] **Step 6:** Copy the standalone benchmark package into temporary fake
+- [x] **Step 6:** Copy the standalone benchmark package into temporary fake
   Watershed and Fluid host layouts and confirm preparation does not depend on
   the host cwd or example paths. Repeat with real explicitly supplied SDK
   checkouts before calling portability validated.
-- [ ] **Step 7:** Run preparation tests and commit:
-  `feat(eval): prepare isolated native SDK workspaces`.
+  Both actual prepared SDKs pass every shared non-integrity scenario. A
+  relocated standalone benchmark prepares the fake Watershed SDK and actual
+  Fluid SDK without a sibling starter. Host-installed SDK outputs and
+  dependencies are not staged into the agent root.
+- [x] **Step 7:** Run preparation tests and commit:
+  `feat(eval): prepare portable native workspaces`.
 
 ### Task 7: Vally Docker task/grade environments
 

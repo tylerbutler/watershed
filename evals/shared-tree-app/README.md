@@ -20,11 +20,10 @@ verified concurrent submissions, late join, and delivered-state reopen.
 Lifecycle schedules include Close during held initialization and bounded
 observation for delayed creation retries. Native SDK summary uploads are not
 counted as document-creation attempts.
-Protected-file hashing, candidate-only overlays, and native SDK materialization
-are implemented. Portable agent-workspace preparation, the grading CLI,
-isolated agent execution, and the comparison
-runner are not implemented yet. This directory does not yet provide a runnable
-agent eval.
+Protected-file hashing, candidate-only overlays, native SDK materialization,
+and portable workspace preparation are implemented. The grading CLI, isolated
+agent execution, and the comparison runner are not implemented yet.
+This directory does not yet provide a runnable agent eval.
 
 The design and implementation sequence are in:
 
@@ -63,9 +62,8 @@ acceptance tooling. It does not translate or serialize tree operations.
 Their unfinished models must build but must not claim readiness.
 
 Gleam manifests use `.in` templates so Trellis does not discover unfinished
-eval packages. Workspace preparation must materialize their manifests and
-stage the selected SDK at the declared dependency paths. SDK selection and
-agent-workspace preparation are not wired together yet.
+eval packages. Preparation materializes them with relative dependencies inside
+the agent root, including the nested `watershed_lustre` package.
 
 With Chromium installed, run the separate integration suite:
 
@@ -174,10 +172,34 @@ selected from real package-manager pack output. SDK tests, examples, source
 maps, and repository history are excluded. The builder returns provenance and
 raw build logs for later grading artifacts.
 
-`test/integration/sdk.test.mjs` builds the actual local Fluid SDK at
+`test/integration/sdk.test.mjs` prepares the actual local Watershed SDK and
+builds the actual local Fluid SDK at
 `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`, installs its local packages with
 parent-scoped dependency overrides, rejects registry fallback for those
 versions, and runs every shared behavioral check against the reference app.
 Set `SHARED_TREE_FLUID_SOURCE` to use another location for that exact checkout.
-This adds a fresh SDK build to the integration suite. Portable agent-workspace
-preparation remains pending.
+This adds a fresh SDK build to the integration suite. Standalone relocation is
+exercised with a fake Watershed checkout and the actual Fluid checkout.
+
+## Prepare a workspace
+
+Run from any directory, using absolute paths and a full commit ID:
+
+```sh
+node /absolute/shared-tree-app/prepare.mjs \
+  --sdk watershed --source /absolute/watershed \
+  --revision FULL_COMMIT_SHA --out /absolute/new-output-directory
+```
+
+Use `--sdk fluid` and the Fluid checkout for the other SDK. The output directory
+must not already exist. Preparation creates `agent/` and `grading/`; it does not
+start an agent. Only `agent/` belongs in the task role. The grading root holds
+an independent baseline, native probes, manifests, and SDK build logs.
+It never contains reference implementations.
+
+Neither root includes the other starter or its SDK source. Fluid dependencies use
+local package directories and parent-scoped overrides so unrelated service
+release lines remain intact. Preparation generates the Fluid lockfile; subsequent
+installs use `--frozen-lockfile`. The roots contain source and SDK build packages,
+not host-installed app dependencies. Linux task/grading images must install their
+own native dependencies before a trial. Container isolation is still pending.
