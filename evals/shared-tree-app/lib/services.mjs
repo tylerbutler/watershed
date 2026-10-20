@@ -45,12 +45,29 @@ async function reachable(url) {
   }
 }
 
-export async function startServices({ sdk, root, runId }) {
+export async function startServices({
+  sdk, root, runId,
+  serviceEndpoint = process.env.SHARED_TREE_SERVICE_URL,
+  appPort = process.env.SHARED_TREE_APP_PORT ?? 0,
+  stateRoot = process.env.SHARED_TREE_SERVICE_STATE_ROOT ?? root,
+}) {
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown service SDK");
   if (typeof runId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(runId)) {
     throw new TypeError("Service runId must contain lowercase letters, digits, and hyphens");
   }
-  const dataRoot = await mkdtemp(join(resolve(root), ".service-"));
+  if (serviceEndpoint !== undefined) {
+    const url = new URL(serviceEndpoint);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+        url.search || url.hash || url.pathname !== "/") {
+      throw new TypeError("External service endpoint must be an HTTP origin without credentials");
+    }
+    serviceEndpoint = url.origin;
+  }
+  if ((typeof appPort === "string" && !/^\d+$/.test(appPort)) ||
+      !Number.isInteger(Number(appPort)) || Number(appPort) < 0 || Number(appPort) > 65535) {
+    throw new TypeError("App port must be an integer from 0 to 65535");
+  }
+  const dataRoot = await mkdtemp(join(resolve(stateRoot), ".service-"));
   const project = `incident-${runId}-${randomUUID().slice(0, 8)}`;
   const output = [];
   let endpoint;
@@ -201,10 +218,14 @@ export async function startServices({ sdk, root, runId }) {
     await writeFile(join(dataRoot, "docker-client/config.json"), "{}\n");
     await new Promise((resolve, reject) => {
       server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
+      server.listen(Number(appPort), "127.0.0.1", resolve);
     });
     origin = `http://127.0.0.1:${server.address().port}`;
-    if (sdk === "fluid") {
+    if (serviceEndpoint !== undefined) {
+      endpoint = serviceEndpoint;
+      await wait("External native service ready",
+        () => reachable(sdk === "fluid" ? endpoint : `${endpoint}/health`), Boolean, 30_000);
+    } else if (sdk === "fluid") {
       const port = await freePort();
       endpoint = `http://localhost:${port}`;
       await mkdir(join(dataRoot, "storage"));

@@ -145,6 +145,15 @@ Service diagnostics include the resolved source revision and image content ID.
 Fluid uses the pinned local-service package, a unique port, and private storage
 under its workspace. No Podman/Vally end-to-end trial claim is made yet.
 
+For externally managed support services, set `SHARED_TREE_SERVICE_URL` to the
+service's HTTP origin. The app host verifies readiness and proxies native traffic
+without starting a local service or invoking the container engine. Closing the
+app host stops only its proxy; the external service's owner must stop the service.
+`SHARED_TREE_APP_PORT` selects a fixed loopback port when a service needs a known
+public URL (the default is ephemeral). `SHARED_TREE_SERVICE_STATE_ROOT` selects an
+existing directory for temporary host state outside the submitted workspace.
+These options support future container wiring; isolated execution remains pending.
+
 Do not mount the host checkout, host home, or container-engine socket into an
 evaluated agent's workspace. Keep hidden graders and validation solutions
 outside agent-visible staging roots.
