@@ -154,6 +154,29 @@ public URL (the default is ephemeral). `SHARED_TREE_SERVICE_STATE_ROOT` selects 
 existing directory for temporary host state outside the submitted workspace.
 These options support future container wiring; isolated execution remains pending.
 
+`lib/images.mjs` builds separate non-root Linux task and grade images from a
+prepared baseline. The task image includes public tooling and its selected SDK,
+not hidden graders or validation solutions. The grade image adds a separate
+trusted root at `/opt/shared-tree/grading`. Builds pin Node 24.21.0, Gleam 1.18.1,
+pnpm 12.13.0, and Vally core/CLI 0.19.0; image manifests record content IDs,
+architecture, the package registry, and observed tool versions. Gleam downloads
+are checked against their published checksum. Dependencies are installed with
+frozen lockfiles before isolation, without rewriting registry URLs.
+
+The starters disable pnpm's automatic pre-script dependency installation.
+Its saved workspace identity contains absolute paths, so relocation would
+otherwise trigger downloads. Frozen installs and protected-input checks remain
+required; build scripts use the already-installed dependencies.
+
+The Watershed image integration runs an offline build and Chromium on an
+internal Podman network while Floodgate remains reachable. It also exercises
+the real Copilot SDK against a local streaming provider fixture through
+`docker/gateway.mjs`, with external downloads blocked. The gateway permits only
+the selected model's chat-completion route, rejects tunnels and redirects, and
+keeps upstream authentication out of client requests and provider error bodies.
+No real provider or paid model is used. Fluid image validation, trial-specific
+Compose wiring, and a complete Vally task-to-grade pipeline are still pending.
+
 Do not mount the host checkout, host home, or container-engine socket into an
 evaluated agent's workspace. Keep hidden graders and validation solutions
 outside agent-visible staging roots.

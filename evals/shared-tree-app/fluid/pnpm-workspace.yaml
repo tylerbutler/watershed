@@ -1,4 +1,5 @@
 packages: []
+verifyDepsBeforeRun: false
 allowBuilds:
   classic-level: true
   esbuild: true

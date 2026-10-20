@@ -590,14 +590,20 @@ modify `docker/compose.yaml`,
 **Produces:** Digest-addressed non-root task/grade images and trial-specific
 Compose service resources usable through Vally's documented backend options.
 
-- [ ] **Step 1:** Write an isolation integration test that launches the
+- [x] **Step 1:** Write an isolation integration test that launches the
   prepared starter in a task container and tries to read a known host-only
   canary, the other starter, hidden tests, and validation solutions. Assert
   failure. The canary contains a harmless generated test value, not a secret.
   Also assert that `curl https://github.com` cannot download example source
   while the intended local service remains responsive.
-- [ ] **Step 2:** Run `node --test test/isolation.integration.test.mjs`.
+- [x] **Step 2:** Run `node --test test/integration/isolation.test.mjs`.
   Missing Docker is an explicit failed preflight, never a skip/pass.
+  The initial image/gateway checkpoint validates Watershed on an internal
+  Podman network, including relocated offline builds, Chromium, hidden/host
+  input exclusion, and an actual Copilot SDK streaming call to a local
+  provider fixture. No paid provider is contacted. Images record their
+  content IDs and exact Vally identity. Fluid images and complete Vally
+  task/grade Compose orchestration remain unverified.
 - [ ] **Step 3:** Build images containing exact Vally core/CLI versions,
   non-root user, POSIX shell, Node, Git, coreutils, native toolchains,
   preinstalled dependencies, and Chromium in the grading image. No host
