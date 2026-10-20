@@ -1,0 +1,11 @@
+name = "incident_eval"
+version = "0.1.0"
+target = "javascript"
+gleam = ">= 1.11.0"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+lustre = ">= 5.0.0 and < 6.0.0"
+watershed = { path = "../sdk/watershed" }
+watershed_lustre = { path = "../sdk/watershed_lustre" }

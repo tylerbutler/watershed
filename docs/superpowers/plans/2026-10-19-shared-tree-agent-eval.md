@@ -136,7 +136,7 @@ nonfinite durations, invalid SDK names, and empty failure evidence. During
 build failure, mark checks that could not run as failed with the build error
 as evidence, not omitted or skipped. Store a separate manifest from Task 8.
 
-- [ ] **Step 1:** Write failing report tests with the native Node runner:
+- [x] **Step 1:** Write failing report tests with the native Node runner:
 
 ```js
 import assert from "node:assert/strict";
@@ -166,24 +166,24 @@ test("infrastructure outcome is invalid even with passing checks", () => {
 });
 ```
 
-- [ ] **Step 2:** Run `node --test test/contract.test.mjs test/report.test.mjs`
+- [x] **Step 2:** Run `node --test test/contract.test.mjs test/report.test.mjs`
   from the package directory. Confirm failure because the modules do not exist.
-- [ ] **Step 3:** Implement the validators and report functions. Write the full
+- [x] **Step 3:** Implement the validators and report functions. Write the full
   public task from the spec, including move-before/append semantics, immutable
   identity, missing-target behavior, whole-property strings, optional absence,
   create-once, and error visibility. Define check IDs for each requirement in
   the spec's grading table; use stable IDs rather than positional indices.
-- [ ] **Step 4:** Add contract tests that require IDs covering build, native
+- [x] **Step 4:** Add contract tests that require IDs covering build, native
   model, CRUD, moves, identity, live collaboration, concurrency, late join,
   reopen, lifecycle, and visible errors. Confirm incomplete reports fail and
   required-group failure cannot become an overall pass.
-- [ ] **Step 5:** Add exact tooling dependencies to the standalone manifest:
+- [x] **Step 5:** Add exact tooling dependencies to the standalone manifest:
   Vally core and CLI `0.19.0`, YAML parsing for generated specs, and `ws` for
   CDP. Resolve and lock compatible exact releases; use `pnpm install` after
   manifest creation. Use `"test": "node --test test/*.test.mjs"` and a separate
   `"test:integration"` script for browser/service/container checks. Check the
   installed Vally help for its actual `lint`, Docker, and eval arguments.
-- [ ] **Step 6:** Run the two test files, inspect their full output, and commit:
+- [x] **Step 6:** Run the two test files, inspect their full output, and commit:
   `test(eval): define SharedTree benchmark contract`.
 
 ### Task 2: Matched native UI shells and unfinished model interfaces
@@ -193,8 +193,11 @@ test("infrastructure outcome is invalid even with passing checks", () => {
 `watershed/src/incident_eval_ffi.mjs`, `watershed/AGENTS.md`,
 `fluid/{package.json,tsconfig.json,index.html,build.mjs,AGENTS.md}`,
 `fluid/src/{domain.ts,App.tsx,index.tsx,model.ts,schema.ts}`,
-`test/shells.integration.test.mjs`, `lib/{cdp,conditions,services}.mjs`,
-`docker/compose.yaml`. Include native dependency lockfiles.
+`test/integration/{shells,services,serve}.test.mjs`,
+`public/{serve,smoke}.mjs`, `lib/{cdp,conditions,services}.mjs`,
+`docker/compose.yaml`. Include native dependency lockfiles. Starter AGENTS
+restrictions apply to evaluated-agent submissions, not benchmark maintenance,
+as confirmed by the operator.
 
 **Interfaces:**
 
@@ -268,15 +271,15 @@ export async function launchBrowser({ executable }) {}
 export async function wait(label, probe, predicate, timeoutMs) {}
 ```
 
-- [ ] **Step 1:** Write a browser shell check that injects an SDK-free fake
+- [x] **Step 1:** Write a browser shell check that injects an SDK-free fake
   model through a test-only entry point. Assert selectors for incident rows,
   title, status, assignee, step rows/labels/completion, add/remove, move-up/down,
   connection state, errors, and Close. Use IDs in selectors, never array indices.
   Assert empty state and multi-row rendering. Fake-model tests must not access
   either SharedTree SDK.
-- [ ] **Step 2:** Run the shell integration test and confirm a missing entry or
+- [x] **Step 2:** Run the shell integration test and confirm a missing entry or
   selector fails. Do not treat a missing browser as a successful skipped test.
-- [ ] **Step 3:** Implement the two shells against their native interfaces.
+- [x] **Step 3:** Implement the two shells against their native interfaces.
   React subscribes/unsubscribes with its lifecycle; Lustre maps model messages
   into shell messages and forwards effects. Generate IDs in the shell with the
   existing UUID facilities. Update the URL after successful creation. Disable
@@ -285,7 +288,7 @@ export async function wait(label, probe, predicate, timeoutMs) {}
   snapshots/actions in hidden browser checks; do not serialize tree operations.
   Port the small existing CDP/condition utilities into this package rather
   than adding a browser automation framework.
-- [ ] **Step 4:** Add local build/test scripts using the existing esbuild and
+- [x] **Step 4:** Add local build/test scripts using the existing esbuild and
   Gleam patterns. Materialize `.in` manifests in temporary workspaces for tests.
   Keep the browser styles minimal and identical in capability. Provide
   `startServices` and a support-service Compose file for native integration
@@ -294,9 +297,9 @@ export async function wait(label, probe, predicate, timeoutMs) {}
   `docker-compose.yml` is configuration prior art, not a portable import.
   Resolve Floodgate's current `main` to a full SHA before building; record the
   SHA and resulting image digest rather than retaining a moving branch.
-  Give each test a unique Compose project, fresh state, reserved ports, and
+  Give each test a unique Compose project, fresh state, ephemeral ports, and
   a public URL reachable by its browser. Test readiness before loading the app.
-- [ ] **Step 5:** Run shell checks for both frameworks. Build both unfinished
+- [x] **Step 5:** Run shell checks for both frameworks. Build both unfinished
   starters and assert that their behavior tests fail on `Not implemented`.
   Commit: `feat(eval): add matched native app starters`.
 

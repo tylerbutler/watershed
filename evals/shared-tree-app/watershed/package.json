@@ -1,0 +1,14 @@
+{
+  "name": "incident-eval-watershed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "gleam check",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.1",
+    "phoenix": "1.8.14"
+  }
+}

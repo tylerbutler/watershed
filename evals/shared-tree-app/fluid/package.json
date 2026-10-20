@@ -1,0 +1,25 @@
+{
+  "name": "incident-eval-fluid",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@fluidframework/azure-client": "3.1.0",
+    "@fluidframework/test-runtime-utils": "3.1.0",
+    "fluid-framework": "3.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@fluidframework/azure-local-service": "3.1.0",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2"
+  }
+}
