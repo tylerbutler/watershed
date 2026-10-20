@@ -108,6 +108,8 @@ export async function launchBrowser({ executable } = {}) {
             await command("Page.enable");
             await command("Runtime.enable");
             await command("Network.enable");
+            // Headless contexts otherwise become hidden and stop animation frames.
+            await command("Emulation.setFocusEmulationEnabled", { enabled: true });
             const evaluate = async expression => {
               const value = await command("Runtime.evaluate", {
                 expression, returnByValue: true, awaitPromise: true,
@@ -138,13 +140,20 @@ export async function launchBrowser({ executable } = {}) {
                 ), Boolean);
               },
               async click(selector) {
-                const rect = await evaluate(`(() => {
-                  const el = document.querySelector(${JSON.stringify(selector)});
+                const rect = await evaluate(`(async () => {
+                  let el = document.querySelector(${JSON.stringify(selector)});
                   if (!el) throw new Error("Missing control");
-                  el.scrollIntoView();
+                  el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+                  await new Promise(requestAnimationFrame);
+                  el = document.querySelector(${JSON.stringify(selector)});
+                  if (!el || el.disabled) throw new Error("Missing or disabled control");
                   const r = el.getBoundingClientRect();
-                  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                  const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                  const hit = document.elementFromPoint(point.x, point.y);
+                  if (!hit || !el.contains(hit)) throw new Error("Control is not at the click point");
+                  return point;
                 })()`);
+                await command("Input.dispatchMouseEvent", { type: "mouseMoved", ...rect });
                 await command("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...rect });
                 await command("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...rect });
               },
@@ -154,7 +163,24 @@ export async function launchBrowser({ executable } = {}) {
                   if (!el) throw new Error("Missing input");
                   el.focus(); el.select();
                 })()`);
-                await command("Input.insertText", { text });
+                if (text === "") {
+                  await command("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Backspace",
+                    code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+                  await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace",
+                    code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+                } else await command("Input.insertText", { text });
+              },
+              async select(selector, value) {
+                await evaluate(`(() => {
+                  const el = document.querySelector(${JSON.stringify(selector)});
+                  if (!el || el.disabled) throw new Error("Missing or disabled select");
+                  if (![...el.options].some(option => option.value === ${JSON.stringify(value)})) {
+                    throw new Error("Missing select option");
+                  }
+                  el.value = ${JSON.stringify(value)};
+                  el.dispatchEvent(new Event("input", { bubbles: true }));
+                  el.dispatchEvent(new Event("change", { bubbles: true }));
+                })()`);
               },
               async close() {
                 await send("Target.closeTarget", { targetId });

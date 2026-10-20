@@ -1,21 +1,35 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { cp, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, copyFile, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { snapshotWatershed } from "../lib/source.mjs";
+import { wait } from "../lib/conditions.mjs";
 
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(root, "../..");
 
-export async function buildShellFixture(sdk, { fake = true, solution = false, grader = false, schemaFixture } = {}) {
+export async function buildShellFixture(sdk, { fake = true, solution = false, grader = false,
+  schemaFixture, modelFixture, dependencyCache = join(root, ".work/dependency-cache") } = {}) {
   const work = join(root, ".work");
   await mkdir(work, { recursive: true });
   const path = await mkdtemp(join(work, `shell-${sdk}-`));
   let server;
+  let cacheEntry;
+  let cacheLock;
+  let cacheTemp;
+  const releaseCache = async () => {
+    if (cacheLock) {
+      const owned = cacheLock;
+      cacheLock = undefined;
+      await rmdir(owned);
+    }
+  };
+  const fingerprints = ["watershed.config_fingerprint", "watershed_lustre.config_fingerprint"];
   try {
     await cp(join(root, sdk), path, { recursive: true, filter: source =>
       !["node_modules", "dist", "build"].some(name =>
@@ -29,6 +43,11 @@ export async function buildShellFixture(sdk, { fake = true, solution = false, gr
     }
     if (schemaFixture) {
       await copyFile(schemaFixture, join(path, sdk === "fluid" ? "src/schema.ts" : "src/incident_eval/schema.gleam"));
+    }
+    if (modelFixture) {
+      if (sdk !== "fluid") throw new Error("The selected model fixture requires Fluid");
+      await copyFile(join(path, "src/model.ts"), join(path, "src/reference-model.ts"));
+      await copyFile(modelFixture, join(path, "src/model.ts"));
     }
     if (sdk === "fluid" && fake && !solution) {
       const fixture = await readFile(join(root, "test/fixtures/fluid-model.ts"), "utf8");
@@ -60,9 +79,36 @@ export function failEdit() { return new URL(location.href).searchParams.has("fai
 `);
       }
     }
+    if (sdk === "watershed") {
+      const inputs = await Promise.all(["sdk/gleam.toml", "sdk/watershed_lustre/gleam.toml",
+        "gleam.toml.in", "manifest.toml.in"].map(name => readFile(join(path, name), "utf8")));
+      const version = (await exec("gleam", ["--version"])).stdout;
+      const key = createHash("sha256").update(JSON.stringify([version, ...inputs])).digest("hex");
+      await mkdir(dependencyCache, { recursive: true });
+      cacheEntry = join(dependencyCache, key);
+      const lock = `${cacheEntry}.lock`;
+      await wait("Gleam dependency fingerprint cache lock", async () => {
+        try { await mkdir(lock); cacheLock = lock; return true; }
+        catch (error) { if (error.code === "EEXIST") return false; throw error; }
+      }, Boolean, 180_000);
+      if (existsSync(cacheEntry)) {
+        await mkdir(join(path, "build/packages"), { recursive: true });
+        for (const name of fingerprints) {
+          await copyFile(join(cacheEntry, name), join(path, "build/packages", name));
+        }
+        await releaseCache();
+      }
+    }
     await exec("pnpm", ["install", "--frozen-lockfile"], { cwd: path, timeout: 180_000 });
-    await exec("pnpm", ["check"], { cwd: path, timeout: 180_000 });
-    await exec("pnpm", ["build"], { cwd: path, timeout: 180_000 });
+    const checked = await exec("pnpm", ["check"], { cwd: path, timeout: 180_000 });
+    const built = await exec("pnpm", ["build"], { cwd: path, timeout: 180_000 });
+    if (cacheLock) {
+      cacheTemp = await mkdtemp(`${cacheEntry}.tmp-`);
+      for (const name of fingerprints) await copyFile(join(path, "build/packages", name), join(cacheTemp, name));
+      await rename(cacheTemp, cacheEntry);
+      cacheTemp = undefined;
+      await releaseCache();
+    }
     if (grader) {
       await copyFile(join(root, "graders", sdk, "native.mjs"), join(path, "grade-native.mjs"));
       const entry = sdk === "fluid" ? "./src/index.tsx" : "./build/dev/javascript/incident_eval/incident_eval/shell.mjs";
@@ -91,6 +137,7 @@ define: { "process.env.NODE_ENV": '"production"' } });
     });
     return {
       workspace: path,
+      compilation: checked.stdout + checked.stderr + built.stdout + built.stderr,
       url: `http://127.0.0.1:${server.address().port}/`,
       async close() {
         await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -98,6 +145,8 @@ define: { "process.env.NODE_ENV": '"production"' } });
       },
     };
   } catch (error) {
+    if (cacheTemp) await rm(cacheTemp, { recursive: true, force: true });
+    await releaseCache();
     if (server?.listening) await new Promise(resolve => server.close(resolve));
     await rm(path, { recursive: true, force: true });
     if (error.cmd) throw new Error(`${error.cmd} failed:\n${error.stdout?.slice(-6000) ?? ""}\n${error.stderr?.slice(-6000) ?? error.message}`);

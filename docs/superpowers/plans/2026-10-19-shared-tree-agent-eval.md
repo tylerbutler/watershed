@@ -451,7 +451,7 @@ Keep the browser/page wrapper small: `goto`, `evaluate`, `click`, `fill`,
 Implement actions with actual DOM events and native controls, not direct model
 calls. Native probes remain a separate check layer.
 
-- [ ] **Step 1:** Write deadline and barrier tests:
+- [x] **Step 1:** Write deadline and barrier tests:
 
 ```js
 test("barrier rejects sequential delivery as concurrency evidence", async () => {
@@ -472,13 +472,13 @@ Define `fakeClients` in the test as an event-emitting transport fixture with
 `submission`, `remote-delivery`, and `closed` events. It validates harness
 accounting only, not SDK convergence.
 
-- [ ] **Step 2:** Run `node --test test/conditions.test.mjs test/barrier.test.mjs`
+- [x] **Step 2:** Run `node --test test/conditions.test.mjs test/barrier.test.mjs`
   and confirm missing module/function failures.
-- [ ] **Step 3:** Extend Task 2's CDP/service utilities with transport evidence
+- [x] **Step 3:** Extend Task 2's CDP/service utilities with transport evidence
   collection and scenario diagnostics. Check process ownership with explicit
   child handles, finite startup waits, reserved ports, and `finally` cleanup.
   Require a working Chromium. Do not stop pre-existing processes.
-- [ ] **Step 4:** Implement real delivery control in the trusted service
+- [x] **Step 4:** Implement real delivery control in the trusted service
   proxy. Hold incoming operation delivery to both browser clients while
   allowing their local submissions and required connection control messages.
   Record real operation submissions and release only after both arrive.
@@ -486,17 +486,21 @@ accounting only, not SDK convergence.
   this harness interface, using actual captured transport traffic rather than
   a guessed message format. If either SDK cannot establish the barrier,
   fail the concurrency check with transport evidence.
-- [ ] **Step 5:** Implement scenarios for CRUD, assignee removal, both move
+- [x] **Step 5:** Implement scenarios for CRUD, assignee removal, both move
   directions, stale identity, no refresh remote updates, distinct-field
   concurrency, concurrent inserts, same-field convergence, late join, reopen,
   and Close. Assert concurrent submissions before convergence and do not
   require either transient local value to remain observable after delivery.
   Preserve winner independence for concurrent moves by not grading a
   prescribed conflicting-move result.
-- [ ] **Step 6:** Run all shared scenarios against both private solutions.
+- [x] **Step 6:** Run all shared scenarios against both private solutions.
   Verify reopen after the other client receives the edit, from a new context,
   after closing the original clients. Test actual native service error paths.
   Record page errors and unhandled rejections as failures.
+  Review regressions also exercise delayed creation retries, Close before a
+  held initialization completes, compiler-cache failure cleanup, and idle
+  headless browser contexts. Count document-creation requests separately from
+  native SDK summary uploads.
 - [ ] **Step 7:** Run `graders/main.mjs` against a deliberately broken
   candidate; require nonzero exit and a complete failing JSON report.
   Run against both solutions; require valid passing reports and the marker

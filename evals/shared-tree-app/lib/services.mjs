@@ -5,24 +5,33 @@ import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { parse } from "yaml";
 import WebSocket, { WebSocketServer } from "ws";
 import { bounded, wait } from "./conditions.mjs";
+import { createTransport } from "./barrier.mjs";
 
 const exec = promisify(execFile);
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const composeFile = join(packageRoot, "docker/compose.yaml");
 
 async function freePort() {
-  const server = createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  return port;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const server = createServer();
+    try {
+      // Avoid outbound ephemeral ports being reused before the child service binds.
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(randomInt(10_000, 30_000), resolve);
+      });
+      const port = server.address().port;
+      await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      return port;
+    } catch (error) {
+      if (error.code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw new Error("Could not allocate an unused native service port outside the ephemeral range");
 }
 
 async function reachable(url) {
@@ -52,10 +61,13 @@ export async function startServices({ sdk, root, runId }) {
   let closing;
   let rejectWrites = false;
   let holdWrites = false;
+  let failConnections = false;
   let completedWrites = 0;
   const waitingWrites = [];
   const rejectedRequests = [];
   const sockets = new Set();
+  const transport = createTransport({ sdk });
+  const transportErrors = [];
   const websocketServer = new WebSocketServer({ noServer: true });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://app");
@@ -103,8 +115,13 @@ export async function startServices({ sdk, root, runId }) {
     }
   });
   server.on("upgrade", (request, socket, head) => {
+    if (failConnections) {
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     if (!endpoint) { socket.destroy(new Error("Service is not ready")); return; }
     websocketServer.handleUpgrade(request, socket, head, client => {
+      const clientId = transport.register();
       const target = new URL(request.url, endpoint.replace("http:", "ws:"));
       const upstream = new WebSocket(target);
       sockets.add(client);
@@ -117,24 +134,34 @@ export async function startServices({ sdk, root, runId }) {
       };
       client.on("error", failed);
       upstream.on("error", failed);
-      client.on("close", () => { sockets.delete(client); upstream.close(); });
+      client.on("close", () => { transport.unregister(clientId); sockets.delete(client); upstream.close(); });
       upstream.on("close", () => { sockets.delete(upstream); client.close(); });
       client.on("message", (data, isBinary) => {
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-        else if (upstream.readyState === WebSocket.CONNECTING) queued.push([data, isBinary]);
+        try {
+          transport.forward(clientId, "submit", data, isBinary, () => {
+            if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+            else if (upstream.readyState === WebSocket.CONNECTING) queued.push([data, isBinary]);
+          });
+        } catch (error) { transportErrors.push(error.message); failed(error); }
       });
       upstream.on("open", () => {
         for (const [data, binary] of queued) upstream.send(data, { binary });
         queued.length = 0;
       });
       upstream.on("message", (data, binary) => {
-        if (client.readyState === WebSocket.OPEN) client.send(data, { binary });
+        if (client.readyState !== WebSocket.OPEN) return;
+        try {
+          transport.forward(clientId, "receive", data, binary, () => {
+            if (client.readyState === WebSocket.OPEN) client.send(data, { binary });
+          });
+        } catch (error) { transportErrors.push(error.message); failed(error); }
       });
     });
   });
   let origin;
   const compose = async args => {
-    const result = await exec("podman", ["compose", "-f", composeFile, "-p", project, ...args], {
+    const result = await exec("podman", ["compose", "-f", composeFile, "-p", project,
+      "--profile", "watershed", ...args], {
       env: {
         ...process.env,
         DOCKER_CONFIG: join(dataRoot, "docker-client"),
@@ -202,7 +229,7 @@ export async function startServices({ sdk, root, runId }) {
       ]);
     } else {
       composeStarted = true;
-      await compose(["--profile", "watershed", "up", "-d", "--build", "--wait"]);
+      await compose(["up", "-d", "--build", "--wait"]);
       const definition = parse(await readFile(composeFile, "utf8")).services.floodgate;
       serviceRevision = definition.build.context.split("#")[1];
       if (!/^[0-9a-f]{40}$/.test(serviceRevision)) throw new Error("Floodgate source must use a full revision");
@@ -224,6 +251,12 @@ export async function startServices({ sdk, root, runId }) {
     return {
       appUrl: url.href,
       health: () => reachable(sdk === "fluid" ? endpoint : `${endpoint}/health`),
+      transport,
+      failConnections(enabled) {
+        if (typeof enabled !== "boolean") throw new TypeError("Connection failure requires a boolean");
+        failConnections = enabled;
+        if (enabled) for (const socket of sockets) socket.terminate();
+      },
       rejectHttpWrites(enabled) {
         if (typeof enabled !== "boolean") throw new TypeError("Failure injection requires a boolean");
         rejectWrites = enabled;
@@ -235,7 +268,7 @@ export async function startServices({ sdk, root, runId }) {
       },
       diagnostics: () => ({ sdk, endpoint, project, dataRoot, imageId, serviceRevision,
         rejectedRequests: [...rejectedRequests], pendingWrites: waitingWrites.length,
-        completedWrites, openSockets: sockets.size, output: [...output] }),
+        completedWrites, openSockets: sockets.size, transportErrors: [...transportErrors], output: [...output] }),
       close,
     };
   } catch (error) {

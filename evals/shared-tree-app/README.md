@@ -14,9 +14,15 @@ validation/aggregation, native app shells, and local service tooling are
 implemented. The agent-visible native models remain unfinished on purpose.
 Maintainer-only reference implementations and native inspection probes now
 exercise actual SDK schemas, native references across moves/removal, cleanup,
-and visible create/open failures without retrying rejected creation. The shared
-collaboration grader, isolated agent execution, and comparison runner are not
-implemented yet. This directory does not yet provide a runnable agent eval.
+and visible create/open failures without retrying rejected creation. Shared
+browser scenarios cover every non-integrity check, including live remote edits,
+verified concurrent submissions, late join, and delivered-state reopen.
+Lifecycle schedules include Close during held initialization and bounded
+observation for delayed creation retries. Native SDK summary uploads are not
+counted as document-creation attempts.
+Portable staging, the grading CLI, isolated agent execution, and the comparison
+runner are not implemented yet. This directory does not yet provide a runnable
+agent eval.
 
 The design and implementation sequence are in:
 
@@ -69,6 +75,11 @@ pnpm --dir evals/shared-tree-app test:integration
 
 Set `WATERSHED_CHROME` if automatic browser discovery cannot locate your
 executable. Missing tools or services fail these checks instead of skipping.
+Integration files run serially to avoid competing native compilers and Chromium
+instances starving the browser command deadlines. Each collaboration scenario
+still uses independent, simultaneously connected clients.
+Headless contexts emulate page focus so inactive clients continue to render;
+browser action deadlines do not depend on which context Chromium made visible.
 The shell fixtures test real native framework rendering and action forwarding
 without a SharedTree implementation. They are test-only assets; never stage
 `test/fixtures/` for an evaluated agent.
@@ -80,6 +91,21 @@ captured native references, not candidate-generated pass/fail diagnostics.
 Never stage either directory in the agent role. Watershed validation uses an
 allowlisted Git archive of a full commit, so unrelated uncommitted host edits
 cannot change the selected SDK.
+
+Validation caches only compiler-generated local dependency fingerprints, keyed
+by the Gleam version and exact dependency manifests. This avoids re-resolving
+unchanged locked Hex dependencies for each fresh workspace. It does not cache
+candidate code or native build outputs.
+
+`graders/scenarios.mjs` runs the shared browser checks. Normal actions use DOM
+controls; malformed, stale, and self-targeted actions use the shell's public
+action adapter. Native inspection remains a separate assertion layer.
+`lib/barrier.mjs` classifies the actual Phoenix and Socket.IO operation frames
+observed from the pinned SDKs. It forwards submissions and connection controls
+unchanged, holds incoming operations, requires submissions from both connected
+clients, and rejects a dropped client or delivery that escapes the hold.
+Evidence contains counts and proxy client IDs, never authentication frames or
+operation bodies.
 
 `public/serve.mjs` serves a built workspace and starts its development service:
 

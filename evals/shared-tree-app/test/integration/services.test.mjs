@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServices } from "../../lib/services.mjs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
 
 for (const sdk of ["fluid", "watershed"]) {
   test(`${sdk} service has fresh owned state and a responsive app origin`, async t => {
@@ -24,6 +28,10 @@ for (const sdk of ["fluid", "watershed"]) {
       const diagnostics = services.diagnostics();
       assert.equal(diagnostics.sdk, sdk);
       assert.ok(diagnostics.dataRoot.startsWith(root));
+      if (sdk === "fluid") {
+        assert.ok(Number(new URL(diagnostics.endpoint).port) < 32768,
+          "The child-service port must not be recycled as an outbound ephemeral port during startup");
+      }
       if (sdk === "watershed") {
         assert.match(diagnostics.imageId, /^sha256:[a-f0-9]{64}$/);
         assert.equal(diagnostics.serviceRevision, "21faeaa4867127cdf437d21c9b5cafc8f027d42d");
@@ -47,6 +55,12 @@ for (const sdk of ["fluid", "watershed"]) {
       }
       await services.close();
       await services.close();
+      assert.equal(await services.health(), false, `${diagnostics.project} must stop its service`);
+      if (sdk === "watershed") {
+        const remaining = await exec("podman", ["ps", "-aq", "--filter",
+          `label=com.docker.compose.project=${diagnostics.project}`]);
+        assert.equal(remaining.stdout.trim(), "", "No owned container may survive cleanup");
+      }
       await assert.rejects(access(diagnostics.dataRoot), { code: "ENOENT" });
       services = undefined;
     } finally {

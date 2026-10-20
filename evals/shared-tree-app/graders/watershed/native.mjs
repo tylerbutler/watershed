@@ -6,7 +6,7 @@ import * as types from "./build/dev/javascript/watershed/watershed/tree/types.mj
 import * as errors from "./build/dev/javascript/watershed/watershed/tree/error.mjs";
 import * as watershed from "./build/dev/javascript/watershed/watershed.mjs";
 import * as dict from "./build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
-import { Some } from "./build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+import { Some, None } from "./build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { Ok } from "./build/dev/javascript/prelude.mjs";
 
 const captured = new Map();
@@ -140,10 +140,17 @@ export function setCaptured(key, property, input) {
 }
 
 export function closed() {
-  if (!handle || !document) throw new Error("No inspected native session");
+  const current = globalThis.__incidentEval.native();
+  const optional = value => {
+    if (value instanceof None) return undefined;
+    if (value instanceof Some) return value[0];
+    throw new Error("Invalid native handle option");
+  };
+  const activeTree = handle ?? optional(model.native_tree(current));
+  const activeDocument = document ?? optional(model.native_document(current));
   return {
-    documentClosed: watershed.diagnostics(document).phase === "failed: runtime closed",
-    viewClosed: !(tree.read_root(handle) instanceof Ok),
+    documentClosed: !activeDocument || watershed.diagnostics(activeDocument).phase === "failed: runtime closed",
+    viewClosed: !activeTree || !(tree.read_root(activeTree) instanceof Ok),
   };
 }
 
