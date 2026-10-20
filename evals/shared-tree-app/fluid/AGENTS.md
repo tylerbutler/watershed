@@ -4,7 +4,8 @@ The restrictions below apply to evaluated-agent submissions. Benchmark
 maintainers may update the supplied scaffolding and acceptance tooling.
 
 Read `task.md` for requirements. Implement `src/model.ts` and `src/schema.ts`.
-You may add tests. Do not change the domain, UI, build files, dependencies, SDK,
+You may add tests under `test/`. Keep implementation changes in those two
+model/schema files. Do not change the domain, UI, build files, dependencies, SDK,
 or grading assets.
 
 Use native Fluid SharedTree. Export the root schema as `BoardNode` and preserve

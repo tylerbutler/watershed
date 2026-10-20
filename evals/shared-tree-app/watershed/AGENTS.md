@@ -4,7 +4,8 @@ The restrictions below apply to evaluated-agent submissions. Benchmark
 maintainers may update the supplied scaffolding and acceptance tooling.
 
 Read `task.md` for requirements. Implement `src/incident_eval/model.gleam` and
-`src/incident_eval/schema.gleam`. You may add tests. Do not change the domain,
+`src/incident_eval/schema.gleam`. You may add tests under `test/`. Keep
+implementation changes in those two model/schema files. Do not change the domain,
 UI, build files, dependencies, SDK, or grading assets.
 
 Use native Watershed SharedTree. Preserve the exported model functions and

@@ -20,7 +20,8 @@ verified concurrent submissions, late join, and delivered-state reopen.
 Lifecycle schedules include Close during held initialization and bounded
 observation for delayed creation retries. Native SDK summary uploads are not
 counted as document-creation attempts.
-Portable staging, the grading CLI, isolated agent execution, and the comparison
+Protected-file hashing and candidate-only overlays are implemented; portable
+SDK staging, the grading CLI, isolated agent execution, and the comparison
 runner are not implemented yet. This directory does not yet provide a runnable
 agent eval.
 
@@ -148,3 +149,11 @@ under its workspace. No Podman/Vally end-to-end trial claim is made yet.
 Do not mount the host checkout, host home, or container-engine socket into an
 evaluated agent's workspace. Keep hidden graders and validation solutions
 outside agent-visible staging roots.
+
+`lib/staging.mjs` hashes protected files and checks the candidate submission
+before copying only the two model/schema files and candidate-owned `test/`
+files into a separate trusted workspace. It rejects unexpected sources,
+symlinks, protected-file edits, missing model sources, and overlapping task
+and grading roots. Generated build output and installed dependencies are
+never copied from the candidate. This is submission validation, not a
+container isolation boundary.

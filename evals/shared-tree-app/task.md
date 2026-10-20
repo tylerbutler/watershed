@@ -84,7 +84,10 @@ retry creation or attachment after an uncertain response.
 
 ## Boundaries and grading
 
-Change only the starter's model/schema area and your own tests. Preserve the
+Change only the two model/schema files named in `AGENTS.md` and your own files
+under `test/`. Generated `build/`, `dist/`, `node_modules/`, and `.git/` directories
+are not submission sources and are never overlaid into the trusted build.
+Preserve the
 provided model interface and native-handle inspection accessors. Do not change
 the UI, build configuration, dependencies, SDK, or acceptance tooling.
 
