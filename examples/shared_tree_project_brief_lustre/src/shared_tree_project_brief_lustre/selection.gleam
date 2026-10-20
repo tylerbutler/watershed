@@ -1,3 +1,6 @@
+//// Field selection is transient presence metadata, not a tree edit or a lock.
+//// Milestone selections use application IDs so array removals do not move badges.
+
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
@@ -181,6 +184,8 @@ pub fn available(field: Field, value: ProjectBrief) -> Bool {
 }
 
 pub fn focus(metadata: Metadata, selected: Option(Field)) -> Metadata {
+  // Heartbeats retain the token. A changed selection advances it so peers can
+  // distinguish a new selection from a delayed announcement of an old one.
   case metadata.selected == selected {
     True -> metadata
     False -> Metadata(..metadata, token: metadata.token + 1, selected: selected)
@@ -229,6 +234,8 @@ pub fn reconcile(
       dict.insert(latest, peer.session_id, metadata)
     })
   let invalid =
+    // Remember invalid selections after their target disappears. Repeated
+    // announcements cannot restore them unless the sender advances its token.
     dict.fold(latest, policy.invalid, fn(invalid, id, metadata) {
       case metadata.selected {
         Some(field) ->

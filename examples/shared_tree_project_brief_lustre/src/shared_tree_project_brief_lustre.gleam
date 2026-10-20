@@ -1,3 +1,6 @@
+//// A live form with durable SharedTree edits and separate Ripple presence.
+//// Lustre renders immutable snapshots; event handlers edit captured node references.
+
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/int
@@ -133,6 +136,8 @@ fn init(_: Nil) -> #(Model, Effect(Msg)) {
       errors: [],
     )
   #(model, case document_id {
+    // Initialize only a new document. A shared URL connects to existing content.
+    // These helpers use development credentials, not production authentication.
     "" ->
       tree.create_dev(
         query_parameter("base", current_origin()),
@@ -162,6 +167,8 @@ fn connect(document_id: String) -> Effect(Msg) {
 
 @internal
 pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
+  // Async setup can finish after Close. Release late resources instead of
+  // reopening the form or leaving subscriptions and presence active.
   case model.status, message {
     "closed", Created(Ok(document_id)) -> {
       replace_document(document_id)
@@ -238,6 +245,7 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         None -> fatal(model, "Connection completed without a document handle")
       }
     Opened(Error(error)) -> fatal(model, tree_error.to_string(error))
+    // Subscribe before the first capture so later changes trigger fresh reads.
     Opened(Ok(handle)) -> #(
       Model(..model, tree: Some(handle)),
       tree.subscribe_changes(handle, Subscribed, fn(_) { TreeChanged }),
@@ -250,6 +258,8 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Captured(Error(error)) -> fatal(model, tree_error.to_string(error))
     Captured(Ok(rendered)) -> {
       // A replacement can arrive without a capture of the absent review.
+      // Check the old reference, not value equality. Reset its input state,
+      // invalidate its selections, and advance the DOM key for the new review.
       let review_removed = case model.rendered {
         Some(previous) ->
           case previous.review {
@@ -427,6 +437,8 @@ fn update_active(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       }
     }
     PresenceObserved(session, ripple) -> {
+      // After reconnect, show a peer only after a fresh announcement in the
+      // current session. Cached driver entries alone do not establish freshness.
       let model = connection_state(model)
       case
         model.connection == "ready" && session == model.session,
@@ -520,6 +532,8 @@ fn connection_state(model: Model) -> Model {
       let online = phase == "ready"
       let lost = !online || diagnostics.client_id != model.session
       case lost {
+        // Keep the presence driver, but clear visible peers and local composition.
+        // The selection policy retains tokens that invalidate old selections.
         True ->
           Model(
             ..model,
@@ -692,6 +706,8 @@ fn text_field(
     ),
   ]
   let bindings = case local.composing {
+    // Do not replace the browser value during IME composition. Outside
+    // composition, render the resolved value even when the input has focus.
     True -> bindings
     False -> [attribute.value(local.value), ..bindings]
   }
@@ -785,6 +801,8 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
       }),
     ]),
     // docs:snippet-start project-brief-watershed-edits
+    // Assign one property on the captured owner node. Do not replace the owner.
+    // Each assignment replaces the whole string; it does not merge characters.
     html.fieldset([], [
       html.legend([], [html.text("Owner")]),
       text_field(model, s.Fixed(s.OwnerName), "Name", fn(value) {
@@ -804,6 +822,8 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
         shared_tree.set(state.schedule, schema.schedule_target(), value)
       }),
       // docs:snippet-start project-brief-watershed-milestones-view
+      // Key DOM rows by application ID and capture their actual tree nodes.
+      // An earlier row can disappear without moving this input or its edit target.
       keyed.div(
         [attribute.class("milestones")],
         list.filter_map(state.milestone_nodes, fn(pair) {
@@ -853,6 +873,8 @@ fn form(model: Model, state: edits.RenderState) -> Element(Msg) {
     ]),
     html.fieldset([], [
       html.legend([], [html.text("Review")]),
+      // A replacement review needs new controls, even if its text is unchanged.
+      // Ordinary property edits retain the same key, focus, and composition.
       keyed.div([], case state.review, state.value.review {
         Some(node), Some(value) -> [
           #(

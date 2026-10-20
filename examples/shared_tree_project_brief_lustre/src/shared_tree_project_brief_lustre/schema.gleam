@@ -1,3 +1,6 @@
+//// Declare tree shapes and codecs for immutable Gleam values.
+//// Typed properties also identify the fields that node-reference edits target.
+
 import gleam/option.{type Option}
 import gleam/result
 import shared_tree_project_brief_lustre/brief
@@ -78,6 +81,8 @@ pub fn milestones() -> builder.Property(brief.Schedule, List(brief.Milestone)) {
 }
 
 fn schedule_node() -> builder.Node(brief.Schedule) {
+  // Schedule has three properties, but object3 requires an infallible constructor.
+  // Use object to decode the properties and return an error if validation fails.
   builder.object(
     factory: factory(),
     name: "Schedule",
@@ -99,6 +104,8 @@ fn schedule_node() -> builder.Node(brief.Schedule) {
         reader:,
         property: milestones(),
       ))
+      // The form uses milestone IDs to identify rows and presence selections.
+      // Reject duplicate IDs so two rows cannot share the same identity.
       use _ <- result.try(
         brief.validate_unique_ids(milestones)
         |> result.map_error(fn(detail) {

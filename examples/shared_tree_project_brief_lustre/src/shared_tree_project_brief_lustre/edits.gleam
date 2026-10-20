@@ -1,3 +1,5 @@
+//// Pair immutable display values with references to the nodes that edits target.
+
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -22,6 +24,8 @@ pub type RenderState {
 pub fn capture(
   handle: tree.Tree(brief.ProjectBrief),
 ) -> Result(RenderState, error.Error) {
+  // Read a new snapshot after each notification. Earlier values do not change.
+  // Keep references separately so edits modify existing nodes, not copied values.
   use value <- result.try(tree.read_root(handle))
   use root <- result.try(tree.required_root(handle))
   use owner <- result.try(tree.child(root, schema.owner()))
@@ -47,6 +51,7 @@ fn capture_milestones(
   index: Int,
   captured: List(#(String, tree.Ref(brief.Milestone))),
 ) -> Result(List(#(String, tree.Ref(brief.Milestone))), error.Error) {
+  // Use indices only to traverse the array. Retain each node with its stable ID.
   use node <- result.try(tree.array_node(array, index))
   case node {
     None -> Ok(list.reverse(captured))
@@ -73,6 +78,8 @@ pub fn remove(
   array: tree.Ref(List(brief.Milestone)),
   item: tree.Ref(brief.Milestone),
 ) -> Result(Nil, error.Error) {
+  // Remove the captured node even if another removal changed its array index.
+  // A detached reference returns an error instead of targeting another row.
   tree.array_remove_node(array, item)
 }
 // docs:snippet-end project-brief-watershed-milestones
