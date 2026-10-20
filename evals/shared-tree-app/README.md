@@ -11,9 +11,12 @@ tooling differences.
 
 The shared [task](task.md), [required-check contract](contract.json), report
 validation/aggregation, native app shells, and local service tooling are
-implemented. The native models remain unfinished on purpose. The hidden
-graders, isolated agent execution, and comparison runner are not implemented
-yet. This directory does not yet provide a runnable agent eval.
+implemented. The agent-visible native models remain unfinished on purpose.
+Maintainer-only reference implementations and native inspection probes now
+exercise actual SDK schemas, native references across moves/removal, cleanup,
+and visible create/open failures without retrying rejected creation. The shared
+collaboration grader, isolated agent execution, and comparison runner are not
+implemented yet. This directory does not yet provide a runnable agent eval.
 
 The design and implementation sequence are in:
 
@@ -69,6 +72,14 @@ executable. Missing tools or services fail these checks instead of skipping.
 The shell fixtures test real native framework rendering and action forwarding
 without a SharedTree implementation. They are test-only assets; never stage
 `test/fixtures/` for an evaluated agent.
+
+`test/integration/native.test.mjs` overlays private models from
+`validation/solutions/` and bundles the SDK-specific `graders/*/native.mjs`
+probe only in its validation workspace. Probes inspect actual SDK objects and
+captured native references, not candidate-generated pass/fail diagnostics.
+Never stage either directory in the agent role. Watershed validation uses an
+allowlisted Git archive of a full commit, so unrelated uncommitted host edits
+cannot change the selected SDK.
 
 `public/serve.mjs` serves a built workspace and starts its development service:
 

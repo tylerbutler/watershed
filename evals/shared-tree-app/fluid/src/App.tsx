@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Action, Config, Session, State } from "./domain.ts";
 import { start } from "./model.ts";
 
@@ -10,23 +10,29 @@ export function App({ config }: { config: Config }) {
   const [state, setState] = useState(initial);
   const [session, setSession] = useState<Session>();
   const [issues, setIssues] = useState<string[]>([]);
+  const closing = useRef(false);
+  const latestNative = useRef<Session | undefined>(undefined);
   const report = (error: unknown) =>
     setIssues(values => [...values, error instanceof Error ? error.message : String(error)]);
 
   useEffect(() => {
+    closing.current = false;
+    latestNative.current = undefined;
     let active = true;
     let current: Session | undefined;
     let unsubscribe: (() => void) | undefined;
     start(config).then(opened => {
       current = opened;
       if (!active) { opened.close(); return; }
-      const read = () => { if (active) setState(opened.read()); };
+      latestNative.current = opened;
+      if (closing.current) { opened.close(); return; }
+      const read = () => { if (active && !closing.current) setState(opened.read()); };
       unsubscribe = opened.subscribe(read);
       setSession(opened);
       read();
     }).catch(error => {
       if (active) {
-        setState(value => ({ ...value, phase: "error" }));
+        if (!closing.current) setState(value => ({ ...value, phase: "error" }));
         report(error);
       }
     });
@@ -47,7 +53,9 @@ export function App({ config }: { config: Config }) {
     try { session.apply(action); } catch (error) { report(error); }
   };
   const close = () => {
-    if (!session || state.phase === "closed") return;
+    if (state.phase === "closed") return;
+    closing.current = true;
+    if (!session) { setState(value => ({ ...value, phase: "closed" })); return; }
     try { session.close(); setState(session.read()); } catch (error) { report(error); }
   };
   useEffect(() => {
@@ -55,7 +63,7 @@ export function App({ config }: { config: Config }) {
       snapshot: () => structuredClone(state),
       apply,
       close,
-      native: () => session,
+      native: () => latestNative.current,
     };
     Object.assign(globalThis, { __incidentEval: adapter });
     return () => {
@@ -131,6 +139,6 @@ export function App({ config }: { config: Config }) {
             }))}
           </div>)}
       </section>)}
-    {button("close", "Close", close, !session || state.phase === "closed")}
+    {button("close", "Close", close, state.phase === "closed")}
   </>;
 }

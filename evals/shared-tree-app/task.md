@@ -9,7 +9,7 @@ Implement the model with the native SharedTree API, without changing the SDK.
 
 Start a new document with an empty ordered incident list.
 
-Each incident has an immutable, nonempty string ID, a string title, a status
+Each incident has an immutable, nonempty string ID, a string title, a string status
 (`open`, `investigating`, or `resolved`), an optional string assignee, and an
 ordered list of checklist steps. A new incident has `open` status, no assignee,
 and no steps. Each step has an immutable, nonempty string ID, a string label,
@@ -21,6 +21,14 @@ individual properties and use native moves to preserve identity. Do not store
 the board in a JSON string, recreate nodes to reorder them, replace unrelated
 subtrees on edits, use another DDS, or synchronize independent local state.
 You may derive read-only UI snapshots from the tree.
+
+Use the field names in the provided domain interfaces: `Board.incidents`;
+`Incident.id`, `title`, `status`, `assignee`, and `steps`; and `Step.id`, `label`,
+and `done`. Store scalar text fields as native strings, completion as a native
+boolean, and each collection as a native array. `assignee` is an optional
+string field; the other fields are required. A native identifier-string field
+is also valid for `id`. Schema factory namespaces and helper names are yours
+to choose.
 
 ## Actions
 

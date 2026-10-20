@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { parse } from "yaml";
+import WebSocket, { WebSocketServer } from "ws";
 import { bounded, wait } from "./conditions.mjs";
 
 const exec = promisify(execFile);
@@ -49,12 +50,29 @@ export async function startServices({ sdk, root, runId }) {
   let imageId;
   let serviceRevision;
   let closing;
+  let rejectWrites = false;
+  let holdWrites = false;
+  let completedWrites = 0;
+  const waitingWrites = [];
+  const rejectedRequests = [];
+  const sockets = new Set();
+  const websocketServer = new WebSocketServer({ noServer: true });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://app");
     try {
-      if (url.pathname.startsWith("/api/")) {
+      if (url.pathname.startsWith("/api/") || /^\/(repos|documents|deltas|trees|socket\.io)\//.test(url.pathname)) {
         if (!endpoint) throw new Error("Service is not ready");
-        const target = endpoint + url.pathname.slice(4) + url.search;
+        if (rejectWrites && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+          request.resume();
+          rejectedRequests.push({ method: request.method, path: url.pathname });
+          response.writeHead(400, { "content-type": "application/json" })
+            .end(JSON.stringify({ message: "Injected local service rejection" }));
+          return;
+        }
+        if (holdWrites && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+          await new Promise(resolve => waitingWrites.push(resolve));
+        }
+        const target = endpoint + (url.pathname.startsWith("/api/") ? url.pathname.slice(4) : url.pathname) + url.search;
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
         const headers = { ...request.headers };
@@ -70,6 +88,7 @@ export async function startServices({ sdk, root, runId }) {
         const body = Buffer.from(await result.arrayBuffer());
         response.writeHead(result.status, { "content-type": result.headers.get("content-type") ?? "application/octet-stream" });
         response.end(body);
+        if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) completedWrites++;
         return;
       }
       const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
@@ -82,6 +101,36 @@ export async function startServices({ sdk, root, runId }) {
       if (response.headersSent) response.destroy(error);
       else response.writeHead(502).end(error.message);
     }
+  });
+  server.on("upgrade", (request, socket, head) => {
+    if (!endpoint) { socket.destroy(new Error("Service is not ready")); return; }
+    websocketServer.handleUpgrade(request, socket, head, client => {
+      const target = new URL(request.url, endpoint.replace("http:", "ws:"));
+      const upstream = new WebSocket(target);
+      sockets.add(client);
+      sockets.add(upstream);
+      const queued = [];
+      const stop = () => { client.terminate(); upstream.terminate(); };
+      const failed = error => {
+        output.push(`WebSocket proxy: ${error.message}`);
+        stop();
+      };
+      client.on("error", failed);
+      upstream.on("error", failed);
+      client.on("close", () => { sockets.delete(client); upstream.close(); });
+      upstream.on("close", () => { sockets.delete(upstream); client.close(); });
+      client.on("message", (data, isBinary) => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+        else if (upstream.readyState === WebSocket.CONNECTING) queued.push([data, isBinary]);
+      });
+      upstream.on("open", () => {
+        for (const [data, binary] of queued) upstream.send(data, { binary });
+        queued.length = 0;
+      });
+      upstream.on("message", (data, binary) => {
+        if (client.readyState === WebSocket.OPEN) client.send(data, { binary });
+      });
+    });
   });
   let origin;
   const compose = async args => {
@@ -99,6 +148,9 @@ export async function startServices({ sdk, root, runId }) {
   };
   const close = () => closing ??= (async () => {
     try {
+      for (const resume of waitingWrites.splice(0)) resume();
+      for (const socket of sockets) socket.terminate();
+      await new Promise((resolve, reject) => websocketServer.close(error => error ? reject(error) : resolve()));
       if (child && child.exitCode === null && child.signalCode === null) {
         const exited = once(child, "exit");
         child.kill("SIGTERM");
@@ -164,15 +216,26 @@ export async function startServices({ sdk, root, runId }) {
       await wait("Floodgate ready", () => reachable(`${endpoint}/health`), Boolean);
     }
     const url = new URL(origin);
-    if (sdk === "fluid") url.searchParams.set("endpoint", endpoint);
+    if (sdk === "fluid") url.searchParams.set("endpoint", origin);
     else {
       url.searchParams.set("base", `${origin}/api`);
-      url.searchParams.set("socket", endpoint.replace("http:", "ws:") + "/socket/websocket?vsn=2.0.0");
+      url.searchParams.set("socket", origin.replace("http:", "ws:") + "/socket/websocket?vsn=2.0.0");
     }
     return {
       appUrl: url.href,
       health: () => reachable(sdk === "fluid" ? endpoint : `${endpoint}/health`),
-      diagnostics: () => ({ sdk, endpoint, project, dataRoot, imageId, serviceRevision, output: [...output] }),
+      rejectHttpWrites(enabled) {
+        if (typeof enabled !== "boolean") throw new TypeError("Failure injection requires a boolean");
+        rejectWrites = enabled;
+      },
+      holdHttpWrites(enabled) {
+        if (typeof enabled !== "boolean") throw new TypeError("HTTP delivery control requires a boolean");
+        holdWrites = enabled;
+        if (!enabled) for (const resume of waitingWrites.splice(0)) resume();
+      },
+      diagnostics: () => ({ sdk, endpoint, project, dataRoot, imageId, serviceRevision,
+        rejectedRequests: [...rejectedRequests], pendingWrites: waitingWrites.length,
+        completedWrites, openSockets: sockets.size, output: [...output] }),
       close,
     };
   } catch (error) {

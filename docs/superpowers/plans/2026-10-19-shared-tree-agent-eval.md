@@ -306,17 +306,16 @@ export async function wait(label, probe, predicate, timeoutMs) {}
 ### Task 3: Watershed validation model and hidden native checks
 
 **Files:** Create `validation/solutions/watershed/{model,schema}.gleam`,
-`graders/watershed/native.gleam`, `graders/watershed/probe.mjs`,
-`test/watershed.integration.test.mjs`.
+`graders/watershed/native.mjs`, `test/integration/native.test.mjs`,
+`lib/source.mjs`, `test/source.test.mjs`.
 
 **Consumes:** Task 2's immutable domain and shell contracts.
 
-**Produces:** A private passing model; a native probe entry point:
+**Produces:** A private passing model and a grading-only browser probe:
 
 ```js
-// graders/watershed/probe.mjs
-export async function probeWatershed({ page, record }) {}
-// page is the Task 5 CDP page wrapper; record accepts a Task 1 check result.
+// graders/watershed/native.mjs, bundled only into trusted grading builds
+globalThis.__nativeEval = { inspect, capture, capturedState, setCaptured, closed };
 ```
 
 The candidate exports a native inspection accessor from its model:
@@ -329,17 +328,17 @@ pub fn native_document(model: Model) -> Option(watershed.Document(Nil))
 Include these signatures in the public starter instructions. They expose
 existing native handles, not a diagnostic result the grader must trust.
 
-- [ ] **Step 1:** Write checks that create two incidents with two steps, remove
+- [x] **Step 1:** Write checks that create two incidents with two steps, remove
   an assignee, move an incident, move a step, and then edit the original captured
   native refs. Assert the same IDs and expected values. After deletion, assert
   the old ref is detached and another node is unchanged. Validate a real
   `Tree(Board)` schema with nested object/array fields and optional assignee.
   Record native IDs/refs before and after property edits to catch subtree
   replacement even when snapshot equality passes.
-- [ ] **Step 2:** Run `node --test test/watershed.integration.test.mjs` against
+- [x] **Step 2:** Run `node --test --test-name-pattern=watershed test/integration/native.test.mjs` against
   the unfinished starter. Confirm failures are behavior failures, not missing
   test imports or incompatible compiled entry points.
-- [ ] **Step 3:** Implement the private schema with `schema_builder.object`,
+- [x] **Step 3:** Implement the private schema with `schema_builder.object`,
   required/optional properties, and arrays. Implement the private model with
   native create/open, typed refs, `tree.set`, `tree.array_insert`,
   `tree.array_remove_node`, and `tree.array_move_before`. Use captured identity
@@ -347,10 +346,10 @@ existing native handles, not a diagnostic result the grader must trust.
   Use native observers and actual subscription cleanup. Call `watershed.close`
   on close and on a late-arriving document after close. Surface create/open
   errors and never retry uncertain creation.
-- [ ] **Step 4:** Prove that error state remains visible for failed creation
+- [x] **Step 4:** Prove that error state remains visible for failed creation
   and opening, and that closing prevents queued app callbacks from reactivating
   the session. Check native subscriptions, not only a shell `closed` flag.
-- [ ] **Step 5:** Overlay the private solution only in grader-validation
+- [x] **Step 5:** Overlay the private solution only in grader-validation
   workspaces. Run native checks successfully, restore the unfinished starter
   as the agent-visible fixture, and commit:
   `test(eval): validate Watershed native tree usage`.
@@ -358,8 +357,7 @@ existing native handles, not a diagnostic result the grader must trust.
 ### Task 4: Fluid validation model and hidden native checks
 
 **Files:** Create `validation/solutions/fluid/{model,schema}.ts`,
-`graders/fluid/native.ts`, `graders/fluid/probe.mjs`,
-`test/fluid.integration.test.mjs`.
+`graders/fluid/native.mjs`, extend `test/integration/native.test.mjs`.
 
 **Consumes:** Task 2's `Action`, `Board`, `State`, `Config`, `Session`.
 
@@ -384,11 +382,11 @@ before reading incident fields, so an unchanged empty declaration fails with
 schema evidence rather than a probe compilation error.
 
 ```js
-// graders/fluid/probe.mjs
-export async function probeFluid({ page, record }) {}
+// graders/fluid/native.mjs, bundled only into trusted grading builds
+globalThis.__nativeEval = { inspect, capture, capturedState, setCaptured, closed };
 ```
 
-- [ ] **Step 1:** Write native checks using real Fluid trees for nested schema,
+- [x] **Step 1:** Write native checks using real Fluid trees for nested schema,
   optional absence, property edits, original node identity across moves, and
   disposed subscriptions. Use the same values and expected snapshots as Task 3.
   Example identity assertion:
@@ -401,21 +399,30 @@ session.apply({ type: "title", id: original.id, value: "Mitigated" });
 assert.equal(original.title, "Mitigated");
 ```
 
-- [ ] **Step 2:** Run `node --test test/fluid.integration.test.mjs` against the
+- [x] **Step 2:** Run the shell's Fluid unfinished-model smoke assertion against the
   unfinished starter and confirm a model behavior failure.
-- [ ] **Step 3:** Implement private schemas using `SchemaFactory` and
+- [x] **Step 3:** Implement private schemas using `SchemaFactory` and
   `TreeViewConfiguration`. Use `SharedTree` as a container initial object,
   `AzureClient` local mode, initialize only a newly created view, and attach
   once. Open existing documents without initialization. Observe real tree
   events and dispose the view and container on close. Follow the selected
   SDK's actual exported move API; verify its index/gap semantics with moves
   in both directions and a self-move.
-- [ ] **Step 4:** Check native tree/container cleanup after close, failed
+- [x] **Step 4:** Check native tree/container cleanup after close, failed
   attach/open, and closure during initialization. Keep credentials
   development-only and errors visible.
-- [ ] **Step 5:** Run native checks against the private solution, confirm
+- [x] **Step 5:** Run native checks against the private solution, confirm
   the unfinished starter still fails, and commit:
   `test(eval): validate Fluid native tree usage`.
+
+Native-probe implementation note: both SDK probes expose one identical
+grading-only browser interface. The Watershed probe reads the compiled SDK's
+schema metadata and native backend references, so candidates need not use any
+particular schema-helper names or factory namespace. It verifies actual
+anchored reads/edits and disposal, not model-produced diagnostics. Validation
+uses allowlisted committed SDK snapshots; concurrent host edits remain intact.
+Both SDKs run through the same transparent HTTP/WebSocket host, without
+changing native operation payloads.
 
 ### Task 5: Shared browser acceptance and verified concurrency
 

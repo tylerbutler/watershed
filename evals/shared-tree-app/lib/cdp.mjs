@@ -54,6 +54,8 @@ export async function launchBrowser({ executable } = {}) {
     let next = 1;
     const pending = new Map();
     const errors = new Map();
+    const traffic = new Map();
+    const requests = new Map();
     socket.on("message", data => {
       const message = JSON.parse(data.toString());
       if (message.id !== undefined) {
@@ -66,6 +68,13 @@ export async function launchBrowser({ executable } = {}) {
       } else if (message.method === "Runtime.exceptionThrown") {
         const details = message.params.exceptionDetails;
         errors.get(message.sessionId)?.push(details.exception?.description ?? details.text);
+      } else if (message.method === "Network.requestWillBeSent") {
+        requests.set(`${message.sessionId}:${message.params.requestId}`, message.params.request.url);
+      } else if (message.method === "Network.loadingFailed") {
+        traffic.get(message.sessionId)?.push({
+          url: requests.get(`${message.sessionId}:${message.params.requestId}`),
+          error: message.params.errorText,
+        });
       }
     });
     const failPending = error => {
@@ -94,9 +103,11 @@ export async function launchBrowser({ executable } = {}) {
             const { targetId } = await send("Target.createTarget", { url: "about:blank", browserContextId });
             const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
             errors.set(sessionId, []);
+            traffic.set(sessionId, []);
             const command = (method, params) => send(method, params, sessionId);
             await command("Page.enable");
             await command("Runtime.enable");
+            await command("Network.enable");
             const evaluate = async expression => {
               const value = await command("Runtime.evaluate", {
                 expression, returnByValue: true, awaitPromise: true,
@@ -110,6 +121,7 @@ export async function launchBrowser({ executable } = {}) {
               evaluate,
               command,
               errors: () => [...errors.get(sessionId)],
+              networkErrors: () => [...traffic.get(sessionId)],
               async goto(url) {
                 const target = new URL(url);
                 const result = await command("Page.navigate", { url });
@@ -147,6 +159,7 @@ export async function launchBrowser({ executable } = {}) {
               async close() {
                 await send("Target.closeTarget", { targetId });
                 errors.delete(sessionId);
+                traffic.delete(sessionId);
               },
             };
           },
