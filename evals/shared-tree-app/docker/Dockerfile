@@ -36,7 +36,7 @@ RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox --disable-dev-shm-usa
 COPY baseline/ /opt/shared-tree/baseline/
 WORKDIR /opt/shared-tree/baseline
 RUN pnpm install --registry="${NPM_REGISTRY}" --frozen-lockfile && pnpm check && pnpm build
-RUN chmod -R a+rX /opt/shared-tree/baseline
+RUN chmod -R a+rX /opt/shared-tree
 WORKDIR /opt/shared-tree
 
 FROM common AS task
@@ -49,6 +49,7 @@ COPY grading/ /opt/shared-tree/grading/
 RUN cp -a /opt/shared-tree/baseline/node_modules /opt/shared-tree/grading/workspace/ \
     && if [ -d /opt/shared-tree/baseline/build ]; then \
       cp -a /opt/shared-tree/baseline/build /opt/shared-tree/grading/workspace/; \
-    fi
+    fi \
+    && chmod -R a+rX /opt/shared-tree/grading
 USER 1000:1000
 CMD ["sh"]

@@ -22,8 +22,10 @@ observation for delayed creation retries. Native SDK summary uploads are not
 counted as document-creation attempts.
 Protected-file hashing, candidate-only overlays, native SDK materialization,
 portable workspace preparation, and the trusted grading CLI are implemented.
-Isolated agent execution and the comparison runner are not implemented yet.
-This directory does not yet provide a runnable agent eval.
+Both SDKs now pass a no-model Vally task-to-grading run through isolated Podman
+containers. The matched comparison runner, operator budget inputs, and remaining
+fault-injection acceptance checks are still pending. Do not use this checkpoint
+for a paid agent comparison.
 
 The design and implementation sequence are in:
 
@@ -41,6 +43,11 @@ pnpm --dir evals/shared-tree-app test
 
 The package pins Vally core and CLI to 0.19.0. Its pnpm build policy permits
 Koffi's native build and disables the optional device-ID package's build.
+A committed pnpm patch replaces unsupported Podman tmpfs ownership options with
+a sticky writable grading-home mount inside the private container. It also
+enables Compose profiles when capturing service logs; Vally otherwise writes
+empty logs for its profiled services. Task and grading processes still run as
+UID 1000. Frozen installs apply this patch on the host and in both images.
 
 `lib/contract.mjs` validates the required-check manifest.
 `lib/report.mjs` validates complete per-trial reports and computes verdicts
@@ -80,6 +87,9 @@ instances starving the browser command deadlines. Each collaboration scenario
 still uses independent, simultaneously connected clients.
 Headless contexts emulate page focus so inactive clients continue to render;
 browser action deadlines do not depend on which context Chromium made visible.
+After checking Close behavior and page errors, the grader closes finished tabs
+to release their renderers. The reopen check closes the original tabs before
+opening the document in another browser context.
 The shell fixtures test real native framework rendering and action forwarding
 without a SharedTree implementation. They are test-only assets; never stage
 `test/fixtures/` for an evaluated agent.
@@ -143,7 +153,7 @@ The Watershed service configuration pins Floodgate to commit
 Each invocation uses a unique Compose project and a fresh memory backend.
 Service diagnostics include the resolved source revision and image content ID.
 Fluid uses the pinned local-service package, a unique port, and private storage
-under its workspace. No Podman/Vally end-to-end trial claim is made yet.
+under its workspace.
 
 For externally managed support services, set `SHARED_TREE_SERVICE_URL` to the
 service's HTTP origin. The app host verifies readiness and proxies native traffic
@@ -152,16 +162,20 @@ app host stops only its proxy; the external service's owner must stop the servic
 `SHARED_TREE_APP_PORT` selects a fixed loopback port when a service needs a known
 public URL (the default is ephemeral). `SHARED_TREE_SERVICE_STATE_ROOT` selects an
 existing directory for temporary host state outside the submitted workspace.
-These options support future container wiring; isolated execution remains pending.
+The isolated Vally roles use these options to reach their own support service
+without access to an engine socket.
 
 `lib/images.mjs` builds separate non-root Linux task and grade images from a
 prepared baseline. The task image includes public tooling and its selected SDK,
 not hidden graders or validation solutions. The grade image adds a separate
 trusted root at `/opt/shared-tree/grading`. Builds pin Node 24.21.0, Gleam 1.18.1,
 pnpm 12.13.0, and Vally core/CLI 0.19.0; image manifests record content IDs,
-architecture, the package registry, and observed tool versions. Gleam downloads
+architecture, the package registry, the Vally patch hash, and observed tool versions. Gleam downloads
 are checked against their published checksum. Dependencies are installed with
 frozen lockfiles before isolation, without rewriting registry URLs.
+The builder also builds Floodgate from its pinned source revision and records
+the service image's content ID. Fluid's service uses the public task image's
+locked local-service package. No pre-existing service image tag is required.
 
 The starters disable pnpm's automatic pre-script dependency installation.
 Its saved workspace identity contains absolute paths, so relocation would
@@ -174,8 +188,42 @@ the real Copilot SDK against a local streaming provider fixture through
 `docker/gateway.mjs`, with external downloads blocked. The gateway permits only
 the selected model's chat-completion route, rejects tunnels and redirects, and
 keeps upstream authentication out of client requests and provider error bodies.
-No real provider or paid model is used. Fluid image validation, trial-specific
-Compose wiring, and a complete Vally task-to-grade pipeline are still pending.
+No real provider or paid model is used. The gateway accepts text-only messages
+and standard chat-completion fields; it rejects provider extensions, remote
+image inputs, and native search tools. Select a text chat-completions model
+without provider-side browsing.
+
+`lib/isolation.mjs` writes trial-specific Compose configuration. The task and
+grade roles use an internal network and separate support-service projects.
+Only the task's provider gateway joins an outbound network. Supply
+`SHARED_TREE_PROVIDER_URL`, `SHARED_TREE_PROVIDER_API_KEY`, and
+`SHARED_TREE_PROVIDER_MODEL` to the controller process; Compose passes them
+only to the gateway. Generated Compose files contain variable references,
+not credential values. The task's executor must use the gateway's
+`http://provider-gateway:8080/v1` endpoint with placeholder client authentication.
+
+The grading role alone mounts a fresh generated report directory at
+`/eval-results`. The trusted CLI writes its complete report and build log there
+before emitting its success marker. These files survive Vally's grading-project
+teardown without relying on console-output limits. The mount exposes only that
+generated output directory, never host source, home, or an engine socket.
+Offline setup uses Node's file copier to preserve relative dependency symlinks
+without copying SELinux labels that would prevent the grading role from reading
+the task workspace.
+
+Run the no-model end-to-end validation with:
+
+```sh
+node --test evals/shared-tree-app/test/integration/vally.test.mjs
+```
+
+It builds each SDK's images, overlays private references into validation-only
+candidate inputs, runs Vally's built-in `mock` executor, and executes the native
+grader against a fresh service. It checks task input exclusion, blocked external
+downloads, credential absence in task environment and saved artifacts, teardown
+ordering, and persisted passing reports with all 35 required checks. Production
+image baselines retain the unfinished models. These are harness checks, not
+measurements of agent performance.
 
 Do not mount the host checkout, host home, or container-engine socket into an
 evaluated agent's workspace. Keep hidden graders and validation solutions

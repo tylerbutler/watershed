@@ -604,7 +604,7 @@ Compose service resources usable through Vally's documented backend options.
   provider fixture. No paid provider is contacted. Images record their
   content IDs and exact Vally identity. Fluid images and complete Vally
   task/grade Compose orchestration remain unverified.
-- [ ] **Step 3:** Build images containing exact Vally core/CLI versions,
+- [x] **Step 3:** Build images containing exact Vally core/CLI versions,
   non-root user, POSIX shell, Node, Git, coreutils, native toolchains,
   preinstalled dependencies, and Chromium in the grading image. No host
   repository mounts, host home mounts, Docker socket, or privileged mode.
@@ -612,12 +612,12 @@ Compose service resources usable through Vally's documented backend options.
   Vally 0.19.0 hardcodes the `docker` executable, including `context inspect`.
   Use a Docker-compatible client connected to Podman's socket and verify
   those operations; do not assume that aliasing `docker` to `podman` works.
-- [ ] **Step 4:** Configure fresh support-service state per trial through
+- [x] **Step 4:** Configure fresh support-service state per trial through
   Vally's `compose-file` option. Make the grade role use its own fresh service
   state so no agent background process or service mutation becomes trusted
   grader infrastructure. Local collaboration/reopen checks share one service
   lifetime within grading.
-- [ ] **Step 5:** Enforce an internal task network with no general external
+- [x] **Step 5:** Enforce an internal task network with no general external
   egress. Permit executor model/authentication requests through a controlled
   runtime gateway whose credentials remain outside the agent workspace.
   The gateway permits only the selected provider's required request routes,
@@ -625,15 +625,32 @@ Compose service resources usable through Vally's documented backend options.
   Test the chosen Copilot SDK provider configuration with this route.
   If isolation cannot preserve runtime access without general tool egress,
   stop and report that blocker rather than claiming isolation.
-- [ ] **Step 6:** Run task then grade with Vally Docker using a no-model
+- [x] **Step 6:** Run task then grade with Vally Docker using a no-model
   deterministic executor fixture supported by the installed version. Verify
   that hidden assets appear only after task completion, artifacts export
   before cleanup, and secrets do not enter manifests or logs. If the
   deterministic executor requires a plugin, use the installed core's mock
   executor via a small validation-only package, excluded from agent inputs.
-- [ ] **Step 7:** Confirm image core version equals host core version, record
+- [x] **Step 7:** Confirm image core version equals host core version, record
   image digests, and commit:
   `feat(eval): isolate Vally task and grading roles`.
+
+Task 7 completion: both source-built SDKs pass actual Vally 0.19.0 `mock`
+trials through separate task/grade Compose projects. The task cannot read
+hidden or host inputs, reach GitHub, or read gateway credentials. The grading
+CLI exports complete passing 35-check reports and build logs through a fresh
+grade-only output mount, which survives project teardown. Saved Vally artifacts
+contain no provider credential canary. The image builder now builds the pinned
+Floodgate service instead of assuming a pre-existing tag.
+
+Podman required two recorded Vally fixes: replace unsupported tmpfs uid/gid
+options with a sticky private-container mount, and activate profiles for log
+capture. The committed pnpm patch applies to host and image installations;
+image manifests record its SHA-256. Offline setup uses Node copying because
+GNU archive copies preserve task-private SELinux labels. Completed browser tabs
+close after error/cleanup assertions to avoid renderer-memory pressure. Both
+native lifecycle reference/mutant regressions still pass. No paid provider
+was contacted; matched-runner and final acceptance work remain in Tasks 8–9.
 
 ### Task 8: Vally specs, matched runner, and comparison output
 

@@ -39,6 +39,11 @@ test("gateway forwards only the selected model route and keeps provider credenti
   for (const body of [
     { model: "other-model", messages: [] },
     { model: "fixture-model", messages: [], tools: [{ type: "web_search" }] },
+    { model: "fixture-model", messages: [], web_search_options: {} },
+    { model: "fixture-model", messages: [], extra_body: { mcp_servers: [{ url: "https://github.com" }] } },
+    { model: "fixture-model", messages: [{
+      role: "user", content: [{ type: "image_url", image_url: { url: "https://github.com" } }],
+    }] },
   ]) {
     assert.equal((await fetch(gateway.origin + "/v1/chat/completions", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),

@@ -2,3 +2,5 @@ packages: []
 allowBuilds:
   "@vscode/deviceid": false
   koffi: true
+patchedDependencies:
+  '@microsoft/vally@0.19.0': patches/@microsoft__vally@0.19.0.patch

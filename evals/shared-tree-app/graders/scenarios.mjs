@@ -29,6 +29,11 @@ export async function runScenarios({ sdk, services, browser, record }) {
     await ready(page, url);
     return page;
   };
+  const retire = async page => {
+    assert.deepEqual(page.errors(), []);
+    await page.close();
+    pages.splice(pages.indexOf(page), 1);
+  };
   const check = async (ids, run) => {
     const started = performance.now();
     try {
@@ -288,6 +293,7 @@ export async function runScenarios({ sdk, services, browser, record }) {
     await equals(b, delivered);
     await late.click('[data-action="close"]');
     await late.waitFor('[data-state="closed"]');
+    await retire(late);
   });
   await check("local.invalid-input", async () => {
     for (const value of [
@@ -350,6 +356,8 @@ export async function runScenarios({ sdk, services, browser, record }) {
       await wait("late initialization leaves no new live transport",
         async () => services.transport.clients().filter(id => !priorClients.has(id)), ids => ids.length === 0);
     } finally { services.holdHttpWrites(false); }
+    await retire(early);
+    await retire(a);
   });
   await check("persistence.reopen", async () => {
     const witness = await open(documentUrl);
@@ -362,10 +370,13 @@ export async function runScenarios({ sdk, services, browser, record }) {
     await b.waitFor('[data-state="closed"]');
     await witness.click('[data-action="close"]');
     await witness.waitFor('[data-state="closed"]');
+    await retire(b);
+    await retire(witness);
     const reopened = await open(documentUrl);
     await equals(reopened, persisted);
     await reopened.click('[data-action="close"]');
     await reopened.waitFor('[data-state="closed"]');
+    await retire(reopened);
   });
   await check("lifecycle.errors", async () => {
     const creationAttempts = () => services.diagnostics().rejectedRequests.filter(request =>

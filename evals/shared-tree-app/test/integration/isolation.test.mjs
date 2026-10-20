@@ -33,11 +33,11 @@ test("task image hides host and grader inputs and blocks downloads while native 
     await writeFile(canary, randomUUID());
     await exec("podman", ["network", "create", "--internal", network]);
     networkCreated = true;
-    await exec("podman", ["run", "-d", "--name", service, "--network", network,
+    await exec("podman", ["run", "-d", "--name", service, "--network", network, "--tmpfs", "/data:rw,mode=1777",
       "--network-alias", "sdk-service", "-e", "FLOODGATE_BIND=0.0.0.0",
       "-e", "FLOODGATE_STORAGE_BACKEND=memory", "-e", "FLOODGATE_PUBLIC_URL=http://127.0.0.1:4173/api",
       "-e", "FLOODGATE_TENANT_ID=dev-tenant", "-e", "FLOODGATE_JWT_SECRET=levee-dev-secret-change-in-production",
-      "floodgate:shared-tree-eval-21faeaa48671"]);
+      images.service.id]);
     serviceCreated = true;
     const script = `
 import assert from "node:assert/strict";

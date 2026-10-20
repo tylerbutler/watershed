@@ -4,13 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@microsoft/vally@0.19.0': a92bb2ff9606b0d21bf28bcb55e1f2c3f5fe20d66609aca2845e7a38c1084df5
+
 importers:
 
   .:
     dependencies:
       '@microsoft/vally':
         specifier: 0.19.0
-        version: 0.19.0
+        version: 0.19.0(patch_hash=a92bb2ff9606b0d21bf28bcb55e1f2c3f5fe20d66609aca2845e7a38c1084df5)
       '@microsoft/vally-cli':
         specifier: 0.19.0
         version: 0.19.0
@@ -1090,7 +1093,7 @@ snapshots:
   '@microsoft/vally-cli@0.19.0':
     dependencies:
       '@azure/monitor-opentelemetry-exporter': 1.0.0-beta.46
-      '@microsoft/vally': 0.19.0
+      '@microsoft/vally': 0.19.0(patch_hash=a92bb2ff9606b0d21bf28bcb55e1f2c3f5fe20d66609aca2845e7a38c1084df5)
       '@microsoft/vally-server': 0.19.0
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/exporter-trace-otlp-http': 0.222.0(@opentelemetry/api@1.9.1)
@@ -1108,13 +1111,13 @@ snapshots:
   '@microsoft/vally-server@0.19.0':
     dependencies:
       '@hono/node-server': 2.1.4(hono@4.13.13)
-      '@microsoft/vally': 0.19.0
+      '@microsoft/vally': 0.19.0(patch_hash=a92bb2ff9606b0d21bf28bcb55e1f2c3f5fe20d66609aca2845e7a38c1084df5)
       hono: 4.13.13
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
 
-  '@microsoft/vally@0.19.0':
+  '@microsoft/vally@0.19.0(patch_hash=a92bb2ff9606b0d21bf28bcb55e1f2c3f5fe20d66609aca2845e7a38c1084df5)':
     dependencies:
       '@github/copilot-sdk': 1.0.15
       '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)

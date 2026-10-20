@@ -1,0 +1,26 @@
+diff --git a/dist/backend/docker/docker-cli.js b/dist/backend/docker/docker-cli.js
+index e83accc448866ca3cae14a7e0d3e7f98d976b97f..242a97be51a34490ca0d7d77abd2d53cdfecce0f 100644
+--- a/dist/backend/docker/docker-cli.js
++++ b/dist/backend/docker/docker-cli.js
+@@ -156,7 +156,7 @@ export function createDockerCli(exec) {
+             return splitLines(result.stdout);
+         },
+         async composeLogs(projectDir, project, composeFiles, opts) {
+-            return runCommand(runExec, "compose.logs", "docker", buildComposeArgs(projectDir, project, composeFiles, "logs", "--no-color", "--timestamps"), { cwd: projectDir, timeoutMs: opts?.timeoutMs });
++            return runCommand(runExec, "compose.logs", "docker", buildComposeArgs(projectDir, project, composeFiles, "--profile", "*", "logs", "--no-color", "--timestamps"), { cwd: projectDir, timeoutMs: opts?.timeoutMs });
+         },
+         async composeDown(projectDir, project, composeFiles, opts) {
+             const args = buildComposeArgs(projectDir, project, composeFiles, ...composeProfileArgs(opts?.profiles), "down", ...(opts?.removeOrphans ? ["--remove-orphans"] : []), ...(opts?.volumes ? ["--volumes"] : []));
+diff --git a/dist/backend/docker/grading-coordinator.js b/dist/backend/docker/grading-coordinator.js
+index 0b1e844331fcaf7301cb8be819d08d0b5d156174..72a6c8622df899124545291f944ef77d1fa35ce4 100644
+--- a/dist/backend/docker/grading-coordinator.js
++++ b/dist/backend/docker/grading-coordinator.js
+@@ -292,7 +292,7 @@ export class GradingCoordinator {
+                 }
+                 : {}),
+             roleTmpfs: [
+-                `${SYNTHETIC_HOME}:rw,mode=0700,uid=${this.image.manifest.uid},gid=${this.image.manifest.gid}`,
++                `${SYNTHETIC_HOME}:rw,mode=1777`,
+             ],
+             network: this.cfg.gradeNetwork,
+             gradeSourceWorkspace: args.sourceWorkspace,

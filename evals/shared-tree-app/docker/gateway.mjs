@@ -5,6 +5,23 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
+const completionFields = new Set([
+  "model", "messages", "stream", "stream_options", "tools", "tool_choice", "parallel_tool_calls",
+  "temperature", "top_p", "max_tokens", "max_completion_tokens", "frequency_penalty", "presence_penalty",
+  "stop", "seed", "user", "n", "logprobs", "top_logprobs", "logit_bias", "response_format",
+  "reasoning_effort", "reasoning", "verbosity", "prediction", "store", "metadata", "service_tier",
+  "prompt_cache_key", "prompt_cache_retention", "safety_identifier",
+]);
+const messageFields = new Set([
+  "role", "content", "name", "tool_calls", "tool_call_id", "refusal",
+  "reasoning_content", "reasoning", "reasoning_details",
+]);
+const textMessage = message => message && typeof message === "object" &&
+  Object.keys(message).every(key => messageFields.has(key)) &&
+  (message.content == null || typeof message.content === "string" ||
+    (Array.isArray(message.content) && message.content.every(part =>
+      part?.type === "text" && typeof part.text === "string")));
+
 export async function startGateway({ upstream, apiKey, model, port = 8080, host = "0.0.0.0" }) {
   const base = new URL(upstream);
   const loopback = base.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(base.hostname);
@@ -49,9 +66,12 @@ export async function startGateway({ upstream, apiKey, model, port = 8080, host 
       const body = Buffer.concat(chunks);
       const value = JSON.parse(body);
       if (value?.model !== model || !Array.isArray(value.messages) ||
+          Object.keys(value).some(key => !completionFields.has(key)) ||
+          !value.messages.every(textMessage) ||
+          (typeof value.tool_choice === "object" && value.tool_choice?.type !== "function") ||
           (value.tools !== undefined && (!Array.isArray(value.tools) ||
             value.tools.some(tool => tool?.type !== "function")))) {
-        reply(400, "Only the selected model and function tools are allowed");
+        reply(400, "Only text chat, standard completion fields, the selected model, and function tools are allowed");
         return;
       }
       forwarding = true;
