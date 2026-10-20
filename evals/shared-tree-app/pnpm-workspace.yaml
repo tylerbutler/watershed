@@ -1,0 +1,4 @@
+packages: []
+allowBuilds:
+  "@vscode/deviceid": false
+  koffi: true

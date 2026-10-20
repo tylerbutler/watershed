@@ -6,7 +6,7 @@
 
 **Architecture:** Share the task, browser scenarios, report contract, and comparison runner. Supply separate Gleam/Lustre and TypeScript/React starters with completed UI shells and unfinished native models. Use Vally's Docker task/grade separation, hidden native probes, and real local services; keep completed implementations outside agent-visible assets.
 
-**Tech Stack:** Node >=22.14.0, Vally 0.19.0, Node's test runner, Gleam/Lustre, TypeScript/React, existing esbuild tooling, Chromium/CDP, Docker Compose.
+**Tech Stack:** Node >=22.14.0, Vally 0.19.0, Node's test runner, Gleam/Lustre, TypeScript/React, existing esbuild tooling, Chromium/CDP, Podman with Compose and a verified Docker-compatible client for Vally.
 
 **Spec:** `docs/superpowers/specs/2026-10-19-shared-tree-agent-eval-design.md`
 
@@ -29,6 +29,9 @@
 - Do not copy the existing project-brief model or schema into agent environments.
 - Do not edit generated `.code-map/`, APM-managed instructions, or website files.
 - This is development tooling; no user-facing library changelog entry.
+- Execute inline and commit directly on `main`, as requested by the user.
+- Use Podman as the container engine. Vally's backend remains named `docker`;
+  verify the client/socket/Compose compatibility before container trials.
 
 ## Repository evidence and external contracts
 
@@ -579,6 +582,9 @@ Compose service resources usable through Vally's documented backend options.
   preinstalled dependencies, and Chromium in the grading image. No host
   repository mounts, host home mounts, Docker socket, or privileged mode.
   Provide only generated task/grading inputs to the respective Vally roles.
+  Vally 0.19.0 hardcodes the `docker` executable, including `context inspect`.
+  Use a Docker-compatible client connected to Podman's socket and verify
+  those operations; do not assume that aliasing `docker` to `podman` works.
 - [ ] **Step 4:** Configure fresh support-service state per trial through
   Vally's `compose-file` option. Make the grade role use its own fresh service
   state so no agent background process or service mutation becomes trusted
@@ -710,7 +716,9 @@ and alternates SDK order; each generated Vally trial uses `runs: 1`.
 
 - [ ] **Step 5:** Invoke the installed Vally CLI with argument arrays,
   `--backend docker`, task/grade image digests, selected networks, support
-  Compose file, and `--eval-spec`. Validate generated specs with the installed
+  Compose file, `--max-retries 0`, `--workers 1`, `--require-pass`, and
+  `--eval-spec`. Vally otherwise defaults to two retries, which violates
+  the trial policy. Validate generated specs with the installed
   Vally linter before execution. Preserve raw Vally outputs and the exact
   effective spec alongside benchmark reports.
 - [ ] **Step 6:** Preflight service/browser/toolchain availability before the
