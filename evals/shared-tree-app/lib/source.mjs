@@ -4,7 +4,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const exec = promisify(execFile);
-const watershedPaths = [
+export const watershedPaths = [
   "gleam.toml", "manifest.toml", "src",
   "watershed_lustre/gleam.toml", "watershed_lustre/manifest.toml", "watershed_lustre/src",
 ];

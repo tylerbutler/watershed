@@ -157,3 +157,13 @@ symlinks, protected-file edits, missing model sources, and overlapping task
 and grading roots. Generated build output and installed dependencies are
 never copied from the candidate. This is submission validation, not a
 container isolation boundary.
+
+`lib/sdk.mjs` resolves explicit full commit IDs and selects source/API-doc
+allowlists. Watershed inputs come from the immutable commit, not the host's
+working files. Fluid builds require checked-out HEAD to match, clean tracked
+inputs, a single client-package version, and a complete workspace dependency
+closure. Untracked runtime source is rejected; untracked SDK tests are not
+selected for staging. Registry service dependencies with different release
+lines are not selected as unrelated local packages.
+Package building/materialization and portable workspace preparation are still
+pending.

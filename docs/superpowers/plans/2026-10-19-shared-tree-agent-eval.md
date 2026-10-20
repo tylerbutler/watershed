@@ -560,7 +560,7 @@ a test helper using `fs.readdir({ recursive: true })` and normalized paths.
   Include clear configuration errors for missing local packages, dirty source
   revisions, unresolved dependencies, and unsupported toolchains. Require
   clean SDK inputs for comparison runs.
-- [ ] **Step 5:** Test protected file edits, unexpected files, and changes to
+- [x] **Step 5:** Test protected file edits, unexpected files, and changes to
   dependency/build configuration. Overlay only candidate-owned model/schema
   files and candidate test files onto a trusted grader workspace. Never
   execute an agent-modified build script as the grading authority.
