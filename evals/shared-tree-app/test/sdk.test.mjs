@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { resolveSdk } from "../lib/sdk.mjs";
+import { materializeSdk } from "../lib/sdk-build.mjs";
 
 const exec = promisify(execFile);
 
@@ -125,4 +126,16 @@ test("Watershed resolves an immutable allowlisted commit without trusting dirty 
   assert.ok(sdk.sourceFiles.includes("watershed_lustre/src/watershed_lustre/tree.gleam"));
   assert.deepEqual(sdk.docs, ["docs/shared-tree-schema-authoring.md"]);
   assert.ok(!sdk.sourceFiles.some(path => /(^|\/)(test|evals|validation)(\/|$)/.test(path)));
+  const out = join(root, "staged-sdk");
+  const staged = await materializeSdk({ sdk: "watershed", source: root, revision, out });
+  assert.equal(staged.revision, revision);
+  assert.equal(await readFile(join(out, "gleam.toml"), "utf8"),
+    'name = "watershed"\nversion = "1.0.0"\ngleam = ">= 1.11.0"\n');
+  assert.equal(await readFile(join(out, "docs/shared-tree-schema-authoring.md"), "utf8"), "API guide");
+  assert.ok(!(await readdir(out, { recursive: true })).some(path =>
+    /(^|\/)(test|evals|validation|\.git)(\/|$)/.test(path)));
+  await assert.rejects(materializeSdk({ sdk: "watershed", source: root, revision, out }),
+    /exist/i);
+  assert.equal(await readFile(join(out, "gleam.toml"), "utf8"),
+    'name = "watershed"\nversion = "1.0.0"\ngleam = ">= 1.11.0"\n');
 });

@@ -20,8 +20,9 @@ verified concurrent submissions, late join, and delivered-state reopen.
 Lifecycle schedules include Close during held initialization and bounded
 observation for delayed creation retries. Native SDK summary uploads are not
 counted as document-creation attempts.
-Protected-file hashing and candidate-only overlays are implemented; portable
-SDK staging, the grading CLI, isolated agent execution, and the comparison
+Protected-file hashing, candidate-only overlays, and native SDK materialization
+are implemented. Portable agent-workspace preparation, the grading CLI,
+isolated agent execution, and the comparison
 runner are not implemented yet. This directory does not yet provide a runnable
 agent eval.
 
@@ -64,7 +65,7 @@ Their unfinished models must build but must not claim readiness.
 Gleam manifests use `.in` templates so Trellis does not discover unfinished
 eval packages. Workspace preparation must materialize their manifests and
 stage the selected SDK at the declared dependency paths. SDK selection and
-agent-workspace preparation are not implemented yet.
+agent-workspace preparation are not wired together yet.
 
 With Chromium installed, run the separate integration suite:
 
@@ -165,5 +166,18 @@ inputs, a single client-package version, and a complete workspace dependency
 closure. Untracked runtime source is rejected; untracked SDK tests are not
 selected for staging. Registry service dependencies with different release
 lines are not selected as unrelated local packages.
-Package building/materialization and portable workspace preparation are still
-pending.
+`lib/sdk-build.mjs` materializes that selection. Fluid is rebuilt as ESM from
+a fresh, private Git archive with its pinned package manager and locked
+dependency closure; it does not reuse the host's compiled SDK output. Public
+runtime files, generated declarations, and the local-service entry point are
+selected from real package-manager pack output. SDK tests, examples, source
+maps, and repository history are excluded. The builder returns provenance and
+raw build logs for later grading artifacts.
+
+`test/integration/sdk.test.mjs` builds the actual local Fluid SDK at
+`c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`, installs its local packages with
+parent-scoped dependency overrides, rejects registry fallback for those
+versions, and runs every shared behavioral check against the reference app.
+Set `SHARED_TREE_FLUID_SOURCE` to use another location for that exact checkout.
+This adds a fresh SDK build to the integration suite. Portable agent-workspace
+preparation remains pending.
