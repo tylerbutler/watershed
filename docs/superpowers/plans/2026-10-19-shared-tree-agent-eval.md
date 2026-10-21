@@ -660,7 +660,7 @@ was contacted; matched-runner and final acceptance work remain in Tasks 8–9.
 **Interfaces:**
 
 ```js
-export function buildSpec({ sdk, prepared, model, reasoningEffort, limits }) {}
+export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId }) {}
 // => Vally eval spec object; emitted with YAML.stringify
 export async function runPair(options) {}
 // options require sources/revisions, model, reasoningEffort, runs, limits, out
@@ -678,17 +678,20 @@ node run.mjs \
   --fluid-revision FULL_COMMIT_SHA \
   --model OPERATOR_MODEL --reasoning-effort OPERATOR_EFFORT \
   --runs OPERATOR_TRIAL_COUNT --max-agent-duration OPERATOR_DURATION \
-  --max-tokens OPERATOR_TOKEN_BUDGET --out /absolute/results
+  --out /absolute/results --authorize-paid
 ```
 
 Values in uppercase are required operator inputs, not defaults or literal
 values to put in a generated spec. Validate duration syntax and positive
-integer counts before any process launches.
+integer counts before any process launches. The operator explicitly chose
+“Don't use max tokens”: working time is the only agent budget. Token usage
+is an observed metric, not a constraint. Paid execution requires explicit
+authorization.
 
-- [ ] **Step 1:** Write generation tests proving both specs share the task
+- [x] **Step 1:** Write generation tests proving both specs share the task
   hash, check contract, model, reasoning effort, runs, and constraints; only
-  SDK-specific paths and commands differ. Reject missing budgets.
-- [ ] **Step 2:** Write comparison tests:
+  SDK-specific paths and commands differ. Reject a missing working-time limit.
+- [x] **Step 2:** Write comparison tests:
 
 ```js
 test("mismatched models cannot produce comparative rates", () => {
@@ -711,9 +714,9 @@ test("invalid trial remains visible without counting as agent failure", () => {
 Implement `fixtureRun` as a complete in-test manifest/report builder using
 Task 1's full required check list. Do not relax validation for test fixtures.
 
-- [ ] **Step 3:** Run `node --test test/generate.test.mjs test/run.test.mjs
+- [x] **Step 3:** Run `node --test test/generate.test.mjs test/run.test.mjs
   test/compare.test.mjs` and confirm absent runner functions fail.
-- [ ] **Step 4:** Generate specs using actual Vally fields:
+- [x] **Step 4:** Generate specs using actual Vally fields:
 
 ```js
 const spec = {
@@ -721,26 +724,32 @@ const spec = {
   version: "1.0",
   type: "capability",
   defaults: {
-    executor: "copilot-sdk", model, reasoning_effort: reasoningEffort, runs: 1,
+    executor: { name: "copilot-sdk", config: { provider: {
+      type: "openai", baseUrl: "http://provider-gateway:8080/v1",
+      wireApi: "completions", transport: "http",
+      apiKeyEnv: "SHARED_TREE_GATEWAY_CLIENT_KEY", modelId: model, wireModel: model,
+    } } },
+    model, reasoning_effort: reasoningEffort, runs: 1,
+    timeout: `${agentDurationMs(limits) + 60_000}ms`,
   },
   agent_environment: {
     files: [{ src: prepared.agentRoot, dest: "." }],
-  },
-  grading_environment: {
-    files: [{ src: prepared.gradingRoot, dest: ".vally-grading" }],
+    commands: offlineSetupCommands(sdk),
+    env: { SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder" },
   },
   stimuli: [{
     name: "incident-response-board",
     prompt,
     constraints: {
       max_agent_duration: limits.agentDuration,
-      max_tokens: limits.maxTokens,
     },
     graders: [{
       type: "run-command",
       config: {
         command: "node",
-        args: [".vally-grading/graders/main.mjs", "--sdk", sdk],
+        args: ["/opt/shared-tree/grading/graders/main.mjs", "--sdk", sdk,
+          "--workspace", "/workspace", "--run-id", runId,
+          "--output", "/eval-results/report.json"],
         expected_exit_code: 0,
         stdout_contains: "SHARED_TREE_EVAL_ALL_REQUIRED_PASSED",
         timeout: "10m",
@@ -752,48 +761,51 @@ const spec = {
 };
 ```
 
-`prompt` combines shared `task.md` with the selected starter's commands.
+`prompt` combines shared `task.md` with identical development-tool instructions.
+The executor uses the task-only provider gateway with placeholder client
+authentication. Hidden grading files exist only in the immutable grade image;
+never overlay them into an agent-owned workspace.
 Pass `reasoningEffort` into `buildSpec` explicitly. Set `defaults.timeout` to
 the operator's working limit plus a 60-second executor cleanup grace, and
 record both limits. Grade timeout is separate. The outer runner controls repetitions
 and alternates SDK order; each generated Vally trial uses `runs: 1`.
 
-- [ ] **Step 5:** Invoke the installed Vally CLI with argument arrays,
+- [x] **Step 5:** Invoke the installed Vally CLI with argument arrays,
   `--backend docker`, task/grade image digests, selected networks, support
   Compose file, `--max-retries 0`, `--workers 1`, `--require-pass`, and
   `--eval-spec`. Vally otherwise defaults to two retries, which violates
   the trial policy. Validate generated specs with the installed
   Vally linter before execution. Preserve raw Vally outputs and the exact
   effective spec alongside benchmark reports.
-- [ ] **Step 6:** Preflight service/browser/toolchain availability before the
+- [x] **Step 6:** Preflight service/browser/toolchain availability before the
   agent. Classify candidate compile/action failures as agent failures.
   Classify independent service health failures as invalid. No automatic
   replacement trials. Capture raw SDK diagnostics so a timeout does not
   decide classification on its own.
-- [ ] **Step 7:** Record revision/package/toolchain/docs/image manifests,
+- [x] **Step 7:** Record revision/package/toolchain/docs/image manifests,
   candidate diffs, trajectory, timings, and reports. Extract metrics from
   Vally's actual result schema; use `null` with an explanation when absent.
   Report cost only with complete matching provider cost identity. Compute
   wall time for agent execution separately from preparation and grading.
   Preserve all raw records; never claim statistical significance from a
   small pilot.
-- [ ] **Step 8:** Test the CLI with a deterministic fake Vally subprocess:
+- [x] **Step 8:** Test the CLI with a deterministic fake Vally subprocess:
   fail on unsuccessful exits, absent reports, missing markers, malformed
-  artifacts, model/budget/task-hash mismatches, and unsupported result
+  artifacts, model/working-limit/task-hash mismatches, and unsupported result
   formats. Then run a real no-model Docker validation trial for each SDK.
   Commit: `feat(eval): run and compare matched SharedTree trials`.
 
 ### Task 9: Benchmark fault injection, documentation, and acceptance
 
 **Files:** Create `validation/mutations.mjs`,
-`test/validation.integration.test.mjs`; finish `README.md`.
+`test/integration/validation.test.mjs`; finish `README.md`.
 
 **Consumes:** Trusted solutions, shared/native graders, staging, Docker runner.
 
 **Produces:** A benchmark that proves it rejects plausible wrong solutions
 before an agent comparison begins.
 
-- [ ] **Step 1:** Write a table-driven rejection test:
+- [x] **Step 1:** Write a table-driven rejection test:
 
 ```js
 for (const defect of [
@@ -816,35 +828,60 @@ applying `validation/mutations.mjs`, and running the full trusted grader.
 Each mutant changes one behavior. Verify expected failed check IDs so a
 syntax error cannot count as successful detection of stale identity.
 
-- [ ] **Step 2:** Confirm the rejection tests fail before implementing the
+- [x] **Step 2:** Confirm the rejection tests fail before implementing the
   mutations. Add variants that replace a tree field with serialized data,
   retain a stale index, omit an observer, initialize on every open, omit
   cleanup, and modify protected UI assets. Use private fixture implementations,
   not text substitutions dependent on incidental source formatting.
-- [ ] **Step 3:** Add failure-injection runs for absent Chromium, service
+- [x] **Step 3:** Add failure-injection runs for absent Chromium, service
   startup failure, interrupted service during grading, invalid reports,
   late successful probes, and attempted workspace escape. Assert nonpassing
   results with explicit evidence and the correct agent/infrastructure class.
-- [ ] **Step 4:** Verify unfinished starters compile, native probes fail
+- [x] **Step 4:** Verify unfinished starters compile, native probes fail
   against them, private solutions pass, and the mutated solutions fail for
   their intended reasons. Prove the real concurrency checks reject a run
   where delivery occurred before both submissions.
-- [ ] **Step 5:** Document dependency preparation, Docker image build and
+- [x] **Step 5:** Document dependency preparation, Docker image build and
   digests, source/revision selection, runtime credential environment names,
   generated workspace inspection, self-validation, actual run commands,
   result interpretation, invalid-trial handling, and cleanup ownership.
   Explain that the native language/framework differences remain a confound.
   Do not include credential values or completed model instructions.
-- [ ] **Step 6:** Run the complete standalone unit suite, both native
+- [x] **Step 6:** Run the complete standalone unit suite, both native
   builds, integration self-validation, generated-spec lint, and portability
   checks from both repository contexts. Record exact commands and observed
   counts in the implementation handoff. If a real Fluid checkout, Docker, or
   provider setup is unavailable, name the unverified requirement and stop
   short of claiming readiness.
-- [ ] **Step 7:** Commit: `test(eval): prove benchmark rejects broken apps`.
-  Ask the operator for explicit model/budgets/trial count before a paid pilot.
+- [x] **Step 7:** Commit the runner and acceptance checkpoint together:
+  `feat(eval): run matched trials and reject broken apps`.
+  Require explicit model, reasoning effort, working-time limit, trial count,
+  and authorization before a paid pilot.
   A successful no-model fixture run is harness validation, not evidence of
   agent performance.
+
+### Final acceptance evidence
+
+Validation ran from the Watershed checkout with the real Fluid checkout and
+Podman, without paid model calls:
+
+- `pnpm --dir evals/shared-tree-app test`: 79/79 passed.
+- `pnpm --dir evals/shared-tree-app test:integration`: 54/57 passed on the
+  full serial run. Both SDKs passed the behavioral-mutant and infrastructure
+  injection groups. Failures were a Watershed host-service health timeout,
+  a Fluid dependency-lock preparation failure, and the dependent pair assertion.
+- `node --test --test-name-pattern='watershed private reference'
+  evals/shared-tree-app/test/integration/native.test.mjs`: 1/1 passed on the
+  final targeted rerun after adding bounded health-timeout/reset handling.
+- `node --test evals/shared-tree-app/test/integration/vally.test.mjs`: 3/3
+  passed on the final targeted rerun. Both native references passed all 35
+  required checks in separate task/grading roles, and their actual records
+  produced a matched comparison.
+
+The final review caught deletion of Vally recovery volumes after failed export.
+Cleanup now retains those volumes, records their IDs, and invalidates the trial.
+Focused regressions failed before the fix and pass in the standalone suite.
+The reviewer found no further issues in that fix.
 
 ## Plan self-review
 
@@ -865,5 +902,5 @@ syntax error cannot count as successful detection of stale identity.
 Review types when implementing: shared snapshot/action fields must match their
 Gleam equivalents and the selectors in `contract.json`. Hidden native probes
 must inspect actual SDK handles, never candidate-generated success diagnostics.
-All plan commands describe future implementation validation; none imply that
-the benchmark or its containers exist yet.
+The evidence above records harness validation. It does not measure agent
+performance or establish a pass-rate difference between SDKs.

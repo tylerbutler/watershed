@@ -40,7 +40,9 @@ async function reachable(url) {
     await response.body?.cancel();
     return response.status < 500;
   } catch (error) {
-    if (error.cause?.code === "ECONNREFUSED") return false;
+    if (error.name === "TimeoutError" || [
+      "ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT",
+    ].includes(error.cause?.code)) return false;
     throw error;
   }
 }
@@ -242,12 +244,12 @@ export async function startServices({
       });
       child.stdout.on("data", chunk => output.push(chunk.toString()));
       child.stderr.on("data", chunk => output.push(chunk.toString()));
-      await Promise.race([
-        wait("Fluid service ready", () => reachable(endpoint), Boolean, 30_000),
-        once(child, "exit").then(([code]) => {
-          throw new Error(`Fluid service exited (${code}): ${output.join("")}`);
-        }),
-      ]);
+      await wait("Fluid service ready", () => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          throw new Error(`Fluid service exited (${child.exitCode ?? child.signalCode}): ${output.join("")}`);
+        }
+        return reachable(endpoint);
+      }, Boolean, 30_000);
     } else {
       composeStarted = true;
       await compose(["up", "-d", "--build", "--wait"]);

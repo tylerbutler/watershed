@@ -1,17 +1,16 @@
-import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { parse } from "yaml";
 import { verifyIntegrity } from "./staging.mjs";
+import { execOwned } from "./process.mjs";
 
-const exec = promisify(execFile);
 const benchmark = fileURLToPath(new URL("../", import.meta.url));
 const json = value => JSON.stringify(value, null, 2) + "\n";
 
-export async function buildImages({ prepared, out, registry }) {
+export async function buildImages({ prepared, out, registry, signal }) {
+  const exec = (command, args, options) => execOwned(command, args, { ...options, signal });
   const sdk = prepared.sdkManifest.sdk;
   if (!["watershed", "fluid"].includes(sdk) || !out) throw new TypeError("Images require a prepared SDK and output directory");
   const manifest = JSON.parse(await readFile(join(prepared.gradingRoot, "integrity.json"), "utf8"));
@@ -67,6 +66,12 @@ export async function buildImages({ prepared, out, registry }) {
         "node", "--input-type=module", "-e", `
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { launchBrowser } from "./lib/cdp.mjs";
+const browser = await launchBrowser();
+try {
+  const page = await (await browser.context()).page();
+  if (await page.evaluate("document.readyState") !== "complete") throw new Error("Browser preflight failed");
+} finally { await browser.close(); }
 console.log(JSON.stringify({
   coreVersion: JSON.parse(readFileSync("node_modules/@microsoft/vally/package.json")).version,
   cliVersion: JSON.parse(readFileSync("node_modules/@microsoft/vally-cli/package.json")).version,

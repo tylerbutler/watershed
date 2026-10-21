@@ -1,0 +1,95 @@
+import { createHash } from "node:crypto";
+import { lstat, readFile, readdir } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { offlineSetupCommands } from "./lib/isolation.mjs";
+
+const task = await readFile(new URL("./task.md", import.meta.url), "utf8");
+const prompt = task + "\n\nDevelopment tools: run `pnpm check` and `pnpm build`. " +
+  "Serve the app with `node /opt/shared-tree/public/serve.mjs --sdk <sdk> --root /workspace`, " +
+  "using the sdk value from SDK.json. Run `node /opt/shared-tree/public/smoke.mjs <app-url>` " +
+  "against the URL printed by that server. The local service and dependencies are already available.\n";
+const sha256 = value => createHash("sha256").update(value).digest("hex");
+export const benchmarkIdentity = Object.freeze({
+  taskSha256: sha256(prompt),
+  contractSha256: sha256(await readFile(new URL("./contract.json", import.meta.url))),
+});
+
+export async function benchmarkProvenance({ sdk, root = fileURLToPath(new URL("./", import.meta.url)) }) {
+  if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown provenance SDK");
+  const hash = async paths => {
+    const files = [];
+    const collect = async path => {
+      const entry = await lstat(join(root, path));
+      if (entry.isSymbolicLink()) throw new Error(`Benchmark source contains a symlink: ${path}`);
+      if (entry.isDirectory()) {
+        const names = (await readdir(join(root, path))).filter(name =>
+          !["node_modules", "build", "dist", ".git", ".work"].includes(name));
+        await Promise.all(names.map(name => collect(`${path}/${name}`)));
+      } else if (entry.isFile()) files.push(path);
+      else throw new Error(`Unsupported benchmark source: ${path}`);
+    };
+    await Promise.all(paths.map(collect));
+    return sha256(JSON.stringify(await Promise.all(files.sort().map(async path =>
+      [path, sha256(await readFile(join(root, path)))]))));
+  };
+  return {
+    evalSha256: await hash(["generate.mjs", "run.mjs", "compare.mjs", "prepare.mjs",
+      "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "task.md",
+      "contract.json", "lib", "graders", "docker", "public"]),
+    starterSha256: await hash([sdk]),
+  };
+}
+
+export function agentDurationMs(limits) {
+  if (!limits || Object.keys(limits).some(key => key !== "agentDuration") ||
+      typeof limits.agentDuration !== "string") {
+    throw new TypeError("limits requires agentDuration only");
+  }
+  const match = limits.agentDuration.match(/^(\d+(?:\.\d+)?)(ms|s|m|h)$/);
+  const value = match && Number(match[1]) * { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]];
+  if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(value + 60_000)) {
+    throw new TypeError("agentDuration must be a finite positive duration with millisecond precision");
+  }
+  return value;
+}
+
+export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId }) {
+  const duration = agentDurationMs(limits);
+  if (!["watershed", "fluid"].includes(sdk) || prepared?.sdkManifest?.sdk !== sdk ||
+      typeof prepared.agentRoot !== "string" || !isAbsolute(prepared.agentRoot)) {
+    throw new TypeError("Spec requires a matching prepared SDK and absolute agent root");
+  }
+  if (typeof model !== "string" || !model.trim() || /[\u0000-\u001f\u007f]/.test(model) ||
+      !["low", "medium", "high", "xhigh"].includes(reasoningEffort) ||
+      typeof runId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(runId)) {
+    throw new TypeError("Spec requires operator model, reasoning effort, and lowercase run ID");
+  }
+  return {
+    name: `shared-tree-app-${sdk}`, version: "1.0", type: "capability",
+    tags: { api: "shared-tree", sdk, track: "core", ...benchmarkIdentity },
+    defaults: {
+      executor: { name: "copilot-sdk", config: { provider: {
+        type: "openai", baseUrl: "http://provider-gateway:8080/v1", wireApi: "completions",
+        transport: "http", apiKeyEnv: "SHARED_TREE_GATEWAY_CLIENT_KEY", modelId: model, wireModel: model,
+      } } },
+      model, reasoning_effort: reasoningEffort, runs: 1, timeout: `${duration + 60_000}ms`,
+    },
+    agent_environment: {
+      files: [{ src: prepared.agentRoot, dest: "." }],
+      commands: offlineSetupCommands(sdk),
+      env: { SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder" },
+    },
+    stimuli: [{
+      name: "incident-response-board", prompt,
+      constraints: { max_agent_duration: limits.agentDuration },
+      graders: [{ type: "run-command", name: "native-board", config: {
+        command: "node", args: ["/opt/shared-tree/grading/graders/main.mjs",
+          "--sdk", sdk, "--workspace", "/workspace", "--run-id", runId,
+          "--output", "/eval-results/report.json"],
+        expected_exit_code: 0, stdout_contains: "SHARED_TREE_EVAL_ALL_REQUIRED_PASSED", timeout: "10m",
+      } }],
+    }],
+    scoring: { threshold: 1 },
+  };
+}

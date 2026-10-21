@@ -1,6 +1,7 @@
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { stringify } from "yaml";
+import { execOwned } from "./process.mjs";
 
 export function offlineSetupCommands(sdk) {
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown setup SDK");
@@ -11,7 +12,7 @@ export function offlineSetupCommands(sdk) {
   return [`node --input-type=module -e ${JSON.stringify(script)}`];
 }
 
-export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutput, out }) {
+export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutput, out, runId }) {
   if (!["watershed", "fluid"].includes(sdk) || images?.sdk !== sdk || !gradingOutput || !out) {
     throw new TypeError("Compose requires matching SDK images, fresh grading output, and an output file");
   }
@@ -20,6 +21,8 @@ export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutpu
       throw new TypeError("Compose images must be immutable sha256 image IDs");
     }
   }
+  if (runId !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(runId)) throw new TypeError("Invalid Compose run ID");
+  const ownership = runId === undefined ? {} : { labels: { "com.watershed.shared-tree-eval.run": runId } };
   await mkdir(resolve(gradingOutput), { mode: 0o700 });
   const outputRoot = await realpath(gradingOutput);
   // Vally's non-root grade UID must write across the engine's host UID mapping.
@@ -48,7 +51,7 @@ export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutpu
     healthcheck: nodeHealth("http://127.0.0.1:3000"),
   };
   const roles = Object.fromEntries(["task", "grade"].map(role => [role, {
-    image: images[role].id, profiles: [`vally-${role}`],
+    image: images[role].id, profiles: [`vally-${role}`], ...ownership,
     networks: ["default"],
     environment: { SHARED_TREE_SERVICE_URL: "http://sdk-service:3000" },
     depends_on: { "sdk-service": { condition: "service_healthy" },
@@ -61,11 +64,11 @@ export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutpu
     services: {
       ...roles,
       "sdk-service": {
-        ...hardened, image: serviceImage, profiles: ["vally-task", "vally-grade"],
+        ...hardened, ...ownership, image: serviceImage, profiles: ["vally-task", "vally-grade"],
         networks: ["default"], ...service,
       },
       "provider-gateway": {
-        ...hardened, image: images.task.id, profiles: ["vally-task"],
+        ...hardened, ...ownership, image: images.task.id, profiles: ["vally-task"],
         networks: ["default", "provider-outbound"],
         command: ["node", "/opt/shared-tree/docker/gateway.mjs"],
         environment: {
@@ -76,8 +79,42 @@ export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutpu
         healthcheck: nodeHealth("http://127.0.0.1:8080/health"),
       },
     },
-    networks: { default: { internal: true }, "provider-outbound": {} },
+    networks: { default: { internal: true, ...ownership }, "provider-outbound": { ...ownership } },
   };
   await writeFile(resolve(out), stringify(compose), { flag: "wx", mode: 0o600 });
   return { composeFile: resolve(out), gradingOutput: outputRoot };
+}
+
+export async function cleanupVallyRun({ runId, env = process.env }) {
+  if (typeof runId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(runId)) throw new TypeError("Invalid cleanup run ID");
+  const run = async args => (await execOwned("docker", args, {
+    env, timeout: 30_000, maxBuffer: 1024 * 1024,
+  })).stdout;
+  const removed = [];
+  const preserved = [];
+  for (const kind of ["container", "network", "volume"]) {
+    const labels = kind === "volume" ? ["com.microsoft.vally.run"]
+      : ["com.watershed.shared-tree-eval.run", "com.microsoft.vally.run"];
+    const resources = new Set();
+    for (const label of labels) {
+      const listed = await run([kind, "ls", ...(kind === "container" ? ["--all"] : []),
+        "--quiet", "--filter", `label=${label}=${runId}`]);
+      for (const id of listed.trim().split(/\s+/).filter(Boolean)) resources.add(id);
+    }
+    for (const id of resources) {
+      const [resource] = JSON.parse(await run([kind, "inspect", id]));
+      const inspected = kind === "container" ? resource?.Config?.Labels : resource?.Labels;
+      if (!labels.some(label => inspected?.[label] === runId)) {
+        throw new Error(`Refusing ${kind} cleanup: inspected ownership label does not match ${runId}`);
+      }
+      // Vally may retain the only copy of agent work after an export failure.
+      if (kind === "volume") {
+        preserved.push({ kind, id });
+        continue;
+      }
+      await run([kind, "rm", ...(kind === "container" ? ["--force"] : []), id]);
+      removed.push({ kind, id });
+    }
+  }
+  return { removed, preserved };
 }

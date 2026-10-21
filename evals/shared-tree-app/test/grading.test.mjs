@@ -67,3 +67,31 @@ test("a damaged trusted baseline is invalid infrastructure, not an agent failure
   assert.equal(verdict(report, contract), "invalid");
   assert.match(report.checks[0].evidence, /trusted baseline integrity failed/i);
 });
+
+test("cancelled grading publishes an infrastructure report rather than starting candidate work", async t => {
+  const { workspace, gradingRoot, output } = await fixture(t);
+  const controller = new AbortController();
+  controller.abort(new Error("Injected grading interruption"));
+  const report = await grade({
+    sdk: "fluid", workspace, gradingRoot, runId: "interrupted-grade", output, signal: controller.signal,
+  });
+  assert.equal(verdict(report, contract), "invalid");
+  assert.ok(report.checks.every(check => !check.passed));
+  assert.match(report.checks[0].evidence, /injected grading interruption/i);
+});
+
+test("an unwritable output path cannot publish a passing marker or overwrite evidence", async t => {
+  const { root, workspace, gradingRoot } = await fixture(t);
+  const blocked = join(root, "not-a-directory");
+  await writeFile(blocked, "retained evidence");
+  await assert.rejects(exec(process.execPath, [
+    fileURLToPath(new URL("../graders/main.mjs", import.meta.url)), "--sdk", "fluid",
+    "--workspace", workspace, "--grading-root", gradingRoot, "--run-id", "output-failure",
+    "--output", join(blocked, "report.json"),
+  ]), error => {
+    assert.equal(error.code, 2);
+    assert.equal(error.stdout.includes("SHARED_TREE_EVAL_ALL_REQUIRED_PASSED"), false);
+    return true;
+  });
+  assert.equal(await readFile(blocked, "utf8"), "retained evidence");
+});

@@ -18,10 +18,16 @@ test("Compose keeps credentials and outbound networking in the gateway, and outp
     const out = join(root, "compose.yaml");
     await writeRoleCompose({
       sdk: "watershed", images, serviceImage: `sha256:${"3".repeat(64)}`,
-      gradingOutput: join(root, "reports"), out,
+      gradingOutput: join(root, "reports"), out, runId: "owned-trial",
     });
     const { services, networks } = parse(await readFile(out, "utf8"));
     assert.equal(networks.default.internal, true);
+    for (const service of Object.values(services)) {
+      assert.equal(service.labels["com.watershed.shared-tree-eval.run"], "owned-trial");
+    }
+    for (const network of Object.values(networks)) {
+      assert.equal(network.labels["com.watershed.shared-tree-eval.run"], "owned-trial");
+    }
     for (const role of ["task", "grade"]) {
       assert.deepEqual(services[role].networks, ["default"]);
       assert.equal(services[role].environment.SHARED_TREE_PROVIDER_API_KEY, undefined);

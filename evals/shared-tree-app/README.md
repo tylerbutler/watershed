@@ -23,9 +23,11 @@ counted as document-creation attempts.
 Protected-file hashing, candidate-only overlays, native SDK materialization,
 portable workspace preparation, and the trusted grading CLI are implemented.
 Both SDKs now pass a no-model Vally task-to-grading run through isolated Podman
-containers. The matched comparison runner, operator budget inputs, and remaining
-fault-injection acceptance checks are still pending. Do not use this checkpoint
-for a paid agent comparison.
+containers. The matched runner accepts explicit operator settings and records
+time-limited trials without a token cap. Fault-injection acceptance covers eight
+broken-app variants per SDK, unfinished starters, sequential delivery, missing
+Chromium, and interrupted services. Operators can now run authorized comparisons
+with the command below. No paid agent trials have been run.
 
 The design and implementation sequence are in:
 
@@ -106,6 +108,14 @@ Validation caches only compiler-generated local dependency fingerprints, keyed
 by the Gleam version and exact dependency manifests. This avoids re-resolving
 unchanged locked Hex dependencies for each fresh workspace. It does not cache
 candidate code or native build outputs.
+
+`test/integration/validation.test.mjs` checks native compilation before accepting
+a behavioral mutant's intended failure: local-only state, a serialized root, subtree
+replacement, stale indexes, ignored remote changes, reset-on-open, leaked
+subscriptions. It also rejects protected-shell edits and checks missing-browser and
+interrupted-service classification. Private named mutation hooks reject missing
+or ambiguous replacements; they do not depend on incidental source formatting.
+Keep `validation/` outside task and grading images.
 
 `graders/scenarios.mjs` runs the shared browser checks. Normal actions use DOM
 controls; malformed, stale, and self-targeted actions use the shell's public
@@ -224,6 +234,92 @@ downloads, credential absence in task environment and saved artifacts, teardown
 ordering, and persisted passing reports with all 35 required checks. Production
 image baselines retain the unfinished models. These are harness checks, not
 measurements of agent performance.
+
+## Matched runner
+
+`generate.mjs` emits matched Vally specs. The shared prompt, selected model,
+reasoning effort, and working-time limit are identical. Each spec requests one
+trial; `run.mjs` alternates SDK order across repetitions, with one worker and
+zero retries. It prepares both SDKs and images before starting the first agent.
+Image preparation launches Chromium and evaluates a page, rather than checking
+only its version. Compose waits for the native service and gateway before task
+setup.
+
+The working-time limit applies to agent execution. The executor gets a separate
+60-second cleanup grace, and grading gets ten minutes. **There is no token
+budget.** Reported tokens and tool calls are observations, not constraints.
+Provider cost stays `null` because Vally does not supply the complete comparable
+provider cost identity needed for this comparison.
+
+The command below starts an operator-authorized run.
+Supply the provider URL and API key through `SHARED_TREE_PROVIDER_URL` and
+`SHARED_TREE_PROVIDER_API_KEY` in the controller environment; never put the key
+in command-line arguments or a spec. The runner sets the gateway's selected
+model from `--model`. Choose explicit values for every uppercase placeholder:
+
+```sh
+node evals/shared-tree-app/run.mjs \
+  --watershed-source /absolute/watershed \
+  --watershed-revision FULL_WATERSHED_COMMIT_SHA \
+  --fluid-source /absolute/FluidFramework \
+  --fluid-revision FULL_FLUID_COMMIT_SHA \
+  --model OPERATOR_MODEL --reasoning-effort OPERATOR_EFFORT \
+  --runs OPERATOR_TRIAL_COUNT --max-agent-duration OPERATOR_DURATION \
+  --out /absolute/fresh-results --authorize-paid
+```
+
+Reasoning effort is `low`, `medium`, `high`, or `xhigh`. Duration accepts positive
+`ms`, `s`, `m`, or `h` values, such as `10m`. No model, trial count, or working
+limit is assumed. `--authorize-paid` is required even when a provider happens
+to be free. `--registry` optionally selects a credential-free HTTPS npm
+registry for image preparation.
+
+Use a fresh output directory with an existing parent. The runner preserves
+prepared SDK inputs, integrity and documentation manifests, image digests,
+build logs, each exact `eval.yaml`, Vally's raw results/trajectory/diff artifacts,
+the untouched native report/build log, and a separate canonical `trial.json`.
+`pair.json` is updated after each completed trial; `comparison.json` aggregates
+the recorded trials. `plannedTrials` and `completed` distinguish an interrupted
+batch from a completed one. The manifest includes content hashes for the eval's
+controller/grading inputs and the selected starter, as well as SDK revisions.
+Vally owns task and grade container teardown. The output
+directory and built images remain for operator inspection; no broad container
+or image pruning is performed.
+
+The controller cross-checks complete native reports against Vally's effective
+model, grader marker, exit code, and task/grade teardown traces. Inconsistent
+or absent evidence becomes an infrastructure-invalid canonical trial without
+overwriting the raw native report. Candidate failures remain agent failures.
+Invalid trials stay visible outside agent pass-rate denominators; they are not
+automatically replaced. Missing metrics remain `null`. Agent working time is
+separate from SDK/image preparation and the grading environment's lifetime.
+When Vally has no token-usage observations, its empty counters become `null`
+with an explanation rather than a claim of zero consumption.
+
+SIGINT and SIGTERM cancel owned child-process groups. The controller gives
+Vally sixty seconds for backend shutdown, then removes any remaining containers
+and networks whose inspected ownership label matches that trial's run ID.
+Owned volumes left behind by Vally are retained: they may contain the only copy
+of work that failed to export. Their IDs are recorded in `trial.json` under
+`cleanup.preserved` for manual recovery, never automatically deleted.
+Recovery cleanup, retained volumes, or an interruption make the trial
+infrastructure-invalid.
+On interruption, the controller retains its evidence and stops scheduling trials. A hard
+SIGKILL cannot run cleanup; the saved run ID and ownership labels identify
+resources for operator recovery.
+
+Recompute a comparison from one or more completed pair files:
+
+```sh
+node evals/shared-tree-app/compare.mjs /absolute/results/pair.json
+```
+
+Comparison rejects mismatched task/contract hashes, model, reasoning effort,
+provider URL, executor, working limit, or observed image runtime, and mixed
+eval sources or starter/SDK revisions within either SDK.
+The SDKs themselves should have different source revisions. A small batch does
+not establish statistical significance, and the native language/framework
+difference remains a confound.
 
 Do not mount the host checkout, host home, or container-engine socket into an
 evaluated agent's workspace. Keep hidden graders and validation solutions

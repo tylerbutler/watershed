@@ -4,6 +4,9 @@ import incident_eval/domain as d
 import watershed/tree/schema_builder as b
 import watershed/tree/types
 
+// mutation:start imports
+// mutation:end imports
+
 fn factory() -> b.Factory {
   b.factory("incident_eval")
 }
@@ -83,5 +86,7 @@ fn incident() -> b.Node(d.Incident) {
 }
 
 pub fn configuration() -> b.Root(d.Board) {
+  // mutation:start board-schema
   b.object1(factory(), "Board", d.Board, incidents()) |> b.root
+  // mutation:end board-schema
 }

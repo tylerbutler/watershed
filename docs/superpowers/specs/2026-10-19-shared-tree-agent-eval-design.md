@@ -253,8 +253,9 @@ allowing strong CRUD results to mask failed collaboration. For comparative
 runs, show the number of valid and invalid trials per SDK alongside results.
 
 Use identical explicit model settings and resource limits for each matched
-run. The operator supplies trial count and agent budgets to the runner; record
+run. The operator supplies trial count and an agent working-time limit; record
 their resolved values and reject a comparison with mismatched settings.
+Do not impose a token budget. Record provider-reported token usage as a metric.
 Alternate SDK execution order across repeated trials. Do not infer
 comparative performance from a single successful demonstration.
 

@@ -12,6 +12,8 @@ export class IncidentNode extends schema.object("Incident", {
   steps: schema.array("Steps", StepNode),
 }) {}
 export class BoardNode extends schema.object("Board", {
+  // mutation:start board-schema
   incidents: schema.array("Incidents", IncidentNode),
+  // mutation:end board-schema
 }) {}
 export const configuration = new TreeViewConfiguration({ schema: BoardNode });

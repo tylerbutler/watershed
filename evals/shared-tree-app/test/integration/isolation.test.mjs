@@ -110,7 +110,6 @@ try {
     executorConfig: { provider: {
       type: "openai", baseUrl: gateway.origin + "/v1", wireApi: "completions", transport: "http",
       apiKeyEnv: "SHARED_TREE_FIXTURE_CLIENT_KEY", modelId: "fixture-model", wireModel: "fixture-model",
-      maxPromptTokens: 131072, maxOutputTokens: 256,
     } },
   });
   assert.match(trajectory.output, /gateway-ready/);

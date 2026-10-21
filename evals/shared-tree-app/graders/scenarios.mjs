@@ -21,7 +21,7 @@ async function ready(page, url) {
   })()`), state => state?.phase === "ready");
 }
 
-export async function runScenarios({ sdk, services, browser, record }) {
+export async function runScenarios({ sdk, services, browser, record, signal }) {
   const pages = [];
   const open = async url => {
     const page = await (await browser.context()).page();
@@ -35,6 +35,7 @@ export async function runScenarios({ sdk, services, browser, record }) {
     pages.splice(pages.indexOf(page), 1);
   };
   const check = async (ids, run) => {
+    signal?.throwIfAborted();
     const started = performance.now();
     try {
       const evidence = await run();

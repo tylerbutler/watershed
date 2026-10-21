@@ -1,17 +1,16 @@
-import { execFile } from "node:child_process";
 import { cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs, promisify } from "node:util";
+import { parseArgs } from "node:util";
 import { parse, stringify } from "yaml";
 import { materializeSdk } from "./lib/sdk-build.mjs";
 import { createIntegrityManifest } from "./lib/staging.mjs";
+import { execOwned } from "./lib/process.mjs";
 
-const exec = promisify(execFile);
 const benchmark = fileURLToPath(new URL("./", import.meta.url));
 const json = value => JSON.stringify(value, null, 2) + "\n";
 
-export async function prepare({ sdk, source, revision, out }) {
+export async function prepare({ sdk, source, revision, out, signal }) {
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown preparation SDK");
   if (!source || !out || typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
     throw new TypeError("Preparation requires source, full commit revision, and output directory");
@@ -31,7 +30,7 @@ export async function prepare({ sdk, source, revision, out }) {
     await cp(join(benchmark, "task.md"), join(agentRoot, "task.md"));
     await mkdir(join(agentRoot, "sdk"));
     const sdkPath = `sdk/${sdk}`;
-    const selected = await materializeSdk({ sdk, source, revision, out: join(agentRoot, sdkPath) });
+    const selected = await materializeSdk({ sdk, source, revision, out: join(agentRoot, sdkPath), signal });
     if (sdk === "watershed") {
       for (const name of ["gleam.toml", "manifest.toml"]) {
         const template = await readFile(join(starter, `${name}.in`), "utf8");
@@ -57,10 +56,11 @@ export async function prepare({ sdk, source, revision, out }) {
       await writeFile(join(agentRoot, "package.json"), json(manifest));
       await writeFile(join(agentRoot, "pnpm-workspace.yaml"), stringify(config));
       try {
-        await exec("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile"],
-          { cwd: agentRoot, timeout: 300_000, maxBuffer: 4 * 1024 * 1024 });
+        await execOwned("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile"],
+          { cwd: agentRoot, timeout: 300_000, maxBuffer: 4 * 1024 * 1024, signal });
       } catch (error) {
-        throw new Error(`Could not lock staged Fluid dependencies:\n${error.stdout ?? ""}\n${error.stderr ?? error.message}`);
+        throw new Error(`Could not lock staged Fluid dependencies: ${error.message}\n${error.stdout ?? ""}`,
+          { cause: error });
       }
       const lock = parse(await readFile(join(agentRoot, "pnpm-lock.yaml"), "utf8"));
       for (const pkg of selected.packages) {

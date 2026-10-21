@@ -35,9 +35,19 @@ export async function launchBrowser({ executable } = {}) {
   const child = spawn(browserPath, [
     "--headless=new", "--no-first-run", "--no-default-browser-check",
     "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32" });
   let socket;
   let closed = false;
+  const forceStop = async () => {
+    if (child.pid === undefined) return;
+    const running = child.exitCode === null && child.signalCode === null;
+    const exited = running ? once(child, "exit") : undefined;
+    try {
+      if (process.platform === "win32") child.kill("SIGKILL");
+      else process.kill(-child.pid, "SIGKILL");
+    } catch (error) { if (error.code !== "ESRCH") throw error; }
+    if (exited) await bounded("Chromium forced shutdown", () => exited);
+  };
   try {
     const endpoint = await bounded("Chromium startup", () => new Promise((resolve, reject) => {
       let output = "";
@@ -195,23 +205,23 @@ export async function launchBrowser({ executable } = {}) {
       async close() {
         if (closed) return;
         closed = true;
-        socket.close();
-        if (child.exitCode === null && child.signalCode === null) {
-          const exited = once(child, "exit");
-          child.kill("SIGKILL");
-          await bounded("Chromium shutdown", () => exited);
+        try {
+          if (child.exitCode === null && child.signalCode === null) {
+            const exited = once(child, "exit");
+            await send("Browser.close");
+            await bounded("Chromium shutdown", () => exited);
+          }
+        } finally {
+          socket.close();
+          await forceStop();
+          await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
         }
-        await rm(profile, { recursive: true, force: true });
       },
     };
   } catch (error) {
     socket?.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, "exit");
-      child.kill("SIGKILL");
-      await bounded("Failed Chromium shutdown", () => exited);
-    }
-    await rm(profile, { recursive: true, force: true });
+    await forceStop();
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     throw error;
   }
 }

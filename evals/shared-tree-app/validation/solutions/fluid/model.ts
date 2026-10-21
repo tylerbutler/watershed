@@ -4,7 +4,9 @@ import {
   ConnectionState, SharedTree, Tree, type IFluidContainer, type TreeView,
 } from "fluid-framework";
 import type { Action, Board, Config, Session, State, Status } from "./domain.ts";
-import { BoardNode, configuration, type IncidentNode } from "./schema.ts";
+import { BoardNode, configuration, IncidentNode } from "./schema.ts";
+// mutation:start imports
+// mutation:end imports
 
 const containerSchema = { initialObjects: { board: SharedTree } };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -34,8 +36,13 @@ class BoardSession implements Session {
   private board: Board = { incidents: [] };
   private readonly listeners = new Set<() => void>();
   private readonly cleanup: (() => void)[] = [];
+  // mutation:start root
+  private get root() { return this.view.root; }
+  // mutation:end root
 
+  // mutation:start constructor
   constructor(container: IFluidContainer, view: TreeView<typeof BoardNode>, readonly documentId: string) {
+  // mutation:end constructor
     this.container = container;
     this.view = view;
     const changed = () => { if (!this.closed) this.emit(); };
@@ -49,8 +56,10 @@ class BoardSession implements Session {
       this.errors.push(error ? message(error) : "Service container was disposed");
       this.emit();
     };
+    // mutation:start observation
     this.cleanup.push(Tree.on(view.root, "treeChanged", changed));
     this.cleanup.push(view.events.on("rootChanged", changed));
+    // mutation:end observation
     container.on("connected", changed);
     container.on("disconnected", disconnected);
     container.on("disposed", disposed);
@@ -73,13 +82,15 @@ class BoardSession implements Session {
     if (!this.closed && !this.container.disposed) {
       try {
         if (!this.view.compatibility.canView) throw new Error("Incompatible board schema");
+        // mutation:start read
+        // mutation:end read
         const ids = new Set<string>();
         const id = (value: string) => {
           if (!value || ids.has(value)) throw new Error("ID must be nonempty and unique");
           ids.add(value);
           return value;
         };
-        this.board = { incidents: [...this.view.root.incidents].map(incident => {
+        this.board = { incidents: [...this.root.incidents].map(incident => {
           const status = incident.status;
           if (status !== "open" && status !== "investigating" && status !== "resolved") {
             throw new Error("Invalid status");
@@ -108,7 +119,7 @@ class BoardSession implements Session {
 
   private unique(id: string) {
     if (typeof id !== "string" || !id) throw new Error("ID must be nonempty and unique");
-    for (const incident of this.view.root.incidents) {
+    for (const incident of this.root.incidents) {
       if (incident.id === id || [...incident.steps].some(step => step.id === id)) {
         throw new Error("ID must be nonempty and unique");
       }
@@ -116,23 +127,31 @@ class BoardSession implements Session {
   }
 
   private incident(id: string): IncidentNode | undefined {
-    return [...this.view.root.incidents].find(node => node.id === id);
+    // mutation:start lookup
+    return [...this.root.incidents].find(node => node.id === id);
+    // mutation:end lookup
   }
 
+  // mutation:start apply
   apply(action: Action) {
+  // mutation:end apply
     if (this.closed) return;
     if (this.read().phase !== "ready") throw new Error("Edits require a ready document");
     if (action.type === "add-incident") {
       this.unique(action.id);
-      this.view.root.incidents.insertAtEnd({
+      this.root.incidents.insertAtEnd({
         id: action.id, title: action.title, status: "open", steps: [],
       });
       return;
     }
+    // mutation:start target
     const incident = this.incident("incident" in action ? action.incident : action.id);
+    // mutation:end target
     if (!incident) return;
     switch (action.type) {
+      // mutation:start title
       case "title": incident.title = action.value; break;
+      // mutation:end title
       case "status":
         if (!(["open", "investigating", "resolved"] satisfies Status[]).includes(action.value)) {
           throw new Error("Invalid status");
@@ -141,9 +160,9 @@ class BoardSession implements Session {
         break;
       case "assignee": incident.assignee = action.value === null ? undefined : action.value; break;
       case "remove-incident":
-        this.view.root.incidents.removeAt([...this.view.root.incidents].indexOf(incident));
+        this.root.incidents.removeAt([...this.root.incidents].indexOf(incident));
         break;
-      case "move-incident": move(this.view.root.incidents, incident.id, action.before); break;
+      case "move-incident": move(this.root.incidents, incident.id, action.before); break;
       case "add-step":
         this.unique(action.id);
         incident.steps.insertAtEnd({ id: action.id, label: action.label, done: false });
@@ -165,12 +184,14 @@ class BoardSession implements Session {
     if (this.closed) return;
     this.read();
     this.closed = true;
+    // mutation:start cleanup
     for (const stop of this.cleanup.splice(0)) {
       try { stop(); } catch (error) { this.errors.push(`Unsubscribe failed: ${message(error)}`); }
     }
     try { this.view.dispose(); } catch (error) { this.errors.push(`View close failed: ${message(error)}`); }
     try { if (!this.container.disposed) this.container.dispose(); }
     catch (error) { this.errors.push(`Container close failed: ${message(error)}`); }
+    // mutation:end cleanup
     this.emit();
     this.listeners.clear();
   }
@@ -190,9 +211,13 @@ export async function start(config: Config): Promise<Session> {
   try {
     view = container.initialObjects.board.viewWith(configuration);
     if (creating) view.initialize(new BoardNode({ incidents: [] }));
+    // mutation:start open
+    // mutation:end open
     const id = creating ? await container.attach() : documentId;
     if (!view.compatibility.canView) throw new Error("Incompatible board schema");
+    // mutation:start session
     return new BoardSession(container, view, id);
+    // mutation:end session
   } catch (error) {
     try { view?.dispose(); } finally { if (!container.disposed) container.dispose(); }
     throw error;

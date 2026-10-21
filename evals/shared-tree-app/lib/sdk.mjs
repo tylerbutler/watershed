@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
-import { promisify } from "node:util";
 import { watershedPaths } from "./source.mjs";
+import { execOwned } from "./process.mjs";
 
-const exec = promisify(execFile);
 const fluidRoots = [
   "fluid-framework", "@fluidframework/azure-client",
   "@fluidframework/test-runtime-utils", "@fluidframework/azure-local-service",
@@ -18,13 +16,13 @@ const dependencies = manifest => ({
   ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies,
 });
 
-export async function resolveSdk({ sdk, source, revision }) {
+export async function resolveSdk({ sdk, source, revision, signal }) {
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown SDK");
   if (typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
     throw new TypeError("SDK revision must be a full commit SHA");
   }
   const root = await realpath(source);
-  const git = async args => (await exec("git", args, { cwd: root, maxBuffer: 16 * 1024 * 1024 })).stdout;
+  const git = async args => (await execOwned("git", args, { cwd: root, maxBuffer: 16 * 1024 * 1024, signal })).stdout;
   if (await realpath((await git(["rev-parse", "--show-toplevel"])).trim()) !== root) {
     throw new Error("SDK source must be its repository root");
   }

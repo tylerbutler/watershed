@@ -1,17 +1,16 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cp, copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs, promisify } from "node:util";
+import { parseArgs } from "node:util";
 import { assertSeparateRoots, overlayCandidate, verifyIntegrity } from "../lib/staging.mjs";
 import { validateReport, verdict } from "../lib/report.mjs";
 import { launchBrowser } from "../lib/cdp.mjs";
 import { startServices } from "../lib/services.mjs";
 import { runScenarios } from "./scenarios.mjs";
+import { execOwned } from "../lib/process.mjs";
 
-const exec = promisify(execFile);
 const moduleRoot = fileURLToPath(new URL("../", import.meta.url));
 const contract = JSON.parse(await readFile(new URL("../contract.json", import.meta.url), "utf8"));
 
@@ -28,7 +27,7 @@ outfile: "dist/app.js", define: { "process.env.NODE_ENV": '"production"' } });
 `]);
 }
 
-export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, output }) {
+export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, output, signal }) {
   if (!["watershed", "fluid"].includes(sdk) || typeof runId !== "string" ||
       !/^[a-z0-9][a-z0-9-]*$/.test(runId) || !workspace || !output) {
     throw new TypeError("Grading requires SDK, workspace, lowercase run ID, and report output");
@@ -60,8 +59,8 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
   };
   const run = async (command, args) => {
     try {
-      const result = await exec(command, args, {
-        cwd: root, timeout: 180_000, maxBuffer: 4 * 1024 * 1024,
+      const result = await execOwned(command, args, {
+        cwd: root, timeout: 180_000, maxBuffer: 4 * 1024 * 1024, signal,
       });
       logs.push(`${phase}: ${command} ${args.join(" ")}\n${result.stdout}${result.stderr}`);
     } catch (error) {
@@ -71,6 +70,7 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
     }
   };
   try {
+    signal?.throwIfAborted();
     await assertSeparateRoots({ workspace, trusted: gradingRoot });
     const manifest = JSON.parse(await readFile(join(gradingRoot, "integrity.json"), "utf8"));
     const selected = JSON.parse(await readFile(join(gradingRoot, "sdk.json"), "utf8"));
@@ -96,6 +96,7 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
     services = await startServices({ sdk, root, runId });
     if (!await services.health()) throw new Error("Independent native service health preflight failed");
     browser = await launchBrowser();
+    signal?.throwIfAborted();
 
     phase = "candidate-build";
     buildStarted = performance.now();
@@ -106,10 +107,10 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
     record({ id: "integrity.build", passed: true, durationMs: performance.now() - buildStarted,
       evidence: "Candidate sources passed native checking and a fresh trusted app/probe build" });
     phase = "scenarios";
-    await runScenarios({ sdk, services, browser, record });
+    await runScenarios({ sdk, services, browser, record, signal });
   } catch (error) {
     stopped = `${phase} failed: ${error.stack ?? error.message}`;
-    if (phase === "preflight") classification = "infrastructure";
+    if (phase === "preflight" || signal?.aborted) classification = "infrastructure";
     if (phase === "candidate-build" && !checks.has("integrity.build")) {
       record({ id: "integrity.build", passed: false,
         durationMs: performance.now() - buildStarted, evidence: stopped });
@@ -137,6 +138,10 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
       }
     }
   }
+  if (signal?.aborted) {
+    classification = "infrastructure";
+    stopped += `\nGrading interrupted: ${signal.reason?.message ?? "Cancellation requested"}`;
+  }
   const report = {
     version: 1, runId, sdk, classification,
     checks: contract.checks.map(({ id }) => checks.get(id) ?? {
@@ -159,12 +164,17 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
 
 if (process.argv[1] && process.argv[1] !== "-" &&
     await realpath(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const controller = new AbortController();
+  const interrupt = () => controller.abort(new Error("Grading interrupted"));
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", interrupt);
   try {
     const { values } = parseArgs({ options: Object.fromEntries(
       ["sdk", "workspace", "grading-root", "run-id", "output"].map(name => [name, { type: "string" }])) });
     const report = await grade({
       sdk: values.sdk, workspace: values.workspace ?? process.cwd(),
       gradingRoot: values["grading-root"] ?? moduleRoot, runId: values["run-id"], output: values.output,
+      signal: controller.signal,
     });
     const outcome = verdict(report, contract);
     if (outcome === "passed") console.log("SHARED_TREE_EVAL_ALL_REQUIRED_PASSED");
@@ -175,5 +185,8 @@ if (process.argv[1] && process.argv[1] !== "-" &&
   } catch (error) {
     console.error(error.stack ?? String(error));
     process.exitCode = 2;
+  } finally {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", interrupt);
   }
 }

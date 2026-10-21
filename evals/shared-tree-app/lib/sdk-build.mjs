@@ -1,30 +1,28 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 import { resolveSdk } from "./sdk.mjs";
+import { execOwned as exec } from "./process.mjs";
 
-const exec = promisify(execFile);
 const excluded = /(^|\/)(\.git|test|tests|examples|fixtures|validation|graders|benchmarks)(\/|$)/;
 
-async function archive({ source, revision, out, archivePath, files = [] }) {
+async function archive({ source, revision, out, archivePath, files = [], signal }) {
   await exec("git", ["archive", "--format=tar", "--output", archivePath, revision, "--", ...files],
-    { cwd: source, maxBuffer: 4 * 1024 * 1024 });
-  await exec("tar", ["-xf", archivePath, "-C", out], { maxBuffer: 4 * 1024 * 1024 });
+    { cwd: source, maxBuffer: 4 * 1024 * 1024, signal });
+  await exec("tar", ["-xf", archivePath, "-C", out], { maxBuffer: 4 * 1024 * 1024, signal });
   await rm(archivePath);
 }
 
-async function fluidBuild(selected, out, scratch) {
+async function fluidBuild(selected, out, scratch, signal) {
   const source = join(scratch, "source");
   await mkdir(source);
-  await archive({ ...selected, source: selected.source, out: source, archivePath: join(scratch, "full.tar") });
+  await archive({ ...selected, source: selected.source, out: source, archivePath: join(scratch, "full.tar"), signal });
   const logs = [];
   const run = async (command, args, cwd = source) => {
     try {
       const result = await exec(command, args, {
-        cwd, timeout: 600_000, maxBuffer: 16 * 1024 * 1024,
+        cwd, timeout: 600_000, maxBuffer: 16 * 1024 * 1024, signal,
         env: { ...process.env, npm_config_ignore_scripts: "true" },
       });
       logs.push(result.stdout, result.stderr);
@@ -101,8 +99,8 @@ async function fluidBuild(selected, out, scratch) {
   };
 }
 
-export async function materializeSdk({ sdk, source, revision, out }) {
-  const selected = await resolveSdk({ sdk, source, revision });
+export async function materializeSdk({ sdk, source, revision, out, signal }) {
+  const selected = await resolveSdk({ sdk, source, revision, signal });
   const destination = resolve(out);
   await mkdir(destination, { recursive: false });
   let scratch;
@@ -112,9 +110,9 @@ export async function materializeSdk({ sdk, source, revision, out }) {
     if (sdk === "fluid") await mkdir(sources);
     await archive({
       ...selected, out: sources, archivePath: join(scratch, "allowed.tar"),
-      files: [...selected.sourceFiles, ...selected.docs],
+      files: [...selected.sourceFiles, ...selected.docs], signal,
     });
-    const built = sdk === "fluid" ? await fluidBuild(selected, destination, scratch)
+    const built = sdk === "fluid" ? await fluidBuild(selected, destination, scratch, signal)
       : { packages: selected.packages, build: { mode: "source", revision } };
     return { ...selected, root: destination, ...built };
   } catch (error) {

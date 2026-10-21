@@ -11,6 +11,9 @@ import watershed/tree/types
 import watershed_lustre as w
 import watershed_lustre/tree as effects
 
+// mutation:start imports
+// mutation:end imports
+
 pub opaque type Model {
   Model(
     config: d.Config,
@@ -18,6 +21,8 @@ pub opaque type Model {
     document: Option(watershed.Document(Nil)),
     tree: Option(t.Tree(d.Board)),
     subscription: Option(t.Subscription),
+    // mutation:start fields
+    // mutation:end fields
   )
 }
 
@@ -34,8 +39,10 @@ pub opaque type Msg {
 }
 
 pub fn init(config: d.Config) -> #(Model, Effect(Msg)) {
+  // mutation:start init
   let model =
     Model(config, d.State(d.Opening, None, d.Board([]), []), None, None, None)
+  // mutation:end init
   #(model, case config.document_id {
     None ->
       effects.create_dev(
@@ -73,6 +80,7 @@ fn issue(model: Model, detail: String) -> #(Model, Effect(Msg)) {
 }
 
 fn release(model: Model) -> Effect(Msg) {
+  // mutation:start cleanup
   effects.perform(
     fn() {
       case model.subscription {
@@ -91,6 +99,7 @@ fn release(model: Model) -> Effect(Msg) {
     },
     Released,
   )
+  // mutation:end cleanup
 }
 
 fn fatal(model: Model, detail: String) -> #(Model, Effect(Msg)) {
@@ -139,10 +148,12 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         None -> fatal(model, "Connection has no document")
       }
     _, Opened(Error(error)) -> fatal(model, e.to_string(error))
+    // mutation:start open
     _, Opened(Ok(tree)) -> #(
       Model(..model, tree: Some(tree)),
       effects.observe(tree, Subscribed, Changed),
     )
+    // mutation:end open
     _, Subscribed(Error(error)) -> fatal(model, e.to_string(error))
     _, Subscribed(Ok(subscription)) -> {
       let model = Model(..model, subscription: Some(subscription))
@@ -212,6 +223,7 @@ fn find(
   get_id: fn(a) -> String,
   index: Int,
 ) -> Result(Option(t.Ref(a)), e.Error) {
+  // mutation:start lookup
   use node <- result.try(t.array_node(array, index))
   case node {
     None -> Ok(None)
@@ -221,6 +233,7 @@ fn find(
         True -> Ok(Some(node))
         False -> find(array, id, get_id, index + 1)
       }
+      // mutation:end lookup
     }
   }
 }
@@ -286,6 +299,7 @@ fn move(
 }
 
 fn edit(tree: t.Tree(d.Board), action: d.Action) -> Result(Nil, e.Error) {
+  // mutation:start edit
   case action {
     d.AddIncident(id, title) -> {
       use _ <- result.try(unique(tree, id))
@@ -296,10 +310,12 @@ fn edit(tree: t.Tree(d.Board), action: d.Action) -> Result(Nil, e.Error) {
         d.Incident(id, title, d.Open, None, []),
       ])
     }
+    // mutation:start title
     d.Title(id, value) -> {
       use node, _ <- with_incident(tree, id)
       t.set(node, s.title(), value)
     }
+    // mutation:end title
     d.Status(id, value) -> {
       use node, _ <- with_incident(tree, id)
       t.set(node, s.status(), d.status_name(value))
@@ -340,9 +356,11 @@ fn edit(tree: t.Tree(d.Board), action: d.Action) -> Result(Nil, e.Error) {
       move(array, node, before, fn(v) { v.id })
     }
   }
+  // mutation:end edit
 }
 
 pub fn apply(model: Model, action: d.Action) -> #(Model, Effect(Msg)) {
+  // mutation:start apply
   case model.state.phase, model.tree {
     d.Ready, Some(tree) -> #(
       model,
@@ -350,6 +368,7 @@ pub fn apply(model: Model, action: d.Action) -> #(Model, Effect(Msg)) {
     )
     _, _ -> #(model, effect.none())
   }
+  // mutation:end apply
 }
 
 pub fn close(model: Model) -> #(Model, Effect(Msg)) {
