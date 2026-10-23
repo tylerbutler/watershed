@@ -12,7 +12,12 @@ export function offlineSetupCommands(sdk) {
   return [`node --input-type=module -e ${JSON.stringify(script)}`];
 }
 
-export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutput, out, runId }) {
+export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutput, out, runId,
+  auth = "provider", wireApi = "completions" }) {
+  if (!["provider", "copilot"].includes(auth)) throw new TypeError("auth must be provider or copilot");
+  if (!["completions", "responses", "messages"].includes(wireApi) || (auth === "provider" && wireApi !== "completions")) {
+    throw new TypeError("Unsupported authentication/protocol combination");
+  }
   if (!["watershed", "fluid"].includes(sdk) || images?.sdk !== sdk || !gradingOutput || !out) {
     throw new TypeError("Compose requires matching SDK images, fresh grading output, and an output file");
   }
@@ -72,6 +77,8 @@ export async function writeRoleCompose({ sdk, images, serviceImage, gradingOutpu
         networks: ["default", "provider-outbound"],
         command: ["node", "/opt/shared-tree/docker/gateway.mjs"],
         environment: {
+          SHARED_TREE_AUTH_MODE: auth,
+          SHARED_TREE_WIRE_API: wireApi,
           SHARED_TREE_PROVIDER_URL: "${SHARED_TREE_PROVIDER_URL:?Provider URL is required}",
           SHARED_TREE_PROVIDER_API_KEY: "${SHARED_TREE_PROVIDER_API_KEY:?Provider key is required}",
           SHARED_TREE_PROVIDER_MODEL: "${SHARED_TREE_PROVIDER_MODEL:?Provider model is required}",

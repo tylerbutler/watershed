@@ -39,6 +39,23 @@ test("comparison rejects mismatched observed architecture and pinned runtime ver
   }
 });
 
+test("comparison separates Copilot-account trials from provider trials and rejects unknown authentication", () => {
+  const providerUrl = "https://api.githubcopilot.com/";
+  assert.throws(() => compare([
+    trial("watershed", { providerUrl, authMode: "copilot" }),
+    trial("fluid", { providerUrl, authMode: "provider" }),
+  ]), /mismatch/i);
+  assert.throws(() => compare([trial("watershed", { authMode: "automatic" })]), /auth/i);
+  assert.throws(() => compare([trial("watershed", { authMode: null })]), /auth/i);
+  assert.throws(() => compare([trial("watershed", { authMode: "copilot" })]), /Copilot.*provider/i);
+  assert.throws(() => compare([
+    trial("watershed", { providerUrl, authMode: "copilot", wireApi: "responses" }),
+    trial("fluid", { providerUrl, authMode: "copilot", wireApi: "completions" }),
+  ]), /mismatch/i);
+  const result = compare(["watershed", "fluid"].map(sdk => trial(sdk, { providerUrl, authMode: "copilot" })));
+  assert.equal(result.watershed.passRate, 1);
+});
+
 test("invalid trials remain visible outside agent denominators and metrics stay unmodified", () => {
   const invalid = trial("watershed");
   invalid.report.classification = "infrastructure";

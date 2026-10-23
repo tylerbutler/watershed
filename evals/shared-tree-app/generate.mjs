@@ -54,8 +54,13 @@ export function agentDurationMs(limits) {
   return value;
 }
 
-export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId }) {
+export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId,
+  auth = "provider", wireApi = "completions" }) {
   const duration = agentDurationMs(limits);
+  if (!["provider", "copilot"].includes(auth)) throw new TypeError("auth must be provider or copilot");
+  if (!["completions", "responses", "messages"].includes(wireApi) || (auth === "provider" && wireApi !== "completions")) {
+    throw new TypeError("Unsupported authentication/protocol combination");
+  }
   if (!["watershed", "fluid"].includes(sdk) || prepared?.sdkManifest?.sdk !== sdk ||
       typeof prepared.agentRoot !== "string" || !isAbsolute(prepared.agentRoot)) {
     throw new TypeError("Spec requires a matching prepared SDK and absolute agent root");
@@ -70,15 +75,20 @@ export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId
     tags: { api: "shared-tree", sdk, track: "core", ...benchmarkIdentity },
     defaults: {
       executor: { name: "copilot-sdk", config: { provider: {
-        type: "openai", baseUrl: "http://provider-gateway:8080/v1", wireApi: "completions",
-        transport: "http", apiKeyEnv: "SHARED_TREE_GATEWAY_CLIENT_KEY", modelId: model, wireModel: model,
+        type: wireApi === "messages" ? "anthropic" : "openai",
+        baseUrl: auth === "copilot" ? "http://provider-gateway:8080" : "http://provider-gateway:8080/v1",
+        ...(wireApi === "messages" ? {} : { wireApi, transport: "http" }),
+        apiKeyEnv: "SHARED_TREE_GATEWAY_CLIENT_KEY", modelId: model, wireModel: model,
       } } },
       model, reasoning_effort: reasoningEffort, runs: 1, timeout: `${duration + 60_000}ms`,
     },
     agent_environment: {
       files: [{ src: prepared.agentRoot, dest: "." }],
       commands: offlineSetupCommands(sdk),
-      env: { SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder" },
+      env: {
+        SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder",
+        ...(auth === "copilot" ? { COPILOT_OFFLINE: "true" } : {}),
+      },
     },
     stimuli: [{
       name: "incident-response-board", prompt,

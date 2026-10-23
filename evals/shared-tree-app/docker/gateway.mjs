@@ -22,17 +22,84 @@ const textMessage = message => message && typeof message === "object" &&
     (Array.isArray(message.content) && message.content.every(part =>
       part?.type === "text" && typeof part.text === "string")));
 
-export async function startGateway({ upstream, apiKey, model, port = 8080, host = "0.0.0.0" }) {
+const responseFields = new Set([
+  "model", "input", "instructions", "stream", "tools", "tool_choice", "parallel_tool_calls",
+  "temperature", "top_p", "max_output_tokens", "reasoning", "text", "store", "metadata",
+  "truncation", "include", "service_tier", "prompt_cache_key", "prompt_cache_retention",
+  "safety_identifier", "user",
+]);
+const anthropicFields = new Set([
+  "model", "messages", "system", "max_tokens", "stream", "tools", "tool_choice",
+  "temperature", "top_p", "top_k", "stop_sequences", "metadata", "thinking", "output_config",
+]);
+const nativeHeaders = [
+  "x-github-api-version", "editor-version", "editor-plugin-version", "user-agent",
+  "x-request-id", "x-client-request-id", "x-initiator", "x-interaction-id", "x-interaction-type",
+  "anthropic-version", "anthropic-beta", "openai-beta", "x-session-id",
+];
+const textContent = (value, types) => typeof value === "string" ||
+  (Array.isArray(value) && value.every(part => part && types.includes(part.type) &&
+    typeof part.text === "string"));
+const responseInput = value => typeof value === "string" || (Array.isArray(value) && value.every(item =>
+  item && (
+    ((!item.type || item.type === "message") && textContent(item.content, ["input_text", "output_text"])) ||
+    (item.type === "function_call" && typeof item.arguments === "string") ||
+    (item.type === "function_call_output" && textContent(item.output, ["input_text"])) ||
+    (item.type === "reasoning" && Array.isArray(item.summary) &&
+      item.summary.every(part => part?.type === "summary_text" && typeof part.text === "string"))
+  )));
+const anthropicContent = value => typeof value === "string" || (Array.isArray(value) && value.every(part =>
+  part && (
+    (part.type === "text" && typeof part.text === "string") ||
+    (part.type === "tool_use" && typeof part.name === "string" && part.input && typeof part.input === "object") ||
+    (part.type === "tool_result" && anthropicContent(part.content)) ||
+    (part.type === "thinking" && typeof part.thinking === "string") ||
+    (part.type === "redacted_thinking" && typeof part.data === "string")
+  )));
+
+function allowedInference(path, value, model) {
+  if (!value || value.model !== model) return false;
+  if (path === "/responses") {
+    return Object.keys(value).every(key => responseFields.has(key)) && responseInput(value.input) &&
+      (value.tools === undefined || (Array.isArray(value.tools) && value.tools.every(tool => tool?.type === "function"))) &&
+      (typeof value.tool_choice !== "object" || value.tool_choice?.type === "function");
+  }
+  if (path === "/v1/messages") {
+    return Object.keys(value).every(key => anthropicFields.has(key)) &&
+      Array.isArray(value.messages) && value.messages.every(message => message && anthropicContent(message.content)) &&
+      (value.system === undefined || textContent(value.system, ["text"])) &&
+      (value.tools === undefined || (Array.isArray(value.tools) && value.tools.every(tool =>
+        tool && (tool.type === undefined || tool.type === "custom") && typeof tool.name === "string"))) &&
+      (value.tool_choice === undefined || ["auto", "any", "none", "tool"].includes(value.tool_choice?.type));
+  }
+  return Object.keys(value).every(key => completionFields.has(key)) &&
+    Array.isArray(value.messages) && value.messages.every(textMessage) &&
+    (typeof value.tool_choice !== "object" || value.tool_choice?.type === "function") &&
+    (value.tools === undefined || (Array.isArray(value.tools) && value.tools.every(tool => tool?.type === "function")));
+}
+
+export async function startGateway({ upstream, apiKey, model, auth = "provider", wireApi = "completions",
+  port = 8080, host = "0.0.0.0" }) {
+  if (!["provider", "copilot"].includes(auth)) throw new TypeError("auth must be provider or copilot");
+  if (!["completions", "responses", "messages"].includes(wireApi) || (auth === "provider" && wireApi !== "completions")) {
+    throw new TypeError("Unsupported authentication/protocol combination");
+  }
   const base = new URL(upstream);
   const loopback = base.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(base.hostname);
   if ((!loopback && base.protocol !== "https:") || base.username || base.password || base.search || base.hash) {
     throw new TypeError("Provider upstream must use HTTPS without embedded credentials");
   }
+  if (auth === "copilot" && !loopback && base.href !== "https://api.githubcopilot.com/") {
+    throw new TypeError("Copilot credentials may only be sent to the GitHub Copilot API");
+  }
   if (typeof apiKey !== "string" || !apiKey || /[\r\n]/.test(apiKey) ||
       typeof model !== "string" || !model.trim()) {
     throw new TypeError("Provider gateway requires an API key and selected model");
   }
-  const target = new URL(base.href.replace(/\/$/, "") + "/chat/completions");
+  const routes = auth === "copilot" ? {
+    completions: ["/chat/completions"], responses: ["/responses"], messages: ["/v1/messages"],
+  }[wireApi]
+    : ["/v1/chat/completions"];
   const active = new Set();
   let closing;
   const server = createServer(async (request, response) => {
@@ -43,7 +110,7 @@ export async function startGateway({ upstream, apiKey, model, port = 8080, host 
       response.writeHead(200, { "content-type": "application/json" }).end('{"ready":true}');
       return;
     }
-    if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+    if (request.method !== "POST" || !routes.includes(request.url)) {
       request.resume();
       reply(403, "Provider route is not allowed");
       return;
@@ -64,21 +131,23 @@ export async function startGateway({ upstream, apiKey, model, port = 8080, host 
         chunks.push(chunk);
       }
       const body = Buffer.concat(chunks);
-      const value = JSON.parse(body);
-      if (value?.model !== model || !Array.isArray(value.messages) ||
-          Object.keys(value).some(key => !completionFields.has(key)) ||
-          !value.messages.every(textMessage) ||
-          (typeof value.tool_choice === "object" && value.tool_choice?.type !== "function") ||
-          (value.tools !== undefined && (!Array.isArray(value.tools) ||
-            value.tools.some(tool => tool?.type !== "function")))) {
-        reply(400, "Only text chat, standard completion fields, the selected model, and function tools are allowed");
+      if (!allowedInference(request.url, JSON.parse(body), model)) {
+        reply(400, "Only text inference, standard fields, the selected model, and function tools are allowed");
         return;
       }
       forwarding = true;
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(600_000)]);
+      const path = auth === "copilot" ? request.url : "/chat/completions";
+      const target = new URL(base.href.replace(/\/$/, "") + path);
+      const headers = { "content-type": "application/json", authorization: `Bearer ${apiKey}` };
+      if (auth === "copilot") {
+        for (const name of nativeHeaders) {
+          if (typeof request.headers[name] === "string") headers[name] = request.headers[name];
+        }
+        headers["copilot-integration-id"] = "copilot-developer-cli";
+      }
       const result = await fetch(target, {
-        method: "POST", redirect: "manual", body, signal,
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        method: request.method, redirect: "manual", body, signal, headers,
       });
       if (result.status >= 300 && result.status < 400) {
         await result.body?.cancel();
@@ -131,6 +200,8 @@ if (process.argv[1] && process.argv[1] !== "-" &&
   try {
     const gateway = await startGateway({
       upstream: process.env.SHARED_TREE_PROVIDER_URL,
+      auth: process.env.SHARED_TREE_AUTH_MODE,
+      wireApi: process.env.SHARED_TREE_WIRE_API,
       apiKey: process.env.SHARED_TREE_PROVIDER_API_KEY,
       model: process.env.SHARED_TREE_PROVIDER_MODEL,
     });

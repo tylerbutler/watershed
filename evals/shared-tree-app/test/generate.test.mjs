@@ -37,18 +37,36 @@ test("generation rejects missing operator settings, unsupported effort, and inva
     { model: "" }, { reasoningEffort: undefined }, { reasoningEffort: "automatic" },
     { limits: {} }, { limits: { agentDuration: "0s" } }, { limits: { agentDuration: "Infinity" } },
     { limits: { agentDuration: "10m", maxTokens: 50 } }, { runId: "../escape" },
-    { sdk: "other" }, { prepared: { agentRoot: "/prepared", sdkManifest: { sdk: "fluid" } } },
+    { sdk: "other" }, { auth: "automatic" },
+    { prepared: { agentRoot: "/prepared", sdkManifest: { sdk: "fluid" } } },
   ]) assert.throws(() => buildSpec({ ...options("watershed"), ...changed }));
+});
+
+test("Copilot specs select the account model protocol without exposing account authentication", () => {
+  for (const wireApi of ["completions", "responses", "messages"]) {
+    const spec = buildSpec({ ...options("watershed"), auth: "copilot", wireApi });
+    const provider = spec.defaults.executor.config.provider;
+    assert.equal(provider.type, wireApi === "messages" ? "anthropic" : "openai");
+    assert.equal(provider.baseUrl, "http://provider-gateway:8080");
+    assert.equal(provider.wireApi, wireApi === "messages" ? undefined : wireApi);
+    assert.deepEqual(spec.agent_environment.env, {
+      COPILOT_OFFLINE: "true", SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder",
+    });
+  }
 });
 
 test("installed Vally lints generated specs using its real provider and duration fields", async () => {
   const root = await mkdtemp(join(tmpdir(), "shared-tree-spec-"));
   try {
-    for (const sdk of ["watershed", "fluid"]) {
-      const path = join(root, `${sdk}.yaml`);
+    for (const [sdk, auth, wireApi] of [
+      ["watershed", "provider", "completions"], ["fluid", "provider", "completions"],
+      ["watershed", "copilot", "completions"], ["watershed", "copilot", "responses"],
+      ["watershed", "copilot", "messages"],
+    ]) {
+      const path = join(root, `${sdk}-${auth}-${wireApi}.yaml`);
       const config = options(sdk);
       config.prepared.agentRoot = root;
-      await writeFile(path, stringify(buildSpec(config)));
+      await writeFile(path, stringify(buildSpec({ ...config, auth, wireApi })));
       await promisify(execFile)("pnpm", ["exec", "vally", "lint", "--eval-spec", path],
         { cwd: new URL("../", import.meta.url), timeout: 30_000 });
     }

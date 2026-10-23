@@ -205,7 +205,7 @@ without provider-side browsing.
 
 `lib/isolation.mjs` writes trial-specific Compose configuration. The task and
 grade roles use an internal network and separate support-service projects.
-Only the task's provider gateway joins an outbound network. Supply
+Only the task's provider gateway joins an outbound network. In provider mode, supply
 `SHARED_TREE_PROVIDER_URL`, `SHARED_TREE_PROVIDER_API_KEY`, and
 `SHARED_TREE_PROVIDER_MODEL` to the controller process; Compose passes them
 only to the gateway. Generated Compose files contain variable references,
@@ -268,6 +268,49 @@ node evals/shared-tree-app/run.mjs \
   --out /absolute/fresh-results --authorize-paid
 ```
 
+### Use a Copilot account
+
+Add `--auth copilot` to that command to use your GitHub Copilot subscription
+instead of a separate provider API key. The default remains `--auth provider`.
+Copilot mode does not require `SHARED_TREE_PROVIDER_URL` or
+`SHARED_TREE_PROVIDER_API_KEY`.
+
+The controller checks `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`, in
+that order. If none is set, it captures `gh auth token --hostname github.com`
+from your existing GitHub CLI login. This is the account signed in to `gh`,
+which may differ from the account signed in to Copilot CLI. An interactive
+Copilot CLI login alone is not imported from the host keychain. You can use a
+supported OAuth token or a fine-grained token with **Copilot Requests** permission
+through `COPILOT_GITHUB_TOKEN`; classic `ghp_` tokens are rejected. Do not put
+tokens in command arguments, specs, or chat.
+
+Before preparing either SDK, the controller checks the selected model against
+the account's Copilot catalog. It uses an advertised Chat Completions, Responses,
+or Anthropic Messages endpoint, preferring Chat Completions when multiple
+protocols are available. An unavailable model, disabled policy, unsupported
+protocol, or authentication failure stops the run rather than selecting another
+model or provider. This mode currently supports GitHub.com's
+`api.githubcopilot.com`, not enterprise-specific or data-residency endpoints.
+
+Vally still uses its `copilot-sdk` executor. The task uses Copilot's offline
+provider transport through the trusted gateway, not native account/session
+endpoints. Only the controller and gateway receive the real account credential.
+The task receives a placeholder provider key, no account token, no host login
+directory, and no outbound network. The gateway permits only text inference for
+the selected model and protocol; it blocks account, token, catalog, browsing, and
+other inference routes. Provider error bodies are not passed back to the task.
+See GitHub's [Copilot authentication documentation][copilot-auth] and
+[credential-isolating gateway configuration][copilot-proxy] for these interfaces.
+
+`--authorize-paid` is still required: using a subscription can consume its
+allowance or incur charges. Adding account support does not authorize or start a
+live trial. Local API fixtures exercise the pinned Vally/Copilot runtime without
+using a real account. Manifests record the authentication mode and selected wire
+protocol, and comparison rejects batches that mix either setting.
+
+[copilot-auth]: https://github.com/github/copilot-sdk/blob/main/docs/auth/authenticate.md
+[copilot-proxy]: https://github.com/github/gh-aw-firewall/blob/main/src/services/credentials/copilot-credential-env.ts
+
 Reasoning effort is `low`, `medium`, `high`, or `xhigh`. Duration accepts positive
 `ms`, `s`, `m`, or `h` values, such as `10m`. No model, trial count, or working
 limit is assumed. `--authorize-paid` is required even when a provider happens
@@ -315,7 +358,7 @@ node evals/shared-tree-app/compare.mjs /absolute/results/pair.json
 ```
 
 Comparison rejects mismatched task/contract hashes, model, reasoning effort,
-provider URL, executor, working limit, or observed image runtime, and mixed
+authentication mode, wire protocol, provider URL, executor, working limit, or observed image runtime, and mixed
 eval sources or starter/SDK revisions within either SDK.
 The SDKs themselves should have different source revisions. A small batch does
 not establish statistical significance, and the native language/framework

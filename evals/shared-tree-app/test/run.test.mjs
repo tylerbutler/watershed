@@ -124,6 +124,7 @@ test("operator validation and explicit paid authorization happen before output c
       limits: { agentDuration: "10m" }, out,
     };
     await assert.rejects(runPair(options), /authorize-paid/);
+    await assert.rejects(runPair({ ...options, auth: "copilot", env: { PATH: "/no-credentials" } }), /authorize-paid/);
     await assert.rejects(runPair({ ...options, limits: { agentDuration: "10m", maxTokens: 100 } }), /agentDuration only/);
     await assert.rejects(runPair({ ...options, authorizePaid: true, env: {
       SHARED_TREE_PROVIDER_URL: "https://provider.example/v1",

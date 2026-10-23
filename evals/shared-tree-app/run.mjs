@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { stringify } from "yaml";
 import { compare } from "./compare.mjs";
 import { agentDurationMs, benchmarkIdentity, benchmarkProvenance, buildSpec } from "./generate.mjs";
+import { copilotWireApi, resolveAuthentication, trialEnvironment } from "./lib/auth.mjs";
 import { buildImages } from "./lib/images.mjs";
 import { cleanupVallyRun, writeRoleCompose } from "./lib/isolation.mjs";
 import { execOwned } from "./lib/process.mjs";
@@ -201,7 +202,7 @@ export async function runVallyTrial({ spec, images, composeFile, root, env = pro
 }
 
 export async function runPair({ sources, revisions, model, reasoningEffort, runs, limits, out,
-  authorizePaid = false, registry, env = process.env, signal }) {
+  authorizePaid = false, registry, auth = "provider", env = process.env, signal }) {
   const order = trialOrder(runs);
   agentDurationMs(limits);
   if (typeof out !== "string" || !isAbsolute(out)) throw new TypeError("out must be an absolute fresh directory");
@@ -211,14 +212,11 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
       throw new TypeError(`${sdk} requires an absolute source and full commit revision`);
     }
     buildSpec({ sdk, prepared: { agentRoot: resolve(out, sdk), sdkManifest: { sdk } },
-      model, reasoningEffort, limits, runId: "preflight" });
+      model, reasoningEffort, limits, runId: "preflight", auth });
   }
   if (!authorizePaid) throw new TypeError("Supply --authorize-paid to explicitly authorize model trials");
-  const provider = new URL(env.SHARED_TREE_PROVIDER_URL);
-  if (provider.protocol !== "https:" || provider.username || provider.password || provider.search || provider.hash ||
-      !env.SHARED_TREE_PROVIDER_API_KEY || /[\r\n]/.test(env.SHARED_TREE_PROVIDER_API_KEY)) {
-    throw new TypeError("Provider requires a credential-free HTTPS URL and an environment API key");
-  }
+  const authentication = await resolveAuthentication({ auth, env, signal });
+  const wireApi = auth === "copilot" ? await copilotWireApi(authentication, model, { signal }) : "completions";
   const root = resolve(out);
   await mkdir(root, { mode: 0o700 });
   const config = join(root, "docker-client");
@@ -226,10 +224,7 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
   const compose = (await execOwned("sh", ["-c", "command -v docker-compose"], { env, signal })).stdout.trim();
   await symlink(compose, join(config, "cli-plugins/docker-compose"));
   await writeFile(join(config, "config.json"), "{}\n", { flag: "wx" });
-  const executionEnv = {
-    ...env, DOCKER_CONFIG: config, SHARED_TREE_PROVIDER_MODEL: model,
-    SHARED_TREE_GATEWAY_CLIENT_KEY: "gateway-client-placeholder",
-  };
+  const executionEnv = { ...trialEnvironment(env, authentication, model), DOCKER_CONFIG: config };
   await execOwned("docker", ["info"], { env: executionEnv, timeout: 30_000, signal });
   const prepared = {}, images = {}, preparationMs = {}, provenance = {};
   for (const sdk of ["watershed", "fluid"]) {
@@ -252,12 +247,12 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
     const trialRoot = join(root, runId);
     await mkdir(trialRoot, { mode: 0o700 });
     const role = await writeRoleCompose({ sdk, images: images[sdk], serviceImage: images[sdk].service.id,
-      gradingOutput: join(trialRoot, "native"), out: join(trialRoot, "compose.yaml"), runId });
-    const spec = buildSpec({ sdk, prepared: prepared[sdk], model, reasoningEffort, limits, runId });
+      gradingOutput: join(trialRoot, "native"), out: join(trialRoot, "compose.yaml"), runId, auth, wireApi });
+    const spec = buildSpec({ sdk, prepared: prepared[sdk], model, reasoningEffort, limits, runId, auth, wireApi });
     const manifest = {
       version: 1, pairId, runId, sdk, trial, ...benchmarkIdentity, ...provenance[sdk],
       revision: revisions[sdk], model, reasoningEffort, limits, executor: "copilot-sdk",
-      providerUrl: provider.href, executorTimeoutMs: agentDurationMs(limits) + 60_000,
+      providerUrl: authentication.upstream, authMode: auth, wireApi, executorTimeoutMs: agentDurationMs(limits) + 60_000,
       preparationMs: preparationMs[sdk], images: images[sdk],
       sdkManifest: prepared[sdk].sdkManifest, docsManifest: prepared[sdk].docsManifest,
     };
@@ -285,7 +280,7 @@ if (process.argv[1] && process.argv[1] !== "-" &&
   process.on("SIGTERM", interrupt);
   try {
     const strings = ["watershed-source", "watershed-revision", "fluid-source", "fluid-revision",
-      "model", "reasoning-effort", "runs", "max-agent-duration", "out", "registry"];
+      "model", "reasoning-effort", "runs", "max-agent-duration", "out", "registry", "auth"];
     const { values } = parseArgs({ options: {
       ...Object.fromEntries(strings.map(name => [name, { type: "string" }])),
       "authorize-paid": { type: "boolean", default: false },
@@ -296,7 +291,7 @@ if (process.argv[1] && process.argv[1] !== "-" &&
       revisions: { watershed: values["watershed-revision"], fluid: values["fluid-revision"] },
       model: values.model, reasoningEffort: values["reasoning-effort"], runs: Number(values.runs),
       limits: { agentDuration: values["max-agent-duration"] }, out: values.out,
-      registry: values.registry, authorizePaid: values["authorize-paid"],
+      registry: values.registry, authorizePaid: values["authorize-paid"], auth: values.auth,
       signal: controller.signal,
     });
     console.log(`Comparison saved to ${join(result.root, "comparison.json")}`);

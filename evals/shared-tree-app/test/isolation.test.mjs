@@ -55,3 +55,24 @@ test("Compose rejects mutable images and existing grading outputs before replaci
     assert.throws(() => offlineSetupCommands("other"), /SDK/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("Copilot Compose confines the account credential to the outbound gateway", async () => {
+  const root = await mkdtemp(join(tmpdir(), "copilot-compose-"));
+  try {
+    const out = join(root, "compose.yaml");
+    await writeRoleCompose({
+      sdk: "watershed", images, serviceImage: `sha256:${"3".repeat(64)}`,
+      gradingOutput: join(root, "reports"), out, auth: "copilot",
+    });
+    const { services, networks } = parse(await readFile(out, "utf8"));
+    assert.equal(services["provider-gateway"].environment.SHARED_TREE_AUTH_MODE, "copilot");
+    assert.match(services["provider-gateway"].environment.SHARED_TREE_PROVIDER_API_KEY, /^\$\{/);
+    for (const role of ["task", "grade", "sdk-service"]) {
+      assert.equal(services[role].environment.SHARED_TREE_PROVIDER_API_KEY, undefined);
+      assert.equal(services[role].environment.COPILOT_GITHUB_TOKEN, undefined);
+      assert.deepEqual(services[role].networks, ["default"]);
+    }
+    assert.equal(services.task.volumes, undefined);
+    assert.equal(networks.default.internal, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

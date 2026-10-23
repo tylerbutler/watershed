@@ -18,6 +18,12 @@ export function compare(trials) {
         manifest.contractSha256 !== benchmarkIdentity.contractSha256) {
       throw new TypeError("Task or contract hash mismatch with this benchmark");
     }
+    const authMode = manifest.authMode === undefined ? "provider" : manifest.authMode;
+    if (!["provider", "copilot"].includes(authMode)) throw new TypeError("Invalid trial authentication mode");
+    const wireApi = manifest.wireApi === undefined ? "completions" : manifest.wireApi;
+    if (!["completions", "responses", "messages"].includes(wireApi) || (authMode === "provider" && wireApi !== "completions")) {
+      throw new TypeError("Invalid trial authentication/protocol combination");
+    }
     if (typeof manifest.model !== "string" || !manifest.model.trim() ||
         !["low", "medium", "high", "xhigh"].includes(manifest.reasoningEffort) ||
         !["copilot-sdk", "mock"].includes(manifest.executor) ||
@@ -27,6 +33,9 @@ export function compare(trials) {
       throw new TypeError("Invalid trial settings or SDK revision");
     }
     const provider = new URL(manifest.providerUrl);
+    if (authMode === "copilot" && provider.href !== "https://api.githubcopilot.com/") {
+      throw new TypeError("Copilot authentication requires the GitHub Copilot provider identity");
+    }
     if (provider.username || provider.password || provider.search || provider.hash) {
       throw new TypeError("Provider identity must not contain credentials or query parameters");
     }
@@ -44,11 +53,12 @@ export function compare(trials) {
     const settings = JSON.stringify({
       model: manifest.model, reasoningEffort: manifest.reasoningEffort,
       durationMs: agentDurationMs(manifest.limits), executor: manifest.executor, provider: provider.href,
+      authMode, wireApi,
       evalSha256: manifest.evalSha256,
       runtime, vallyPatchSha256: manifest.images.vallyPatchSha256,
     });
     if (shared !== undefined && settings !== shared) {
-      throw new TypeError("Comparison model, effort, provider, executor, working-limit, or runtime mismatch");
+      throw new TypeError("Comparison model, effort, authentication, protocol, provider, executor, working-limit, or runtime mismatch");
     }
     shared = settings;
     const revision = `${manifest.revision}/${manifest.starterSha256}`;
