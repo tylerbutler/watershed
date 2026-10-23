@@ -54,10 +54,10 @@ _test-js:
 
 # The one guarantee no ordinary test can make: that *wrong* code is rejected.
 # `tools/compile-fail/two_root_tags` views one document's root through two
-# schemas, which `Document(root)` exists to forbid. Trellis never builds the
-# fixture (see [tools.trellis.exclude]); this recipe is the only thing that
-# does, and passing means the build failed *with the stated type error* — the
-# grep is what stops a typo from making this green for the wrong cause.
+# schemas, which `Document(root)` exists to forbid. Compile-fail fixtures are
+# excluded from Trellis membership (see [tools.trellis.exclude]."@members");
+# this recipe builds them and requires the stated type error. The diagnostic
+# checks stop a typo from making this green for the wrong cause.
 _test-compile-fail:
     #!/usr/bin/env bash
     set -uo pipefail
