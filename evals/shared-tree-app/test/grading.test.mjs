@@ -21,6 +21,7 @@ async function fixture(t) {
   await mkdir(join(workspace, "src"), { recursive: true });
   await mkdir(join(workspace, "sdk"));
   await mkdir(gradingRoot);
+  await writeFile(join(gradingRoot, "contract.json"), JSON.stringify(contract));
   for (const [path, value] of Object.entries({
     "src/model.ts": "candidate", "src/schema.ts": "schema", "sdk/native.js": "protected SDK",
     "package.json": '{"scripts":{"check":"node -e process.exit(89)","build":"node -e process.exit(89)"}}',

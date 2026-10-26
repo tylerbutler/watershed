@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { benchmarkIdentity, benchmarkProvenance, buildSpec } from "../../generate.mjs";
+import { getBenchmark, benchmarkProvenance, buildSpec } from "../../generate.mjs";
 import { compare } from "../../compare.mjs";
 import { buildImages } from "../../lib/images.mjs";
 import { writeRoleCompose } from "../../lib/isolation.mjs";
@@ -16,17 +16,19 @@ import { validateReport, verdict } from "../../lib/report.mjs";
 
 const exec = promisify(execFile);
 const benchmark = fileURLToPath(new URL("../../", import.meta.url));
+const track = process.env.SHARED_TREE_TEST_TRACK ?? "core";
+const { identity: benchmarkIdentity, contract } = getBenchmark(track);
 const trials = [];
 
 for (const sdk of ["watershed", "fluid"]) {
-test(`Vally mock task grades the native ${sdk} reference in a fresh isolated role and exports its report`, async () => {
+test(`Vally mock task grades the native ${sdk}/${track} reference in a fresh isolated role and exports its report`, async () => {
   await mkdir(join(benchmark, ".work"), { recursive: true });
   const root = await mkdtemp(join(benchmark, ".work/vally-"));
   try {
     const source = sdk === "watershed" ? fileURLToPath(new URL("../../../../", import.meta.url))
       : fileURLToPath(new URL("../../../../tools/shared-tree-oracle/.reference/FluidFramework", import.meta.url));
     const revision = (await exec("git", ["rev-parse", "HEAD"], { cwd: source })).stdout.trim();
-    const prepared = await prepare({ sdk, source, revision, out: join(root, "prepared") });
+    const prepared = await prepare({ sdk, source, revision, out: join(root, "prepared"), track });
     const images = await buildImages({ prepared, out: join(root, "images") });
     const gradingOutput = join(root, "native");
     const compose = join(root, "compose.yaml");
@@ -34,11 +36,12 @@ test(`Vally mock task grades the native ${sdk} reference in a fresh isolated rol
     await writeRoleCompose({ sdk, images, serviceImage: images.service.id,
       gradingOutput, out: compose, runId });
     for (const name of ["model", "schema"]) await cp(
-      join(benchmark, "validation/solutions", sdk, `${name}.${sdk === "watershed" ? "gleam" : "ts"}`),
+      join(benchmark, "validation/solutions", ...(track === "core" ? [] : [track]),
+        sdk, `${name}.${sdk === "watershed" ? "gleam" : "ts"}`),
       join(prepared.agentRoot, sdk === "watershed" ? "src/incident_eval" : "src",
         `${name}.${sdk === "watershed" ? "gleam" : "ts"}`));
     const spec = buildSpec({ sdk, prepared, model: "fixture-model", reasoningEffort: "high",
-      limits: { agentDuration: "2m" }, runId });
+      limits: { agentDuration: "2m" }, runId, track });
     spec.defaults.executor = "mock";
     spec.agent_environment.commands.push(
           `node --input-type=module -e ${JSON.stringify(`
@@ -70,7 +73,6 @@ assert.ok((await fetch("http://provider-gateway:8080/health", { signal: AbortSig
     };
     const trial = await runVallyTrial({ spec, images, composeFile: compose, root, env });
     assert.equal(trial.controllerError, null);
-    const contract = JSON.parse(await readFile(join(benchmark, "contract.json"), "utf8"));
     const report = JSON.parse(await readFile(join(gradingOutput, "report.json"), "utf8"));
     validateReport(report, contract);
     assert.equal(verdict(report, contract), "passed");
@@ -80,7 +82,7 @@ assert.ok((await fetch("http://provider-gateway:8080/health", { signal: AbortSig
     trials.push({
       ...trial,
       manifest: {
-        version: 1, sdk, runId, revision, ...benchmarkIdentity, ...await benchmarkProvenance({ sdk }),
+        version: 1, sdk, runId, revision, track, ...benchmarkIdentity, ...await benchmarkProvenance({ sdk, track }),
         model: "fixture-model", reasoningEffort: "high", limits: { agentDuration: "2m" },
         executor: "mock", providerUrl: env.SHARED_TREE_PROVIDER_URL, images,
       },

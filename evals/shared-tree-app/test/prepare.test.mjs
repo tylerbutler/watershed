@@ -79,3 +79,25 @@ test("preparation works from a relocated standalone benchmark rather than a host
     "--revision", revision, "--out", output], { cwd: root, timeout: 30_000 });
   assert.ok((await readdir(join(output, "agent", "src/incident_eval"))).includes("model.gleam"));
 });
+
+test("transfer preparation overlays protected sources without exposing private reference models", async t => {
+  const { root, source, revision } = await fixture(t);
+  const prepared = await prepare({ sdk: "watershed", source, revision, out: join(root, "transfers"),
+    track: "transfers" });
+  assert.equal(prepared.track, "transfers");
+  assert.equal(prepared.sdkManifest.track, "transfers");
+  assert.match(await readFile(join(prepared.agentRoot, "src/incident_eval/domain.gleam"), "utf8"),
+    /TransferStep/);
+  assert.equal(await readFile(join(prepared.agentRoot, "src/incident_eval/model.gleam"), "utf8"),
+    await readFile(join(benchmark, "watershed/src/incident_eval/model.gleam"), "utf8"));
+  const contract = JSON.parse(await readFile(join(prepared.gradingRoot, "contract.json"), "utf8"));
+  assert.ok(contract.checks.some(check => check.id === "transfers.concurrent-edit"));
+  assert.ok(contract.checks.some(check => check.id === "concurrency.barrier"));
+  assert.equal((await verifyIntegrity({ workspace: prepared.agentRoot,
+    manifest: prepared.integrityManifest })).passed, true);
+  await writeFile(join(prepared.agentRoot, "src/incident_eval/domain.gleam"), "remove transfer action");
+  assert.equal((await verifyIntegrity({ workspace: prepared.agentRoot,
+    manifest: prepared.integrityManifest })).assetsPassed, false);
+  const files = await readdir(prepared.agentRoot, { recursive: true });
+  assert.equal(files.some(path => /(^|\/)(validation|graders|tracks)(\/|$)/.test(path)), false);
+});

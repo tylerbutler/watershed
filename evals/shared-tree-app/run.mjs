@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { stringify } from "yaml";
 import { compare } from "./compare.mjs";
-import { agentDurationMs, benchmarkIdentity, benchmarkProvenance, buildSpec } from "./generate.mjs";
+import { agentDurationMs, getBenchmark, benchmarkProvenance, buildSpec } from "./generate.mjs";
 import { copilotWireApi, resolveAuthentication, trialEnvironment } from "./lib/auth.mjs";
 import { buildImages } from "./lib/images.mjs";
 import { cleanupVallyRun, writeRoleCompose } from "./lib/isolation.mjs";
@@ -13,7 +13,6 @@ import { execOwned } from "./lib/process.mjs";
 import { validateReport, verdict } from "./lib/report.mjs";
 import { prepare } from "./prepare.mjs";
 
-const contract = JSON.parse(await readFile(new URL("./contract.json", import.meta.url), "utf8"));
 const json = value => JSON.stringify(value, null, 2) + "\n";
 const marker = "SHARED_TREE_EVAL_ALL_REQUIRED_PASSED";
 const benchmark = fileURLToPath(new URL("./", import.meta.url));
@@ -70,6 +69,7 @@ function phaseTimings(spans) {
 
 export async function runVallyTrial({ spec, images, composeFile, root, env = process.env,
   cli, authorizePaid = false, signal }) {
+  const { contract } = getBenchmark(spec.tags?.track ?? "core");
   const executor = typeof spec.defaults.executor === "string"
     ? spec.defaults.executor : spec.defaults.executor.name;
   if (executor !== "mock" && !authorizePaid) throw new TypeError("Paid execution requires explicit authorization");
@@ -202,7 +202,8 @@ export async function runVallyTrial({ spec, images, composeFile, root, env = pro
 }
 
 export async function runPair({ sources, revisions, model, reasoningEffort, runs, limits, out,
-  authorizePaid = false, registry, auth = "provider", env = process.env, signal }) {
+  authorizePaid = false, registry, auth = "provider", env = process.env, signal, track = "core" }) {
+  const { identity: benchmarkIdentity } = getBenchmark(track);
   const order = trialOrder(runs);
   agentDurationMs(limits);
   if (typeof out !== "string" || !isAbsolute(out)) throw new TypeError("out must be an absolute fresh directory");
@@ -211,8 +212,8 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
         !/^[a-f0-9]{40}$/.test(revisions?.[sdk] ?? "")) {
       throw new TypeError(`${sdk} requires an absolute source and full commit revision`);
     }
-    buildSpec({ sdk, prepared: { agentRoot: resolve(out, sdk), sdkManifest: { sdk } },
-      model, reasoningEffort, limits, runId: "preflight", auth });
+    buildSpec({ sdk, prepared: { agentRoot: resolve(out, sdk), sdkManifest: { sdk, track }, track },
+      model, reasoningEffort, limits, runId: "preflight", auth, track });
   }
   if (!authorizePaid) throw new TypeError("Supply --authorize-paid to explicitly authorize model trials");
   const authentication = await resolveAuthentication({ auth, env, signal });
@@ -229,13 +230,13 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
   const prepared = {}, images = {}, preparationMs = {}, provenance = {};
   for (const sdk of ["watershed", "fluid"]) {
     const started = performance.now();
-    provenance[sdk] = await benchmarkProvenance({ sdk });
-    prepared[sdk] = await prepare({ sdk, source: sources[sdk], revision: revisions[sdk], out: join(root, sdk), signal });
+    provenance[sdk] = await benchmarkProvenance({ sdk, track });
+    prepared[sdk] = await prepare({ sdk, source: sources[sdk], revision: revisions[sdk], out: join(root, sdk), signal, track });
     images[sdk] = await buildImages({ prepared: prepared[sdk], out: join(root, `${sdk}-images`), registry, signal });
     preparationMs[sdk] = performance.now() - started;
   }
   for (const sdk of ["watershed", "fluid"]) {
-    if (JSON.stringify(await benchmarkProvenance({ sdk })) !== JSON.stringify(provenance[sdk])) {
+    if (JSON.stringify(await benchmarkProvenance({ sdk, track })) !== JSON.stringify(provenance[sdk])) {
       throw new Error("Benchmark inputs changed during preparation; no agent trials started");
     }
   }
@@ -248,9 +249,9 @@ export async function runPair({ sources, revisions, model, reasoningEffort, runs
     await mkdir(trialRoot, { mode: 0o700 });
     const role = await writeRoleCompose({ sdk, images: images[sdk], serviceImage: images[sdk].service.id,
       gradingOutput: join(trialRoot, "native"), out: join(trialRoot, "compose.yaml"), runId, auth, wireApi });
-    const spec = buildSpec({ sdk, prepared: prepared[sdk], model, reasoningEffort, limits, runId, auth, wireApi });
+    const spec = buildSpec({ sdk, prepared: prepared[sdk], model, reasoningEffort, limits, runId, auth, wireApi, track });
     const manifest = {
-      version: 1, pairId, runId, sdk, trial, ...benchmarkIdentity, ...provenance[sdk],
+      version: 1, pairId, runId, sdk, trial, track, ...benchmarkIdentity, ...provenance[sdk],
       revision: revisions[sdk], model, reasoningEffort, limits, executor: "copilot-sdk",
       providerUrl: authentication.upstream, authMode: auth, wireApi, executorTimeoutMs: agentDurationMs(limits) + 60_000,
       preparationMs: preparationMs[sdk], images: images[sdk],
@@ -280,7 +281,7 @@ if (process.argv[1] && process.argv[1] !== "-" &&
   process.on("SIGTERM", interrupt);
   try {
     const strings = ["watershed-source", "watershed-revision", "fluid-source", "fluid-revision",
-      "model", "reasoning-effort", "runs", "max-agent-duration", "out", "registry", "auth"];
+      "model", "reasoning-effort", "runs", "max-agent-duration", "out", "registry", "auth", "track"];
     const { values } = parseArgs({ options: {
       ...Object.fromEntries(strings.map(name => [name, { type: "string" }])),
       "authorize-paid": { type: "boolean", default: false },
@@ -292,11 +293,12 @@ if (process.argv[1] && process.argv[1] !== "-" &&
       model: values.model, reasoningEffort: values["reasoning-effort"], runs: Number(values.runs),
       limits: { agentDuration: values["max-agent-duration"] }, out: values.out,
       registry: values.registry, authorizePaid: values["authorize-paid"], auth: values.auth,
-      signal: controller.signal,
+      signal: controller.signal, track: values.track,
     });
     console.log(`Comparison saved to ${join(result.root, "comparison.json")}`);
     process.exitCode = !result.pair.completed ||
-      result.pair.trials.some(trial => verdict(trial.report, contract) === "invalid") ? 2 : 0;
+      result.pair.trials.some(trial =>
+        verdict(trial.report, getBenchmark(trial.manifest.track).contract) === "invalid") ? 2 : 0;
   } catch (error) {
     console.error(error.message);
     process.exitCode = 2;

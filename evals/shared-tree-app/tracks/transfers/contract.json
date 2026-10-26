@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "task": "incident-response-board-transfers",
+  "groups": [{ "id": "transfers", "description": "Native cross-parent transfers and controlled conflicts" }],
+  "checks": [
+    { "id": "transfers.local", "group": "transfers", "requirement": "Transfer steps to empty and populated checklists, before siblings and at the end in both directions." },
+    { "id": "transfers.identity", "group": "transfers", "requirement": "Preserve native step and parent references and correct targeting across transfers and subsequent edits." },
+    { "id": "transfers.invalid-input", "group": "transfers", "requirement": "Reject invalid destinations visibly and leave stale source actions inert without recreating nodes." },
+    { "id": "transfers.remote", "group": "transfers", "requirement": "Observe cross-parent transfers and edits from either client through native collaboration." },
+    { "id": "transfers.concurrent-edit", "group": "transfers", "requirement": "Prove concurrent native submissions and retain step label and completion edits across cross-parent transfers." },
+    { "id": "transfers.concurrent-delete", "group": "transfers", "requirement": "Prove concurrent deletion and editing, converge without resurrection, and preserve unrelated steps." },
+    { "id": "transfers.persistence", "group": "transfers", "requirement": "Late joiners and fresh browser sessions retain transferred identities and values after all originals close." }
+  ]
+}

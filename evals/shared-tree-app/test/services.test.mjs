@@ -64,6 +64,54 @@ for (const sdk of ["watershed", "fluid"]) {
   });
 }
 
+test("forced disconnection blocks pending and new Socket.IO polling until connections are restored", async t => {
+  const root = await mkdtemp(join(tmpdir(), "incident-disconnection-"));
+  await mkdir(join(root, "dist"));
+  await writeFile(join(root, "dist/index.html"), "<title>Disconnected app</title>");
+  let services;
+  const upstream = createServer((request, response) => {
+    request.resume();
+    if (request.url.includes("hold=1")) {
+      upstream.emit("polling");
+      return;
+    }
+    response.end("available");
+  });
+  const controller = new AbortController();
+  t.after(async () => {
+    controller.abort();
+    upstream.closeAllConnections();
+    await services?.close();
+    await new Promise(resolve => upstream.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  services = await startServices({ sdk: "fluid", root, runId: "disconnection-polling",
+    serviceEndpoint: `http://127.0.0.1:${upstream.address().port}`, appPort: 0 });
+  const pending = once(upstream, "polling");
+  const request = fetch(new URL("/socket.io/?transport=polling&hold=1", services.appUrl),
+    { signal: controller.signal }).then(response => response.status, error => error.name);
+  await pending;
+  services.failConnections(true);
+  for (const path of ["/socket.io/?transport=polling", "/api/socket.io/?transport=polling"]) {
+    for (const method of ["GET", "POST"]) {
+      const response = await fetch(new URL(path, services.appUrl), { method });
+      assert.equal(response.status, 503, `${method} ${path} must not bypass the forced outage`);
+      await response.body.cancel();
+    }
+  }
+  assert.equal(await request, 503, "An active long poll must end when the outage starts");
+  assert.equal(await services.health(), true, "The independent service health probe must still work");
+  const app = await fetch(services.appUrl);
+  assert.equal(app.status, 200, "Fault injection must leave the app available to display the error");
+  await app.body.cancel();
+  services.failConnections(false);
+  const recovered = await fetch(new URL("/socket.io/?transport=polling", services.appUrl));
+  assert.equal(recovered.status, 200);
+  assert.equal(await recovered.text(), "available");
+});
+
 test("failed native service startup removes its owned state and proxy", async t => {
   const root = await mkdtemp(join(tmpdir(), "incident-startup-failure-"));
   t.after(() => rm(root, { recursive: true, force: true }));

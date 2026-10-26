@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { compare } from "../compare.mjs";
-import { benchmarkIdentity } from "../generate.mjs";
+import { benchmarkIdentity, getBenchmark } from "../generate.mjs";
 
 const contract = JSON.parse(await readFile(new URL("../contract.json", import.meta.url), "utf8"));
 function trial(sdk, changes = {}) {
@@ -31,12 +31,30 @@ test("comparison rejects mismatched model, effort, task, provider, and working l
   ]) assert.throws(() => compare([trial("watershed"), trial("fluid", changed)]), /mismatch/i);
 });
 
+test("comparison rejects unknown or mixed tracks rather than treating them as core trials", () => {
+  assert.throws(() => compare([trial("watershed", { track: "unknown" })]), /track/i);
+  assert.throws(() => compare([trial("watershed"), trial("fluid", { track: "transfers" })]),
+    /track|contract|hash|mismatch/i);
+});
+
 test("comparison rejects mismatched observed architecture and pinned runtime versions", () => {
   for (const changes of [{ architecture: "amd64" }, { cliVersion: "0.20.0" }]) {
     const different = trial("fluid");
     Object.assign(different.manifest.images.task, changes);
     assert.throws(() => compare([trial("watershed"), different]), /mismatch/i);
   }
+});
+
+test("matching transfer trials require the extended contract and remain a separate comparison", () => {
+  const advanced = ["watershed", "fluid"].map(sdk => {
+    const value = trial(sdk, { track: "transfers", ...getBenchmark("transfers").identity });
+    value.report.checks = getBenchmark("transfers").contract.checks.map(({ id }) =>
+      ({ id, passed: true, durationMs: 1, evidence: "Native assertion passed" }));
+    return value;
+  });
+  assert.equal(compare(advanced).fluid.passRate, 1);
+  advanced[0].report.checks.pop();
+  assert.throws(() => compare(advanced), /missing/i);
 });
 
 test("comparison separates Copilot-account trials from provider trials and rejects unknown authentication", () => {

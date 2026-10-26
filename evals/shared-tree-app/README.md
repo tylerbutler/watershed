@@ -27,12 +27,44 @@ containers. The matched runner accepts explicit operator settings and records
 time-limited trials without a token cap. Fault-injection acceptance covers eight
 broken-app variants per SDK, unfinished starters, sequential delivery, missing
 Chromium, and interrupted services. Operators can now run authorized comparisons
-with the command below. No paid agent trials have been run.
+with the command below.
 
 The design and implementation sequence are in:
 
 - [Design spec](../../docs/superpowers/specs/2026-10-19-shared-tree-agent-eval-design.md)
 - [Implementation plan](../../docs/superpowers/plans/2026-10-19-shared-tree-agent-eval.md)
+
+## Tracks
+
+Use `--track core` (the default) for the original 35-check task. Its prompt,
+contract, and starter sources remain unchanged. Harness changes still produce
+new provenance hashes.
+
+Add `--track transfers` to the matched-runner command for 42 required checks:
+the core task plus cross-incident checklist handoffs. Agents must preserve
+native step and parent references, handle destination siblings and stale
+targets, and retain concurrent label and completion edits through transfers.
+The grader holds native operation delivery until both clients submit. It also
+tests concurrent deletion/editing without resurrection and transferred state
+after late join and fresh-session reopen.
+
+Preparation accepts the same `--track` option. Transfer-specific protected
+sources come from `tracks/transfers/`; the private reference models stay under
+`validation/solutions/transfers/`. Task and contract hashes distinguish tracks,
+and comparison rejects mixed-track batches. Manifests without a track field
+count as core. Keep historical core results separate from transfers results.
+
+Run native acceptance and the copied-node/stale-index adversaries without
+model calls:
+
+```sh
+node --test evals/shared-tree-app/test/integration/transfers.test.mjs
+```
+
+This needs the same Chromium and native services as the integration suite.
+To exercise the isolated task-to-grading path with the mock executor, set
+`SHARED_TREE_TEST_TRACK=transfers` when running
+`test/integration/vally.test.mjs`. Neither command starts a paid trial.
 
 ## Foundation checks
 
@@ -127,6 +159,13 @@ clients, and rejects a dropped client or delivery that escapes the hold.
 Evidence contains counts and proxy client IDs, never authentication frames or
 operation bodies.
 
+The disconnection fault terminates native WebSockets, rejects new upgrades,
+and blocks Socket.IO HTTP polling, including long polls already in flight.
+Polling cannot reconnect a client during the injected outage. App serving and
+the independent service health probe remain available; restoring connections
+allows the SDK to reconnect. Candidate models must still report the connection
+loss and surface a visible error through the supplied shell.
+
 `public/serve.mjs` serves a built workspace and starts its development service:
 
 ```sh
@@ -196,12 +235,18 @@ The Watershed image integration runs an offline build and Chromium on an
 internal Podman network while Floodgate remains reachable. It also exercises
 the real Copilot SDK against a local streaming provider fixture through
 `docker/gateway.mjs`, with external downloads blocked. The gateway permits only
-the selected model's chat-completion route, rejects tunnels and redirects, and
+the selected model's inference route, rejects tunnels and redirects, and
 keeps upstream authentication out of client requests and provider error bodies.
-No real provider or paid model is used. The gateway accepts text-only messages
-and standard chat-completion fields; it rejects provider extensions, remote
-image inputs, and native search tools. Select a text chat-completions model
-without provider-side browsing.
+No real provider or paid model is used. The gateway accepts text-only messages,
+standard protocol fields, and client-executed function tools. The Responses
+protocol also accepts custom text tools, including the inline Lark grammar
+used by `gpt-6.1-sol`'s `apply_patch` tool, and their text calls and results.
+It rejects provider extensions, remote image inputs, and native search tools.
+Select a text model without provider-side browsing.
+Rejection logs distinguish gateway validation from upstream rejection and
+record only the protocol, source, and HTTP status, never credentials or bodies.
+The account isolation check uses `gpt-6.1-sol` against a local Responses fixture;
+the host regression also executes a custom patch tool and returns its result.
 
 `lib/isolation.mjs` writes trial-specific Compose configuration. The task and
 grade roles use an internal network and separate support-service projects.

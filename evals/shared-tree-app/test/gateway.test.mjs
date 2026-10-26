@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -103,6 +103,8 @@ test("gateway rejects credential-bearing URLs and does not follow provider redir
 
 test("Copilot gateway forwards only the selected text protocol without exposing account credentials", async t => {
     const received = [];
+    const diagnostics = [];
+    t.mock.method(console, "error", line => diagnostics.push(JSON.parse(line)));
     const key = "harmless-copilot-account-canary";
     let reject = false;
     const upstream = createServer(async (request, response) => {
@@ -136,7 +138,15 @@ test("Copilot gateway forwards only the selected text protocol without exposing 
         { type: "reasoning", summary: [], encrypted_content: "opaque-fixture" },
         { type: "function_call", name: "shell", arguments: "{}", call_id: "fixture" },
         { type: "function_call_output", call_id: "fixture", output: "done" },
-      ], stream: true }],
+        { type: "custom_tool_call", name: "apply_patch", input: "fixture", call_id: "patch" },
+        { type: "custom_tool_call_output", call_id: "patch", output: "done" },
+      ], tools: [{
+        type: "custom", name: "apply_patch",
+        format: { type: "grammar", syntax: "lark", definition: 'start: "fixture"' },
+      }], tool_choice: { type: "custom", name: "apply_patch" }, stream: true }],
+      ...[undefined, { type: "text" }, { type: "grammar", syntax: "regex", definition: "fixture" }]
+        .map(format => ["/responses", { model: "fixture-model", input: "fixture",
+          tools: [{ type: "custom", name: "local_tool", ...(format ? { format } : {}) }] }]),
       ["/v1/messages", { model: "fixture-model", messages: [
         { role: "assistant", content: [
           { type: "thinking", thinking: "fixture", signature: "fixture" },
@@ -167,6 +177,29 @@ test("Copilot gateway forwards only the selected text protocol without exposing 
     for (const [path, body] of [
       ["/responses", { model: "other-model", input: "fixture" }],
       ["/responses", { model: "fixture-model", input: "fixture", tools: [{ type: "web_search" }] }],
+      ["/responses", { model: "fixture-model", input: "fixture", tools: [{
+        type: "custom", name: "apply_patch", format: { type: "url", url: "https://example.com" },
+      }] }],
+      ["/responses", { model: "fixture-model", input: "fixture", tools: [{
+        type: "custom", name: "apply_patch",
+        format: { type: "grammar", syntax: "lark", definition: 'start: "fixture"', url: "https://example.com" },
+      }] }],
+      ["/responses", { model: "fixture-model", input: "fixture", tools: [{
+        type: "custom", name: "apply_patch", format: { type: "grammar", syntax: "javascript", definition: "fixture" },
+      }] }],
+      ["/responses", { model: "fixture-model", input: "fixture", tools: [{ type: "custom", name: "" }] }],
+      ["/responses", { model: "fixture-model", input: "fixture", tools: [{
+        type: "custom", name: "apply_patch", endpoint: "https://example.com",
+      }] }],
+      ["/responses", { model: "fixture-model", input: "fixture",
+        tool_choice: { type: "custom", name: "apply_patch", endpoint: "https://example.com" } }],
+      ["/responses", { model: "fixture-model", input: [{
+        type: "custom_tool_call", name: "apply_patch", input: { url: "https://example.com" }, call_id: "patch",
+      }] }],
+      ["/responses", { model: "fixture-model", input: [{
+        type: "custom_tool_call_output", call_id: "patch",
+        output: [{ type: "input_image", image_url: "https://example.com" }],
+      }] }],
       ["/responses", { model: "fixture-model", input: [{
         role: "user", content: [{ type: "input_image", image_url: "https://example.com" }],
       }] }],
@@ -192,13 +225,19 @@ test("Copilot gateway forwards only the selected text protocol without exposing 
     });
     assert.equal(response.status, 401);
     assert.equal((await response.text()).includes(key), false);
+    assert.ok(diagnostics.some(entry => entry.source === "gateway" && entry.status === 400));
+    assert.ok(diagnostics.some(entry => entry.source === "upstream" && entry.status === 401));
+    for (const entry of diagnostics) {
+      assert.deepEqual(Object.keys(entry).sort(), ["event", "protocol", "source", "status"]);
+      assert.equal(JSON.stringify(entry).includes(key), false);
+    }
 });
 
 for (const wireApi of ["completions", "responses", "messages"]) {
 test(`pinned Vally uses the Copilot account gateway over ${wireApi} with only fixture credentials`, { timeout: 45_000 }, async t => {
     const root = await mkdtemp(join(tmpdir(), "native-copilot-gateway-"));
     const received = [];
-    const model = wireApi === "messages" ? "claude-sonnet-4.5" : "gpt-5";
+    const model = wireApi === "messages" ? "claude-sonnet-4.5" : wireApi === "responses" ? "gpt-6.1-sol" : "gpt-5";
     const path = { completions: "/chat/completions", responses: "/responses", messages: "/v1/messages" }[wireApi];
     const upstream = createServer(async (request, response) => {
       let body = "";
@@ -208,9 +247,14 @@ test(`pinned Vally uses the Copilot account gateway over ${wireApi} with only fi
       assert.equal(request.url, path);
       const value = JSON.parse(body);
       if (wireApi !== "completions") {
+        const patch = wireApi === "responses" && !value.input.some(item => item.type === "custom_tool_call_output");
+        if (patch) assert.ok(value.tools.some(tool => tool.type === "custom" && tool.name === "apply_patch"));
         const result = wireApi === "responses" ? {
           id: "resp_fixture", object: "response", created_at: 1, status: "completed", model,
-          output: [{
+          output: patch ? [{
+            id: "ctc_fixture", type: "custom_tool_call", call_id: "patch_fixture", name: "apply_patch",
+            input: "*** Begin Patch\n*** Add File: gateway-fixture.txt\n+patched\n*** End Patch",
+          }] : [{
             id: "msg_fixture", type: "message", status: "completed", role: "assistant",
             content: [{ type: "output_text", text: "gateway-ready", annotations: [] }],
           }],
@@ -225,7 +269,16 @@ test(`pinned Vally uses the Copilot account gateway over ${wireApi} with only fi
           return;
         }
         response.writeHead(200, { "content-type": "text/event-stream" });
-        const events = wireApi === "responses" ? [
+        const events = patch ? [
+          ["response.created", { response: { ...result, output: [], status: "in_progress" } }],
+          ["response.output_item.added", { output_index: 0, item: { ...result.output[0], input: "" } }],
+          ["response.custom_tool_call_input.delta", { item_id: "ctc_fixture", output_index: 0,
+            delta: result.output[0].input }],
+          ["response.custom_tool_call_input.done", { item_id: "ctc_fixture", output_index: 0,
+            input: result.output[0].input }],
+          ["response.output_item.done", { output_index: 0, item: result.output[0] }],
+          ["response.completed", { response: result }],
+        ] : wireApi === "responses" ? [
           ["response.created", { response: { ...result, output: [], status: "in_progress" } }],
           ["response.output_item.added", { output_index: 0, item: { ...result.output[0], content: [], status: "in_progress" } }],
           ["response.content_part.added", { item_id: "msg_fixture", output_index: 0, content_index: 0,
@@ -303,7 +356,8 @@ test(`pinned Vally uses the Copilot account gateway over ${wireApi} with only fi
       },
     });
     assert.match(trajectory.output, /gateway-ready/);
-    assert.deepEqual(received, [path]);
+    assert.deepEqual(received, wireApi === "responses" ? [path, path] : [path]);
+    if (wireApi === "responses") assert.equal(await readFile(join(root, "gateway-fixture.txt"), "utf8"), "patched\n");
     assert.equal(JSON.stringify(trajectory).includes("harmless-account-fixture"), false);
 });
 }

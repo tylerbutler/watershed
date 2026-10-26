@@ -44,10 +44,23 @@ const responseInput = value => typeof value === "string" || (Array.isArray(value
   item && (
     ((!item.type || item.type === "message") && textContent(item.content, ["input_text", "output_text"])) ||
     (item.type === "function_call" && typeof item.arguments === "string") ||
-    (item.type === "function_call_output" && textContent(item.output, ["input_text"])) ||
+    (item.type === "custom_tool_call" && typeof item.name === "string" &&
+      typeof item.call_id === "string" && typeof item.input === "string") ||
+    (["function_call_output", "custom_tool_call_output"].includes(item.type) &&
+      textContent(item.output, ["input_text"])) ||
     (item.type === "reasoning" && Array.isArray(item.summary) &&
       item.summary.every(part => part?.type === "summary_text" && typeof part.text === "string"))
   )));
+const responseTool = tool => tool?.type === "function" || (
+  tool?.type === "custom" && typeof tool.name === "string" && tool.name.trim() &&
+  Object.keys(tool).every(key => ["type", "name", "description", "format"].includes(key)) &&
+  (tool.description === undefined || typeof tool.description === "string") &&
+  (tool.format === undefined ||
+    (tool.format?.type === "text" && Object.keys(tool.format).every(key => key === "type")) ||
+    (tool.format?.type === "grammar" && ["lark", "regex"].includes(tool.format.syntax) &&
+      typeof tool.format.definition === "string" &&
+      Object.keys(tool.format).every(key => ["type", "syntax", "definition"].includes(key))))
+);
 const anthropicContent = value => typeof value === "string" || (Array.isArray(value) && value.every(part =>
   part && (
     (part.type === "text" && typeof part.text === "string") ||
@@ -61,8 +74,11 @@ function allowedInference(path, value, model) {
   if (!value || value.model !== model) return false;
   if (path === "/responses") {
     return Object.keys(value).every(key => responseFields.has(key)) && responseInput(value.input) &&
-      (value.tools === undefined || (Array.isArray(value.tools) && value.tools.every(tool => tool?.type === "function"))) &&
-      (typeof value.tool_choice !== "object" || value.tool_choice?.type === "function");
+      (value.tools === undefined || (Array.isArray(value.tools) && value.tools.every(responseTool))) &&
+      (typeof value.tool_choice !== "object" || value.tool_choice?.type === "function" ||
+        (value.tool_choice?.type === "custom" && typeof value.tool_choice.name === "string" &&
+          value.tool_choice.name.trim() &&
+          Object.keys(value.tool_choice).every(key => ["type", "name"].includes(key))));
   }
   if (path === "/v1/messages") {
     return Object.keys(value).every(key => anthropicFields.has(key)) &&
@@ -103,9 +119,12 @@ export async function startGateway({ upstream, apiKey, model, auth = "provider",
   const active = new Set();
   let closing;
   const server = createServer(async (request, response) => {
-    const reply = (status, message) => response.writeHead(status, {
-      "content-type": "application/json", "cache-control": "no-store",
-    }).end(JSON.stringify({ error: message }));
+    const reply = (status, message, source = "gateway") => {
+      console.error(JSON.stringify({ event: "provider-gateway-rejection", protocol: wireApi, source, status }));
+      response.writeHead(status, {
+        "content-type": "application/json", "cache-control": "no-store",
+      }).end(JSON.stringify({ error: message }));
+    };
     if (request.method === "GET" && request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json" }).end('{"ready":true}');
       return;
@@ -132,7 +151,7 @@ export async function startGateway({ upstream, apiKey, model, auth = "provider",
       }
       const body = Buffer.concat(chunks);
       if (!allowedInference(request.url, JSON.parse(body), model)) {
-        reply(400, "Only text inference, standard fields, the selected model, and function tools are allowed");
+        reply(400, "Only text inference, standard fields, the selected model, and client-executed tools are allowed");
         return;
       }
       forwarding = true;
@@ -151,13 +170,13 @@ export async function startGateway({ upstream, apiKey, model, auth = "provider",
       });
       if (result.status >= 300 && result.status < 400) {
         await result.body?.cancel();
-        reply(502, "Provider redirects are not allowed");
+        reply(502, "Provider redirects are not allowed", "upstream");
         return;
       }
       if (result.status >= 400) {
         // Provider error bodies can echo authentication credentials.
         await result.body?.cancel();
-        reply(result.status, `Provider rejected the request (HTTP ${result.status})`);
+        reply(result.status, `Provider rejected the request (HTTP ${result.status})`, "upstream");
         return;
       }
       response.writeHead(result.status, {
@@ -170,7 +189,8 @@ export async function startGateway({ upstream, apiKey, model, auth = "provider",
       if (controller.signal.aborted) return;
       if (forwarding) console.error("Provider gateway upstream request failed");
       if (response.headersSent) response.destroy(error);
-      else reply(forwarding ? 502 : 400, forwarding ? "Provider request failed" : "Invalid JSON request");
+      else reply(forwarding ? 502 : 400, forwarding ? "Provider request failed" : "Invalid JSON request",
+        forwarding ? "upstream" : "gateway");
     } finally {
       active.delete(controller);
     }

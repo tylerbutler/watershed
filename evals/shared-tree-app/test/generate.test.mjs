@@ -32,6 +32,22 @@ test("matched specs share task, model, effort, and time limit without a token ca
   }
 });
 
+test("transfer specs select their own task, grading track, and contract without changing core prompts", () => {
+  const core = buildSpec(options("watershed"));
+  const advanced = ["watershed", "fluid"].map(sdk =>
+    buildSpec({ ...options(sdk), track: "transfers",
+      prepared: { ...options(sdk).prepared, track: "transfers", sdkManifest: { sdk, track: "transfers" } } }));
+  assert.equal(core.tags.track, "core");
+  assert.equal(advanced[0].tags.track, "transfers");
+  assert.equal(advanced[0].stimuli[0].prompt, advanced[1].stimuli[0].prompt);
+  assert.notEqual(advanced[0].tags.taskSha256, core.tags.taskSha256);
+  assert.notEqual(advanced[0].tags.contractSha256, core.tags.contractSha256);
+  assert.match(advanced[0].stimuli[0].prompt, /transfer-step/);
+  assert.doesNotMatch(core.stimuli[0].prompt, /transfer-step/);
+  assert.throws(() => buildSpec({ ...options("watershed"), track: "../escape" }), /track/i);
+  assert.throws(() => buildSpec({ ...options("watershed"), track: "transfers" }), /track mismatch/i);
+});
+
 test("generation rejects missing operator settings, unsupported effort, and invalid limits", () => {
   for (const changed of [
     { model: "" }, { reasoningEffort: undefined }, { reasoningEffort: "automatic" },
@@ -58,15 +74,18 @@ test("Copilot specs select the account model protocol without exposing account a
 test("installed Vally lints generated specs using its real provider and duration fields", async () => {
   const root = await mkdtemp(join(tmpdir(), "shared-tree-spec-"));
   try {
-    for (const [sdk, auth, wireApi] of [
+    for (const [sdk, auth, wireApi, track = "core"] of [
       ["watershed", "provider", "completions"], ["fluid", "provider", "completions"],
       ["watershed", "copilot", "completions"], ["watershed", "copilot", "responses"],
       ["watershed", "copilot", "messages"],
+      ["watershed", "copilot", "responses", "transfers"],
     ]) {
       const path = join(root, `${sdk}-${auth}-${wireApi}.yaml`);
       const config = options(sdk);
       config.prepared.agentRoot = root;
-      await writeFile(path, stringify(buildSpec({ ...config, auth, wireApi })));
+      config.prepared.track = track;
+      config.prepared.sdkManifest.track = track;
+      await writeFile(path, stringify(buildSpec({ ...config, auth, wireApi, track })));
       await promisify(execFile)("pnpm", ["exec", "vally", "lint", "--eval-spec", path],
         { cwd: new URL("../", import.meta.url), timeout: 30_000 });
     }

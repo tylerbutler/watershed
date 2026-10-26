@@ -84,15 +84,29 @@ export async function startServices({
   let completedWrites = 0;
   const waitingWrites = [];
   const rejectedRequests = [];
+  const connectionRequests = new Set();
   const sockets = new Set();
   const transport = createTransport({ sdk });
   const transportErrors = [];
   const websocketServer = new WebSocketServer({ noServer: true });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://app");
+    let connection;
     try {
       if (url.pathname.startsWith("/api/") || /^\/(repos|documents|deltas|trees|socket\.io)\//.test(url.pathname)) {
         if (!endpoint) throw new Error("Service is not ready");
+        const path = url.pathname.startsWith("/api/") ? url.pathname.slice(4) : url.pathname;
+        const polling = /^\/socket\.io(?:\/|$)/.test(path);
+        if (failConnections && polling) {
+          request.resume();
+          rejectedRequests.push({ method: request.method, path: url.pathname });
+          response.writeHead(503).end("Injected service disconnection");
+          return;
+        }
+        if (polling) {
+          connection = new AbortController();
+          connectionRequests.add(connection);
+        }
         if (rejectWrites && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
           request.resume();
           rejectedRequests.push({ method: request.method, path: url.pathname });
@@ -103,7 +117,7 @@ export async function startServices({
         if (holdWrites && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
           await new Promise(resolve => waitingWrites.push(resolve));
         }
-        const target = endpoint + (url.pathname.startsWith("/api/") ? url.pathname.slice(4) : url.pathname) + url.search;
+        const target = endpoint + path + url.search;
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
         const headers = { ...request.headers };
@@ -114,7 +128,9 @@ export async function startServices({
           method: request.method,
           headers,
           ...(["GET", "HEAD"].includes(request.method) ? {} : { body: Buffer.concat(chunks) }),
-          signal: AbortSignal.timeout(10_000),
+          signal: connection
+            ? AbortSignal.any([connection.signal, AbortSignal.timeout(10_000)])
+            : AbortSignal.timeout(10_000),
         });
         const body = Buffer.from(await result.arrayBuffer());
         response.writeHead(result.status, { "content-type": result.headers.get("content-type") ?? "application/octet-stream" });
@@ -130,7 +146,9 @@ export async function startServices({
     } catch (error) {
       output.push(`HTTP ${request.url}: ${error.message}`);
       if (response.headersSent) response.destroy(error);
-      else response.writeHead(502).end(error.message);
+      else response.writeHead(connection?.signal.aborted && failConnections ? 503 : 502).end(error.message);
+    } finally {
+      if (connection) connectionRequests.delete(connection);
     }
   });
   server.on("upgrade", (request, socket, head) => {
@@ -195,6 +213,7 @@ export async function startServices({
   const close = () => closing ??= (async () => {
     try {
       for (const resume of waitingWrites.splice(0)) resume();
+      for (const connection of connectionRequests) connection.abort(new Error("Service proxy closed"));
       for (const socket of sockets) socket.terminate();
       await new Promise((resolve, reject) => websocketServer.close(error => error ? reject(error) : resolve()));
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -278,7 +297,10 @@ export async function startServices({
       failConnections(enabled) {
         if (typeof enabled !== "boolean") throw new TypeError("Connection failure requires a boolean");
         failConnections = enabled;
-        if (enabled) for (const socket of sockets) socket.terminate();
+        if (enabled) {
+          for (const connection of connectionRequests) connection.abort(new Error("Injected service disconnection"));
+          for (const socket of sockets) socket.terminate();
+        }
       },
       rejectHttpWrites(enabled) {
         if (typeof enabled !== "boolean") throw new TypeError("Failure injection requires a boolean");

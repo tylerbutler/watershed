@@ -3,19 +3,28 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { offlineSetupCommands } from "./lib/isolation.mjs";
+import { loadTrack } from "./lib/tracks.mjs";
 
-const task = await readFile(new URL("./task.md", import.meta.url), "utf8");
-const prompt = task + "\n\nDevelopment tools: run `pnpm check` and `pnpm build`. " +
+const toolPrompt = "\n\nDevelopment tools: run `pnpm check` and `pnpm build`. " +
   "Serve the app with `node /opt/shared-tree/public/serve.mjs --sdk <sdk> --root /workspace`, " +
   "using the sdk value from SDK.json. Run `node /opt/shared-tree/public/smoke.mjs <app-url>` " +
   "against the URL printed by that server. The local service and dependencies are already available.\n";
 const sha256 = value => createHash("sha256").update(value).digest("hex");
-export const benchmarkIdentity = Object.freeze({
-  taskSha256: sha256(prompt),
-  contractSha256: sha256(await readFile(new URL("./contract.json", import.meta.url))),
-});
+const tracks = Object.fromEntries(await Promise.all(["core", "transfers"].map(async name => {
+  const selected = await loadTrack(name);
+  const prompt = selected.task + toolPrompt;
+  return [name, { ...selected, prompt, identity: Object.freeze({
+    taskSha256: sha256(prompt), contractSha256: sha256(selected.contractText),
+  }) }];
+})));
+export function getBenchmark(track = "core") {
+  if (!Object.hasOwn(tracks, track)) throw new TypeError(`Unsupported eval track: ${track}`);
+  return tracks[track];
+}
+export const benchmarkIdentity = getBenchmark().identity;
 
-export async function benchmarkProvenance({ sdk, root = fileURLToPath(new URL("./", import.meta.url)) }) {
+export async function benchmarkProvenance({ sdk, track = "core", root = fileURLToPath(new URL("./", import.meta.url)) }) {
+  getBenchmark(track);
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown provenance SDK");
   const hash = async paths => {
     const files = [];
@@ -36,8 +45,9 @@ export async function benchmarkProvenance({ sdk, root = fileURLToPath(new URL(".
   return {
     evalSha256: await hash(["generate.mjs", "run.mjs", "compare.mjs", "prepare.mjs",
       "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "task.md",
-      "contract.json", "lib", "graders", "docker", "public"]),
-    starterSha256: await hash([sdk]),
+      "contract.json", "lib", "graders", "docker", "public",
+      ...(track === "core" ? [] : [`tracks/${track}/task.md`, `tracks/${track}/contract.json`])]),
+    starterSha256: await hash([sdk, ...(track === "core" ? [] : [`tracks/${track}/${sdk}`])]),
   };
 }
 
@@ -55,7 +65,8 @@ export function agentDurationMs(limits) {
 }
 
 export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId,
-  auth = "provider", wireApi = "completions" }) {
+  auth = "provider", wireApi = "completions", track = "core" }) {
+  const { prompt, contract, identity } = getBenchmark(track);
   const duration = agentDurationMs(limits);
   if (!["provider", "copilot"].includes(auth)) throw new TypeError("auth must be provider or copilot");
   if (!["completions", "responses", "messages"].includes(wireApi) || (auth === "provider" && wireApi !== "completions")) {
@@ -65,6 +76,9 @@ export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId
       typeof prepared.agentRoot !== "string" || !isAbsolute(prepared.agentRoot)) {
     throw new TypeError("Spec requires a matching prepared SDK and absolute agent root");
   }
+  if ((prepared.track ?? "core") !== track || (prepared.sdkManifest.track ?? "core") !== track) {
+    throw new TypeError("Prepared workspace track mismatch");
+  }
   if (typeof model !== "string" || !model.trim() || /[\u0000-\u001f\u007f]/.test(model) ||
       !["low", "medium", "high", "xhigh"].includes(reasoningEffort) ||
       typeof runId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(runId)) {
@@ -72,7 +86,7 @@ export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId
   }
   return {
     name: `shared-tree-app-${sdk}`, version: "1.0", type: "capability",
-    tags: { api: "shared-tree", sdk, track: "core", ...benchmarkIdentity },
+    tags: { api: "shared-tree", sdk, track, ...identity },
     defaults: {
       executor: { name: "copilot-sdk", config: { provider: {
         type: wireApi === "messages" ? "anthropic" : "openai",
@@ -91,7 +105,7 @@ export function buildSpec({ sdk, prepared, model, reasoningEffort, limits, runId
       },
     },
     stimuli: [{
-      name: "incident-response-board", prompt,
+      name: contract.task, prompt,
       constraints: { max_agent_duration: limits.agentDuration },
       graders: [{ type: "run-command", name: "native-board", config: {
         command: "node", args: ["/opt/shared-tree/grading/graders/main.mjs",

@@ -137,27 +137,44 @@ const provider = createServer(async (request, response) => {
   let body = "";
   for await (const chunk of request) body += chunk;
   const value = JSON.parse(body);
-  assert.equal(request.url, "/chat/completions");
+  assert.equal(request.url, "/responses");
   assert.equal(request.headers.authorization, "Bearer " + process.env.SHARED_TREE_PROVIDER_API_KEY);
-  assert.equal(value.model, "fixture-model");
+  assert.equal(value.model, "gpt-6.1-sol");
+  assert.ok(value.tools.some(tool => tool.type === "custom" && tool.name === "apply_patch"));
   const result = {
-    id: "chatcmpl-fixture", object: "chat.completion", created: 1, model: "fixture-model",
-    choices: [{ index: 0, message: { role: "assistant", content: "account-gateway-ready" }, finish_reason: "stop" }],
-    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    id: "resp_fixture", object: "response", created_at: 1, status: "completed", model: "gpt-6.1-sol",
+    output: [{
+      id: "msg_fixture", type: "message", status: "completed", role: "assistant",
+      content: [{ type: "output_text", text: "account-gateway-ready", annotations: [] }],
+    }],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
   };
   if (value.stream) {
     response.writeHead(200, { "content-type": "text/event-stream" });
-    response.write("data: " + JSON.stringify({ ...result, object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: { role: "assistant", content: "account-gateway-ready" }, finish_reason: null }] }) + "\\n\\n");
-    response.end("data: " + JSON.stringify({ ...result, object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }) + "\\n\\ndata: [DONE]\\n\\n");
+    const events = [
+      ["response.created", { response: { ...result, output: [], status: "in_progress" } }],
+      ["response.output_item.added", { output_index: 0, item: { ...result.output[0], content: [], status: "in_progress" } }],
+      ["response.content_part.added", { item_id: "msg_fixture", output_index: 0, content_index: 0,
+        part: { type: "output_text", text: "", annotations: [] } }],
+      ["response.output_text.delta", { item_id: "msg_fixture", output_index: 0, content_index: 0, delta: "account-gateway-ready" }],
+      ["response.output_text.done", { item_id: "msg_fixture", output_index: 0, content_index: 0, text: "account-gateway-ready" }],
+      ["response.content_part.done", { item_id: "msg_fixture", output_index: 0, content_index: 0,
+        part: result.output[0].content[0] }],
+      ["response.output_item.done", { output_index: 0, item: result.output[0] }],
+      ["response.completed", { response: result }],
+    ];
+    for (const [index, [type, data]] of events.entries()) {
+      response.write("event: " + type + "\\ndata: " +
+        JSON.stringify({ type, sequence_number: index, ...data }) + "\\n\\n");
+    }
+    response.end();
   } else response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
 });
 provider.listen(0, "127.0.0.1");
 await once(provider, "listening");
 await startGateway({
-  auth: "copilot", upstream: "http://127.0.0.1:" + provider.address().port,
-  apiKey: process.env.SHARED_TREE_PROVIDER_API_KEY, model: "fixture-model",
+  auth: "copilot", wireApi: "responses", upstream: "http://127.0.0.1:" + provider.address().port,
+  apiKey: process.env.SHARED_TREE_PROVIDER_API_KEY, model: "gpt-6.1-sol",
 });
 `;
     await exec("podman", ["run", "-d", "--name", copilotGateway, "--network", network,
@@ -184,12 +201,12 @@ process.env.SHARED_TREE_GATEWAY_CLIENT_KEY = "gateway-client-placeholder";
 const executor = new CopilotSdkExecutor();
 try {
   const result = await executor.execute({ name: "account-fixture", prompt: "Reply account-gateway-ready" }, {
-    workDir: "/tmp", model: "fixture-model", timeout: 30_000, maxAgentDurationMs: 20_000,
+    workDir: "/tmp", model: "gpt-6.1-sol", reasoningEffort: "medium", timeout: 30_000, maxAgentDurationMs: 20_000,
     env: { COPILOT_OFFLINE: "true" },
     executorConfig: { provider: {
-      type: "openai", baseUrl: "http://provider-gateway:8080", wireApi: "completions",
+      type: "openai", baseUrl: "http://provider-gateway:8080", wireApi: "responses",
       transport: "http", apiKeyEnv: "SHARED_TREE_GATEWAY_CLIENT_KEY",
-      modelId: "fixture-model", wireModel: "fixture-model",
+      modelId: "gpt-6.1-sol", wireModel: "gpt-6.1-sol",
     } },
   });
   assert.match(result.output, /account-gateway-ready/);

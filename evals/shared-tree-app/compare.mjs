@@ -1,15 +1,17 @@
 import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { agentDurationMs, benchmarkIdentity } from "./generate.mjs";
+import { agentDurationMs, getBenchmark } from "./generate.mjs";
 import { summarize, validateReport, verdict } from "./lib/report.mjs";
-
-const contract = JSON.parse(await readFile(new URL("./contract.json", import.meta.url), "utf8"));
 
 export function compare(trials) {
   if (!Array.isArray(trials) || trials.length === 0) throw new TypeError("Comparison requires trial records");
+  const track = trials[0].manifest?.track ?? "core";
+  const { contract, identity: benchmarkIdentity } = getBenchmark(track);
   let shared;
   const revisions = new Map();
   for (const { manifest, report } of trials) {
+    getBenchmark(manifest?.track ?? "core");
+    if ((manifest?.track ?? "core") !== track) throw new TypeError("Comparison track mismatch");
     validateReport(report, contract);
     if (manifest?.version !== 1 || manifest.runId !== report.runId || manifest.sdk !== report.sdk) {
       throw new TypeError("Trial manifest/report identity mismatch");

@@ -10,9 +10,11 @@ import { launchBrowser } from "../lib/cdp.mjs";
 import { startServices } from "../lib/services.mjs";
 import { runScenarios } from "./scenarios.mjs";
 import { execOwned } from "../lib/process.mjs";
+import { validateContract } from "../lib/contract.mjs";
+import { validateTrack } from "../lib/tracks.mjs";
+import { runTransferScenarios } from "./transfers.mjs";
 
 const moduleRoot = fileURLToPath(new URL("../", import.meta.url));
-const contract = JSON.parse(await readFile(new URL("../contract.json", import.meta.url), "utf8"));
 
 async function bundleProbe({ sdk, root, gradingRoot, run }) {
   await copyFile(join(gradingRoot, "graders", sdk, "native.mjs"), join(root, "grade-native.mjs"));
@@ -32,6 +34,7 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
       !/^[a-z0-9][a-z0-9-]*$/.test(runId) || !workspace || !output) {
     throw new TypeError("Grading requires SDK, workspace, lowercase run ID, and report output");
   }
+  const contract = validateContract(JSON.parse(await readFile(join(gradingRoot, "contract.json"), "utf8")));
   const target = resolve(output);
   for (const path of [target, `${target}.build.log`]) {
     try {
@@ -74,6 +77,7 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
     await assertSeparateRoots({ workspace, trusted: gradingRoot });
     const manifest = JSON.parse(await readFile(join(gradingRoot, "integrity.json"), "utf8"));
     const selected = JSON.parse(await readFile(join(gradingRoot, "sdk.json"), "utf8"));
+    const track = validateTrack(selected.track ?? "core");
     if (selected.sdk !== sdk || manifest.sdk !== sdk) throw new Error("Grading SDK does not match the trusted manifests");
     const baseline = join(gradingRoot, "workspace");
     const trusted = await verifyIntegrity({ workspace: baseline, manifest });
@@ -108,6 +112,7 @@ export async function grade({ sdk, workspace, gradingRoot = moduleRoot, runId, o
       evidence: "Candidate sources passed native checking and a fresh trusted app/probe build" });
     phase = "scenarios";
     await runScenarios({ sdk, services, browser, record, signal });
+    if (track === "transfers") await runTransferScenarios({ services, browser, record, signal });
   } catch (error) {
     stopped = `${phase} failed: ${error.stack ?? error.message}`;
     if (phase === "preflight" || signal?.aborted) classification = "infrastructure";
@@ -176,6 +181,7 @@ if (process.argv[1] && process.argv[1] !== "-" &&
       gradingRoot: values["grading-root"] ?? moduleRoot, runId: values["run-id"], output: values.output,
       signal: controller.signal,
     });
+    const contract = JSON.parse(await readFile(join(values["grading-root"] ?? moduleRoot, "contract.json"), "utf8"));
     const outcome = verdict(report, contract);
     if (outcome === "passed") console.log("SHARED_TREE_EVAL_ALL_REQUIRED_PASSED");
     else {

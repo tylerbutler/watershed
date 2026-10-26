@@ -6,11 +6,13 @@ import { parse, stringify } from "yaml";
 import { materializeSdk } from "./lib/sdk-build.mjs";
 import { createIntegrityManifest } from "./lib/staging.mjs";
 import { execOwned } from "./lib/process.mjs";
+import { loadTrack } from "./lib/tracks.mjs";
 
 const benchmark = fileURLToPath(new URL("./", import.meta.url));
 const json = value => JSON.stringify(value, null, 2) + "\n";
 
-export async function prepare({ sdk, source, revision, out, signal }) {
+export async function prepare({ sdk, source, revision, out, signal, track = "core" }) {
+  const selectedTrack = await loadTrack(track);
   if (!["watershed", "fluid"].includes(sdk)) throw new TypeError("Unknown preparation SDK");
   if (!source || !out || typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
     throw new TypeError("Preparation requires source, full commit revision, and output directory");
@@ -27,7 +29,10 @@ export async function prepare({ sdk, source, revision, out, signal }) {
       "index.html", "build.mjs", "src", ...(sdk === "fluid" ? ["tsconfig.json"] : [])]) {
       await cp(join(starter, path), join(agentRoot, path), { recursive: true });
     }
-    await cp(join(benchmark, "task.md"), join(agentRoot, "task.md"));
+    if (track !== "core") {
+      await cp(join(benchmark, "tracks", track, sdk), agentRoot, { recursive: true });
+    }
+    await writeFile(join(agentRoot, "task.md"), selectedTrack.task);
     await mkdir(join(agentRoot, "sdk"));
     const sdkPath = `sdk/${sdk}`;
     const selected = await materializeSdk({ sdk, source, revision, out: join(agentRoot, sdkPath), signal });
@@ -75,6 +80,7 @@ export async function prepare({ sdk, source, revision, out, signal }) {
       version: 1, sdk, revision, root: sdkPath, packages: selected.packages,
       sourceFiles: selected.sourceFiles, docs: selected.docs, toolchain: selected.toolchain,
       sourceProvenance: selected.sourceProvenance, build: selected.build,
+      ...(track === "core" ? {} : { track }),
     };
     await writeFile(join(agentRoot, "SDK.json"), json(sdkManifest));
     const integrityManifest = await createIntegrityManifest({ workspace: agentRoot, sdk });
@@ -93,11 +99,12 @@ export async function prepare({ sdk, source, revision, out, signal }) {
       "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]) {
       await cp(join(benchmark, path), join(gradingRoot, path), { recursive: true });
     }
+    await writeFile(join(gradingRoot, "contract.json"), selectedTrack.contractText);
     for (const [name, value] of Object.entries({
       integrity: integrityManifest, sdk: sdkManifest, docs: docsManifest,
     })) await writeFile(join(gradingRoot, `${name}.json`), json(value));
     if (selected.buildLog) await writeFile(join(gradingRoot, "sdk-build.log"), selected.buildLog);
-    return { agentRoot, gradingRoot, integrityManifest, sdkManifest, docsManifest };
+    return { agentRoot, gradingRoot, integrityManifest, sdkManifest, docsManifest, track };
   } catch (error) {
     await rm(root, { recursive: true, force: true });
     throw error;
@@ -108,7 +115,7 @@ if (process.argv[1] && process.argv[1] !== "-" &&
     await realpath(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values } = parseArgs({ options: Object.fromEntries(
-      ["sdk", "source", "revision", "out"].map(name => [name, { type: "string" }])) });
+      ["sdk", "source", "revision", "out", "track"].map(name => [name, { type: "string" }])) });
     const prepared = await prepare(values);
     console.log(json({ agentRoot: prepared.agentRoot, gradingRoot: prepared.gradingRoot }).trim());
   } catch (error) {

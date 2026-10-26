@@ -14,6 +14,13 @@ test("portable provenance distinguishes controller changes from selected-starter
       !relative(benchmark, path).split("/").some(part =>
         ["node_modules", ".work", "build", "dist", "test", "validation"].includes(part)) });
     const before = await benchmarkProvenance({ sdk: "watershed", root });
+    const advanced = await benchmarkProvenance({ sdk: "watershed", root, track: "transfers" });
+    await writeFile(join(root, "tracks/transfers/watershed/src/incident_eval/domain.gleam"),
+      "changed protected transfer action");
+    const transferChanged = await benchmarkProvenance({ sdk: "watershed", root, track: "transfers" });
+    assert.notEqual(transferChanged.starterSha256, advanced.starterSha256);
+    assert.equal(transferChanged.evalSha256, advanced.evalSha256);
+    assert.deepEqual(await benchmarkProvenance({ sdk: "watershed", root }), before);
     await writeFile(join(root, "run.mjs"), "changed controller");
     const controllerChanged = await benchmarkProvenance({ sdk: "watershed", root });
     assert.notEqual(controllerChanged.evalSha256, before.evalSha256);

@@ -8,13 +8,16 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { snapshotWatershed } from "../lib/source.mjs";
 import { wait } from "../lib/conditions.mjs";
+import { validateTrack } from "../lib/tracks.mjs";
 
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(root, "../..");
 
 export async function buildShellFixture(sdk, { fake = true, solution = false, grader = false,
-  schemaFixture, modelFixture, dependencyCache = join(root, ".work/dependency-cache") } = {}) {
+  schemaFixture, modelFixture, dependencyCache = join(root, ".work/dependency-cache"), track = "core",
+  mutate } = {}) {
+  validateTrack(track);
   const work = join(root, ".work");
   await mkdir(work, { recursive: true });
   const path = await mkdtemp(join(work, `shell-${sdk}-`));
@@ -34,11 +37,15 @@ export async function buildShellFixture(sdk, { fake = true, solution = false, gr
     await cp(join(root, sdk), path, { recursive: true, filter: source =>
       !["node_modules", "dist", "build"].some(name =>
         relative(join(root, sdk), source).split("/").includes(name)) });
+    if (track !== "core") {
+      await cp(join(root, "tracks", track, sdk), path, { recursive: true });
+    }
     if (solution) {
       const extension = sdk === "fluid" ? "ts" : "gleam";
       const destination = sdk === "fluid" ? "src" : "src/incident_eval";
       for (const name of ["model", "schema"]) {
-        await copyFile(join(root, "validation/solutions", sdk, `${name}.${extension}`), join(path, destination, `${name}.${extension}`));
+        await copyFile(join(root, "validation/solutions", ...(track === "core" ? [] : [track]),
+          sdk, `${name}.${extension}`), join(path, destination, `${name}.${extension}`));
       }
     }
     if (schemaFixture) {
@@ -49,6 +56,7 @@ export async function buildShellFixture(sdk, { fake = true, solution = false, gr
       await copyFile(join(path, "src/model.ts"), join(path, "src/reference-model.ts"));
       await copyFile(modelFixture, join(path, "src/model.ts"));
     }
+    if (mutate) await mutate(path);
     if (sdk === "fluid" && fake && !solution) {
       const fixture = await readFile(join(root, "test/fixtures/fluid-model.ts"), "utf8");
       await writeFile(join(path, "src/model.ts"), fixture.replace(

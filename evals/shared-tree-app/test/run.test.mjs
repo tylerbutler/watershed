@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { buildSpec } from "../generate.mjs";
+import { buildSpec, getBenchmark } from "../generate.mjs";
 import { runPair, runVallyTrial, trialOrder } from "../run.mjs";
 import { verdict } from "../lib/report.mjs";
 import { wait } from "../lib/conditions.mjs";
@@ -42,7 +42,8 @@ await writeFile(join(root,"vally/fixture/otel-spans.jsonl"),spans.map(span=>JSON
 process.exit(mode === "bad-exit" || mode === "failed" ? 1 : 0);
 `;
 
-async function runFixture(mode) {
+async function runFixture(mode, track = "core") {
+  const { contract } = getBenchmark(track);
   const root = await mkdtemp(join(tmpdir(), "shared-tree-run-"));
   try {
     await mkdir(join(root, "native"));
@@ -59,8 +60,9 @@ if(process.env.FIXTURE_MODE === "retained-volume" && process.argv[2] === "volume
     const report = { version: 1, runId: "watershed-001", sdk: "watershed", classification: "agent",
       checks: contract.checks.map(({ id }) => ({ id, passed: true, durationMs: 1, evidence: "Native check passed" })) };
     await writeFile(join(root, "fixture-report.json"), JSON.stringify(report));
-    const spec = buildSpec({ sdk: "watershed", prepared: { agentRoot: root, sdkManifest: { sdk: "watershed" } },
-      model: "operator-model", reasoningEffort: "high", limits: { agentDuration: "1m" }, runId: report.runId });
+    const spec = buildSpec({ sdk: "watershed",
+      prepared: { agentRoot: root, sdkManifest: { sdk: "watershed", track }, track },
+      model: "operator-model", reasoningEffort: "high", limits: { agentDuration: "1m" }, runId: report.runId, track });
     spec.defaults.executor = "mock";
     const controller = new AbortController();
     if (mode === "already-aborted") controller.abort();
@@ -95,6 +97,15 @@ test("candidate failure is an agent outcome despite Vally's require-pass exit co
   assert.equal(verdict((await runFixture("failed")).report, contract), "failed");
 });
 
+test("runner uses the transfer contract for both native reports and infrastructure failures", async () => {
+  const { contract } = getBenchmark("transfers");
+  for (const [mode, outcome] of [["passed", "passed"], ["missing-report", "invalid"]]) {
+    const trial = await runFixture(mode, "transfers");
+    assert.equal(verdict(trial.report, contract), outcome);
+    assert.deepEqual(trial.report.checks.map(check => check.id), contract.checks.map(check => check.id));
+  }
+});
+
 test("missing evidence, invalid formats, mismatched model, and inconsistent exits are infrastructure-invalid", async () => {
   for (const mode of ["lint-error", "missing-report", "missing-marker", "malformed", "wrong-model", "bad-exit",
     "cleanup-error", "bad-metrics"]) {
@@ -124,6 +135,8 @@ test("operator validation and explicit paid authorization happen before output c
       limits: { agentDuration: "10m" }, out,
     };
     await assert.rejects(runPair(options), /authorize-paid/);
+    await assert.rejects(runPair({ ...options, track: "transfers" }), /authorize-paid/);
+    await assert.rejects(runPair({ ...options, track: "unknown" }), /track/);
     await assert.rejects(runPair({ ...options, auth: "copilot", env: { PATH: "/no-credentials" } }), /authorize-paid/);
     await assert.rejects(runPair({ ...options, limits: { agentDuration: "10m", maxTokens: 100 } }), /agentDuration only/);
     await assert.rejects(runPair({ ...options, authorizePaid: true, env: {
